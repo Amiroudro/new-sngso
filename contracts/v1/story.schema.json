@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/story.schema.json",
+  "title": "Story",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "canonical_title",
+    "status",
+    "created_at",
+    "updated_at",
+    "article_ids"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "canonical_title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "alternate_titles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 500
+      },
+      "uniqueItems": true
+    },
+    "status": {
+      "enum": [
+        "emerging",
+        "developing",
+        "ongoing",
+        "resolved",
+        "archived",
+        "contested"
+      ]
+    },
+    "topic_tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 80
+      },
+      "uniqueItems": true
+    },
+    "region_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 20
+      },
+      "uniqueItems": true
+    },
+    "article_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      },
+      "uniqueItems": true
+    },
+    "first_observed_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "last_observed_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "updated_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}
