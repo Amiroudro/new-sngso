@@ -22,7 +22,7 @@ def load_schema(name: str) -> dict:
 
 @pytest.mark.parametrize(
     "name",
-    ["source-permission", "article", "story", "claim", "evidence", "edition"],
+    ["source-permission", "source-observation", "article", "story", "claim", "evidence", "timeline-event", "perspective", "learning-object", "pipeline-run", "editorial-decision", "edition"],
 )
 def test_schema_is_valid_draft_2020_12(name: str) -> None:
     schema = load_schema(name)
