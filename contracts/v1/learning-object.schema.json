@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/learning-object.schema.json",
+  "title": "LearningObject",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "story_id",
+    "kind",
+    "language",
+    "status",
+    "content",
+    "claim_ids",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "story_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "kind": {
+      "enum": [
+        "brief_summary",
+        "detailed_summary",
+        "vocabulary",
+        "comprehension_question",
+        "analysis_question",
+        "revision_card"
+      ]
+    },
+    "language": {
+      "$ref": "common.schema.json#/$defs/languageTag"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "review_required",
+        "approved",
+        "rejected"
+      ]
+    },
+    "content": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "array",
+          "object",
+          "null"
+        ]
+      }
+    },
+    "claim_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      },
+      "uniqueItems": true
+    },
+    "difficulty": {
+      "enum": [
+        "basic",
+        "intermediate",
+        "advanced"
+      ]
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "reviewed_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    }
+  }
+}
