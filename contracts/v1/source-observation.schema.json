@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/source-observation.schema.json",
+  "title": "SourceObservation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "source_id",
+    "observed_at",
+    "connector",
+    "connector_version",
+    "operation",
+    "result",
+    "permission_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "source_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "observed_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "connector": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "connector_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "operation": {
+      "enum": [
+        "discovery",
+        "metadata",
+        "excerpt_storage",
+        "full_text_storage",
+        "translation",
+        "image_storage",
+        "republication"
+      ]
+    },
+    "result": {
+      "enum": [
+        "success",
+        "not_found",
+        "blocked",
+        "permission_denied",
+        "rate_limited",
+        "error"
+      ]
+    },
+    "permission_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "article_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "canonical_uri": {
+      "$ref": "common.schema.json#/$defs/uri"
+    },
+    "observation_hash": {
+      "$ref": "common.schema.json#/$defs/hash"
+    },
+    "retained_payload_uri": {
+      "$ref": "common.schema.json#/$defs/uri"
+    },
+    "retention_basis": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "error_code": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "error_detail": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  }
+}
