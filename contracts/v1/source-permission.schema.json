@@ -1,0 +1,31 @@
+{
+  "permission": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "allowed",
+      "status"
+    ],
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      },
+      "status": {
+        "enum": [
+          "approved",
+          "pending",
+          "denied",
+          "expired",
+          "revoked"
+        ]
+      },
+      "conditions": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}
