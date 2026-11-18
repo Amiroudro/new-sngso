@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/article.schema.json",
+  "title": "Article",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "source_id",
+    "canonical_uri",
+    "title",
+    "source_language",
+    "discovered_at",
+    "record_status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "source_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "canonical_uri": {
+      "$ref": "common.schema.json#/$defs/uri"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "byline": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "source_language": {
+      "$ref": "common.schema.json#/$defs/languageTag"
+    },
+    "published_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "updated_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "discovered_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "summary_metadata": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "content_fingerprint": {
+      "$ref": "common.schema.json#/$defs/hash"
+    },
+    "record_status": {
+      "enum": [
+        "active",
+        "withdrawn",
+        "duplicate",
+        "unavailable",
+        "restricted"
+      ]
+    },
+    "permission_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/$defs/provenance"
+    }
+  }
+}
