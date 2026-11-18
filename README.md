@@ -28,7 +28,7 @@ Transform lawfully accessible, attributable reporting into accurate, explainable
 
 ## Project status
 
-Architecture and requirements stage. No production pipeline or publisher permission is implied.
+Foundation milestone in progress. Versioned domain contracts, contract CI, runtime schema validation, deterministic content hashing, and a fail-closed permission evaluator are implemented. Collection, persistence adapters, editorial production, and publication are not implemented yet. No production pipeline or publisher permission is implied.
 
 ## Documents
 
@@ -36,6 +36,18 @@ Architecture and requirements stage. No production pipeline or publisher permiss
 - docs/ARCHITECTURE.md
 - docs/MIGRATION_PLAN.md
 - docs/QUALITY_GATES.md
+- docs/DOMAIN_MODEL.md
+- contracts/README.md
+- contracts/v1/
+
+## Local validation
+
+Requires Python 3.12+.
+
+```bash
+python -m pip install -e ".[test]"
+python -m pytest tests/contracts -q
+```
 
 ## Preservation rule
 
