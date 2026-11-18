@@ -136,6 +136,106 @@ def test_minimal_valid_contract_instances(name: str, instance: dict) -> None:
     assert not errors, "\n".join(error.message for error in errors)
 
 
+
+@pytest.mark.parametrize(
+    ("name", "instance"),
+    [
+        (
+            "source-observation",
+            {
+                "schema_version": "1.0.0",
+                "id": "observation:sample-001",
+                "source_id": "source:publisher-a",
+                "observed_at": "2026-11-19T00:00:00Z",
+                "connector": "fixture",
+                "connector_version": "1",
+                "operation": "discovery",
+                "result": "success",
+                "permission_id": "permission:publisher-a",
+            },
+        ),
+        (
+            "timeline-event",
+            {
+                "schema_version": "1.0.0",
+                "id": "event:sample-001",
+                "story_id": "story:sample-001",
+                "label": "Notice issued",
+                "time_precision": "date",
+                "occurred_on": "2026-11-18",
+                "claim_ids": ["claim:sample-001"],
+                "created_at": "2026-11-19T00:00:00Z",
+            },
+        ),
+        (
+            "perspective",
+            {
+                "schema_version": "1.0.0",
+                "id": "perspective:sample-001",
+                "story_id": "story:sample-001",
+                "kind": "publisher_framing",
+                "attribution": "Publisher A",
+                "source_id": "source:publisher-a",
+                "article_id": "article:sample-001",
+                "language": "en",
+                "text": "The publisher's framing, clearly attributed.",
+                "claim_ids": ["claim:sample-001"],
+                "created_at": "2026-11-19T00:00:00Z",
+                "review_status": "unreviewed",
+            },
+        ),
+        (
+            "learning-object",
+            {
+                "schema_version": "1.0.0",
+                "id": "learning:sample-001",
+                "story_id": "story:sample-001",
+                "kind": "brief_summary",
+                "language": "en",
+                "status": "draft",
+                "content": {"text": "A short, source-linked learning summary."},
+                "claim_ids": ["claim:sample-001"],
+                "created_at": "2026-11-19T00:00:00Z",
+            },
+        ),
+        (
+            "pipeline-run",
+            {
+                "schema_version": "1.0.0",
+                "id": "run:sample-001",
+                "status": "succeeded",
+                "started_at": "2026-11-19T00:00:00Z",
+                "finished_at": "2026-11-19T00:01:00Z",
+                "software_version": "0.1.0",
+                "config_hash": "sha256:" + "b" * 64,
+                "input_hashes": ["sha256:" + "c" * 64],
+                "output_hashes": ["sha256:" + "d" * 64],
+                "stage_results": [{"stage": "contract-check", "status": "succeeded"}],
+            },
+        ),
+        (
+            "editorial-decision",
+            {
+                "schema_version": "1.0.0",
+                "id": "decision:sample-001",
+                "subject_type": "edition",
+                "subject_id": "edition:2026-11-19-am",
+                "decision": "request_changes",
+                "reviewer_role": "editor",
+                "rationale": "A source attribution needs clarification.",
+                "decided_at": "2026-11-19T00:00:00Z",
+            },
+        ),
+    ],
+)
+def test_extended_contract_instances(name: str, instance: dict) -> None:
+    validator = Draft202012Validator(
+        load_schema(name), registry=REGISTRY, format_checker=FORMAT_CHECKER
+    )
+    errors = sorted(validator.iter_errors(instance), key=lambda error: list(error.path))
+    assert not errors, "\\n".join(error.message for error in errors)
+
+
 def test_permission_contract_rejects_missing_operation() -> None:
     instance = {
         "schema_version": "1.0.0",
