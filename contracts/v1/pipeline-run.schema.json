@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/pipeline-run.schema.json",
+  "title": "PipelineRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "status",
+    "started_at",
+    "software_version",
+    "config_hash",
+    "input_hashes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "rejected"
+      ]
+    },
+    "started_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "finished_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "software_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "config_hash": {
+      "$ref": "common.schema.json#/$defs/hash"
+    },
+    "input_hashes": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/hash"
+      },
+      "uniqueItems": true
+    },
+    "output_hashes": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/hash"
+      },
+      "uniqueItems": true
+    },
+    "stage_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage",
+          "status"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "status": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "skipped",
+              "blocked"
+            ]
+          },
+          "input_hash": {
+            "$ref": "common.schema.json#/$defs/hash"
+          },
+          "output_hash": {
+            "$ref": "common.schema.json#/$defs/hash"
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      }
+    },
+    "failure_code": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "failure_detail": {
+      "type": "string",
+      "maxLength": 4000
+    }
+  }
+}
