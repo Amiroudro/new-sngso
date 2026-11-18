@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/perspective.schema.json",
+  "title": "Perspective",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "story_id",
+    "kind",
+    "attribution",
+    "language",
+    "text",
+    "claim_ids",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "story_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "kind": {
+      "enum": [
+        "publisher_framing",
+        "stakeholder_position",
+        "expert_analysis",
+        "editorial_analysis"
+      ]
+    },
+    "attribution": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "source_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "article_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "language": {
+      "$ref": "common.schema.json#/$defs/languageTag"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "claim_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
+      },
+      "uniqueItems": true
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "review_status": {
+      "enum": [
+        "unreviewed",
+        "review_required",
+        "approved",
+        "rejected"
+      ]
+    }
+  }
+}
