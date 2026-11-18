@@ -1,0 +1,42 @@
+# Sarangsho Engine
+
+A greenfield editorial-intelligence and learning-content engine for Sarangsho Plus.
+
+This is not a fork, port, or renamed copy of the previous Sarangsho pipeline. Existing repositories are reference-only and remain unchanged.
+
+## Mission
+
+Transform lawfully accessible, attributable reporting into accurate, explainable, bilingual news briefings and useful learning material. Every material claim must have traceable evidence, every source operation must pass an explicit permission policy, and every edition must pass reproducible quality gates.
+
+## Initial engineering direction
+
+- Python 3.12+ as a modular monolith.
+- Typed domain models and versioned JSON contracts.
+- SQLite initially, behind repository interfaces.
+- Deterministic pipeline stages with immutable run manifests and content hashes.
+- GitHub Actions for CI and controlled scheduled execution.
+- Static, versioned edition artifacts for downstream clients.
+- No paid API or LLM required for core operation.
+
+## Non-goals for the first release
+
+- Microservices, Kubernetes, message brokers, or paid always-on infrastructure.
+- Autonomous publication without editorial approval.
+- Treating robots.txt as a copyright licence.
+- Collecting full article bodies unless permission and applicable terms allow it.
+- Replacing human judgment in translation, disputed claims, or sensitive editorial decisions.
+
+## Project status
+
+Architecture and requirements stage. No production pipeline or publisher permission is implied.
+
+## Documents
+
+- docs/PRODUCT_PRINCIPLES.md
+- docs/ARCHITECTURE.md
+- docs/MIGRATION_PLAN.md
+- docs/QUALITY_GATES.md
+
+## Preservation rule
+
+The previous private application repository and public editions repository are not deployment targets. No write-back, merge, overwrite, schedule change, or publication is permitted without separate explicit approval.
