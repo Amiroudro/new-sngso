@@ -25,6 +25,7 @@ class PermissionDecision:
     allowed: bool
     reason: str
     permission_id: str | None = None
+    grant_revision: int | None = None
 
 
 def _parse_aware_datetime(value: Any) -> datetime | None:
