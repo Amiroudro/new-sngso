@@ -111,4 +111,4 @@ The verifier alone cannot detect tail truncation. If the last events are removed
 
 The repository includes fixture tests for migration idempotency and rollback, cross-source reference rejection, evidence review requirements, grant lifecycle, permission decisions, audit chain integrity, append-only revisions, optimistic concurrency, concurrent writes, permission-first connector gating, operation separation, provenance persistence, and revocation during connector execution.
 
-The full pytest suite passed in GitHub Actions run #123 with 137 tests, including the collection-observation migration, provenance persistence, storage-boundary validation, and permission-revocation race checks.
+The full pytest suite passed in GitHub Actions run [#44607783960](https://github.com/Amiroudro/new-sngso/actions/runs/44607783960) with **297 tests**, including schema migration 4, metadata ingestion, idempotency, cross-publisher duplicate candidates, reversible resolutions, article metadata revisions, permission-revocation checks, and concurrent ingestion.
