@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from sngso_engine.contracts import ContractValidationError, validate_payload
 from sngso_engine.permissions import OPERATIONS, evaluate_permission
@@ -99,11 +100,62 @@ def permission_grant() -> dict:
 )
 def test_valid_source_governance_records(contract: str, record: dict) -> None:
     validate_payload(contract, record)
+    Draft202012Validator.check_schema(
+        __import__("sngso_engine.contracts", fromlist=["load_schema"]).load_schema(contract)
+    )
 
 
 def test_grant_shape_is_compatible_with_permission_evaluator() -> None:
-    result = evaluate_permission(permission_grant(), "discovery")
+    result = evaluate_permission(
+        permission_grant(),
+        "discovery",
+        source_id="source:publisher-a",
+        endpoint_id="endpoint:publisher-a-rss",
+    )
     assert (result.allowed, result.reason) == (True, "approved")
+
+
+@pytest.mark.parametrize(
+    ("source_id", "endpoint_id", "reason"),
+    [
+        (None, "endpoint:publisher-a-rss", "source_scope_mismatch"),
+        ("source:another-publisher", "endpoint:publisher-a-rss", "source_scope_mismatch"),
+        ("source:publisher-a", None, "endpoint_scope_mismatch"),
+        ("source:publisher-a", "endpoint:another-feed", "endpoint_scope_mismatch"),
+    ],
+)
+def test_grant_rejects_missing_or_mismatched_source_scope(source_id, endpoint_id, reason) -> None:
+    result = evaluate_permission(
+        permission_grant(),
+        "discovery",
+        source_id=source_id,
+        endpoint_id=endpoint_id,
+    )
+    assert (result.allowed, result.reason) == (False, reason)
+
+
+def test_grant_rejects_missing_permission_evidence() -> None:
+    record = permission_grant()
+    record["evidence_ids"] = []
+    result = evaluate_permission(
+        record,
+        "discovery",
+        source_id="source:publisher-a",
+        endpoint_id="endpoint:publisher-a-rss",
+    )
+    assert (result.allowed, result.reason) == (False, "permission_evidence_missing")
+
+
+def test_grant_rejects_missing_operation_evidence() -> None:
+    record = permission_grant()
+    record["operations"]["discovery"].pop("evidence_ids")
+    result = evaluate_permission(
+        record,
+        "discovery",
+        source_id="source:publisher-a",
+        endpoint_id="endpoint:publisher-a-rss",
+    )
+    assert (result.allowed, result.reason) == (False, "operation_evidence_missing")
 
 
 @pytest.mark.parametrize(
