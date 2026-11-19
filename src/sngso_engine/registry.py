@@ -475,6 +475,20 @@ _MIGRATION_8 = (
                       )
                   )
             ) THEN RAISE(ABORT, 'perspective article must belong to its source and story') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('approved', 'rejected')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NULL
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.reviewed_by'), '')) = ''
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
+                )
+            THEN RAISE(ABORT, 'reviewed perspective requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('unreviewed', 'review_required')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+                )
+            THEN RAISE(ABORT, 'unreviewed perspective cannot contain review metadata') END;
             SELECT CASE WHEN json_array_length(NEW.payload_json, '$.claim_ids') IS NULL
                 OR (
                     SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.claim_ids') claim_ref
@@ -3063,6 +3077,14 @@ class SQLiteRegistry:
         """Append an attributed perspective; corrections supersede, never rewrite."""
         validate_payload("perspective", payload)
         _aware_datetime(payload["created_at"], "created_at")
+        review_status = payload.get("review_status", "unreviewed")
+        review_fields = ("reviewed_at", "reviewed_by", "review_note")
+        if review_status in {"approved", "rejected"}:
+            if any(not isinstance(payload.get(field), str) or not payload[field].strip() for field in review_fields):
+                raise RegistryIntegrityError("reviewed perspective requires reviewer, timestamp, and note")
+            _aware_datetime(payload["reviewed_at"], "reviewed_at")
+        elif any(field in payload for field in review_fields):
+            raise RegistryIntegrityError("unreviewed perspective cannot contain review metadata")
         record = PerspectiveRecord.from_payload(payload)
         with self._transaction() as connection:
             story_row = connection.execute(
