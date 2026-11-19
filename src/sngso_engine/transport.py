@@ -97,6 +97,22 @@ def _parse_url(url: str, allowed_domains: tuple[str, ...]) -> tuple[object, str,
     return parsed, host, port, path
 
 
+def _validate_public_addresses(values: object) -> tuple[str, ...]:
+    """Fail closed for every resolver implementation, including injected adapters."""
+    if not isinstance(values, (tuple, list)) or not values:
+        raise TransportError("DNS returned no addresses")
+    checked: list[str] = []
+    for value in dict.fromkeys(str(item) for item in values):
+        try:
+            address = ipaddress.ip_address(value.split("%", 1)[0])
+        except ValueError as exc:
+            raise TransportError("DNS returned an invalid address") from exc
+        if not address.is_global:
+            raise TransportError("DNS resolved to a non-public IP address")
+        checked.append(str(address))
+    return tuple(checked)
+
+
 def _resolve_public(host: str, port: int) -> tuple[str, ...]:
     try:
         answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
@@ -260,8 +276,9 @@ class SafeHTTPSTransport:
                 )
             else:
                 addresses = self._resolver(host, port)
-            if not addresses:
-                raise TransportError("DNS returned no public address")
+            # Revalidate at the transport boundary even when a custom resolver
+            # is injected. Dependency injection must never bypass SSRF policy.
+            addresses = _validate_public_addresses(addresses)
             response = None
             for retry in range(max_retries + 1):
                 remaining = deadline - self._clock()
