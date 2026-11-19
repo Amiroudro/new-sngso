@@ -4211,6 +4211,169 @@ class SQLiteRegistry:
             for row in rows
         ]
 
+    def learning_object_quality_report(self, learning_object_id: str) -> dict[str, Any]:
+        """Evaluate deterministic editorial completeness without judging truth automatically."""
+        with self._transaction("DEFERRED") as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM learning_objects WHERE id = ?",
+                (learning_object_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError(f"unknown learning object: {learning_object_id}")
+            payload = json.loads(row["payload_json"])
+            blockers: list[dict[str, str]] = []
+            warnings: list[dict[str, str]] = []
+            checks: list[dict[str, Any]] = []
+
+            def check(name: str, passed: bool, detail: str, *, blocking: bool = True) -> None:
+                checks.append({"name": name, "passed": passed, "detail": detail})
+                if not passed:
+                    target = blockers if blocking else warnings
+                    target.append({"check": name, "detail": detail})
+
+            check(
+                "editorial_review",
+                payload["status"] == "approved",
+                "Learning object must be approved before it can pass the registry quality gate.",
+            )
+            claim_ids = payload.get("claim_ids", [])
+            placeholders = ",".join("?" for _ in claim_ids)
+            claim_rows = connection.execute(
+                f"""SELECT id, payload_json FROM domain_records
+                WHERE record_type = 'claim' AND id IN ({placeholders})""" if claim_ids else
+                "SELECT id, payload_json FROM domain_records WHERE 0",
+                tuple(claim_ids),
+            ).fetchall()
+            claims = {item["id"]: json.loads(item["payload_json"]) for item in claim_rows}
+            missing_claims = sorted(set(claim_ids) - set(claims))
+            check(
+                "claim_references",
+                not missing_claims,
+                "All linked claims must still exist." if not missing_claims else
+                "Missing claims: " + ", ".join(missing_claims),
+            )
+            claim_evidence: dict[str, list[str]] = {}
+            claim_assessments: dict[str, str] = {}
+            for claim_id, claim in claims.items():
+                provenance = claim.get("provenance", [])
+                evidence_ids = claim.get("evidence_ids", [])
+                if evidence_ids:
+                    ev_placeholders = ",".join("?" for _ in evidence_ids)
+                    found = connection.execute(
+                        f"""SELECT id FROM domain_records
+                        WHERE record_type = 'evidence' AND id IN ({ev_placeholders})""",
+                        tuple(evidence_ids),
+                    ).fetchall()
+                    found_ids = {item["id"] for item in found}
+                    if found_ids != set(evidence_ids):
+                        blockers.append({
+                            "check": "claim_evidence",
+                            "detail": f"Claim {claim_id} has missing evidence records.",
+                        })
+                claim_evidence[claim_id] = evidence_ids
+                claim_assessments[claim_id] = claim.get("assessment", "unassessed")
+                if not provenance:
+                    blockers.append({
+                        "check": "claim_provenance",
+                        "detail": f"Claim {claim_id} has no source provenance.",
+                    })
+                if claim.get("assessment") in {"supported", "partially_supported"} and not evidence_ids:
+                    blockers.append({
+                        "check": "claim_evidence",
+                        "detail": f"Claim {claim_id} is assessed but has no linked evidence.",
+                    })
+            check(
+                "claim_provenance",
+                all(claim.get("provenance") for claim in claims.values()) and not missing_claims,
+                "Every linked claim has source provenance." if claims and not missing_claims and
+                all(claim.get("provenance") for claim in claims.values()) else
+                "One or more linked claims lack source provenance.",
+            )
+
+            factual_claims: set[str] = set()
+            if payload["kind"] in {"headline_summary", "brief_summary", "detailed_summary"}:
+                for segment in payload["content"].get("segments", []):
+                    if segment["role"] == "fact":
+                        factual_claims.update(segment["claim_ids"])
+                        for claim_id in segment["claim_ids"]:
+                            assessment = claim_assessments.get(claim_id, "unassessed")
+                            if assessment not in {"supported", "partially_supported"}:
+                                blockers.append({
+                                    "check": "factual_segment_assessment",
+                                    "detail": f"Factual segment claim {claim_id} is assessed as {assessment}, not supported.",
+                                })
+                            elif not claim_evidence.get(claim_id):
+                                blockers.append({
+                                    "check": "factual_segment_evidence",
+                                    "detail": f"Factual segment claim {claim_id} has no linked evidence.",
+                                })
+                    elif segment["role"] in {"attributed", "analysis"}:
+                        for claim_id in segment["claim_ids"]:
+                            assessment = claim_assessments.get(claim_id, "unassessed")
+                            if assessment in {"disputed", "contradicted", "retracted", "unassessed"}:
+                                warnings.append({
+                                    "check": "qualified_segment",
+                                    "detail": f"{segment['role'].title()} segment cites claim {claim_id} with assessment {assessment}; preserve that qualification in the wording.",
+                                })
+            check(
+                "factual_segments",
+                all(
+                    claim_assessments.get(claim_id) in {"supported", "partially_supported"}
+                    and bool(claim_evidence.get(claim_id))
+                    for claim_id in factual_claims
+                ),
+                "Every factual summary segment cites assessed claims with linked evidence.",
+            )
+
+            if payload["kind"] in {"comprehension_question", "analysis_question"}:
+                answer_claims = payload["content"].get("answer_claim_ids", [])
+                answer_supported = bool(answer_claims) and all(
+                    claim_assessments.get(claim_id) in {"supported", "partially_supported"}
+                    and bool(claim_evidence.get(claim_id))
+                    for claim_id in answer_claims
+                )
+                check(
+                    "answer_support",
+                    answer_supported,
+                    "Every answer claim must be supported or partially supported and have linked evidence.",
+                )
+
+            if payload["kind"] == "vocabulary":
+                glossary_id = payload["content"]["glossary_entry_id"]
+                glossary_row = connection.execute(
+                    "SELECT status, payload_json FROM glossary_entries WHERE id = ?",
+                    (glossary_id,),
+                ).fetchone()
+                glossary_valid = False
+                if glossary_row:
+                    glossary = json.loads(glossary_row["payload_json"])
+                    glossary_valid = (
+                        glossary_row["status"] == "approved"
+                        and glossary["lemma"] == payload["content"]["term"]
+                        and glossary["term_language"] == payload["content"]["term_language"]
+                        and glossary["part_of_speech"] == payload["content"]["part_of_speech"]
+                        and any(
+                            sense["language"] == payload["language"]
+                            and sense["definition"] == payload["content"]["meaning"]
+                            for sense in glossary["senses"]
+                        )
+                    )
+                check(
+                    "controlled_glossary",
+                    glossary_valid,
+                    "Vocabulary must match an approved glossary entry and a sense in the learning object's language.",
+                )
+
+            return {
+                "learning_object_id": learning_object_id,
+                "revision": row["revision"],
+                "status": payload["status"],
+                "meets_registry_quality_gates": not blockers,
+                "blockers": blockers,
+                "warnings": warnings,
+                "checks": checks,
+            }
+
     def get_domain_record(self, record_type: str, record_id: str):
         if record_type == "story_decision":
             with self._lock:
