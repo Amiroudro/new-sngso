@@ -2,7 +2,7 @@
 
 ## Status
 
-Design plus persistence groundwork. The current `story_decision` ledger stores immutable editorial intent and per-article destination assignments. Migration 6 adds `story_decision_applications`, an append-only table with a unique decision reference, editor/rationale, decision and impact fingerprints, and a JSON result snapshot. The table is deliberately not yet exposed through a write API. No story or claim membership changes are performed.
+Implemented for existing story identities. The immutable `story_decision` ledger stores editorial intent and explicit article/claim allocations. `preview_story_decision_application` is read-only and produces a deterministic impact fingerprint. `apply_story_decision` rechecks that preview inside one `BEGIN IMMEDIATE` transaction, updates all affected stories and claims, appends their revision history, inserts the unique append-only application record, and adds one audit-chain event. Any exception rolls back the complete operation.
 
 ## Why application must be a separate operation
 
@@ -19,9 +19,7 @@ The preview is advisory, not a lock. Apply must repeat all checks inside its tra
 
 ## Decision preconditions
 
-The decision contract now captures expected revisions for every affected story and explicit claim-to-resulting-story assignments with expected claim revisions. Registry validation requires the complete set of claims currently linked to affected stories, including claims with no article-specific provenance, and rejects destinations that conflict with the article assignments in claim provenance. This is a verified precondition layer, not an application workflow.
-
-The application implementation must still define explicit handling for claims whose provenance spans more than one destination and a policy for editions that already contain an affected story. Do not infer claim allocation from article allocation. A claim is a distinct editorial proposition and must not be moved automatically merely because one of its cited articles moves.
+The decision contract captures expected revisions for every affected story and claim and requires complete, unique article and claim allocations. A claim whose article-specific provenance would span multiple resulting stories is rejected before application. Claims without article-specific provenance still require an explicit editor-assigned destination. The current split contract only redistributes among the existing story IDs in the decision. It does not create new story identities.
 
 ## Validation rules
 
@@ -35,6 +33,7 @@ The application implementation must still define explicit handling for claims wh
 - All claim provenance remains valid against the destination story's article membership.
 - Evidence records keep their original claim IDs and source/article/observation links. Evidence is never silently reassigned to a different claim.
 - Any stale revision, incomplete assignment, orphan risk, unknown reference, or unsupported edition impact aborts the entire transaction.
+- Split decisions must leave at least one article in every existing resulting story.
 
 ### Merge
 
@@ -49,12 +48,12 @@ The application implementation must still define explicit handling for claims wh
 
 - The decision must define at least two resulting stories and assign every article and claim to exactly one result.
 - Each resulting story must retain at least one article. A claim whose provenance cannot be satisfied by one destination must be explicitly reviewed and resolved before application; it must not be duplicated or dropped.
-- Existing story identities are retained where explicitly designated by the decision. Any newly created story must have a stable ID and complete required metadata.
+- Split decisions retain the existing story identities named in the decision. Creating new story identities is deliberately outside the current contract.
 - Each affected story and claim is revised at most once in the transaction.
 
 ## Edition safety
 
-Edition snapshots are immutable. The application must never rewrite or delete an edition. If any affected story appears in an edition, the preview must list those editions and application must preserve their original story references and content hashes. New editions may reflect the new story graph only through the normal edition assembly and publication gate. Do not silently rewrite historical published editions.
+Edition snapshots are immutable. The preview lists affected editions; application does not update edition rows, story references, or content hashes. New editions may reflect the new story graph only through the normal edition assembly and publication gate. Historical editions can therefore continue to reference a story that is now archived, as a record of what that edition contained.
 
 ## Persistence and audit
 
@@ -67,7 +66,7 @@ Migration 6 now creates the append-only `story_decision_applications` table with
 - before/after story and claim revision references;
 - deterministic impact summary and its fingerprint.
 
-Use database uniqueness and append-only triggers to prevent duplicate applications and mutation/deletion. In the same SQLite transaction:
+Database uniqueness and append-only triggers prevent duplicate applications and mutation/deletion. The implementation performs the following steps in the same SQLite transaction:
 
 1. verify the decision and preconditions;
 2. revalidate article and claim assignments;
@@ -79,23 +78,23 @@ Use database uniqueness and append-only triggers to prevent duplicate applicatio
 
 If any statement or audit append fails, rollback everything. A retry after a successful commit must return the existing application result without applying changes again. A concurrent second apply must fail or return that same completed result, never duplicate revisions.
 
-## API shape (proposed)
+## API
 
 - `preview_story_decision_application(decision_id)`: read-only structured report; no writes.
-- `apply_story_decision(decision_id, *, expected_impact_fingerprint, actor, rationale)`: atomic, idempotent application guarded by the exact preview fingerprint.
+- `apply_story_decision(decision_id, *, expected_impact_fingerprint, actor, rationale)`: atomic, idempotent application guarded by the exact preview fingerprint. A successful retry returns the stored result without creating another revision or audit event.
 
 The impact fingerprint must cover every record and revision used by the preview, including stories, articles, claims, evidence, and affected editions. Application recomputes it under the write transaction and rejects a mismatch with a clear stale-preview error.
 
-## Required regression tests
+## Regression coverage
 
 - merge moves all articles and claims and archives non-canonical stories;
-- split creates/retains resulting stories and assigns every article and claim exactly once;
+- split retains existing resulting stories and assigns every article and claim exactly once;
 - missing, duplicate, or out-of-scope article/claim assignments are rejected;
 - a claim with provenance spanning multiple split destinations blocks application;
 - stale story or claim revisions block application;
 - an edition reference never changes and historical edition hashes remain identical;
 - evidence IDs and provenance links remain unchanged;
-- a failure injected after the first story update rolls back all story, claim, revision, application, and audit writes;
+- a failure injected at audit append rolls back all story, claim, revision, application, and audit writes;
 - concurrent apply attempts produce exactly one application and one revision set;
 - retry after successful application is idempotent;
 - audit-chain verification succeeds after apply and after rejected attempts;
@@ -103,4 +102,6 @@ The impact fingerprint must cover every record and revision used by the preview,
 
 ## Implementation gate
 
-The first coding slice is implemented and verified: decision records capture story and claim revision preconditions, explicit article and claim allocations, and registry-level completeness/provenance validation. The second slice implements read-only preview with a deterministic impact fingerprint and an edition-impact report. The third slice adds the application ledger schema, including database-enforced uniqueness and append-only triggers. The atomic apply transaction and its regression suite are still required before any live story or claim mutation is allowed. GitHub Actions [run #44613177154](https://github.com/Amiroudro/new-sngso/actions/runs/44613177154) passed **344 tests** on code head `661e059a9bd43afb7dbb0bba3112ea5db299dfe5`, including explicit historical-edition reporting and migration 6 ledger uniqueness/immutability checks. The application table is not yet written by an API. The read-only preview now explicitly reports whether a decision already has an application record, returns its recorded result metadata, and marks the decision non-applicable to prevent accidental repeat application. This state is covered by GitHub Actions [run #44614029381](https://github.com/Amiroudro/new-sngso/actions/runs/44614029381): **344 tests passed** on code head `7b115196c2a5b675a26dde4c9253b842458120da`. The next implementation step is the atomic apply transaction, after the split-result identity policy and edition preservation behavior are made explicit in tests. Keep live collection, publisher access, Android integration, and publication automation out of this scope.
+The atomic application workflow is implemented and verified. GitHub Actions [run #44614814558](https://github.com/Amiroudro/new-sngso/actions/runs/44614814558) passed **349 tests** on code head `6c076ce45999214abd65e78bcbb3a6a8eee475da`, covering merge, split, stale-preview rejection, sequential retry idempotency, and rollback when audit append fails. A second test adds two independent SQLite registry connections applying the same decision concurrently. GitHub Actions [run #44614967997](https://github.com/Amiroudro/new-sngso/actions/runs/44614967997) passed **350 tests in 1.87 seconds** on code head `b0965891c56b686f842873551e53687b881f718c`. The concurrent callers receive the same application ID; only one application record and one revision set are created.
+
+The current split operation only reallocates among the existing story IDs included in the decision. Every resulting story must retain at least one article. A claim with provenance that crosses destinations is rejected rather than duplicated, dropped, or guessed. Historical editions and evidence records remain unchanged. Event chronology, new-story creation during splits, automatic clustering, and live publisher collection remain outside this implementation. Keep Android integration and publication automation out of this scope.
