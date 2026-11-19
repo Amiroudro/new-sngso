@@ -212,3 +212,59 @@ def test_sqlite_boundary_rejects_unattributed_publisher_framing():
             )
     finally:
         registry.close()
+
+
+def test_approved_perspective_requires_reviewer_timestamp_and_note():
+    registry, source_id, article_id = _prepared()
+    try:
+        payload = _perspective(source_id, article_id, identifier="perspective:approved")
+        payload.update({
+            "review_status": "approved",
+            "reviewed_at": "2026-11-20T02:00:00Z",
+            "reviewed_by": "editor:senior",
+            "review_note": "Attribution and framing were checked against the linked article.",
+        })
+        record = registry.add_perspective(payload)
+        assert record.to_payload()["review_status"] == "approved"
+        assert registry.verify_audit_chain()
+    finally:
+        registry.close()
+
+
+def test_unreviewed_perspective_cannot_carry_review_metadata():
+    registry, source_id, article_id = _prepared()
+    try:
+        payload = _perspective(source_id, article_id, identifier="perspective:premature-review")
+        payload["reviewed_by"] = "editor:senior"
+        payload["reviewed_at"] = "2026-11-20T02:00:00Z"
+        payload["review_note"] = "This must be rejected while unreviewed."
+        with pytest.raises(RegistryIntegrityError, match="unreviewed perspective cannot contain review metadata"):
+            registry.add_perspective(payload)
+    finally:
+        registry.close()
+
+
+def test_sqlite_boundary_rejects_approved_perspective_without_review_metadata():
+    registry, source_id, article_id = _prepared()
+    try:
+        payload = _perspective(source_id, article_id, identifier="perspective:direct-approved")
+        payload["review_status"] = "approved"
+        with pytest.raises(sqlite3.IntegrityError, match="reviewed perspective requires reviewer, timestamp, and note"):
+            registry._connection.execute(
+                """INSERT INTO perspectives
+                (id, story_id, source_id, article_id, supersedes_perspective_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    payload["id"], payload["story_id"], source_id, article_id, None,
+                    STAMP, json.dumps(payload),
+                ),
+            )
+    finally:
+        registry.close()
+
+
+def test_perspective_schema_requires_complete_review_metadata():
+    payload = _perspective("source:publisher", "article:publisher-one", identifier="perspective:missing-review")
+    payload["review_status"] = "approved"
+    with pytest.raises(ValueError):
+        validate_payload("perspective", payload)
