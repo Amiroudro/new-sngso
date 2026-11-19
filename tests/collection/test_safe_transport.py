@@ -6,9 +6,13 @@ from sngso_engine import transport
 
 
 class FakeResponse:
-    def __init__(self, status=200, headers=(), body=b"ok"):
+    def __init__(self, status=200, headers=None, body=b"ok"):
         self.status = status
-        self._headers = list(headers)
+        self._headers = list(
+            [("Content-Type", "application/rss+xml; charset=utf-8")]
+            if headers is None and 200 <= status < 300 and status != 204
+            else (headers or ())
+        )
         self._body = body
 
     def getheaders(self):
@@ -298,3 +302,64 @@ def test_bounded_dns_resolver_uses_one_deadline_for_a_and_aaaa():
     )
     with pytest.raises(transport.TransportError, match="deadline exceeded"):
         resolver.resolve("news.example.org", 443, timeout_seconds=1.0)
+
+
+def test_transport_accepts_supported_content_type_with_parameters():
+    client, _ = make_transport([
+        FakeResponse(headers=[("Content-Type", "application/atom+xml; charset=utf-8")])
+    ])
+    result = client.fetch(
+        "https://news.example.org/feed.xml",
+        allowed_domains=("example.org",),
+    )
+    assert result.status == 200
+
+
+def test_transport_rejects_missing_or_unsupported_content_type():
+    for headers in ([], [("Content-Type", "text/plain")]):
+        client, _ = make_transport([FakeResponse(headers=headers)])
+        with pytest.raises(transport.TransportError, match="Content-Type"):
+            client.fetch(
+                "https://news.example.org/feed.xml",
+                allowed_domains=("example.org",),
+            )
+
+
+def test_transport_rejects_excessive_response_header_count():
+    headers = [("X-Header-" + str(i), "v") for i in range(65)]
+    headers.append(("Content-Type", "application/rss+xml"))
+    client, _ = make_transport([FakeResponse(headers=headers)])
+    with pytest.raises(transport.TransportError, match="too many headers"):
+        client.fetch(
+            "https://news.example.org/feed.xml",
+            allowed_domains=("example.org",),
+        )
+
+
+def test_transport_rejects_excessive_response_header_bytes():
+    headers = [
+        ("Content-Type", "application/rss+xml"),
+        ("X-Large", "x" * 17000),
+    ]
+    client, _ = make_transport([FakeResponse(headers=headers)])
+    with pytest.raises(transport.TransportError, match="header.*byte limit"):
+        client.fetch(
+            "https://news.example.org/feed.xml",
+            allowed_domains=("example.org",),
+        )
+
+
+def test_transport_rejects_conflicting_or_ambiguous_length_headers():
+    cases = [
+        [("Content-Type", "application/rss+xml"),
+         ("Content-Length", "10"), ("Content-Length", "11")],
+        [("Content-Type", "application/rss+xml"),
+         ("Content-Length", "10"), ("Transfer-Encoding", "chunked")],
+    ]
+    for headers in cases:
+        client, _ = make_transport([FakeResponse(headers=headers)])
+        with pytest.raises(transport.TransportError, match="Content-Length|transfer"):
+            client.fetch(
+                "https://news.example.org/feed.xml",
+                allowed_domains=("example.org",),
+            )
