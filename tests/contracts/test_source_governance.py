@@ -139,6 +139,30 @@ def test_grant_rejects_missing_or_mismatched_source_scope(source_id, endpoint_id
     assert (result.allowed, result.reason) == (False, reason)
 
 
+def test_scoped_grant_without_endpoint_ids_fails_closed() -> None:
+    record = permission_grant()
+    record.pop("endpoint_ids")
+    result = evaluate_permission(
+        record,
+        "discovery",
+        source_id="source:publisher-a",
+        endpoint_id="endpoint:publisher-a-rss",
+    )
+    assert (result.allowed, result.reason) == (False, "invalid_endpoint_scope")
+
+
+def test_scoped_grant_without_source_id_fails_closed() -> None:
+    record = permission_grant()
+    record.pop("source_id")
+    result = evaluate_permission(
+        record,
+        "discovery",
+        source_id="source:publisher-a",
+        endpoint_id="endpoint:publisher-a-rss",
+    )
+    assert (result.allowed, result.reason) == (False, "invalid_source_scope")
+
+
 def test_grant_rejects_missing_permission_evidence() -> None:
     record = permission_grant()
     record["evidence_ids"] = []
