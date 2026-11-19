@@ -114,11 +114,26 @@ class CollectionObservationRepository(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
+class IngestionRepository(Protocol):
+    """Port for turning one stored collection observation into an article identity."""
+
+    def get_collection_observation(self, observation_id: str) -> dict[str, Any] | None: ...
+    def get_endpoint(self, endpoint_id: str) -> SourceEndpointRecord | None: ...
+    def ingest_article_observation(
+        self,
+        observation_id: str,
+        article_payload: dict[str, Any],
+        *,
+        duplicate_fingerprint: str | None,
+    ) -> dict[str, Any]: ...
+
+
 class EngineRepository(
     SourceGovernanceRepository,
     EditorialRepository,
     AuditRepository,
     CollectionObservationRepository,
+    IngestionRepository,
     Protocol,
 ):
     """Combined repository port implemented by the SQLite adapter."""
