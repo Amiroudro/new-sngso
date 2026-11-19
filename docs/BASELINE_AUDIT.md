@@ -32,7 +32,7 @@ Typed immutable record views cover sources, endpoints, permission evidence, gran
 
 ### Permission-first collection
 
-The fixture-first orchestrator supports discovery and metadata only. It verifies source, endpoint, connector capability, and exact operation permission before connector invocation. It rechecks permission immediately before invocation and the persistent sink rechecks grant revision, source/endpoint state, evidence, and permission before storing observations. The fixture boundary applies a per-domain rate limiter, item and observation-byte budgets, operation-specific output fields, and source-domain restrictions for endpoint and returned locator/final-locator hosts.
+The fixture-first orchestrator supports discovery and metadata only. It verifies source, endpoint, connector capability, and exact operation permission before connector invocation. It rechecks permission immediately before invocation and the persistent sink rechecks grant revision, source/endpoint state, evidence, and permission before storing observations. The fixture boundary applies a per-domain rate limiter, item and observation-byte budgets, operation-specific output fields, and source-domain restrictions for endpoint and returned locator/final-locator hosts. The SQLite observation sink repeats the endpoint and locator host checks inside its write transaction, so callers cannot bypass the domain boundary by calling the storage API directly.
 
 There is no live network transport. Timeout and retry values are bounded request declarations, not active transport enforcement. DNS/IP restrictions, redirect handling, response-body byte limits, and real network timeouts/retries must be implemented and reviewed before any live connector is considered.
 
@@ -40,10 +40,11 @@ There is no live network transport. Timeout and retry values are bounded request
 
 - GitHub Actions run #127 passed the full pytest workflow for the first verified 137-test collection milestone.
 - GitHub Actions run #128 passed after adding source-domain scope regression tests for endpoint hosts, returned locators, final locators, and allowed subdomains.
+- An intermediate run #132 failed during the storage-boundary change because a domain check referenced transaction data before it was loaded. The check was moved into the transaction; run #133 passed with the storage-bypass regression test.
 - The workflow runs the full test suite on relevant source, contract, test, packaging, and workflow changes. It does not contact publisher websites.
 - A passing fixture test suite proves the tested software behavior only. It does not approve publishers, establish copyright permission, or prove production readiness.
 
-Latest reviewed code change for the source-domain boundary: `1c23b7ff3369f01ed54bd11c89938c7fd0a3d86c`. Subsequent documentation commits record the same verified behavior and CI evidence; the latest workflow result must be checked before merge.
+Latest verified code change for the source-domain persistence boundary: `a1157f22fb453f0adf27a6e3d8a60c0f0dfa0782`, with the corresponding regression test in `a0d251df56f805f3597a913dcde50213c8e7fae5`. GitHub Actions run #133 passed for the corrected code. Later documentation-only commits should still receive their own routine CI checks before merge.
 
 ## Ten-section programme status
 
