@@ -1,5 +1,7 @@
 """Integrity tests for story, claim, and evidence provenance links."""
 
+import sqlite3
+
 import pytest
 
 from sngso_engine import RegistryIntegrityError, SQLiteRegistry
@@ -768,7 +770,7 @@ def test_story_decision_application_ledger_is_unique_and_append_only():
                 "{}",
             ),
         )
-        with pytest.raises(Exception, match="UNIQUE constraint failed"):
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
             registry._connection.execute(
                 """INSERT INTO story_decision_applications
                 (application_id, decision_id, applied_at, actor, rationale,
@@ -785,7 +787,7 @@ def test_story_decision_application_ledger_is_unique_and_append_only():
                     "{}",
                 ),
             )
-        with pytest.raises(Exception, match="applications are append-only"):
+        with pytest.raises(sqlite3.IntegrityError, match="applications are append-only"):
             registry._connection.execute(
                 "UPDATE story_decision_applications SET rationale = 'rewritten' "
                 "WHERE application_id = 'story-application:fixture'"
