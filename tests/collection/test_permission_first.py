@@ -17,6 +17,7 @@ from sngso_engine.collection import (
     InMemoryObservationSink,
     PermissionFirstCollector,
 )
+from sngso_engine.contracts import ContractValidationError
 from sngso_engine.registry import RegistryIntegrityError, SQLiteRegistry
 
 
@@ -749,8 +750,8 @@ def test_sqlite_storage_rejects_noncanonical_source_domain_allowlist():
 
 def test_registry_rejects_noncanonical_source_domains_at_creation():
     payload = source_payload()
-    payload["domains"] = ["publisher-a.example.org", "publisher-a.example.org"]
+    payload["domains"] = ["publisher-a.example.org."]
     with SQLiteRegistry() as registry:
-        with pytest.raises(RegistryIntegrityError, match="canonical DNS names"):
+        with pytest.raises(ContractValidationError, match="domains/0"):
             registry.add_source(payload)
         assert registry.get_source("source:publisher-a") is None
