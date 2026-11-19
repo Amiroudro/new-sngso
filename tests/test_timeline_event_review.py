@@ -85,7 +85,7 @@ def test_new_timeline_event_defaults_to_unreviewed():
     try:
         record = registry.add_timeline_event(_event())
         assert record.review_status == "unreviewed"
-        assert registry.story_timeline("story:one")[0]["record"]["review_status"] is None if "review_status" in registry.story_timeline("story:one")[0]["record"] else True
+        assert registry.story_timeline("story:one")[0]["record"].get("review_status", "unreviewed") == "unreviewed"
     finally:
         registry.close()
 
