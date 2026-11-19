@@ -7,7 +7,7 @@ import pytest
 
 from sngso_engine import RegistryIntegrityError, SQLiteRegistry, validate_payload
 
-STAMP = "2026-11-20T00:00:00Z"
+STAMP = "2026-11-19T00:00:00Z"
 
 
 def _prepared():
@@ -248,7 +248,7 @@ def test_learning_object_review_cannot_predate_creation():
         payload = _summary()
         payload.update({
             "status": "rejected",
-            "reviewed_at": "2026-11-19T23:00:00Z",
+            "reviewed_at": "2026-11-18T23:00:00Z",
             "reviewed_by": "reviewer",
             "review_note": "Review predates creation.",
         })
