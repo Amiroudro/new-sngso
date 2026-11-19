@@ -203,3 +203,31 @@ def test_transport_requires_a_finite_deadline_and_bounded_budgets():
         client.fetch("https://news.example.org/", allowed_domains=("example.org",), timeout_seconds=60)
     with pytest.raises(ValueError, match="max_bytes"):
         client.fetch("https://news.example.org/", allowed_domains=("example.org",), max_bytes=2_000_000)
+
+
+@pytest.mark.parametrize("url", [
+    "https://bad..example.org/feed.xml",
+    "https://-bad.example.org/feed.xml",
+    "https://bad_.example.org/feed.xml",
+])
+def test_transport_rejects_malformed_dns_labels(url):
+    called = []
+    client = transport.SafeHTTPSTransport(
+        resolver=lambda host, port: called.append(host) or ("93.184.216.34",),
+        connection_factory=lambda *args: pytest.fail("must not connect"),
+    )
+    with pytest.raises(transport.TransportError, match="invalid"):
+        client.fetch(url, allowed_domains=("example.org",))
+    assert called == []
+
+
+def test_transport_rejects_malformed_registered_domain():
+    client = transport.SafeHTTPSTransport(
+        resolver=lambda *args: pytest.fail("must reject allowlist before DNS"),
+        connection_factory=lambda *args: pytest.fail("must not connect"),
+    )
+    with pytest.raises(transport.TransportError, match="invalid"):
+        client.fetch(
+            "https://news.example.org/feed.xml",
+            allowed_domains=("example.org/path",),
+        )
