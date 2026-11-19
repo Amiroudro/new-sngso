@@ -298,3 +298,35 @@ def test_sqlite_rejects_learning_object_update_without_next_revision():
             )
     finally:
         registry.close()
+
+
+def test_summary_segments_must_match_text_and_top_level_claim_links():
+    registry = _prepared()
+    try:
+        mismatched_text = _summary("learning:bad-text")
+        mismatched_text["content"]["text"] = "This sentence is not represented by the segment."
+        with pytest.raises(RegistryIntegrityError, match="exactly match its claim-mapped segments"):
+            registry.add_learning_object(
+                mismatched_text, actor="editor", reason="Invalid traceability fixture."
+            )
+
+        outside_claim = _summary("learning:outside-claim")
+        outside_claim["content"]["segments"][0]["claim_ids"] = ["claim:outside"]
+        with pytest.raises(RegistryIntegrityError, match="claim outside the learning object"):
+            registry.add_learning_object(
+                outside_claim, actor="editor", reason="Invalid claim link fixture."
+            )
+    finally:
+        registry.close()
+
+
+def test_summary_requires_segments_and_attributed_segments_require_attribution():
+    missing_segments = _summary("learning:no-segments")
+    missing_segments["content"] = {"text": "An unlinked summary."}
+    with pytest.raises(ValueError):
+        validate_payload("learning-object", missing_segments)
+
+    missing_attribution = _summary("learning:no-attribution")
+    missing_attribution["content"]["segments"][0]["role"] = "attributed"
+    with pytest.raises(ValueError):
+        validate_payload("learning-object", missing_attribution)
