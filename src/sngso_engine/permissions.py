@@ -89,4 +89,12 @@ def evaluate_permission(
     if operation_permission.get("allowed") is not True:
         return PermissionDecision(False, "operation_not_allowed", permission_id)
 
+    # Conditions have no evaluator yet. Never interpret an unhandled condition
+    # as satisfied: require human review until a typed condition engine exists.
+    conditions = operation_permission.get("conditions", [])
+    if not isinstance(conditions, list):
+        return PermissionDecision(False, "invalid_operation_conditions", permission_id)
+    if conditions:
+        return PermissionDecision(False, "operation_conditions_require_review", permission_id)
+
     return PermissionDecision(True, "approved", permission_id)
