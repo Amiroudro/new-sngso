@@ -29,12 +29,13 @@ from .models import (
     StoryRecord,
     TimelineEventRecord,
     PerspectiveRecord,
+    ClaimRelationRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 8
+_SCHEMA_VERSION = 9
 
 
 class RegistryIntegrityError(ValueError):
@@ -508,6 +509,63 @@ _MIGRATION_8 = (
 )
 
 
+_MIGRATION_9 = (
+    """CREATE TABLE claim_relations (
+        id TEXT PRIMARY KEY,
+        story_id TEXT NOT NULL,
+        claim_id TEXT NOT NULL,
+        related_claim_id TEXT NOT NULL,
+        relationship TEXT NOT NULL CHECK (relationship IN (
+            'contradicts', 'qualifies', 'narrows', 'reframes'
+        )),
+        supersedes_relation_id TEXT UNIQUE,
+        created_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        UNIQUE (story_id, id),
+        FOREIGN KEY (story_id, supersedes_relation_id)
+            REFERENCES claim_relations(story_id, id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_claim_relations_story_created ON claim_relations(story_id, created_at, id)",
+    """CREATE TRIGGER claim_relations_validate_insert
+        BEFORE INSERT ON claim_relations
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'story' AND id = NEW.story_id
+                  AND json_extract(payload_json, '$.status') != 'archived'
+            ) THEN RAISE(ABORT, 'claim relation requires an active registered story') END;
+            SELECT CASE WHEN NEW.claim_id = NEW.related_claim_id
+                THEN RAISE(ABORT, 'claim relation must connect two different claims') END;
+            SELECT CASE WHEN (
+                SELECT COUNT(*) FROM domain_records
+                WHERE record_type = 'claim' AND id IN (NEW.claim_id, NEW.related_claim_id)
+                  AND json_extract(payload_json, '$.story_id') = NEW.story_id
+            ) != 2
+            THEN RAISE(ABORT, 'claim relation endpoints must belong to its story') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('accepted', 'rejected')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NULL
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.reviewed_by'), '')) = ''
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
+                )
+            THEN RAISE(ABORT, 'reviewed claim relation requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') = 'unreviewed'
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+                )
+            THEN RAISE(ABORT, 'unreviewed claim relation cannot contain review metadata') END;
+        END""",
+    """CREATE TRIGGER claim_relations_no_update
+        BEFORE UPDATE ON claim_relations
+        BEGIN SELECT RAISE(ABORT, 'claim relations are append-only'); END""",
+    """CREATE TRIGGER claim_relations_no_delete
+        BEFORE DELETE ON claim_relations
+        BEGIN SELECT RAISE(ABORT, 'claim relations are append-only'); END""",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -672,6 +730,19 @@ class SQLiteRegistry:
                     version = 8
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 8 failed; transaction rolled back") from exc
+
+            if version == 8 and _SCHEMA_VERSION >= 9:
+                try:
+                    for statement in _MIGRATION_9:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (9, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 9")
+                    version = 9
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 9 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -3185,6 +3256,108 @@ class SQLiteRegistry:
         """Return current attributed perspectives without rewriting prior assertions."""
         return [
             item for item in self.perspective_history(story_id)
+            if not item["is_superseded"]
+        ]
+
+    def add_claim_relation(self, payload: dict[str, Any]) -> ClaimRelationRecord:
+        """Append an explicit relationship between two claims in one story."""
+        validate_payload("claim-relation", payload)
+        payload = dict(payload)
+        _aware_datetime(payload["created_at"], "created_at")
+        if payload["claim_id"] == payload["related_claim_id"]:
+            raise RegistryIntegrityError("claim relation must connect two different claims")
+        if payload["relationship"] == "contradicts" and payload["related_claim_id"] < payload["claim_id"]:
+            payload["claim_id"], payload["related_claim_id"] = payload["related_claim_id"], payload["claim_id"]
+        review_status = payload["review_status"]
+        review_fields = ("reviewed_at", "reviewed_by", "review_note")
+        if review_status in {"accepted", "rejected"}:
+            if any(not isinstance(payload.get(field), str) or not payload[field].strip() for field in review_fields):
+                raise RegistryIntegrityError("reviewed claim relation requires reviewer, timestamp, and note")
+            _aware_datetime(payload["reviewed_at"], "reviewed_at")
+        elif any(field in payload for field in review_fields):
+            raise RegistryIntegrityError("unreviewed claim relation cannot contain review metadata")
+        record = ClaimRelationRecord.from_payload(payload)
+        with self._transaction() as connection:
+            story_row = connection.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = 'story' AND id = ?",
+                (record.story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise RegistryIntegrityError("claim relation references an unknown story")
+            story = json.loads(story_row["payload_json"])
+            if story.get("status") == "archived":
+                raise RegistryIntegrityError("cannot append a claim relation to an archived story")
+            ids = (payload["claim_id"], payload["related_claim_id"])
+            placeholders = ",".join("?" for _ in ids)
+            rows = connection.execute(
+                f"SELECT id, payload_json FROM domain_records WHERE record_type = 'claim' AND id IN ({placeholders})",
+                ids,
+            ).fetchall()
+            if len(rows) != 2 or any(json.loads(row["payload_json"])["story_id"] != record.story_id for row in rows):
+                raise RegistryIntegrityError("claim relation endpoints must belong to its story")
+            supersedes_id = payload.get("supersedes_relation_id")
+            if supersedes_id:
+                prior = connection.execute(
+                    "SELECT story_id, created_at FROM claim_relations WHERE id = ?", (supersedes_id,)
+                ).fetchone()
+                if prior is None or prior["story_id"] != record.story_id:
+                    raise RegistryIntegrityError("claim relation correction must supersede a relation in the same story")
+                if _aware_datetime(payload["created_at"], "created_at") < _aware_datetime(prior["created_at"], "prior.created_at"):
+                    raise RegistryIntegrityError("claim relation correction cannot predate the relation it supersedes")
+            connection.execute(
+                """INSERT INTO claim_relations
+                (id, story_id, claim_id, related_claim_id, relationship, supersedes_relation_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (record.id, record.story_id, record.claim_id, record.related_claim_id,
+                 record.relationship, supersedes_id, payload["created_at"], record.payload_json),
+            )
+            self._append_audit(
+                connection,
+                event_type="claim_relation.created",
+                entity_type="claim_relation",
+                entity_id=record.id,
+                payload={"record": payload, "supersedes_relation_id": supersedes_id},
+            )
+        return record
+
+    def get_claim_relation(self, relation_id: str) -> ClaimRelationRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload_json FROM claim_relations WHERE id = ?", (relation_id,)
+            ).fetchone()
+        return ClaimRelationRecord.from_payload(json.loads(row["payload_json"])) if row else None
+
+    def claim_relation_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Return all explicit claim relationships, including superseded assertions."""
+        if self.get_domain_record("story", story_id) is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT id, claim_id, related_claim_id, relationship,
+                          supersedes_relation_id, created_at, payload_json
+                FROM claim_relations WHERE story_id = ?
+                ORDER BY julianday(created_at), created_at, id""",
+                (story_id,),
+            ).fetchall()
+        superseded = {row["supersedes_relation_id"] for row in rows if row["supersedes_relation_id"]}
+        return [
+            {
+                "relation_id": row["id"],
+                "claim_id": row["claim_id"],
+                "related_claim_id": row["related_claim_id"],
+                "relationship": row["relationship"],
+                "created_at": row["created_at"],
+                "supersedes_relation_id": row["supersedes_relation_id"],
+                "is_superseded": row["id"] in superseded,
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def story_claim_relations(self, story_id: str) -> list[dict[str, Any]]:
+        """Return current reviewed and unreviewed relationships without resolving disputes."""
+        return [
+            item for item in self.claim_relation_history(story_id)
             if not item["is_superseded"]
         ]
 
