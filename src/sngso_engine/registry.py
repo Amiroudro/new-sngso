@@ -32,7 +32,7 @@ from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as 
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 
 
 class RegistryIntegrityError(ValueError):
@@ -357,6 +357,36 @@ _MIGRATION_5 = (
 )
 
 
+_MIGRATION_6 = (
+    """CREATE TABLE story_decision_applications (
+        application_id TEXT PRIMARY KEY,
+        decision_id TEXT NOT NULL UNIQUE,
+        applied_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) BETWEEN 1 AND 200),
+        rationale TEXT NOT NULL CHECK (length(trim(rationale)) BETWEEN 1 AND 4000),
+        decision_fingerprint TEXT NOT NULL CHECK (
+            length(decision_fingerprint) = 71
+            AND substr(decision_fingerprint, 1, 7) = 'sha256:'
+            AND substr(decision_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+        ),
+        impact_fingerprint TEXT NOT NULL CHECK (
+            length(impact_fingerprint) = 71
+            AND substr(impact_fingerprint, 1, 7) = 'sha256:'
+            AND substr(impact_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+        ),
+        result_json TEXT NOT NULL CHECK (json_valid(result_json)),
+        FOREIGN KEY (decision_id) REFERENCES story_decisions(id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_story_decision_applications_applied_at ON story_decision_applications(applied_at, application_id)",
+    """CREATE TRIGGER story_decision_applications_no_update
+        BEFORE UPDATE ON story_decision_applications
+        BEGIN SELECT RAISE(ABORT, 'story decision applications are append-only'); END""",
+    """CREATE TRIGGER story_decision_applications_no_delete
+        BEFORE DELETE ON story_decision_applications
+        BEGIN SELECT RAISE(ABORT, 'story decision applications are append-only'); END""",
+)
+
+
 
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
@@ -482,6 +512,18 @@ class SQLiteRegistry:
                     connection.execute("PRAGMA user_version = 5")
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 5 failed; transaction rolled back") from exc
+
+            if version == 5:
+                try:
+                    for statement in _MIGRATION_6:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (6, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 6")
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 6 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
