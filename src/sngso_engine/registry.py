@@ -32,7 +32,7 @@ from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as 
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 
 class RegistryIntegrityError(ValueError):
@@ -335,6 +335,28 @@ _MIGRATION_4 = (
 )
 
 
+_MIGRATION_5 = (
+    """CREATE TABLE story_decisions (
+        id TEXT PRIMARY KEY,
+        operation TEXT NOT NULL CHECK (operation IN ('merge', 'split')),
+        canonical_story_id TEXT NOT NULL,
+        story_ids_json TEXT NOT NULL CHECK (json_valid(story_ids_json)),
+        article_ids_json TEXT NOT NULL CHECK (json_valid(article_ids_json)),
+        decided_by TEXT NOT NULL,
+        rationale TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json))
+    )""",
+    "CREATE INDEX idx_story_decisions_decided_at ON story_decisions(decided_at, id)",
+    """CREATE TRIGGER story_decisions_no_update
+        BEFORE UPDATE ON story_decisions
+        BEGIN SELECT RAISE(ABORT, 'story decisions are append-only'); END""",
+    """CREATE TRIGGER story_decisions_no_delete
+        BEFORE DELETE ON story_decisions
+        BEGIN SELECT RAISE(ABORT, 'story decisions are append-only'); END""",
+)
+
+
 
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
@@ -446,8 +468,20 @@ class SQLiteRegistry:
                         (4, _utc_now()),
                     )
                     connection.execute("PRAGMA user_version = 4")
+                    version = 4
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 4 failed; transaction rolled back") from exc
+            if version == 4:
+                try:
+                    for statement in _MIGRATION_5:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (5, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 5")
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 5 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
