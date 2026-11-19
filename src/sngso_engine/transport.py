@@ -90,6 +90,13 @@ def _check_scope(host: str, allowed_domains: tuple[str, ...]) -> str:
 def _parse_url(url: str, allowed_domains: tuple[str, ...]) -> tuple[object, str, int, str]:
     if not isinstance(url, str) or len(url) > 4096:
         raise TransportError("URL is missing or too long")
+    if any(
+        char.isspace() or ord(char) < 0x20 or ord(char) == 0x7F or char == chr(92)
+        for char in url
+    ):
+        raise TransportError("URL contains whitespace, control characters, or backslashes")
+    if "#" in url:
+        raise TransportError("URL fragments are not allowed")
     try:
         parsed = urlsplit(url)
         authority = parsed.netloc.rsplit("@", 1)[-1]
@@ -97,14 +104,14 @@ def _parse_url(url: str, allowed_domains: tuple[str, ...]) -> tuple[object, str,
             raise TransportError("URL port is empty")
         parsed_port = parsed.port
         port = 443 if parsed_port is None else parsed_port
+        if ":" in authority and authority.rsplit(":", 1)[1] != "443":
+            raise TransportError("only the standard HTTPS port is allowed")
     except ValueError as exc:
         raise TransportError("URL is malformed") from exc
     if parsed.scheme.lower() != "https":
         raise TransportError("only HTTPS URLs are allowed")
     if parsed.username is not None or parsed.password is not None:
         raise TransportError("URLs containing credentials are not allowed")
-    if parsed.fragment:
-        raise TransportError("URL fragments are not allowed")
     host = _check_scope(parsed.hostname or "", allowed_domains)
     if port != 443:
         raise TransportError("only the standard HTTPS port is allowed")
@@ -372,7 +379,9 @@ class SafeHTTPSTransport:
             if headers.get("content-encoding", "identity").lower() not in {"", "identity"}:
                 raise TransportError("compressed responses are not accepted")
             content_length = headers.get("content-length")
-            if content_length is not None and int(content_length) > max_bytes:
+            if content_length is not None and (
+                len(content_length) > len(str(max_bytes)) or int(content_length) > max_bytes
+            ):
                 raise ResponseTooLarge("response exceeds configured byte limit")
             if 200 <= response.status < 300 and response.status != 204:
                 content_type = headers.get("content-type")
