@@ -293,3 +293,26 @@ class LearningObjectRecord(_JsonRecord):
             status=payload["status"],
             revision=revision,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class GlossaryEntryRecord(_JsonRecord):
+    """Canonical headword with language-specific senses and exam vocabulary metadata."""
+
+    lemma: str
+    term_language: str
+    part_of_speech: str
+    status: str
+    revision: int = 1
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any], revision: int = 1) -> "GlossaryEntryRecord":
+        return cls(
+            id=payload["id"],
+            payload_json=canonical_json_bytes(payload).decode("utf-8"),
+            lemma=payload["lemma"],
+            term_language=payload["term_language"],
+            part_of_speech=payload["part_of_speech"],
+            status=payload["status"],
+            revision=revision,
+        )
