@@ -310,6 +310,17 @@ class PermissionFirstCollector:
         for index, raw in enumerate(raw_items):
             if index >= request.max_items:
                 raise CollectionError("connector exceeded max_items")
+            observation = self._validate_observation(
+                raw,
+                request=request,
+                capabilities=capabilities,
+                permission_reason=decision.reason,
+                grant_revision=grant_revision,
+                allowed_domains=allowed_domains,
+            )
+            # Validate the narrow field/type/length contract before encoding.
+            # This prevents oversized or arbitrary connector fields from causing
+            # unnecessary JSON allocation before they are rejected.
             try:
                 total_observation_bytes += len(
                     json.dumps(raw, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -318,16 +329,7 @@ class PermissionFirstCollector:
                 raise CollectionError("connector returned a non-JSON observation") from exc
             if total_observation_bytes > request.max_observation_bytes:
                 raise CollectionError("connector exceeded max_observation_bytes")
-            validated.append(
-                self._validate_observation(
-                    raw,
-                    request=request,
-                    capabilities=capabilities,
-                    permission_reason=decision.reason,
-                    grant_revision=grant_revision,
-                    allowed_domains=allowed_domains,
-                )
-            )
+            validated.append(observation)
 
         observations = tuple(validated)
         self._sink.append_many(observations)
