@@ -196,6 +196,15 @@ class SafeHTTPSTransport:
 
     _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
     _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+    _ALLOWED_CONTENT_TYPES = frozenset({
+        "application/rss+xml",
+        "application/atom+xml",
+        "application/xml",
+        "text/xml",
+        "application/xhtml+xml",
+        "text/html",
+        "application/json",
+    })
 
     def __init__(
         self,
@@ -317,22 +326,41 @@ class SafeHTTPSTransport:
                 headers={
                     "Host": host,
                     "User-Agent": "SarangshoPlusResearchBot/0.1 (+permission-governed)",
-                    "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.8",
+                    "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, application/xhtml+xml, text/html;q=0.8, application/json;q=0.7",
                     "Accept-Encoding": "identity",
                     "Connection": "close",
                 },
             )
             response = connection.getresponse()
-            headers = {key.lower(): value for key, value in response.getheaders()}
+            raw_headers = response.getheaders()
+            if len(raw_headers) > 64:
+                raise TransportError("response contains too many headers")
+            header_bytes = sum(
+                len(str(key).encode("utf-8")) + len(str(value).encode("utf-8"))
+                for key, value in raw_headers
+            )
+            if header_bytes > 16384:
+                raise TransportError("response headers exceed configured byte limit")
+            headers = {key.lower(): value for key, value in raw_headers}
+            content_lengths = [
+                value for key, value in raw_headers if key.lower() == "content-length"
+            ]
+            if len(set(content_lengths)) > 1:
+                raise TransportError("conflicting Content-Length headers")
+            if content_lengths and any(not value.isdecimal() for value in content_lengths):
+                raise TransportError("invalid Content-Length header")
+            if "transfer-encoding" in headers and content_lengths:
+                raise TransportError("ambiguous transfer and content length headers")
             if headers.get("content-encoding", "identity").lower() not in {"", "identity"}:
                 raise TransportError("compressed responses are not accepted")
             content_length = headers.get("content-length")
-            if content_length is not None:
-                try:
-                    if int(content_length) > max_bytes:
-                        raise ResponseTooLarge("response exceeds configured byte limit")
-                except ValueError as exc:
-                    raise TransportError("invalid Content-Length header") from exc
+            if content_length is not None and int(content_length) > max_bytes:
+                raise ResponseTooLarge("response exceeds configured byte limit")
+            if 200 <= response.status < 300 and response.status != 204:
+                content_type = headers.get("content-type")
+                media_type = content_type.split(";", 1)[0].strip().lower() if content_type else ""
+                if media_type not in self._ALLOWED_CONTENT_TYPES:
+                    raise TransportError("response Content-Type is missing or unsupported")
             body = bytearray()
             while True:
                 remaining = deadline - self._clock()
