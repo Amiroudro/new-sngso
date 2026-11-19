@@ -245,3 +245,26 @@ class PerspectiveRecord(_JsonRecord):
             kind=payload["kind"],
             attribution=payload["attribution"],
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimRelationRecord(_JsonRecord):
+    """Curated relationship between two claims, not an adjudication of either claim."""
+
+    story_id: str
+    claim_id: str
+    related_claim_id: str
+    relationship: str
+    review_status: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "ClaimRelationRecord":
+        return cls(
+            id=payload["id"],
+            payload_json=canonical_json_bytes(payload).decode("utf-8"),
+            story_id=payload["story_id"],
+            claim_id=payload["claim_id"],
+            related_claim_id=payload["related_claim_id"],
+            relationship=payload["relationship"],
+            review_status=payload["review_status"],
+        )
