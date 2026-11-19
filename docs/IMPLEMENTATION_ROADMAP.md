@@ -44,7 +44,7 @@ Acceptance:
 - Tests cover source and endpoint scope, missing evidence, expiry, and revocation.
 - Cross-record ownership checks are explicitly deferred to Section 3; no real publisher is marked approved without documented evidence.
 
-**Progress:** contracts and evaluator-level scope checks have been committed. Tests are authored but await a successful CI run. Cross-record reference validation and human evidence review remain incomplete.
+**Progress:** four governance contracts, evaluator-level source/endpoint/evidence-reference checks, regression fixtures, and a written review policy have been committed. Tests are authored but await a successful CI run. Cross-record reference validation, evidence-record verification, and actual human review remain incomplete.
 
 ## 3. Domain models, persistence, and audit trail
 
