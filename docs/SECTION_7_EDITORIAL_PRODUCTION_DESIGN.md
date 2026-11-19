@@ -41,7 +41,7 @@ Revisions use optimistic concurrency with an expected revision. Story, kind, lan
 4. New objects begin unapproved; approval/rejection requires review metadata. Vocabulary objects must reference a matching glossary entry.
 5. Optimistic concurrency rejects stale revisions.
 6. Bangla and English objects remain independent.
-7. The Section 6 editorial snapshot includes existing learning objects.
+7. The story editorial snapshot includes existing learning objects and the glossary entries those vocabulary objects reference.
 8. CI verifies contract, migration, review, provenance, revision, glossary-link, and audit invariants.
 
 ## Deferred to later Section 7 slices
@@ -64,4 +64,4 @@ Question objects must identify `answer_claim_ids`, a non-empty subset of the obj
 
 ## Controlled glossary verification
 
-The glossary registry is stored under schema migration 12. A headword is unique by term language and part of speech, contains one or more language-specific senses, and has its own review and revision history. Vocabulary learning objects must point to a matching registered headword; an approved vocabulary item also requires an approved glossary entry. This keeps translations and lexical metadata consistent across stories without pretending that translation is automatic.
+The glossary registry is stored under schema migration 12. A headword is unique by term language and part of speech, contains one or more language-specific senses, and has its own review and revision history. Vocabulary learning objects must point to a matching registered headword; an approved vocabulary item also requires an approved glossary entry. The story dossier includes the referenced glossary entries alongside the learning objects. This keeps translations and lexical metadata consistent across stories without pretending that translation is automatic.
