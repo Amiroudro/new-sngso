@@ -407,6 +407,32 @@ def test_ingestion_rejects_language_not_declared_by_endpoint():
         assert registry.get_ingestion_decision("observation:first") is None
 
 
+def test_duplicate_matching_uses_latest_article_metadata_not_stale_observations():
+    with SQLiteRegistry() as registry:
+        add_publisher(registry, "publisher-a")
+        add_publisher(registry, "publisher-b")
+        add_observation(
+            registry, "publisher-a", "observation:a-old",
+            title="পুরোনো শিরোনাম",
+            observed_at="2026-11-20T01:00:00Z",
+        )
+        add_observation(
+            registry, "publisher-a", "observation:a-new",
+            title="নতুন শিরোনাম",
+            observed_at="2026-11-20T02:00:00Z",
+        )
+        add_observation(
+            registry, "publisher-b", "observation:b-old",
+            title="পুরোনো শিরোনাম",
+            path="/world/old-report",
+        )
+        ingest_observation(registry, "observation:a-old", source_language="bn")
+        ingest_observation(registry, "observation:a-new", source_language="bn")
+        candidate = ingest_observation(registry, "observation:b-old", source_language="bn")
+        assert candidate["outcome"] == "created"
+        assert candidate["duplicate_of_article_id"] is None
+
+
 def test_duplicate_candidate_requires_publication_timestamp():
     with SQLiteRegistry() as registry:
         add_publisher(registry, "publisher-a")
