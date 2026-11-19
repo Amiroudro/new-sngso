@@ -22,7 +22,7 @@ def load_schema(name: str) -> dict:
 
 @pytest.mark.parametrize(
     "name",
-    ["source-permission", "source-observation", "article", "story", "claim", "evidence", "timeline-event", "perspective", "claim-relation", "learning-object", "pipeline-run", "editorial-decision", "edition"],
+    ["source-permission", "source-observation", "article", "story", "claim", "evidence", "timeline-event", "perspective", "claim-relation", "learning-object", "glossary-entry", "pipeline-run", "editorial-decision", "edition"],
 )
 def test_schema_is_valid_draft_2020_12(name: str) -> None:
     schema = load_schema(name)
@@ -202,6 +202,22 @@ def test_minimal_valid_contract_instances(name: str, instance: dict) -> None:
             },
         ),
         (
+            "glossary-entry",
+            {
+                "schema_version": "1.0.0",
+                "id": "glossary:sample-001",
+                "lemma": "accountability",
+                "term_language": "en",
+                "part_of_speech": "noun",
+                "senses": [
+                    {"language": "bn", "definition": "দায়বদ্ধতা"},
+                    {"language": "en", "definition": "The state of being answerable."}
+                ],
+                "status": "draft",
+                "created_at": "2026-11-19T00:00:00Z"
+            },
+        ),
+        (
             "learning-object",
             {
                 "schema_version": "1.0.0",
@@ -210,7 +226,7 @@ def test_minimal_valid_contract_instances(name: str, instance: dict) -> None:
                 "kind": "brief_summary",
                 "language": "en",
                 "status": "draft",
-                "content": {"text": "A short, source-linked learning summary."},
+                "content": {"text": "A short, source-linked learning summary.", "segments": [{"text": "A short, source-linked learning summary.", "claim_ids": ["claim:sample-001"], "role": "fact"}]},
                 "claim_ids": ["claim:sample-001"],
                 "created_at": "2026-11-19T00:00:00Z",
             },

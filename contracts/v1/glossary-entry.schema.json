@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/glossary-entry.schema.json",
+  "title": "Controlled glossary entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "lemma",
+    "term_language",
+    "part_of_speech",
+    "senses",
+    "status",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "lemma": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "term_language": {
+      "$ref": "common.schema.json#/$defs/languageTag"
+    },
+    "part_of_speech": {
+      "enum": [
+        "noun",
+        "verb",
+        "adjective",
+        "adverb",
+        "preposition",
+        "conjunction",
+        "interjection",
+        "phrase",
+        "other"
+      ]
+    },
+    "pronunciation": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "senses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "language",
+          "definition"
+        ],
+        "properties": {
+          "language": {
+            "$ref": "common.schema.json#/$defs/languageTag"
+          },
+          "definition": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "usage_note": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "synonyms": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "antonyms": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "collocations": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "exam_tags": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "review_required",
+        "approved",
+        "rejected"
+      ]
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "reviewed_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "reviewed_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "review_note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "reviewed_at",
+          "reviewed_by",
+          "review_note"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "draft",
+              "review_required"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "reviewed_at"
+              ]
+            },
+            {
+              "required": [
+                "reviewed_by"
+              ]
+            },
+            {
+              "required": [
+                "review_note"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

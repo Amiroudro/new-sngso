@@ -30,12 +30,14 @@ from .models import (
     TimelineEventRecord,
     PerspectiveRecord,
     ClaimRelationRecord,
+    LearningObjectRecord,
+    GlossaryEntryRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 10
+_SCHEMA_VERSION = 12
 
 
 class RegistryIntegrityError(ValueError):
@@ -591,6 +593,417 @@ _MIGRATION_10 = (
 )
 
 
+_MIGRATION_11 = (
+    """CREATE TABLE learning_objects (
+        id TEXT PRIMARY KEY,
+        story_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (
+            'headline_summary', 'brief_summary', 'detailed_summary',
+            'vocabulary', 'comprehension_question', 'analysis_question',
+            'mcq_question', 'revision_card'
+        )),
+        language TEXT NOT NULL,
+        variant_group_id TEXT,
+        status TEXT NOT NULL CHECK (status IN ('draft', 'review_required', 'approved', 'rejected')),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_actor TEXT NOT NULL CHECK (length(trim(last_actor)) > 0),
+        last_reason TEXT NOT NULL CHECK (length(trim(last_reason)) > 0),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        UNIQUE (story_id, id)
+    )""",
+    """CREATE TABLE learning_object_revisions (
+        learning_object_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (learning_object_id, revision),
+        FOREIGN KEY (learning_object_id) REFERENCES learning_objects(id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_learning_objects_story_kind_language ON learning_objects(story_id, kind, language, id)",
+    """CREATE UNIQUE INDEX idx_learning_objects_variant_language
+        ON learning_objects(story_id, kind, variant_group_id, language)
+        WHERE variant_group_id IS NOT NULL""",
+    """CREATE TRIGGER learning_objects_variant_group_validate_insert
+        BEFORE INSERT ON learning_objects
+        WHEN NEW.variant_group_id IS NOT NULL
+        BEGIN
+            SELECT CASE WHEN EXISTS (
+                SELECT 1 FROM learning_objects existing
+                WHERE existing.variant_group_id = NEW.variant_group_id
+                  AND (existing.story_id != NEW.story_id OR existing.kind != NEW.kind)
+            ) THEN RAISE(ABORT, 'learning object variants must share the same story and kind') END;
+        END""",
+    """CREATE TRIGGER learning_objects_variant_group_validate_update
+        BEFORE UPDATE ON learning_objects
+        WHEN NEW.variant_group_id IS NOT NULL
+        BEGIN
+            SELECT CASE WHEN EXISTS (
+                SELECT 1 FROM learning_objects existing
+                WHERE existing.variant_group_id = NEW.variant_group_id
+                  AND existing.id != NEW.id
+                  AND (existing.story_id != NEW.story_id OR existing.kind != NEW.kind)
+            ) THEN RAISE(ABORT, 'learning object variants must share the same story and kind') END;
+        END""",
+    """CREATE TRIGGER learning_objects_validate_insert
+        BEFORE INSERT ON learning_objects
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'story' AND id = NEW.story_id
+                  AND json_extract(payload_json, '$.status') != 'archived'
+            ) THEN RAISE(ABORT, 'learning object requires an active registered story') END;
+            SELECT CASE WHEN json_array_length(NEW.payload_json, '$.claim_ids') IS NULL
+                OR (
+                    SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.claim_ids') claim_ref
+                    JOIN domain_records claim_record
+                      ON claim_record.record_type = 'claim'
+                     AND claim_record.id = claim_ref.value
+                     AND json_extract(claim_record.payload_json, '$.story_id') = NEW.story_id
+                ) != json_array_length(NEW.payload_json, '$.claim_ids')
+            THEN RAISE(ABORT, 'learning object claims must belong to its story') END;
+            SELECT CASE WHEN NEW.status NOT IN ('draft', 'review_required')
+                THEN RAISE(ABORT, 'new learning object must start in draft or review-required state') END;
+            SELECT CASE WHEN json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+            THEN RAISE(ABORT, 'new learning object cannot contain review metadata') END;
+        END""",
+    """CREATE TRIGGER learning_objects_validate_update
+        BEFORE UPDATE ON learning_objects
+        BEGIN
+            SELECT CASE WHEN NEW.id != OLD.id OR NEW.story_id != OLD.story_id
+                OR NEW.kind != OLD.kind OR NEW.language != OLD.language
+                OR NEW.variant_group_id IS NOT OLD.variant_group_id
+                OR NEW.created_at != OLD.created_at
+            THEN RAISE(ABORT, 'learning object identity is immutable') END;
+            SELECT CASE WHEN NEW.revision != OLD.revision + 1
+                THEN RAISE(ABORT, 'learning object revision must increment by one') END;
+            SELECT CASE WHEN trim(NEW.last_actor) = '' OR trim(NEW.last_reason) = ''
+                THEN RAISE(ABORT, 'learning object revision requires actor and reason') END;
+            SELECT CASE WHEN julianday(NEW.updated_at) < julianday(OLD.updated_at)
+                THEN RAISE(ABORT, 'learning object update time cannot move backwards') END;
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'story' AND id = NEW.story_id
+                  AND json_extract(payload_json, '$.status') != 'archived'
+            ) THEN RAISE(ABORT, 'learning object requires an active registered story') END;
+            SELECT CASE WHEN json_array_length(NEW.payload_json, '$.claim_ids') IS NULL
+                OR (
+                    SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.claim_ids') claim_ref
+                    JOIN domain_records claim_record
+                      ON claim_record.record_type = 'claim'
+                     AND claim_record.id = claim_ref.value
+                     AND json_extract(claim_record.payload_json, '$.story_id') = NEW.story_id
+                ) != json_array_length(NEW.payload_json, '$.claim_ids')
+            THEN RAISE(ABORT, 'learning object claims must belong to its story') END;
+            SELECT CASE WHEN NEW.status IN ('approved', 'rejected')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NULL
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.reviewed_by'), '')) = ''
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
+                )
+            THEN RAISE(ABORT, 'reviewed learning object requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN NEW.status IN ('approved', 'rejected')
+                AND julianday(json_extract(NEW.payload_json, '$.reviewed_at')) < julianday(NEW.created_at)
+            THEN RAISE(ABORT, 'learning object review cannot predate its creation') END;
+            SELECT CASE WHEN NEW.status IN ('draft', 'review_required')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+                )
+            THEN RAISE(ABORT, 'unreviewed learning object cannot contain review metadata') END;
+        END""",
+    """CREATE TRIGGER learning_objects_no_delete
+        BEFORE DELETE ON learning_objects
+        BEGIN SELECT RAISE(ABORT, 'learning objects cannot be deleted'); END""",
+    """CREATE TRIGGER learning_object_revisions_validate_insert
+        BEFORE INSERT ON learning_object_revisions
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM learning_objects
+                WHERE id = NEW.learning_object_id AND revision = NEW.revision
+                  AND payload_json = NEW.payload_json
+            ) THEN RAISE(ABORT, 'learning object revision must match the current record') END;
+            SELECT CASE WHEN trim(NEW.actor) = '' OR trim(NEW.reason) = ''
+                THEN RAISE(ABORT, 'learning object revision requires actor and reason') END;
+        END""",
+    """CREATE TRIGGER learning_objects_record_insert
+        AFTER INSERT ON learning_objects
+        BEGIN
+            INSERT INTO learning_object_revisions
+            (learning_object_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.id, NEW.revision, NEW.created_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
+    """CREATE TRIGGER learning_objects_record_update
+        AFTER UPDATE ON learning_objects
+        BEGIN
+            INSERT INTO learning_object_revisions
+            (learning_object_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.id, NEW.revision, NEW.updated_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
+    """CREATE TRIGGER learning_object_revisions_no_update
+        BEFORE UPDATE ON learning_object_revisions
+        BEGIN SELECT RAISE(ABORT, 'learning object revisions are append-only'); END""",
+    """CREATE TRIGGER learning_object_revisions_no_delete
+        BEFORE DELETE ON learning_object_revisions
+        BEGIN SELECT RAISE(ABORT, 'learning object revisions are append-only'); END""",
+)
+
+
+def _validate_learning_object_traceability(payload: dict[str, Any]) -> None:
+    """Require every summary segment to map exactly to the object's claim set."""
+    if payload.get("kind") not in {"headline_summary", "brief_summary", "detailed_summary"}:
+        return
+    content = payload.get("content", {})
+    segments = content.get("segments", [])
+    if not segments:
+        raise RegistryIntegrityError("summary requires claim-mapped segments")
+    if content.get("text") != " ".join(segment["text"] for segment in segments):
+        raise RegistryIntegrityError("summary text must exactly match its claim-mapped segments")
+    object_claims = set(payload.get("claim_ids", []))
+    segment_claims: set[str] = set()
+    for segment in segments:
+        claims = set(segment["claim_ids"])
+        if not claims.issubset(object_claims):
+            raise RegistryIntegrityError("summary segment references a claim outside the learning object")
+        segment_claims.update(claims)
+    if segment_claims != object_claims:
+        raise RegistryIntegrityError("summary claim links must exactly match its segment claim links")
+
+
+def _validate_learning_object_answer_links(payload: dict[str, Any]) -> None:
+    """Ensure question answers and MCQ keys are structurally grounded."""
+    kind = payload.get("kind")
+    if kind not in {"comprehension_question", "analysis_question", "mcq_question"}:
+        return
+    content = payload.get("content", {})
+    answer_claims = set(content.get("answer_claim_ids", []))
+    object_claims = set(payload.get("claim_ids", []))
+    if not answer_claims or not answer_claims.issubset(object_claims):
+        raise RegistryIntegrityError("question answer claim links must be a non-empty subset of the object's claims")
+    if kind == "mcq_question":
+        options = content.get("options", [])
+        option_ids = [item["id"] for item in options]
+        option_texts = [item["text"].strip().casefold() for item in options]
+        if len(option_ids) != len(set(option_ids)):
+            raise RegistryIntegrityError("MCQ option IDs must be unique")
+        if len(option_texts) != len(set(option_texts)):
+            raise RegistryIntegrityError("MCQ option text must be unique")
+        if content.get("correct_option_id") not in set(option_ids):
+            raise RegistryIntegrityError("MCQ correct option must reference one of its options")
+
+
+_MIGRATION_12 = (
+    """CREATE TABLE glossary_entries (
+        id TEXT PRIMARY KEY,
+        lemma TEXT NOT NULL,
+        lemma_key TEXT NOT NULL,
+        term_language TEXT NOT NULL,
+        part_of_speech TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('draft', 'review_required', 'approved', 'rejected')),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_actor TEXT NOT NULL CHECK (length(trim(last_actor)) > 0),
+        last_reason TEXT NOT NULL CHECK (length(trim(last_reason)) > 0),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        UNIQUE (term_language, part_of_speech, lemma_key)
+    )""",
+    """CREATE TABLE glossary_entry_revisions (
+        glossary_entry_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (glossary_entry_id, revision),
+        FOREIGN KEY (glossary_entry_id) REFERENCES glossary_entries(id) ON DELETE RESTRICT
+    )""",
+    """CREATE TRIGGER glossary_entries_validate_insert
+        BEFORE INSERT ON glossary_entries
+        BEGIN
+            SELECT CASE WHEN NEW.status NOT IN ('draft', 'review_required')
+                THEN RAISE(ABORT, 'new glossary entry must start in draft or review-required state') END;
+            SELECT CASE WHEN json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+            THEN RAISE(ABORT, 'new glossary entry cannot contain review metadata') END;
+        END""",
+    """CREATE TRIGGER glossary_entries_validate_update
+        BEFORE UPDATE ON glossary_entries
+        BEGIN
+            SELECT CASE WHEN NEW.id != OLD.id OR NEW.lemma != OLD.lemma
+                OR NEW.lemma_key != OLD.lemma_key OR NEW.term_language != OLD.term_language
+                OR NEW.part_of_speech != OLD.part_of_speech OR NEW.created_at != OLD.created_at
+            THEN RAISE(ABORT, 'glossary entry identity is immutable') END;
+            SELECT CASE WHEN NEW.revision != OLD.revision + 1
+                THEN RAISE(ABORT, 'glossary entry revision must increment by one') END;
+            SELECT CASE WHEN trim(NEW.last_actor) = '' OR trim(NEW.last_reason) = ''
+                THEN RAISE(ABORT, 'glossary entry revision requires actor and reason') END;
+            SELECT CASE WHEN julianday(NEW.updated_at) < julianday(OLD.updated_at)
+                THEN RAISE(ABORT, 'glossary entry update time cannot move backwards') END;
+            SELECT CASE WHEN NEW.status IN ('approved', 'rejected')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NULL
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.reviewed_by'), '')) = ''
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
+                )
+            THEN RAISE(ABORT, 'reviewed glossary entry requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN NEW.status IN ('approved', 'rejected')
+                AND julianday(json_extract(NEW.payload_json, '$.reviewed_at')) < julianday(NEW.created_at)
+            THEN RAISE(ABORT, 'glossary entry review cannot predate its creation') END;
+            SELECT CASE WHEN NEW.status IN ('draft', 'review_required')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+                )
+            THEN RAISE(ABORT, 'unreviewed glossary entry cannot contain review metadata') END;
+        END""",
+    """CREATE TRIGGER glossary_entries_no_delete
+        BEFORE DELETE ON glossary_entries
+        BEGIN SELECT RAISE(ABORT, 'glossary entries cannot be deleted'); END""",
+    """CREATE TRIGGER glossary_entries_record_insert
+        AFTER INSERT ON glossary_entries
+        BEGIN
+            INSERT INTO glossary_entry_revisions
+            (glossary_entry_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.id, NEW.revision, NEW.created_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
+    """CREATE TRIGGER glossary_entries_record_update
+        AFTER UPDATE ON glossary_entries
+        BEGIN
+            INSERT INTO glossary_entry_revisions
+            (glossary_entry_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.id, NEW.revision, NEW.updated_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
+    """CREATE TRIGGER glossary_entry_revisions_validate_insert
+        BEFORE INSERT ON glossary_entry_revisions
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM glossary_entries
+                WHERE id = NEW.glossary_entry_id AND revision = NEW.revision
+                  AND payload_json = NEW.payload_json
+            ) THEN RAISE(ABORT, 'glossary revision must match the current entry') END;
+            SELECT CASE WHEN trim(NEW.actor) = '' OR trim(NEW.reason) = ''
+                THEN RAISE(ABORT, 'glossary revision requires actor and reason') END;
+        END""",
+    """CREATE TRIGGER glossary_entry_revisions_no_update
+        BEFORE UPDATE ON glossary_entry_revisions
+        BEGIN SELECT RAISE(ABORT, 'glossary revisions are append-only'); END""",
+    """CREATE TRIGGER glossary_entry_revisions_no_delete
+        BEFORE DELETE ON glossary_entry_revisions
+        BEGIN SELECT RAISE(ABORT, 'glossary revisions are append-only'); END""",
+    """CREATE TRIGGER learning_objects_mcq_validate_insert
+        BEFORE INSERT ON learning_objects
+        WHEN json_extract(NEW.payload_json, '$.kind') = 'mcq_question'
+        BEGIN
+            SELECT CASE WHEN COALESCE(json_array_length(NEW.payload_json, '$.content.options'), 0) < 2
+                OR json_array_length(NEW.payload_json, '$.content.options') > 6
+            THEN RAISE(ABORT, 'MCQ must contain between two and six options') END;
+            SELECT CASE WHEN (
+                SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.content.options')
+            ) != (
+                SELECT COUNT(DISTINCT json_extract(option.value, '$.id'))
+                FROM json_each(NEW.payload_json, '$.content.options') option
+            ) THEN RAISE(ABORT, 'MCQ option IDs must be unique') END;
+            SELECT CASE WHEN (
+                SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.content.options')
+            ) != (
+                SELECT COUNT(DISTINCT lower(trim(json_extract(option.value, '$.text'))))
+                FROM json_each(NEW.payload_json, '$.content.options') option
+            ) THEN RAISE(ABORT, 'MCQ option text must be unique') END;
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM json_each(NEW.payload_json, '$.content.options') option
+                WHERE json_extract(option.value, '$.id') = json_extract(NEW.payload_json, '$.content.correct_option_id')
+            ) THEN RAISE(ABORT, 'MCQ correct option must reference one of its options') END;
+        END""",
+    """CREATE TRIGGER learning_objects_mcq_validate_update
+        BEFORE UPDATE ON learning_objects
+        WHEN json_extract(NEW.payload_json, '$.kind') = 'mcq_question'
+        BEGIN
+            SELECT CASE WHEN COALESCE(json_array_length(NEW.payload_json, '$.content.options'), 0) < 2
+                OR json_array_length(NEW.payload_json, '$.content.options') > 6
+            THEN RAISE(ABORT, 'MCQ must contain between two and six options') END;
+            SELECT CASE WHEN (
+                SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.content.options')
+            ) != (
+                SELECT COUNT(DISTINCT json_extract(option.value, '$.id'))
+                FROM json_each(NEW.payload_json, '$.content.options') option
+            ) THEN RAISE(ABORT, 'MCQ option IDs must be unique') END;
+            SELECT CASE WHEN (
+                SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.content.options')
+            ) != (
+                SELECT COUNT(DISTINCT lower(trim(json_extract(option.value, '$.text'))))
+                FROM json_each(NEW.payload_json, '$.content.options') option
+            ) THEN RAISE(ABORT, 'MCQ option text must be unique') END;
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM json_each(NEW.payload_json, '$.content.options') option
+                WHERE json_extract(option.value, '$.id') = json_extract(NEW.payload_json, '$.content.correct_option_id')
+            ) THEN RAISE(ABORT, 'MCQ correct option must reference one of its options') END;
+        END""",
+    """CREATE TRIGGER learning_objects_glossary_validate_insert
+        BEFORE INSERT ON learning_objects
+        WHEN json_extract(NEW.payload_json, '$.kind') = 'vocabulary'
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM glossary_entries glossary
+                WHERE glossary.id = json_extract(NEW.payload_json, '$.content.glossary_entry_id')
+                  AND json_extract(glossary.payload_json, '$.lemma') = json_extract(NEW.payload_json, '$.content.term')
+                  AND json_extract(glossary.payload_json, '$.term_language') = json_extract(NEW.payload_json, '$.content.term_language')
+                  AND json_extract(glossary.payload_json, '$.part_of_speech') = json_extract(NEW.payload_json, '$.content.part_of_speech')
+                  AND (
+                    json_extract(NEW.payload_json, '$.content.pronunciation') IS NULL
+                    OR json_extract(glossary.payload_json, '$.pronunciation') IS NULL
+                    OR json_extract(glossary.payload_json, '$.pronunciation') = json_extract(NEW.payload_json, '$.content.pronunciation')
+                  )
+                  AND EXISTS (
+                    SELECT 1 FROM json_each(glossary.payload_json, '$.senses') sense
+                    WHERE json_extract(sense.value, '$.language') = json_extract(NEW.payload_json, '$.language')
+                      AND json_extract(sense.value, '$.definition') = json_extract(NEW.payload_json, '$.content.meaning')
+                  )
+            ) THEN RAISE(ABORT, 'vocabulary learning object must match a registered glossary entry') END;
+            SELECT CASE WHEN NEW.status = 'approved' AND (
+                SELECT status FROM glossary_entries
+                WHERE id = json_extract(NEW.payload_json, '$.content.glossary_entry_id')
+            ) != 'approved'
+            THEN RAISE(ABORT, 'approved vocabulary requires an approved glossary entry') END;
+        END""",
+    """CREATE TRIGGER learning_objects_glossary_validate_update
+        BEFORE UPDATE ON learning_objects
+        WHEN json_extract(NEW.payload_json, '$.kind') = 'vocabulary'
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM glossary_entries glossary
+                WHERE glossary.id = json_extract(NEW.payload_json, '$.content.glossary_entry_id')
+                  AND json_extract(glossary.payload_json, '$.lemma') = json_extract(NEW.payload_json, '$.content.term')
+                  AND json_extract(glossary.payload_json, '$.term_language') = json_extract(NEW.payload_json, '$.content.term_language')
+                  AND json_extract(glossary.payload_json, '$.part_of_speech') = json_extract(NEW.payload_json, '$.content.part_of_speech')
+                  AND (
+                    json_extract(NEW.payload_json, '$.content.pronunciation') IS NULL
+                    OR json_extract(glossary.payload_json, '$.pronunciation') IS NULL
+                    OR json_extract(glossary.payload_json, '$.pronunciation') = json_extract(NEW.payload_json, '$.content.pronunciation')
+                  )
+                  AND EXISTS (
+                    SELECT 1 FROM json_each(glossary.payload_json, '$.senses') sense
+                    WHERE json_extract(sense.value, '$.language') = json_extract(NEW.payload_json, '$.language')
+                      AND json_extract(sense.value, '$.definition') = json_extract(NEW.payload_json, '$.content.meaning')
+                  )
+            ) THEN RAISE(ABORT, 'vocabulary learning object must match a registered glossary entry') END;
+            SELECT CASE WHEN NEW.status = 'approved' AND (
+                SELECT status FROM glossary_entries
+                WHERE id = json_extract(NEW.payload_json, '$.content.glossary_entry_id')
+            ) != 'approved'
+            THEN RAISE(ABORT, 'approved vocabulary requires an approved glossary entry') END;
+        END""",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -781,6 +1194,32 @@ class SQLiteRegistry:
                     version = 10
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 10 failed; transaction rolled back") from exc
+
+            if version == 10 and _SCHEMA_VERSION >= 11:
+                try:
+                    for statement in _MIGRATION_11:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (11, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 11")
+                    version = 11
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 11 failed; transaction rolled back") from exc
+
+            if version == 11 and _SCHEMA_VERSION >= 12:
+                try:
+                    for statement in _MIGRATION_12:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (12, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 12")
+                    version = 12
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 12 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -3467,6 +3906,34 @@ class SQLiteRegistry:
             perspective_history = self.perspective_history(story_id)
             claim_relation_history = self.claim_relation_history(story_id)
             decisions = self.story_decision_history(story_id)
+            learning_object_rows = connection.execute(
+                """SELECT id, revision, updated_at, payload_json FROM learning_objects
+                WHERE story_id = ? ORDER BY kind, language, id""",
+                (story_id,),
+            ).fetchall()
+            learning_objects = [
+                {"id": row["id"], "revision": row["revision"],
+                 "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
+                for row in learning_object_rows
+            ]
+            glossary_ids = sorted({
+                item["record"].get("content", {}).get("glossary_entry_id")
+                for item in learning_objects
+                if item["record"].get("content", {}).get("glossary_entry_id")
+            })
+            glossary_entries = []
+            if glossary_ids:
+                placeholders = ",".join("?" for _ in glossary_ids)
+                glossary_rows = connection.execute(
+                    f"""SELECT id, revision, updated_at, payload_json FROM glossary_entries
+                    WHERE id IN ({placeholders}) ORDER BY id""",
+                    tuple(glossary_ids),
+                ).fetchall()
+                glossary_entries = [
+                    {"id": row["id"], "revision": row["revision"],
+                     "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
+                    for row in glossary_rows
+                ]
             reporting_independence = self.story_reporting_independence(story_id)
             snapshot = {
                 "story_id": story_id,
@@ -3483,10 +3950,525 @@ class SQLiteRegistry:
                 "claim_relation_history": claim_relation_history,
                 "claim_relations": [item for item in claim_relation_history if not item["is_superseded"]],
                 "story_decisions": decisions,
+                "learning_objects": learning_objects,
+                "glossary_entries": glossary_entries,
                 "reporting_independence": reporting_independence,
             }
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
             return snapshot
+
+    def add_glossary_entry(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> GlossaryEntryRecord:
+        """Create a shared glossary headword with language-specific senses."""
+        validate_payload("glossary-entry", payload)
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        _aware_datetime(payload["created_at"], "created_at")
+        if payload["status"] not in {"draft", "review_required"}:
+            raise RegistryIntegrityError("new glossary entry must start in draft or review-required state")
+        if any(field in payload for field in ("reviewed_at", "reviewed_by", "review_note")):
+            raise RegistryIntegrityError("new glossary entry cannot contain review metadata")
+        record = GlossaryEntryRecord.from_payload(payload, revision=1)
+        lemma_key = payload["lemma"].strip().casefold()
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO glossary_entries
+                (id, lemma, lemma_key, term_language, part_of_speech, status, revision,
+                 created_at, updated_at, last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (record.id, record.lemma, lemma_key, record.term_language, record.part_of_speech,
+                 record.status, payload["created_at"], payload["created_at"],
+                 actor.strip(), reason.strip(), record.payload_json),
+            )
+            self._append_audit(
+                connection,
+                event_type="glossary_entry.created",
+                entity_type="glossary_entry",
+                entity_id=record.id,
+                payload={"record": payload, "actor": actor.strip(), "reason": reason.strip(), "revision": 1},
+            )
+        return record
+
+    def get_glossary_entry(self, glossary_entry_id: str) -> GlossaryEntryRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT revision, payload_json FROM glossary_entries WHERE id = ?",
+                (glossary_entry_id,),
+            ).fetchone()
+        return GlossaryEntryRecord.from_payload(json.loads(row["payload_json"]), row["revision"]) if row else None
+
+    def find_glossary_entry(
+        self, lemma: str, *, term_language: str, part_of_speech: str
+    ) -> GlossaryEntryRecord | None:
+        lemma_key = lemma.strip().casefold()
+        with self._lock:
+            row = self._connection.execute(
+                """SELECT revision, payload_json FROM glossary_entries
+                WHERE lemma_key = ? AND term_language = ? AND part_of_speech = ?""",
+                (lemma_key, term_language, part_of_speech),
+            ).fetchone()
+        return GlossaryEntryRecord.from_payload(json.loads(row["payload_json"]), row["revision"]) if row else None
+
+    def revise_glossary_entry(
+        self,
+        glossary_entry_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+    ) -> GlossaryEntryRecord:
+        """Revise senses or review state without rewriting the headword identity."""
+        validate_payload("glossary-entry", payload)
+        if payload.get("id") != glossary_entry_id:
+            raise RegistryIntegrityError("glossary entry identity cannot change during revision")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        _aware_datetime(payload["created_at"], "created_at")
+        if payload["status"] in {"approved", "rejected"}:
+            reviewed_at = _aware_datetime(payload["reviewed_at"], "reviewed_at")
+            if reviewed_at < _aware_datetime(payload["created_at"], "created_at"):
+                raise RegistryIntegrityError("glossary entry review cannot predate its creation")
+        record = GlossaryEntryRecord.from_payload(payload, revision=expected_revision + 1)
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM glossary_entries WHERE id = ?",
+                (glossary_entry_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot revise an unknown glossary entry")
+            if row["revision"] != expected_revision:
+                raise RegistryIntegrityError("glossary entry revision conflict")
+            previous = json.loads(row["payload_json"])
+            for field in ("lemma", "term_language", "part_of_speech", "created_at"):
+                if payload[field] != previous[field]:
+                    raise RegistryIntegrityError("glossary entry identity fields cannot be rewritten")
+            now = _utc_now()
+            updated = connection.execute(
+                """UPDATE glossary_entries
+                SET status = ?, revision = ?, updated_at = ?, last_actor = ?, last_reason = ?, payload_json = ?
+                WHERE id = ? AND revision = ?""",
+                (record.status, expected_revision + 1, now, actor.strip(), reason.strip(),
+                 record.payload_json, glossary_entry_id, expected_revision),
+            )
+            if updated.rowcount != 1:
+                raise RegistryIntegrityError("glossary entry revision conflict")
+            self._append_audit(
+                connection,
+                event_type="glossary_entry.revised",
+                entity_type="glossary_entry",
+                entity_id=glossary_entry_id,
+                payload={
+                    "revision": expected_revision + 1,
+                    "actor": actor.strip(),
+                    "reason": reason.strip(),
+                    "record": payload,
+                },
+            )
+        return record
+
+    def glossary_entry_history(self, glossary_entry_id: str) -> list[dict[str, Any]]:
+        if self.get_glossary_entry(glossary_entry_id) is None:
+            raise RegistryIntegrityError(f"unknown glossary entry: {glossary_entry_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, created_at, actor, reason, payload_json
+                FROM glossary_entry_revisions WHERE glossary_entry_id = ? ORDER BY revision""",
+                (glossary_entry_id,),
+            ).fetchall()
+        return [
+            {
+                "revision": row["revision"],
+                "created_at": row["created_at"],
+                "actor": row["actor"],
+                "reason": row["reason"],
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def _validate_learning_object_glossary_reference(
+        self, connection: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        if payload.get("kind") != "vocabulary":
+            return
+        content = payload["content"]
+        row = connection.execute(
+            "SELECT status, payload_json FROM glossary_entries WHERE id = ?",
+            (content["glossary_entry_id"],),
+        ).fetchone()
+        if row is None:
+            raise RegistryIntegrityError("vocabulary learning object references an unknown glossary entry")
+        glossary = json.loads(row["payload_json"])
+        if any((
+            glossary["lemma"] != content["term"],
+            glossary["term_language"] != content["term_language"],
+            glossary["part_of_speech"] != content["part_of_speech"],
+        )):
+            raise RegistryIntegrityError("vocabulary fields must match the referenced glossary entry")
+        if not any(
+            sense["language"] == payload["language"]
+            and sense["definition"] == content["meaning"]
+            for sense in glossary["senses"]
+        ):
+            raise RegistryIntegrityError("vocabulary meaning must match a glossary sense in the learning object's language")
+        if content.get("pronunciation") and glossary.get("pronunciation") and content["pronunciation"] != glossary["pronunciation"]:
+            raise RegistryIntegrityError("vocabulary pronunciation must match the referenced glossary entry")
+        if payload["status"] == "approved" and row["status"] != "approved":
+            raise RegistryIntegrityError("approved vocabulary requires an approved glossary entry")
+
+    def add_learning_object(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> LearningObjectRecord:
+        """Create a language-specific learning object in a non-approved state."""
+        validate_payload("learning-object", payload)
+        _validate_learning_object_traceability(payload)
+        _validate_learning_object_answer_links(payload)
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        _aware_datetime(payload["created_at"], "created_at")
+        if payload["status"] not in {"draft", "review_required"}:
+            raise RegistryIntegrityError("new learning object must start in draft or review-required state")
+        if any(field in payload for field in ("reviewed_at", "reviewed_by", "review_note")):
+            raise RegistryIntegrityError("new learning object cannot contain review metadata")
+        record = LearningObjectRecord.from_payload(payload, revision=1)
+        with self._transaction() as connection:
+            story_row = connection.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = 'story' AND id = ?",
+                (record.story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise RegistryIntegrityError("learning object references an unknown story")
+            story = json.loads(story_row["payload_json"])
+            if story.get("status") == "archived":
+                raise RegistryIntegrityError("cannot create a learning object for an archived story")
+            if record.variant_group_id:
+                variants = connection.execute(
+                    """SELECT story_id, kind, language FROM learning_objects
+                    WHERE variant_group_id = ?""",
+                    (record.variant_group_id,),
+                ).fetchall()
+                if any(item["story_id"] != record.story_id or item["kind"] != record.kind for item in variants):
+                    raise RegistryIntegrityError("learning object variants must share the same story and kind")
+                if any(item["language"] == record.language for item in variants):
+                    raise RegistryIntegrityError("variant group already has an object in this language")
+            claim_ids = payload["claim_ids"]
+            if claim_ids:
+                placeholders = ",".join("?" for _ in claim_ids)
+                rows = connection.execute(
+                    f"SELECT id, payload_json FROM domain_records WHERE record_type = 'claim' AND id IN ({placeholders})",
+                    tuple(claim_ids),
+                ).fetchall()
+                if len(rows) != len(claim_ids) or any(
+                    json.loads(row["payload_json"])["story_id"] != record.story_id for row in rows
+                ):
+                    raise RegistryIntegrityError("learning object claims must belong to its story")
+            self._validate_learning_object_glossary_reference(connection, payload)
+            connection.execute(
+                """INSERT INTO learning_objects
+                (id, story_id, kind, language, variant_group_id, status, revision, created_at, updated_at,
+                 last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (record.id, record.story_id, record.kind, record.language, record.variant_group_id, record.status,
+                 payload["created_at"], payload["created_at"], actor.strip(), reason.strip(), record.payload_json),
+            )
+            self._append_audit(
+                connection,
+                event_type="learning_object.created",
+                entity_type="learning_object",
+                entity_id=record.id,
+                payload={"record": payload, "actor": actor.strip(), "reason": reason.strip(), "revision": 1},
+            )
+        return record
+
+    def get_learning_object(self, learning_object_id: str) -> LearningObjectRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT revision, payload_json FROM learning_objects WHERE id = ?",
+                (learning_object_id,),
+            ).fetchone()
+        return LearningObjectRecord.from_payload(json.loads(row["payload_json"]), row["revision"]) if row else None
+
+    def revise_learning_object(
+        self,
+        learning_object_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+    ) -> LearningObjectRecord:
+        """Revise an editorial object with optimistic concurrency and immutable history."""
+        validate_payload("learning-object", payload)
+        _validate_learning_object_traceability(payload)
+        _validate_learning_object_answer_links(payload)
+        if payload.get("id") != learning_object_id:
+            raise RegistryIntegrityError("learning object identity cannot change during revision")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        record = LearningObjectRecord.from_payload(payload, revision=expected_revision + 1)
+        _aware_datetime(payload["created_at"], "created_at")
+        if record.status in {"approved", "rejected"}:
+            _aware_datetime(payload["reviewed_at"], "reviewed_at")
+            if _aware_datetime(payload["reviewed_at"], "reviewed_at") < _aware_datetime(payload["created_at"], "created_at"):
+                raise RegistryIntegrityError("learning object review cannot predate its creation")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM learning_objects WHERE id = ?",
+                (learning_object_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot revise an unknown learning object")
+            if row["revision"] != expected_revision:
+                raise RegistryIntegrityError("learning object revision conflict")
+            previous = json.loads(row["payload_json"])
+            for field in ("story_id", "kind", "language", "variant_group_id", "created_at"):
+                if payload.get(field) != previous.get(field):
+                    raise RegistryIntegrityError("learning object identity fields cannot be rewritten")
+            claim_ids = payload["claim_ids"]
+            if claim_ids:
+                placeholders = ",".join("?" for _ in claim_ids)
+                claims = connection.execute(
+                    f"SELECT id, payload_json FROM domain_records WHERE record_type = 'claim' AND id IN ({placeholders})",
+                    tuple(claim_ids),
+                ).fetchall()
+                if len(claims) != len(claim_ids) or any(
+                    json.loads(item["payload_json"])["story_id"] != record.story_id for item in claims
+                ):
+                    raise RegistryIntegrityError("learning object claims must belong to its story")
+            self._validate_learning_object_glossary_reference(connection, payload)
+            now = _utc_now()
+            updated = connection.execute(
+                """UPDATE learning_objects
+                SET status = ?, revision = ?, updated_at = ?, last_actor = ?, last_reason = ?, payload_json = ?
+                WHERE id = ? AND revision = ?""",
+                (record.status, expected_revision + 1, now, actor.strip(), reason.strip(),
+                 record.payload_json, learning_object_id, expected_revision),
+            )
+            if updated.rowcount != 1:
+                raise RegistryIntegrityError("learning object revision conflict")
+            self._append_audit(
+                connection,
+                event_type="learning_object.revised",
+                entity_type="learning_object",
+                entity_id=learning_object_id,
+                payload={
+                    "revision": expected_revision + 1,
+                    "actor": actor.strip(),
+                    "reason": reason.strip(),
+                    "record": payload,
+                },
+            )
+        return record
+
+    def learning_object_history(self, learning_object_id: str) -> list[dict[str, Any]]:
+        """Return the immutable editorial revision history for one learning object."""
+        if self.get_learning_object(learning_object_id) is None:
+            raise RegistryIntegrityError(f"unknown learning object: {learning_object_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, created_at, actor, reason, payload_json
+                FROM learning_object_revisions
+                WHERE learning_object_id = ? ORDER BY revision""",
+                (learning_object_id,),
+            ).fetchall()
+        return [
+            {
+                "revision": row["revision"],
+                "created_at": row["created_at"],
+                "actor": row["actor"],
+                "reason": row["reason"],
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def story_learning_objects(self, story_id: str) -> list[LearningObjectRecord]:
+        """Return current language-specific learning objects for one story."""
+        if self.get_domain_record("story", story_id) is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, payload_json FROM learning_objects
+                WHERE story_id = ? ORDER BY kind, language, id""",
+                (story_id,),
+            ).fetchall()
+        return [
+            LearningObjectRecord.from_payload(json.loads(row["payload_json"]), row["revision"])
+            for row in rows
+        ]
+
+    def learning_object_quality_report(self, learning_object_id: str) -> dict[str, Any]:
+        """Evaluate deterministic editorial completeness without judging truth automatically."""
+        with self._transaction("DEFERRED") as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM learning_objects WHERE id = ?",
+                (learning_object_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError(f"unknown learning object: {learning_object_id}")
+            payload = json.loads(row["payload_json"])
+            blockers: list[dict[str, str]] = []
+            warnings: list[dict[str, str]] = []
+            checks: list[dict[str, Any]] = []
+
+            def check(name: str, passed: bool, detail: str, *, blocking: bool = True) -> None:
+                checks.append({"name": name, "passed": passed, "detail": detail})
+                if not passed:
+                    target = blockers if blocking else warnings
+                    target.append({"check": name, "detail": detail})
+
+            check(
+                "editorial_review",
+                payload["status"] == "approved",
+                "Learning object must be approved before it can pass the registry quality gate.",
+            )
+            claim_ids = payload.get("claim_ids", [])
+            placeholders = ",".join("?" for _ in claim_ids)
+            claim_rows = connection.execute(
+                f"""SELECT id, payload_json FROM domain_records
+                WHERE record_type = 'claim' AND id IN ({placeholders})""" if claim_ids else
+                "SELECT id, payload_json FROM domain_records WHERE 0",
+                tuple(claim_ids),
+            ).fetchall()
+            claims = {item["id"]: json.loads(item["payload_json"]) for item in claim_rows}
+            missing_claims = sorted(set(claim_ids) - set(claims))
+            check(
+                "claim_references",
+                not missing_claims,
+                "All linked claims must still exist." if not missing_claims else
+                "Missing claims: " + ", ".join(missing_claims),
+            )
+            claim_evidence: dict[str, list[str]] = {}
+            claim_assessments: dict[str, str] = {}
+            for claim_id, claim in claims.items():
+                provenance = claim.get("provenance", [])
+                evidence_ids = claim.get("evidence_ids", [])
+                if evidence_ids:
+                    ev_placeholders = ",".join("?" for _ in evidence_ids)
+                    found = connection.execute(
+                        f"""SELECT id FROM domain_records
+                        WHERE record_type = 'evidence' AND id IN ({ev_placeholders})""",
+                        tuple(evidence_ids),
+                    ).fetchall()
+                    found_ids = {item["id"] for item in found}
+                    if found_ids != set(evidence_ids):
+                        blockers.append({
+                            "check": "claim_evidence",
+                            "detail": f"Claim {claim_id} has missing evidence records.",
+                        })
+                claim_evidence[claim_id] = evidence_ids
+                claim_assessments[claim_id] = claim.get("assessment", "unassessed")
+                if not provenance:
+                    blockers.append({
+                        "check": "claim_provenance",
+                        "detail": f"Claim {claim_id} has no source provenance.",
+                    })
+                if claim.get("assessment") in {"supported", "partially_supported"} and not evidence_ids:
+                    blockers.append({
+                        "check": "claim_evidence",
+                        "detail": f"Claim {claim_id} is assessed but has no linked evidence.",
+                    })
+            check(
+                "claim_provenance",
+                all(claim.get("provenance") for claim in claims.values()) and not missing_claims,
+                "Every linked claim has source provenance." if claims and not missing_claims and
+                all(claim.get("provenance") for claim in claims.values()) else
+                "One or more linked claims lack source provenance.",
+            )
+
+            factual_claims: set[str] = set()
+            if payload["kind"] in {"headline_summary", "brief_summary", "detailed_summary"}:
+                for segment in payload["content"].get("segments", []):
+                    if segment["role"] == "fact":
+                        factual_claims.update(segment["claim_ids"])
+                        for claim_id in segment["claim_ids"]:
+                            assessment = claim_assessments.get(claim_id, "unassessed")
+                            if assessment not in {"supported", "partially_supported"}:
+                                blockers.append({
+                                    "check": "factual_segment_assessment",
+                                    "detail": f"Factual segment claim {claim_id} is assessed as {assessment}, not supported.",
+                                })
+                            elif not claim_evidence.get(claim_id):
+                                blockers.append({
+                                    "check": "factual_segment_evidence",
+                                    "detail": f"Factual segment claim {claim_id} has no linked evidence.",
+                                })
+                    elif segment["role"] in {"attributed", "analysis"}:
+                        for claim_id in segment["claim_ids"]:
+                            assessment = claim_assessments.get(claim_id, "unassessed")
+                            if assessment in {"disputed", "contradicted", "retracted", "unassessed"}:
+                                warnings.append({
+                                    "check": "qualified_segment",
+                                    "detail": f"{segment['role'].title()} segment cites claim {claim_id} with assessment {assessment}; preserve that qualification in the wording.",
+                                })
+            check(
+                "factual_segments",
+                all(
+                    claim_assessments.get(claim_id) in {"supported", "partially_supported"}
+                    and bool(claim_evidence.get(claim_id))
+                    for claim_id in factual_claims
+                ),
+                "Every factual summary segment cites assessed claims with linked evidence.",
+            )
+
+            if payload["kind"] in {"comprehension_question", "analysis_question", "mcq_question"}:
+                answer_claims = payload["content"].get("answer_claim_ids", [])
+                answer_supported = bool(answer_claims) and all(
+                    claim_assessments.get(claim_id) in {"supported", "partially_supported"}
+                    and bool(claim_evidence.get(claim_id))
+                    for claim_id in answer_claims
+                )
+                check(
+                    "answer_support",
+                    answer_supported,
+                    "Every answer claim must be supported or partially supported and have linked evidence.",
+                )
+
+            if payload["kind"] == "vocabulary":
+                glossary_id = payload["content"]["glossary_entry_id"]
+                glossary_row = connection.execute(
+                    "SELECT status, payload_json FROM glossary_entries WHERE id = ?",
+                    (glossary_id,),
+                ).fetchone()
+                glossary_valid = False
+                if glossary_row:
+                    glossary = json.loads(glossary_row["payload_json"])
+                    glossary_valid = (
+                        glossary_row["status"] == "approved"
+                        and glossary["lemma"] == payload["content"]["term"]
+                        and glossary["term_language"] == payload["content"]["term_language"]
+                        and glossary["part_of_speech"] == payload["content"]["part_of_speech"]
+                        and any(
+                            sense["language"] == payload["language"]
+                            and sense["definition"] == payload["content"]["meaning"]
+                            for sense in glossary["senses"]
+                        )
+                    )
+                check(
+                    "controlled_glossary",
+                    glossary_valid,
+                    "Vocabulary must match an approved glossary entry and a sense in the learning object's language.",
+                )
+
+            return {
+                "learning_object_id": learning_object_id,
+                "revision": row["revision"],
+                "status": payload["status"],
+                "meets_registry_quality_gates": not blockers,
+                "blockers": blockers,
+                "warnings": warnings,
+                "checks": checks,
+            }
 
     def get_domain_record(self, record_type: str, record_id: str):
         if record_type == "story_decision":
