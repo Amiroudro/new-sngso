@@ -70,7 +70,7 @@ def evaluate_permission(
     # a record that declares a scope cannot be evaluated without matching input.
     if "source_id" in permission or "endpoint_ids" in permission:
         recorded_source_id = permission.get("source_id")
-        if not isinstance(recorded_source_id, str) or not recorded_source_id:
+        if not isinstance(recorded_source_id, str) or not recorded_source_id.strip():
             return PermissionDecision(False, "invalid_source_scope", permission_id)
         if source_id != recorded_source_id:
             return PermissionDecision(False, "source_scope_mismatch", permission_id)
@@ -79,7 +79,7 @@ def evaluate_permission(
         if (
             not isinstance(endpoint_ids, list)
             or not endpoint_ids
-            or any(not isinstance(value, str) or not value for value in endpoint_ids)
+            or any(not isinstance(value, str) or not value.strip() for value in endpoint_ids)
         ):
             return PermissionDecision(False, "invalid_endpoint_scope", permission_id)
         if endpoint_id is None or endpoint_id not in endpoint_ids:
