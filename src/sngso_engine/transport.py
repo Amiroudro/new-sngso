@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import http.client
 import ipaddress
+import math
 import dns.exception
 import dns.resolver
 import socket
@@ -24,6 +25,15 @@ class TransportError(RuntimeError):
 
 class ResponseTooLarge(TransportError):
     """The response body exceeded the configured byte ceiling."""
+
+
+def _valid_finite_number(value: object, minimum: float, maximum: float) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and minimum <= value <= maximum
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +142,7 @@ class BoundedDNSResolver:
         clock: Callable[[], float] = time.monotonic,
         max_timeout_seconds: float = 2.5,
     ) -> None:
-        if not 0.1 <= max_timeout_seconds <= 10:
+        if not _valid_finite_number(max_timeout_seconds, 0.1, 10):
             raise ValueError("DNS timeout must be between 0.1 and 10 seconds")
         self._resolver_factory = resolver_factory or dns.resolver.Resolver
         self._clock = clock
@@ -141,7 +151,7 @@ class BoundedDNSResolver:
     def resolve(
         self, host: str, port: int, *, timeout_seconds: float
     ) -> tuple[str, ...]:
-        if not 0.1 <= timeout_seconds <= 30:
+        if not _valid_finite_number(timeout_seconds, 0.1, 30):
             raise TransportError("DNS resolution has no usable time budget")
         deadline = self._clock() + min(timeout_seconds, self._max_timeout_seconds)
         resolver = self._resolver_factory()
@@ -236,14 +246,14 @@ class SafeHTTPSTransport:
         max_retries: int = 1,
         max_redirects: int = 3,
     ) -> TransportResponse:
-        if not 0.1 <= timeout_seconds <= 30:
+        if not _valid_finite_number(timeout_seconds, 0.1, 30):
             raise ValueError("timeout_seconds must be between 0.1 and 30")
-        if not 1 <= max_bytes <= 1_000_000:
-            raise ValueError("max_bytes must be between 1 and 1000000")
-        if not 0 <= max_retries <= 2:
-            raise ValueError("max_retries must be between 0 and 2")
-        if not 0 <= max_redirects <= 3:
-            raise ValueError("max_redirects must be between 0 and 3")
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or not 1 <= max_bytes <= 1_000_000:
+            raise ValueError("max_bytes must be an integer between 1 and 1000000")
+        if isinstance(max_retries, bool) or not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
+            raise ValueError("max_retries must be an integer between 0 and 2")
+        if isinstance(max_redirects, bool) or not isinstance(max_redirects, int) or not 0 <= max_redirects <= 3:
+            raise ValueError("max_redirects must be an integer between 0 and 3")
         if not isinstance(allowed_domains, tuple) or not allowed_domains:
             raise ValueError("allowed_domains must be a non-empty tuple")
 
