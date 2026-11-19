@@ -293,6 +293,9 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 4000
+    },
+    "variant_group_id": {
+      "$ref": "common.schema.json#/$defs/id"
     }
   },
   "allOf": [
