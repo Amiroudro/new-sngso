@@ -2,7 +2,7 @@
 
 Status: implemented foundation; fixture test suite verified by GitHub Actions.  
 Storage engine: Python `sqlite3` and SQLite.  
-Migration line: schema version 3.
+Migration line: schema version 4.
 
 ## Design choices
 
@@ -43,6 +43,12 @@ Migration 3 adds:
 
 - `http_method` on `collection_observations`, constrained to `GET` for the currently implemented collection transport. Existing observations migrate with `GET` as their method. Future method support requires a separately reviewed schema and permission policy change.
 
+Migration 4 adds:
+
+- `ingestion_decisions`: append-only, revisioned decisions linking a stored metadata observation to a distinct article identity, with deterministic duplicate fingerprint, candidate/confirmed duplicate relationship, canonical URI, explanation, and timestamp.
+- `ingestion_current`: a current-pointer table. Updating this pointer does not rewrite history; every resolution appends a new decision and audit event.
+- Expression and fingerprint indexes for source/canonical-URL identity and cross-source candidate lookup. Database triggers reject decisions that point to missing or mismatched articles/observations.
+
 The applied schema version is stored in SQLite's `user_version` and in `schema_migrations`. Migrations run in an exclusive transaction. A failed migration rolls back; a database with a newer unknown schema version is rejected rather than downgraded.
 
 Foreign-key enforcement is enabled on the connection. File databases use WAL mode and a bounded busy timeout. Writes use `BEGIN IMMEDIATE`, so separate registry instances serialize writes rather than silently overwriting each other.
@@ -79,7 +85,7 @@ Approval records reviewer identity and timestamp. Revocation records its timesta
 
 ## Editorial record revisions
 
-Article, story, claim, factual evidence, and edition payloads are stored as typed records validated against their existing contracts. Non-edition records can be revised with an expected revision number, actor, and reason. Stale writes fail rather than overwriting newer records. Source links and original observation/creation timestamps are protected against rewriting.
+Article, story, claim, factual evidence, and edition payloads are stored as typed records validated against their existing contracts. Section 5 ingestion creates or reuses an article inside the same transaction as its append-only identity decision; source observations remain intact and separate. Non-edition records can be revised with an expected revision number, actor, and reason. Stale writes fail rather than overwriting newer records. Source links and original observation/creation timestamps are protected against rewriting.
 
 Edition snapshots are immutable through the repository API, including published editions. A correction must be represented as a new edition with the appropriate supersession relationship, not by editing the old snapshot.
 
