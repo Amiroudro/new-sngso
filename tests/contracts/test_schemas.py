@@ -22,7 +22,7 @@ def load_schema(name: str) -> dict:
 
 @pytest.mark.parametrize(
     "name",
-    ["source-permission", "source-observation", "article", "story", "claim", "evidence", "timeline-event", "perspective", "learning-object", "pipeline-run", "editorial-decision", "edition"],
+    ["source-permission", "source-observation", "article", "story", "claim", "evidence", "timeline-event", "perspective", "claim-relation", "learning-object", "pipeline-run", "editorial-decision", "edition"],
 )
 def test_schema_is_valid_draft_2020_12(name: str) -> None:
     schema = load_schema(name)
@@ -182,6 +182,21 @@ def test_minimal_valid_contract_instances(name: str, instance: dict) -> None:
                 "language": "en",
                 "text": "The publisher's framing, clearly attributed.",
                 "claim_ids": ["claim:sample-001"],
+                "created_at": "2026-11-19T00:00:00Z",
+                "review_status": "unreviewed",
+            },
+        ),
+        (
+            "claim-relation",
+            {
+                "schema_version": "1.0.0",
+                "id": "claim-relation:sample-001",
+                "story_id": "story:sample-001",
+                "claim_id": "claim:sample-001",
+                "related_claim_id": "claim:sample-002",
+                "relationship": "contradicts",
+                "rationale": "The two attributed propositions cannot both be accurate as written.",
+                "created_by": "editor",
                 "created_at": "2026-11-19T00:00:00Z",
                 "review_status": "unreviewed",
             },
