@@ -5,15 +5,17 @@ on:
     branches: [main]
     paths:
       - "contracts/**"
-      - "tests/contracts/**"
+      - "src/**"
+      - "tests/**"
       - "pyproject.toml"
-      - ".github/workflows/contracts.yml"
+      - ".github/workflows/**"
   pull_request:
     paths:
       - "contracts/**"
-      - "tests/contracts/**"
+      - "src/**"
+      - "tests/**"
       - "pyproject.toml"
-      - ".github/workflows/contracts.yml"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
