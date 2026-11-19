@@ -649,3 +649,72 @@ def test_split_decision_cannot_assign_claim_away_from_its_provenance_articles():
             registry.add_domain_record("story_decision", decision)
     finally:
         registry.close()
+
+
+def test_story_decision_preview_is_read_only_and_has_stable_impact_fingerprint():
+    registry, source_a, host_a, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        registry.add_domain_record(
+            "evidence",
+            _evidence("claim:event-date", source_a, article_a, host_a),
+        )
+        registry.add_domain_record(
+            "story_decision",
+            _story_decision(
+                "merge",
+                ["story:shared-event", "story:secondary"],
+                "story:shared-event",
+                [article_a, article_b],
+            ),
+        )
+        before = registry.audit_checkpoint()
+        first = registry.preview_story_decision_application("story-decision:merge-001")
+        second = registry.preview_story_decision_application("story-decision:merge-001")
+        after = registry.audit_checkpoint()
+
+        assert first["applicable"] is True
+        assert first["blockers"] == []
+        assert first["impact_fingerprint"].startswith("sha256:")
+        assert first["impact_fingerprint"] == second["impact_fingerprint"]
+        assert [item["article_id"] for item in first["articles"]] == [article_a, article_b]
+        assert first["claims"][0]["assigned_story_id"] == "story:shared-event"
+        assert first["evidence"][0]["evidence_id"] == "evidence:source-a"
+        assert first["editions"] == []
+        assert before == after
+        assert registry.verify_audit_chain()
+    finally:
+        registry.close()
+
+
+def test_story_decision_preview_blocks_stale_story_revision():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        registry.add_domain_record(
+            "story_decision",
+            _story_decision(
+                "merge",
+                ["story:shared-event", "story:secondary"],
+                "story:shared-event",
+                [article_a, article_b],
+            ),
+        )
+        story = registry.get_domain_record("story", "story:shared-event")
+        changed = story.to_payload()
+        changed["canonical_title"] = "Updated title after the editorial decision"
+        registry.revise_domain_record(
+            "story",
+            story.id,
+            changed,
+            expected_revision=1,
+            actor="editor",
+            reason="Test stale decision preview.",
+        )
+
+        preview = registry.preview_story_decision_application("story-decision:merge-001")
+        assert preview["applicable"] is False
+        assert any("expected revision is stale for story" in item for item in preview["blockers"])
+        assert preview["impact_fingerprint"].startswith("sha256:")
+    finally:
+        registry.close()
