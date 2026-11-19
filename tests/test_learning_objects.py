@@ -516,11 +516,39 @@ def test_mcq_learning_object_rejects_duplicate_option_ids_and_unknown_answer_key
                 duplicate, actor="editor", reason="Reject duplicate option IDs."
             )
 
+        duplicate_text = _mcq("learning:mcq-duplicate-text")
+        duplicate_text["content"]["options"][1]["text"] = "Being answerable for decisions and actions"
+        with pytest.raises(RegistryIntegrityError, match="option text must be unique"):
+            registry.add_learning_object(
+                duplicate_text, actor="editor", reason="Reject duplicate option text."
+            )
+
         unknown_key = _mcq("learning:mcq-unknown-key")
         unknown_key["content"]["correct_option_id"] = "E"
         with pytest.raises(RegistryIntegrityError, match="correct option must reference"):
             registry.add_learning_object(
                 unknown_key, actor="editor", reason="Reject unknown answer key."
+            )
+    finally:
+        registry.close()
+
+
+def test_sqlite_boundary_rejects_mcq_with_duplicate_option_ids():
+    registry = _prepared()
+    try:
+        payload = _mcq("learning:mcq-direct-sql")
+        payload["content"]["options"][1]["id"] = "A"
+        with pytest.raises(sqlite3.IntegrityError, match="MCQ option IDs must be unique"):
+            registry._connection.execute(
+                """INSERT INTO learning_objects
+                (id, story_id, kind, language, status, revision, created_at, updated_at,
+                 last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (
+                    payload["id"], payload["story_id"], payload["kind"], payload["language"],
+                    payload["status"], payload["created_at"], payload["created_at"],
+                    "editor", "Direct SQL MCQ guard.", json.dumps(payload),
+                ),
             )
     finally:
         registry.close()
