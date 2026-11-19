@@ -210,7 +210,7 @@ def test_minimal_valid_contract_instances(name: str, instance: dict) -> None:
                 "kind": "brief_summary",
                 "language": "en",
                 "status": "draft",
-                "content": {"text": "A short, source-linked learning summary."},
+                "content": {"text": "A short, source-linked learning summary.", "segments": [{"text": "A short, source-linked learning summary.", "claim_ids": ["claim:sample-001"], "role": "fact"}]},
                 "claim_ids": ["claim:sample-001"],
                 "created_at": "2026-11-19T00:00:00Z",
             },
