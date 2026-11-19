@@ -687,3 +687,129 @@ def test_failed_commit_rolls_back_and_leaves_connection_usable() -> None:
         # The same connection remains usable after the failed COMMIT.
         registry.add_source(source_record())
         assert registry.get_source("source:publisher-a") is not None
+
+
+def test_claim_provenance_observation_must_exist_and_match_source():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        record = claim_record()
+        record["provenance"][0]["observation_id"] = "observation:missing"
+        with pytest.raises(RegistryIntegrityError, match="provenance observation is missing"):
+            registry.add_domain_record("claim", record)
+
+
+def test_claim_provenance_article_must_belong_to_its_story():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        story = story_record()
+        story["article_ids"] = []
+        registry.add_domain_record("story", story)
+        with pytest.raises(RegistryIntegrityError, match="not a member of its story"):
+            registry.add_domain_record("claim", claim_record())
+
+
+def test_evidence_locator_must_remain_within_registered_source_domains():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        registry.add_domain_record("claim", claim_record())
+        evidence = factual_evidence_record()
+        evidence["locator"]["uri"] = "https://another-publisher.example.net/report"
+        with pytest.raises(RegistryIntegrityError, match="outside its registered source domains"):
+            registry.add_domain_record("evidence", evidence)
+
+
+def test_evidence_observation_must_exist_and_match_source():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        registry.add_domain_record("claim", claim_record())
+        evidence = factual_evidence_record()
+        evidence["observation_id"] = "observation:missing"
+        with pytest.raises(RegistryIntegrityError, match="evidence observation is missing"):
+            registry.add_domain_record("evidence", evidence)
+
+
+def test_assessed_claim_must_link_to_its_own_evidence():
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        claim = claim_record()
+        claim["assessment"] = "supported"
+        claim["evidence_ids"] = ["evidence:sample-event-001"]
+        revised = registry.revise_domain_record(
+            "claim", claim["id"], claim, expected_revision=1,
+            actor="editor", reason="Reviewed the supporting source passage.",
+        )
+        assert revised.assessment == "supported"
+
+
+def test_claim_cannot_link_evidence_owned_by_another_claim():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        registry.add_domain_record("claim", claim_record())
+        second_claim = claim_record()
+        second_claim["id"] = "claim:sample-event-002"
+        registry.add_domain_record("claim", second_claim)
+        registry.add_domain_record("evidence", factual_evidence_record())
+        second_claim["evidence_ids"] = ["evidence:sample-event-001"]
+        with pytest.raises(RegistryIntegrityError, match="belongs to another claim"):
+            registry.revise_domain_record(
+                "claim", second_claim["id"], second_claim, expected_revision=1,
+                actor="editor", reason="Attempted cross-claim evidence link.",
+            )
+
+
+def test_disputed_claim_requires_both_supporting_and_contradicting_evidence():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        registry.add_domain_record("claim", claim_record())
+        registry.add_domain_record("evidence", factual_evidence_record())
+        contradiction = factual_evidence_record()
+        contradiction["id"] = "evidence:sample-event-contradiction"
+        contradiction["relationship"] = "contradicts"
+        registry.add_domain_record("evidence", contradiction)
+        claim = claim_record()
+        claim["evidence_ids"] = [
+            "evidence:sample-event-001",
+            "evidence:sample-event-contradiction",
+        ]
+        claim["assessment"] = "supported"
+        with pytest.raises(RegistryIntegrityError, match="no unresolved contradiction"):
+            registry.revise_domain_record(
+                "claim", claim["id"], claim, expected_revision=1,
+                actor="editor", reason="Incorrectly marked as fully supported.",
+            )
+        claim["assessment"] = "disputed"
+        revised = registry.revise_domain_record(
+            "claim", claim["id"], claim, expected_revision=1,
+            actor="editor", reason="Sources materially disagree.",
+        )
+        assert revised.assessment == "disputed"
+
+
+def test_retracted_claim_requires_a_review_note():
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        claim = claim_record()
+        claim["assessment"] = "retracted"
+        claim["evidence_ids"] = ["evidence:sample-event-001"]
+        with pytest.raises(RegistryIntegrityError, match="review note"):
+            registry.revise_domain_record(
+                "claim", claim["id"], claim, expected_revision=1,
+                actor="editor", reason="Retraction needs an explanation.",
+            )
+        claim["review_note"] = "The original proposition was withdrawn after correction."
+        revised = registry.revise_domain_record(
+            "claim", claim["id"], claim, expected_revision=1,
+            actor="editor", reason="The proposition was formally retracted.",
+        )
+        assert revised.assessment == "retracted"
