@@ -581,3 +581,71 @@ def test_story_merge_decision_must_account_for_every_article_in_scope():
             )
     finally:
         registry.close()
+
+
+def test_story_decision_rejects_stale_story_revision_preconditions():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        decision = _story_decision(
+            "merge",
+            ["story:shared-event", "story:secondary"],
+            "story:shared-event",
+            [article_a, article_b],
+        )
+        decision["expected_story_revisions"][0]["expected_revision"] = 2
+        with pytest.raises(RegistryIntegrityError, match="expected revision is stale for story"):
+            registry.add_domain_record("story_decision", decision)
+    finally:
+        registry.close()
+
+
+def test_story_decision_rejects_stale_claim_revision_preconditions():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        decision = _story_decision(
+            "merge",
+            ["story:shared-event", "story:secondary"],
+            "story:shared-event",
+            [article_a, article_b],
+        )
+        decision["claim_assignments"][0]["expected_revision"] = 2
+        with pytest.raises(RegistryIntegrityError, match="expected revision is stale for claim"):
+            registry.add_domain_record("story_decision", decision)
+    finally:
+        registry.close()
+
+
+def test_story_decision_must_account_for_every_claim():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        decision = _story_decision(
+            "merge",
+            ["story:shared-event", "story:secondary"],
+            "story:shared-event",
+            [article_a, article_b],
+        )
+        decision["claim_assignments"] = []
+        with pytest.raises(RegistryIntegrityError, match="account for every claim"):
+            registry.add_domain_record("story_decision", decision)
+    finally:
+        registry.close()
+
+
+def test_split_decision_cannot_assign_claim_away_from_its_provenance_articles():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        decision = _story_decision(
+            "split",
+            ["story:shared-event", "story:secondary"],
+            "story:shared-event",
+            [article_a, article_b],
+        )
+        decision["claim_assignments"][0]["assigned_story_id"] = "story:secondary"
+        with pytest.raises(RegistryIntegrityError, match="claim provenance does not fit"):
+            registry.add_domain_record("story_decision", decision)
+    finally:
+        registry.close()
