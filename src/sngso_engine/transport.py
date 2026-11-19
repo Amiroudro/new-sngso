@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import http.client
 import ipaddress
+import dns.exception
+import dns.resolver
 import socket
 import ssl
 import time
@@ -115,6 +117,62 @@ def _resolve_public(host: str, port: int) -> tuple[str, ...]:
     return tuple(checked)
 
 
+
+
+class BoundedDNSResolver:
+    """Resolve A and AAAA records within one shared DNS deadline."""
+
+    def __init__(
+        self,
+        *,
+        resolver_factory: Callable[[], object] | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        max_timeout_seconds: float = 2.5,
+    ) -> None:
+        if not 0.1 <= max_timeout_seconds <= 10:
+            raise ValueError("DNS timeout must be between 0.1 and 10 seconds")
+        self._resolver_factory = resolver_factory or dns.resolver.Resolver
+        self._clock = clock
+        self._max_timeout_seconds = max_timeout_seconds
+
+    def resolve(
+        self, host: str, port: int, *, timeout_seconds: float
+    ) -> tuple[str, ...]:
+        if not 0.1 <= timeout_seconds <= 30:
+            raise TransportError("DNS resolution has no usable time budget")
+        deadline = self._clock() + min(timeout_seconds, self._max_timeout_seconds)
+        resolver = self._resolver_factory()
+        addresses: list[str] = []
+        for record_type in ("A", "AAAA"):
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                raise TransportError("DNS resolution deadline exceeded")
+            try:
+                answer = resolver.resolve(
+                    host, record_type, lifetime=remaining, search=False
+                )
+            except dns.resolver.NoAnswer:
+                continue
+            except dns.exception.DNSException as exc:
+                raise TransportError("bounded DNS resolution failed") from exc
+            addresses.extend(
+                str(record.address) for record in answer
+                if getattr(record, "address", None)
+            )
+        if not addresses:
+            raise TransportError("DNS returned no addresses")
+        checked: list[str] = []
+        for value in dict.fromkeys(addresses):
+            try:
+                address = ipaddress.ip_address(value.split("%", 1)[0])
+            except ValueError as exc:
+                raise TransportError("DNS returned an invalid address") from exc
+            if not address.is_global:
+                raise TransportError("DNS resolved to a non-public IP address")
+            checked.append(str(address))
+        return tuple(checked)
+
+
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     """HTTPS connection that dials a validated IP but verifies the DNS host."""
 
@@ -142,12 +200,12 @@ class SafeHTTPSTransport:
     def __init__(
         self,
         *,
-        resolver: Callable[[str, int], tuple[str, ...]] = _resolve_public,
+        resolver: Callable[[str, int], tuple[str, ...]] | BoundedDNSResolver | None = None,
         connection_factory: Callable[[str, int, str, float], http.client.HTTPSConnection] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self._resolver = resolver
+        self._resolver = resolver or BoundedDNSResolver(clock=clock)
         self._connection_factory = connection_factory or (
             lambda host, port, address, timeout: _PinnedHTTPSConnection(
                 host, port, address, timeout
@@ -184,7 +242,15 @@ class SafeHTTPSTransport:
         attempts = 0
         while True:
             parsed, host, port, path = _parse_url(current_url, allowed_domains)
-            addresses = self._resolver(host, port)
+            remaining_for_dns = deadline - self._clock()
+            if remaining_for_dns <= 0:
+                raise TransportError("request deadline exceeded before DNS resolution")
+            if isinstance(self._resolver, BoundedDNSResolver):
+                addresses = self._resolver.resolve(
+                    host, port, timeout_seconds=remaining_for_dns
+                )
+            else:
+                addresses = self._resolver(host, port)
             if not addresses:
                 raise TransportError("DNS returned no public address")
             response = None
