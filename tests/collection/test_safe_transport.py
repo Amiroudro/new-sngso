@@ -327,6 +327,20 @@ def test_transport_rejects_excessive_response_header_bytes():
         )
 
 
+def test_transport_rejects_unsupported_transfer_codings():
+    client, _ = make_transport([
+        FakeResponse(headers=[
+            ("Transfer-Encoding", "gzip, chunked"),
+            ("Content-Type", "application/rss+xml"),
+        ])
+    ])
+    with pytest.raises(transport.TransportError, match="unsupported transfer encoding"):
+        client.fetch(
+            "https://news.example.org/feed.xml",
+            allowed_domains=("example.org",),
+        )
+
+
 def test_transport_rejects_conflicting_or_ambiguous_length_headers():
     cases = [
         [("Content-Type", "application/rss+xml"),
