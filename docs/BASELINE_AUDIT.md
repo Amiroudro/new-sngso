@@ -19,7 +19,7 @@ The repository README describes a greenfield Python engine. It explicitly states
 | Runtime dependency | `jsonschema[format]>=4.23,<5` |
 | Test dependency | `pytest>=8.3,<9` |
 | Contract format | JSON Schema Draft 2020-12 |
-| Persistence | No implemented database adapter verified in the inspected architecture/source files |
+| Persistence | Initial SQLite registry and versioned migration now implemented in `src/sngso_engine/registry.py` |
 | Collection | No implemented connector framework verified |
 | Publication | No implemented edition assembly/publisher verified |
 
@@ -68,11 +68,11 @@ The current branch also requires `effective_until` and rejects an expiry that is
 
 The inspected permission tests cover explicit approval, missing/unapproved operations, malformed records and IDs, unhashable operation input, malformed evaluation time, future start, exact expiry, naive timestamps, unhandled conditions, malformed conditions, missing/invalid expiry, and invalid permission windows.
 
-The workflow `.github/workflows/contracts.yml` runs on relevant contract/source/test/workflow changes, installs the package with test dependencies, and runs `pytest tests/contracts -q` on Python 3.12.
+The workflow `.github/workflows/contracts.yml` runs on relevant contract/source/test/workflow changes, installs the package with test dependencies, and runs the full pytest suite on Python 3.12.
 
 The workflow is fixture-based and does not contact publisher websites.
 
-At audit time, the latest branch commit `875693bf25c43596f588ec059c12ab9ff5a9a67a` had no associated pull-request workflow run reported by the available commit-workflow lookup. Therefore, tests are authored but not verified as passing.
+Workflow run #50 failed before runner allocation and did not execute tests. The storage suite was added after that run; no successful run has verified the expanded suite. Tests are authored but not verified as passing.
 
 ## 6. Documentation inspected
 
@@ -89,8 +89,8 @@ At audit time, the latest branch commit `875693bf25c43596f588ec059c12ab9ff5a9a67
 |---|---|---|---|
 | GOV-01 | Source identity and source permission lifecycle lack dedicated contracts in inspected paths | High | Section 2 |
 | GOV-02 | Permission evaluator is not yet connected to a source registry or collector | Critical before collection | Sections 2–4 |
-| GOV-03 | No permission evidence/review/revocation workflow verified | High | Sections 2–3 |
-| DATA-01 | No persistence adapter/migrations verified | High before operational runs | Section 3 |
+| GOV-03 | Evidence records and grant transitions are persisted; human reviewer authentication and role authorization are not implemented | High before production | Sections 2–3 and 9 |
+| DATA-01 | SQLite persistence is implemented, but backup/restore, source observations, and production operations remain unverified | Medium before operational runs | Sections 3 and 9 |
 | COL-01 | No connector framework verified | High before live collection | Section 4 |
 | EVD-01 | Claim/evidence contracts exist, but end-to-end evidence pipeline is not implemented | High | Section 6 |
 | PUB-01 | Edition contract exists, but publication assembly and last-known-good protection are not implemented | Critical before publishing | Section 8 |
@@ -105,7 +105,7 @@ At audit time, the latest branch commit `875693bf25c43596f588ec059c12ab9ff5a9a67
 - Do not mark any source as approved without permission evidence.
 - Do not build collection before source/permission contracts and enforcement are in place.
 - Do not publish or export into legacy repositories.
-- Proceed to Section 2 only after this baseline is recorded.
+- Section 2 contracts and Section 3 persistence are now implemented at foundation level; continue with Section 4 only after test execution and code review.
 
 ## 9. Section 2 progress update
 
@@ -115,6 +115,17 @@ The permission evaluator now requires exact source and endpoint matches whenever
 
 Still outstanding: cross-record verification that endpoint and evidence IDs belong to the named source, confirming evidence records are actually verified and not merely referenced, persistence/audit history, human rights review, typed conditions, and enforcement before connector network calls. Those are assigned to Sections 3 and 4.
 
-## 10. Audit limitations
+
+## 10. Section 3 progress update
+
+Section 3 added typed immutable record views for sources, endpoints, permission evidence, grants, articles, stories, claims, factual evidence, and editions. The SQLite registry uses Python's standard-library `sqlite3`, migration version 1, foreign-key constraints, transactional writes, WAL for file databases, and bounded write locking.
+
+Cross-record checks now require endpoints and rights evidence to belong to the grant's source; approved grants require active source/endpoints and verified evidence; article, story, claim, factual-evidence, and edition references are checked against stored records. Grant transitions and editorial revisions preserve append-only revision histories. Permission decisions record the grant revision, permission-record fingerprint, evidence review states, evaluation time, and evaluator policy version. Audit events form a hash-linked chain with ordinary UPDATE/DELETE blocked by SQLite triggers.
+
+Fixture tests have been authored for migration idempotency/rollback, cross-source reference rejection, evidence approval, grant lifecycle, permission decisions, audit tampering detection, append-only history, optimistic revision conflicts, and writes from separate registry instances. The GitHub workflow now runs the full pytest suite. **None of these new storage tests are reported as passing until a runner completes the workflow successfully.**
+
+Remaining limits include no source-observation or pipeline-run persistence, no live connectors, no network-boundary enforcement, no human reviewer authentication/authorization, no backup/restore drills, and no external audit anchoring. Hash-linked local audit records are tamper-evident, not tamper-proof against a privileged database operator.
+
+## 11. Audit limitations
 
 This was a targeted content audit of the core README, architecture/domain/quality/migration documents, package configuration, contract loader, permission evaluator, selected v1 contracts, permission tests, and CI workflow. It was not a full exhaustive file-tree, dependency vulnerability, static-analysis, runtime, or integration audit. Those checks remain future work.
