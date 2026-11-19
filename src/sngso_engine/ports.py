@@ -96,6 +96,7 @@ class EditorialRepository(Protocol):
         actor: str,
         reason: str,
     ) -> DomainRecord: ...
+    def story_reporting_independence(self, story_id: str) -> dict[str, Any]: ...
 
 
 class AuditRepository(Protocol):
