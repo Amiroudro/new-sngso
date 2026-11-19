@@ -576,6 +576,34 @@ def test_allowed_operation_evidence_must_be_in_grant_evidence_set() -> None:
             registry.add_permission_grant(record)
 
 
+def test_audit_checkpoint_exposes_chain_tip_for_external_anchoring() -> None:
+    with SQLiteRegistry() as registry:
+        assert registry.audit_checkpoint() == {"sequence": 0, "event_hash": None}
+        registry.add_source(source_record())
+        checkpoint = registry.audit_checkpoint()
+        assert checkpoint["sequence"] == len(registry.audit_events())
+        assert checkpoint["event_hash"] == registry.audit_events()[-1]["event_hash"]
+        assert registry.verify_audit_chain()
+
+
+def test_audit_chain_verifier_alone_cannot_detect_tail_truncation() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_endpoint(endpoint_record())
+        external_checkpoint = registry.audit_checkpoint()
+
+        # Simulate a privileged file-level attacker disabling local protections.
+        registry._connection.execute("DROP TRIGGER audit_events_no_delete")
+        registry._connection.execute(
+            "DELETE FROM audit_events WHERE sequence = ?", (external_checkpoint["sequence"],)
+        )
+
+        # The remaining prefix is internally valid, so an external checkpoint
+        # is required to notice that the previously anchored tip disappeared.
+        assert registry.verify_audit_chain() is True
+        assert registry.audit_checkpoint() != external_checkpoint
+
+
 def test_audit_hash_chain_detects_database_level_tampering() -> None:
     with SQLiteRegistry() as registry:
         registry.add_source(source_record())
