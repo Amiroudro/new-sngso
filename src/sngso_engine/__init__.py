@@ -3,7 +3,7 @@
 __version__ = "0.1.0"
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
-from .contracts import ContractValidationError, load_schema, validate_payload
+from .collection import (\n    CollectionError,\n    CollectionObservation,\n    CollectionRequest,\n    CollectionResult,\n    ConnectorCapabilities,\n    InMemoryObservationSink,\n    PermissionFirstCollector,\n)\nfrom .contracts import ContractValidationError, load_schema, validate_payload
 from .models import (
     ArticleRecord,
     ClaimRecord,
@@ -23,12 +23,19 @@ __all__ = [
     "ArticleRecord",
     "AuditRepository",
     "ClaimRecord",
+    "CollectionError",
+    "CollectionObservation",
+    "CollectionRequest",
+    "CollectionResult",
+    "ConnectorCapabilities",
     "ContractValidationError",
     "EditionRecord",
     "EditorialRepository",
     "EngineRepository",
     "EvidenceRecord",
+    "InMemoryObservationSink",
     "PermissionDecision",
+    "PermissionFirstCollector",
     "PermissionEvidenceRecord",
     "PermissionGrantRecord",
     "RegistryIntegrityError",
