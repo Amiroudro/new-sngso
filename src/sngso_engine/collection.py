@@ -249,7 +249,8 @@ class PermissionFirstCollector:
         if request.operation not in capabilities.operations:
             return CollectionResult(False, "connector_operation_unsupported")
 
-        domain = urlsplit(endpoint.endpoint_uri).hostname
+        endpoint_host = urlsplit(endpoint.endpoint_uri).hostname
+        domain = _canonical_dns_name(endpoint_host)
         if not domain:
             return CollectionResult(False, "invalid_endpoint_uri")
         if not _host_in_domain_allowlist(domain, allowed_domains):
@@ -402,31 +403,52 @@ class PermissionFirstCollector:
 
 
 
+def _canonical_dns_name(value: Any) -> str | None:
+    """Normalize a DNS name for scope checks and rate-limit identity."""
+    if not isinstance(value, str) or not value or value != value.strip():
+        return None
+    try:
+        canonical = value.rstrip(".").encode("idna").decode("ascii").lower()
+    except UnicodeError:
+        return None
+    if not canonical or len(canonical) > 253:
+        return None
+    labels = canonical.split(".")
+    if any(
+        not label
+        or len(label) > 63
+        or label.startswith("-")
+        or label.endswith("-")
+        or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789-" for char in label)
+        for label in labels
+    ):
+        return None
+    return canonical
+
+
 def _valid_domain_allowlist(domains: Any) -> bool:
     if not isinstance(domains, list) or not domains:
         return False
-    return all(
-        isinstance(domain, str)
-        and domain == domain.strip().lower()
-        and bool(domain)
-        and len(domain) <= 253
-        and "/" not in domain
-        and ":" not in domain
-        and " " not in domain
-        for domain in domains
+    normalized = [_canonical_dns_name(domain) for domain in domains]
+    return (
+        all(value is not None for value in normalized)
+        and all(domain == canonical for domain, canonical in zip(domains, normalized))
+        and len(set(normalized)) == len(normalized)
     )
 
 
 def _host_in_domain_allowlist(host: str, domains: list[str]) -> bool:
-    normalized_host = host.rstrip(".").lower()
+    normalized_host = _canonical_dns_name(host)
     if not normalized_host:
+        return False
+    normalized_domains = [_canonical_dns_name(domain) for domain in domains]
+    if any(domain is None for domain in normalized_domains):
         return False
     return any(
         normalized_host == domain
         or normalized_host.endswith("." + domain)
-        for domain in domains
+        for domain in normalized_domains
     )
-
 
 def _is_http_uri(value: Any) -> bool:
     if not isinstance(value, str) or len(value) > 2048:
