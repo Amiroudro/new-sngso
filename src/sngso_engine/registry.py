@@ -510,6 +510,7 @@ class SQLiteRegistry:
                         (5, _utc_now()),
                     )
                     connection.execute("PRAGMA user_version = 5")
+                    version = 5
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 5 failed; transaction rolled back") from exc
 
