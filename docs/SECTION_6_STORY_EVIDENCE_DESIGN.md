@@ -96,10 +96,10 @@ The registry now accepts a dedicated `story_decision` record for human-reviewed 
 - the operation (`merge` or `split`);
 - the complete set of affected story IDs;
 - the canonical story selected for the decision;
-- the set of articles considered by the decision;
+- an explicit article-to-resulting-story allocation for every article considered;
 - the deciding editor, rationale, and timezone-aware decision timestamp.
 
-The SQLite boundary verifies that every affected story and article exists, the canonical story belongs to the decision scope, and every listed article is already linked to at least one affected story. A split decision must identify at least two articles. Decision records are immutable and included in the normal append-only audit chain. `story_decision_history(story_id)` retrieves the decisions involving a given story.
+The SQLite boundary verifies that every affected story and article exists, the canonical story belongs to the decision scope, and every listed article is already linked to at least one affected story. A merge must account for every article in every affected story and assign all of them to the canonical story. A split must allocate articles to at least two resulting stories. Duplicate article assignments and targets outside the decision scope are rejected. Decision records are immutable and included in the normal append-only audit chain. `story_decision_history(story_id)` retrieves the decisions involving a given story.
 
 **Deliberate boundary:** this first ledger records and preserves the editorial decision; it does not silently rewrite story membership, reassign claims, or archive a story. Applying a merge or split to live story membership requires a separate atomic workflow that can reconcile claims and provenance. That workflow remains future work. This avoids pretending that recording a decision is the same as safely executing it.
 
