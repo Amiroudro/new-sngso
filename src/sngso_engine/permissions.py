@@ -52,13 +52,17 @@ def evaluate_permission(
     """
     if permission is None:
         return PermissionDecision(False, "no_permission_record")
-    if operation not in OPERATIONS:
+    if not isinstance(permission, dict):
+        return PermissionDecision(False, "invalid_permission_record")
+    if not isinstance(operation, str) or operation not in OPERATIONS:
         return PermissionDecision(False, "unknown_operation")
 
     permission_id = permission.get("id")
     if permission.get("status") != "approved":
         return PermissionDecision(False, "permission_not_approved", permission_id)
 
+    if now is not None and not isinstance(now, datetime):
+        return PermissionDecision(False, "invalid_evaluation_time", permission_id)
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None or current.utcoffset() is None:
         return PermissionDecision(False, "evaluation_time_must_be_timezone_aware", permission_id)
