@@ -119,21 +119,21 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 5
+        assert registry.schema_version() == 6
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 5
+        assert reopened.schema_version() == 6
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
-def test_existing_schema_v2_database_migrates_to_v4(tmp_path, monkeypatch):
+def test_existing_schema_v2_database_migrates_to_v6(tmp_path, monkeypatch):
     database = tmp_path / "registry-v2.sqlite"
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 2)
     with SQLiteRegistry(database) as old_registry:
         assert old_registry.schema_version() == 2
-    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 4)
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 6)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 5
+        assert migrated.schema_version() == 6
         columns = {
             row["name"]
             for row in migrated._connection.execute(
