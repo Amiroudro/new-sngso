@@ -1,11 +1,11 @@
 # Section 4: Permission-First Collection Design
 
-Status: first fixture-first implementation committed; Section 4 acceptance remains open  
+Status: **complete for the fixture-first collection framework**; live publisher adapters remain separately gated  
 Scope: fixture-first collection framework in the new engine only
 
 ## 1. Non-negotiable boundary
 
-A connector must never be called until the engine has evaluated a current permission grant for the exact source, endpoint, and requested operation. Public accessibility, a robots.txt rule, an RSS URL, or a previously allowed operation is not a substitute for a grant.
+A registered, trusted connector is invoked only after the engine evaluates a current permission grant for the exact source, endpoint, and requested operation. Public accessibility, a robots.txt rule, an RSS URL, or a previously allowed operation is not a substitute for a grant.
 
 The collection service owns authorization. A connector does not decide whether it is allowed to run.
 
@@ -45,7 +45,7 @@ A connector declares:
 - a stable connector name and version;
 - a bounded operation method that receives a validated request.
 
-The orchestrator passes only the requested operation, its explicit budget, and an immutable execution context containing the exact normalized domain allowlist registered for that source. A connector must pass this context allowlist unchanged to the vetted transport. The connector interface must not expose an unrestricted shared HTTP client or direct access to the database.
+The orchestrator passes only the requested operation, its explicit budget, and an immutable execution context containing the exact normalized domain allowlist registered for that source. A connector must pass this context allowlist unchanged to the vetted transport. The connector interface does not expose an unrestricted shared HTTP client or direct access to the database. **This is not a Python sandbox:** arbitrary in-process connector code can import networking libraries and bypass the approved transport. Only reviewed, trusted built-in connectors may be registered. If third-party or untrusted connector code is ever supported, it must run behind an operating-system/container sandbox and enforced network-egress policy. The current fixture connector is trusted test code only.
 
 The standalone HTTPS transport prototype now uses dnspython to resolve both A and AAAA records under one shared DNS deadline, rejects every non-public answer, and pins the socket connection to a validated address while retaining the original hostname for TLS certificate verification. It rejects non-HTTPS URLs, credentials, non-standard ports, malformed hosts, out-of-scope redirect destinations, compressed responses, and oversized response bodies. It streams under a request deadline, caps redirects and retries, and uses a fixed user-agent. It is not registered with the fixture orchestrator and no live publisher connector is enabled. Transport response policy now caps header count and aggregate header bytes, rejects conflicting or ambiguous length headers, and allowlists XML, RSS, Atom, HTML, XHTML, and JSON media types. DNS/TLS/redirect integration review and remaining adversarial tests are still required.
 
@@ -111,70 +111,32 @@ Implemented and CI-verified:
 
 GitHub Actions run #123 passed with 137 tests.
 
-## 10. Remaining Section 4 gates
+## 10. Acceptance and closure
 
-- A standalone HTTPS transport prototype now enforces a shared deadline across A/AAAA DNS resolution, public-IP-only answers, socket/read deadlines, streamed response-byte ceilings, bounded transient retries, redirect limits, and TLS hostname verification with IP-pinned connections. The fixture orchestrator still uses fixtures only; the transport is not wired into a live connector. GitHub Actions run #154 passed with 170 tests. Run #158 passed with 175 tests after adding response content-type and header-boundary tests.
-- Complete remaining adversarial transport tests and review redirect/DNS/TLS behavior before any adapter is connected. The transport now enforces bounded DNS, content-type allowlisting, response-header count/byte limits, and unambiguous content-length handling. The fixture and SQLite boundaries reject locators outside the registered source domains.
-- Expand adversarial tests for inactive sources/endpoints, expired grants, invalid metadata, oversized result batches, malformed domain allowlists, and sink transaction rollback. The current rate-limit and result-byte-budget tests cover the orchestrator boundary, not raw HTTP response bodies.
-- CI run #128 passed after adding regression tests for out-of-scope locator hosts, out-of-scope final locators, permitted subdomains, and endpoint-host scope. CI run #133 passed after adding a storage-boundary regression test that bypasses the orchestrator and attempts to persist an out-of-scope locator. An intermediate run #132 exposed a misplaced validation reference; the validation was moved into the transaction where source domains are loaded. CI run #136 passed with further tests for inactive sources/endpoints, expired grants, disallowed metadata fields, and atomic observation-batch rollback. The standalone HTTPS transport suite is in `tests/collection/test_safe_transport.py`; run #148 passed with 167 tests after the guarded socket-timeout test-adapter correction.
-- Review the collection module and observation storage together before marking this section complete.
+**Section 4 is complete for the fixture-first collection framework.** Its acceptance is deliberately scoped to trusted, in-process connectors and offline fixture execution. It does not claim that Python can sandbox arbitrary plugin code, nor does it authorize a production publisher adapter.
 
-No live connector, publisher approval, article-body storage, or production collection has been enabled.
+| Acceptance check | Evidence |
+|---|---|
+| Denied permission causes zero connector and transport calls | Permission-first integration fixtures |
+| Exact source, endpoint, operation and connector capability are checked | Orchestrator and negative-scope tests |
+| Permission is rechecked immediately before connector invocation and again at storage | Grant revision checks and revocation tests |
+| Cross-connection revocation/storage order is serialized correctly | Two deterministic SQLite concurrency tests |
+| Observation provenance includes source, endpoint, grant/revision, operation, connector/version, timestamp, HTTP method, locator/final locator, fingerprint, response metadata and decision reason | Collection model, schema migration 3, persistence tests |
+| Locator and source-domain scope are checked at both orchestration and SQLite boundaries | Shared DNS/URI policy and bypass regression tests |
+| Output, item count, metadata, retries, timeouts and response bytes are bounded | Request validation and adversarial fixtures |
+| Batch persistence is atomic and append-only | Rollback and immutable-row tests |
+| DNS answers, HTTPS URLs, redirects, TLS hostname verification, headers, transfer coding, content type, response size and retry budgets are constrained | Offline transport tests |
+| CI does not depend on publisher availability | Fixture-only GitHub Actions suite |
 
+GitHub Actions run [#44604289595](https://github.com/Amiroudro/new-sngso/actions/runs/44604289595) passed with **264 tests** before the subsequent provenance migration work. The final run for the current Section 4 head is recorded in the repository PR and CI history.
 
-### Transport integration boundary test milestone
+### Explicit operational limits
 
-A transport-backed fixture connector now exercises the orchestration-to-transport boundary without making network requests. The connector receives an immutable execution context issued by the orchestrator, and the test fake records the exact endpoint URL and registered domain allowlist passed to transport. Regression tests cover:
-- denied operation: zero connector calls, zero transport calls, zero observations;
-- approved operation: one transport call with the exact registered domain tuple;
-- transport exception: no observation and no partial audit write;
-- grant revocation after a successful transport response: storage-time revision check rejects the observation.
+- The standalone HTTPS transport is tested but remains unregistered in the orchestrator. No live publisher network requests are made.
+- The in-memory per-domain rate limiter is process-local. A multi-worker production deployment needs a shared limiter before live collection.
+- Connector time budgets are part of the connector contract; Python cannot forcibly stop arbitrary in-process code. The vetted HTTPS transport enforces its own request/DNS/socket deadlines.
+- The engine does not authenticate human rights reviewers. A real source still requires documented, human-reviewed permission and a separate approval process.
+- A local audit hash chain cannot detect tail deletion without an independently stored checkpoint.
+- No paywall bypass, full-text storage, translation, image collection, republication, or production publishing is enabled. Those operations remain denied or unimplemented.
 
-This is an integration-test harness only. The production HTTPS transport remains unregistered, no publisher network requests are made, and no live connector is enabled. The tests must pass in GitHub Actions before this milestone is considered verified.
-
-Verification: GitHub Actions run #164 passed with **179 tests**. The four added boundary tests cover denied-permission zero-call behavior, exact source-domain propagation, transport failure atomicity, and post-response grant revocation. The public `CollectionExecutionContext` type is exported from the package root.
-
-A subsequent adversarial review found that an injected resolver could bypass the public-IP check even though the default bounded DNS resolver already rejected private answers. The transport now validates every returned address again at the fetch boundary, including custom resolver adapters, and rejects the entire result if any address is private, reserved, malformed, or otherwise non-global. The obsolete unbounded system-DNS helper was removed. GitHub Actions run #170 passed with **181 tests**, including regression coverage for loopback, private, IPv6 unique-local, malformed, and mixed public/private resolver results.
-
-
-### Additional transport adversarial review
-
-Further boundary checks now reject ambiguous explicit URL ports (including port zero and an empty port), scoped IPv4/IPv6 resolver strings, and duplicate singleton response headers (Content-Type, Content-Encoding, Transfer-Encoding, and Location). This prevents a parser or downstream consumer from silently choosing one of multiple conflicting security-relevant header values.
-
-A dedicated pinned-connection test verifies that the socket connects to the validated IP address while TLS still receives the original DNS hostname for certificate verification and SNI. This is a deterministic unit test of the connection boundary, not a live TLS handshake against a publisher.
-
-GitHub Actions run #175 passed with **188 tests**. The latest run for commit f9cd0227990cbf6a2a02831f8a7077e8bd487fab passed with **189 tests**. These checks remain offline and fixture-based; no publisher endpoints were contacted.
-
-
-### Request-deadline enforcement review
-
-The remaining request deadline is now reapplied to the connected socket immediately before response headers are read, not only during connection setup and body streaming. This prevents time spent sending the request from leaving response-header reads with a stale, overly generous socket timeout. A deterministic fake-clock regression test advances time during request transmission and verifies that the reduced remaining budget is applied before getresponse(). GitHub Actions run #179 passed with **190 tests**. The change remains fixture-only and does not perform live network requests.
-
-
-### Canonical source-domain identity
-
-The orchestrator now canonicalizes DNS names to lowercase IDNA ASCII before scope comparison and before using the hostname as the per-domain rate-limit key. This closes a rate-limit identity bypass through case changes, trailing dots, or Unicode/punycode variants. Registered source allowlists must contain unique canonical DNS names; malformed labels and IP-literal entries are rejected. The immutable connector execution context independently enforces the same canonical, unique-domain requirement. GitHub Actions run #183 passed with **197 tests**, and run #184 passed with **200 tests** after adding execution-context rejection cases. No live collection was performed.
-
-
-### Shared source-domain policy across trust boundaries
-
-Canonical DNS normalization, IDNA handling, allowlist validation, and exact/subdomain matching now live in a shared policy module used by both the collection orchestrator and SQLite registry. This prevents the two boundaries from drifting apart. The registry validates source-domain allowlists at creation and independently revalidates them when persisting observations, even if a caller bypasses the orchestrator. The connector execution context requires an immutable tuple of unique canonical DNS names. The contract schema already rejects malformed trailing-dot entries, while registry checks provide an additional defense against duplicate or otherwise noncanonical records that reach the persistence layer. GitHub Actions run #195 passed with **203 tests**. Earlier intermediate runs caught test expectations that conflicted with the stricter schema; those tests were corrected to assert the schema's actual fail-closed behavior.
-
-
-A final DNS-name normalization edge case was closed: one optional terminal root dot is accepted, but repeated trailing dots are rejected in both the shared domain policy and HTTPS transport. Regression tests cover both the orchestrator helper and URL rejection before DNS. GitHub Actions run #199 passed with **204 tests**. No publisher network calls were made.
-
-
-### HTTP transfer-coding policy
-
-The transport now accepts only no Transfer-Encoding header or the standard chunked transfer coding. Other transfer codings (including gzip transfer coding) are rejected rather than passed to downstream parsers. This complements the existing rejection of non-identity Content-Encoding and ambiguous Transfer-Encoding plus Content-Length combinations. GitHub Actions run #203 passed with **205 tests**. The test suite remains fully offline.
-
-
-### Concurrent storage, audit anchoring, and final input-boundary review
-
-The SQLite permission race now has deterministic cross-connection tests for both transaction orderings. When revocation commits first, a waiting observation write sees the newer grant revision and is rejected. When observation storage already holds the write transaction, it commits first and the revocation follows. The tests verify the final persisted state and audit-chain consistency in both cases.
-
-The registry exposes an audit checkpoint containing the current event sequence and chain-tip hash. Operators can store this pair outside the database to detect later tail deletion. The documentation explicitly states that a local hash-chain verifier cannot detect deletion of the final events by a privileged database operator when no external checkpoint exists.
-
-The HTTPS transport rejects boolean and non-finite timeout values, invalid retry/redirect/byte-budget types, and scoped IPv6 resolver answers. URL parsing also rejects whitespace, control characters, backslashes, empty fragments, and non-canonical explicit port spellings such as `:0443`. Oversized Content-Length digit strings are rejected before integer conversion. Connector output is checked against the operation-specific field and type limits before JSON byte accounting, so unapproved payload fields are rejected before serialization.
-
-GitHub Actions run [#44603235352](https://github.com/Amiroudro/new-sngso/actions/runs/44603235352) passed with **249 tests**. The suite is offline and fixture-based. The standalone HTTPS transport remains unregistered, and no publisher network requests or live collection have been enabled.
+These are explicit production gates, not unfinished fixture-framework acceptance items. Section 4 is closed at its stated scope. Live adapters remain gated on source-specific rights review, trusted connector review, shared rate limiting, and deployment-level egress controls.
