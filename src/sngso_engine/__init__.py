@@ -2,6 +2,7 @@
 
 __version__ = "0.1.0"
 
+from .benchmarks import evaluate_editorial_benchmark
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .collection import (
     CollectionError,
@@ -89,6 +90,7 @@ __all__ = [
     "StoryRecord",
     "canonical_json_bytes",
     "canonicalize_article_url",
+    "evaluate_editorial_benchmark",
     "ingest_observation",
     "normalize_language_tag",
     "normalize_observation",
