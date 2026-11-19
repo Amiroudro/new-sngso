@@ -534,6 +534,11 @@ def test_pending_grant_requires_verified_evidence_before_approval() -> None:
         registry.add_permission_evidence(evidence_record(review_status="unreviewed"))
         pending = grant_record()
         pending["status"] = "pending"
+        pending["operations"]["discovery"] = {
+            "allowed": False,
+            "status": "denied",
+            "conditions": [],
+        }
         pending.pop("reviewed_at")
         pending.pop("reviewed_by")
         registry.add_permission_grant(pending)
