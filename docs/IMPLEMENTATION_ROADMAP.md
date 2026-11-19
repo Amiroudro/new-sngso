@@ -68,7 +68,7 @@ Acceptance:
 
 **Goal:** make it technically impossible for a connector to collect beyond approved scope.
 
-**Design and implementation progress:** `docs/SECTION_4_COLLECTION_DESIGN.md` defines the authorization sequence, connector boundary, observation provenance, resource limits, fixture-first policy, and test gates. The first implementation now includes a permission-first orchestrator, fixture connector protocol, operation-specific result validation, SQLite migration 2 for append-only collection observations, a second permission evaluation immediately before connector invocation, an atomic grant revision attached to the decision, a storage-time grant-revision/evidence recheck, a per-domain fixed-window rate limiter, and a bounded observation-output budget. It supports fixture-based discovery and metadata only. No live network connector is approved or implemented. GitHub Actions run #123 passed with 137 tests.
+**Design and implementation progress:** `docs/SECTION_4_COLLECTION_DESIGN.md` defines the authorization sequence, connector boundary, observation provenance, resource limits, fixture-first policy, and test gates. The permission-first orchestrator supports fixture discovery and metadata only, with repeated permission checks, grant-revision revalidation at storage, per-domain rate limiting, bounded output, and source-domain validation at both orchestration and SQLite boundaries. A separate HTTPS transport prototype pins connections to validated public DNS IPs while retaining TLS hostname verification; rejects malformed/out-of-scope URLs, unsafe redirects, private/non-public DNS answers, non-standard ports, credentials, and compressed responses; streams response bodies under a byte ceiling; and bounds socket/read deadlines, redirects, and transient retries. It is not connected to the orchestrator or any live publisher. DNS lookup itself is not independently deadline-bounded. GitHub Actions run #148 passed with 167 tests.
 
 Tasks:
 - Define connector protocol and capability declarations.
@@ -185,7 +185,7 @@ Acceptance:
 - Runtime schema validation and a fail-closed operation permission evaluator exist.
 - The evaluator now requires a valid, timezone-aware expiry and rejects non-positive permission windows.
 - Source, endpoint, permission-evidence, and scoped permission-grant contracts now exist. The SQLite registry implements cross-record validation, grant and domain-record revisions, and audit events. Human reviewer authentication and connector enforcement are not implemented.
-- Current CI is fixture-only and targets the full pytest suite, including temporary-database and collection tests. Runs #126–#128 passed after the repository became public; run #128 includes the latest source-domain scope changes.
+- Current CI is fixture-only and targets the full pytest suite, including temporary-database, collection, and standalone transport tests. GitHub Actions run #148 passed with 167 tests. The transport remains unconnected; no live publisher is approved.
 - Pull request #1 remains draft and unmerged. Its merge is not authorized by this plan.
 
 ## Current execution status
@@ -195,7 +195,7 @@ Acceptance:
 | 1. Repository audit | Documented, targeted audit | Full static/dependency/runtime audit remains future work |
 | 2. Source governance | **Complete:** contracts, fail-closed evaluator, fixtures, review policy, and passing full test suite | No real publisher approval implied; human review and reviewer authorization remain future controls |
 | 3. Domain models and persistence | **Complete:** typed models, SQLite registry, cross-record validation, revisions, audit chain, commit-failure rollback, targeted review, and passing full test suite in run #91 | Source-observation persistence, backups, external audit anchoring, and production authentication remain future work |
-| 4. Permission-first collection | **In progress:** fixture-first orchestrator, discovery/metadata separation, append-only observations, revocation-race guard, per-domain rate limiting, bounded output, source-domain locator scope enforced at orchestration and persistence boundaries, inactive/expired access tests, atomic storage rollback test, and passing CI run #136 | Complete transport adversarial tests, add a deadline-bounded DNS resolver, validate content types/headers, and perform final DNS/TLS/redirect review; transport remains unconnected and no live connector |
+| 4. Permission-first collection | **In progress:** fixture-first orchestrator, append-only observations, permission rechecks, per-domain rate limiting, bounded output, source-domain checks at orchestration and persistence boundaries, standalone pinned-IP HTTPS transport prototype, and 167 passing tests in run #148 | Add deadline-bounded DNS resolution, content-type/header policy, transport integration tests, remaining adversarial cases, and final DNS/TLS/redirect review; transport remains unconnected and no live connector |
 | 5. Ingestion and identity | Not started | Depends on Section 4 |
 | 6. Story intelligence and evidence | Not started | Depends on Section 5 |
 | 7. Editorial production | Not started | Depends on Section 6 |
