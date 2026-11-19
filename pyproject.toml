@@ -9,6 +9,7 @@ description = "Evidence-led bilingual news and learning engine"
 requires-python = ">=3.12"
 dependencies = [
   "jsonschema[format]>=4.23,<5",
+  "dnspython>=2.7,<3",
 ]
 
 [project.optional-dependencies]
