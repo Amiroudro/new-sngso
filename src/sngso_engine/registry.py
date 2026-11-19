@@ -881,6 +881,156 @@ class SQLiteRegistry:
             for row in rows
         ]
 
+    def append_many(self, observations: tuple[Any, ...]) -> None:
+        """Persist a batch only while its exact permission grant remains current."""
+        payloads: list[dict[str, Any]] = []
+        for observation in observations:
+            if is_dataclass(observation):
+                payload = asdict(observation)
+            elif isinstance(observation, dict):
+                payload = dict(observation)
+            else:
+                raise RegistryIntegrityError("collection observation must be a dataclass or object")
+            payloads.append(payload)
+        if not payloads:
+            return
+
+        required = {
+            "id", "source_id", "endpoint_id", "grant_id", "grant_revision",
+            "operation", "connector_name", "connector_version", "observed_at",
+            "locator", "final_locator", "content_fingerprint", "response_status",
+            "content_type", "metadata", "permission_reason",
+        }
+        for payload in payloads:
+            if set(payload) != required:
+                raise RegistryIntegrityError("collection observation fields are incomplete or unexpected")
+            if payload["operation"] not in {"discovery", "metadata"}:
+                raise RegistryIntegrityError("collection operation is not implemented")
+            if not isinstance(payload["grant_revision"], int) or isinstance(payload["grant_revision"], bool):
+                raise RegistryIntegrityError("collection observation requires a grant revision")
+            if not isinstance(payload["metadata"], dict):
+                raise RegistryIntegrityError("collection metadata must be an object")
+            _aware_datetime(payload["observed_at"], "observed_at")
+
+        with self._transaction() as connection:
+            for payload in payloads:
+                source = connection.execute(
+                    "SELECT status FROM sources WHERE id = ?", (payload["source_id"],)
+                ).fetchone()
+                endpoint = connection.execute(
+                    """SELECT status FROM source_endpoints
+                    WHERE id = ? AND source_id = ?""",
+                    (payload["endpoint_id"], payload["source_id"]),
+                ).fetchone()
+                grant = connection.execute(
+                    """SELECT revision, payload_json FROM permission_grants
+                    WHERE id = ? AND source_id = ?""",
+                    (payload["grant_id"], payload["source_id"]),
+                ).fetchone()
+                if source is None or source["status"] != "active":
+                    raise RegistryIntegrityError("collection source is missing or inactive")
+                if endpoint is None or endpoint["status"] != "active":
+                    raise RegistryIntegrityError("collection endpoint is missing or inactive")
+                if grant is None:
+                    raise RegistryIntegrityError("collection grant is missing or belongs to another source")
+                if grant["revision"] != payload["grant_revision"]:
+                    raise RegistryIntegrityError("permission grant changed during collection")
+                grant_payload = json.loads(grant["payload_json"])
+                if grant_payload["status"] != "approved":
+                    raise RegistryIntegrityError("permission grant is no longer approved")
+
+                evidence_ids = grant_payload.get("evidence_ids", [])
+                evidence_statuses: dict[str, str] = {}
+                for evidence_id in evidence_ids:
+                    evidence = connection.execute(
+                        """SELECT review_status FROM permission_evidence
+                        WHERE id = ? AND source_id = ?""",
+                        (evidence_id, payload["source_id"]),
+                    ).fetchone()
+                    if evidence is not None:
+                        evidence_statuses[evidence_id] = evidence["review_status"]
+                if len(evidence_statuses) != len(set(evidence_ids)) or any(
+                    status != "verified" for status in evidence_statuses.values()
+                ):
+                    raise RegistryIntegrityError("collection permission evidence is no longer verified")
+
+                decision = evaluate_permission_record(
+                    grant_payload,
+                    payload["operation"],
+                    source_id=payload["source_id"],
+                    endpoint_id=payload["endpoint_id"],
+                    now=datetime.now(timezone.utc),
+                )
+                if not decision.allowed or payload["permission_reason"] != decision.reason:
+                    raise RegistryIntegrityError("permission is not valid at observation storage time")
+
+                metadata_json = _json_text(payload["metadata"])
+                connection.execute(
+                    """INSERT INTO collection_observations
+                    (observation_id, source_id, endpoint_id, grant_id, grant_revision,
+                     operation, connector_name, connector_version, observed_at, locator,
+                     final_locator, content_fingerprint, response_status, content_type,
+                     metadata_json, permission_reason)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        payload["id"], payload["source_id"], payload["endpoint_id"],
+                        payload["grant_id"], payload["grant_revision"], payload["operation"],
+                        payload["connector_name"], payload["connector_version"],
+                        payload["observed_at"], payload["locator"], payload["final_locator"],
+                        payload["content_fingerprint"], payload["response_status"],
+                        payload["content_type"], metadata_json, payload["permission_reason"],
+                    ),
+                )
+                self._append_audit(
+                    connection,
+                    event_type="collection.observation_recorded",
+                    entity_type="collection_observation",
+                    entity_id=payload["id"],
+                    payload={
+                        "source_id": payload["source_id"],
+                        "endpoint_id": payload["endpoint_id"],
+                        "grant_id": payload["grant_id"],
+                        "grant_revision": payload["grant_revision"],
+                        "operation": payload["operation"],
+                        "locator": payload["locator"],
+                        "content_fingerprint": payload["content_fingerprint"],
+                    },
+                    policy_version=POLICY_VERSION,
+                )
+
+    def collection_observations(
+        self, *, source_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM collection_observations"
+        params: tuple[Any, ...] = ()
+        if source_id is not None:
+            query += " WHERE source_id = ?"
+            params = (source_id,)
+        query += " ORDER BY observed_at, observation_id"
+        with self._lock:
+            rows = self._connection.execute(query, params).fetchall()
+        return [
+            {
+                "id": row["observation_id"],
+                "source_id": row["source_id"],
+                "endpoint_id": row["endpoint_id"],
+                "grant_id": row["grant_id"],
+                "grant_revision": row["grant_revision"],
+                "operation": row["operation"],
+                "connector_name": row["connector_name"],
+                "connector_version": row["connector_version"],
+                "observed_at": row["observed_at"],
+                "locator": row["locator"],
+                "final_locator": row["final_locator"],
+                "content_fingerprint": row["content_fingerprint"],
+                "response_status": row["response_status"],
+                "content_type": row["content_type"],
+                "metadata": json.loads(row["metadata_json"]),
+                "permission_reason": row["permission_reason"],
+            }
+            for row in rows
+        ]
+
     def audit_events(self, *, entity_id: str | None = None) -> list[dict[str, Any]]:
         query = "SELECT * FROM audit_events"
         params: tuple[Any, ...] = ()
