@@ -34,7 +34,7 @@ Typed immutable record views cover sources, endpoints, permission evidence, gran
 
 The fixture-first orchestrator supports discovery and metadata only. It verifies source, endpoint, connector capability, and exact operation permission before connector invocation. It rechecks permission immediately before invocation and the persistent sink rechecks grant revision, source/endpoint state, evidence, and permission before storing observations. The fixture boundary applies a per-domain rate limiter, item and observation-byte budgets, operation-specific output fields, and source-domain restrictions for endpoint and returned locator/final-locator hosts. The SQLite observation sink repeats the endpoint and locator host checks inside its write transaction, so callers cannot bypass the domain boundary by calling the storage API directly.
 
-A standalone HTTPS transport prototype now exists in `src/sngso_engine/transport.py`, but is not connected to the orchestrator or any publisher connector. It resolves A and AAAA records through dnspython under one shared deadline, rejects any non-public answer, and pins sockets to validated IPs while verifying TLS against the original hostname. It rejects malformed/out-of-scope URLs, unsafe redirects, non-standard ports, credentials, and compressed responses; streams response bodies under a byte ceiling; and bounds socket/read deadlines, redirects, and transient retries. Content-type/header policy, final adversarial review, and transport integration remain open.
+A standalone HTTPS transport prototype now exists in `src/sngso_engine/transport.py`, but is not connected to the orchestrator or any publisher connector. It resolves A and AAAA records through dnspython under one shared deadline, rejects any non-public answer, and pins sockets to validated IPs while verifying TLS against the original hostname. It rejects malformed/out-of-scope URLs, unsafe redirects, non-standard ports, credentials, and compressed responses; streams response bodies under a byte ceiling; and bounds socket/read deadlines, redirects, and transient retries. Response-header count/byte limits, content-type allowlisting, conflicting length-header rejection, and compressed-response rejection are implemented. Final adversarial review and transport integration remain open.
 
 ## Verification evidence
 
@@ -45,7 +45,7 @@ A standalone HTTPS transport prototype now exists in `src/sngso_engine/transport
 - The workflow runs the full test suite on relevant source, contract, test, packaging, and workflow changes. It does not contact publisher websites.
 - A passing fixture test suite proves the tested software behavior only. It does not approve publishers, establish copyright permission, or prove production readiness.
 
-Latest verified test commit: `e0d0ce8efe227bffde267cd127c4264a02624fc4`. GitHub Actions run #154 passed with 170 tests. Section 4 remains open for content-type/header policy, transport-to-connector integration, and final adversarial review.
+Latest verified test commit: `5087e418fcbbe58d2a80820ea53b1456a52ed5f3`. GitHub Actions run #158 passed with 175 tests. Section 4 remains open for transport-to-connector integration and final adversarial review.
 
 ## Ten-section programme status
 
