@@ -186,6 +186,23 @@ Acceptance:
 - Current CI is fixture-only and targets the full pytest suite, including temporary-database tests. Latest workflow run #82 failed before runner allocation (`runner_id: 0`, no steps or test logs); tests are not verified as passing.
 - Pull request #1 remains draft and unmerged. Its merge is not authorized by this plan.
 
+## Current execution status
+
+| Section | Status | Outstanding gate |
+|---|---|---|
+| 1. Repository audit | Documented, targeted audit | Full static/dependency/runtime audit remains future work |
+| 2. Source governance | Contracts, policy, and evaluator scope checks implemented | Successful automated test run; no real publisher approval implied |
+| 3. Domain models and persistence | Typed records, SQLite registry, cross-record validation, revisions, and audit trail implemented | Successful automated test run and code review |
+| 4. Permission-first collection | Not started | Depends on Section 3 verification |
+| 5. Ingestion and identity | Not started | Depends on Section 4 |
+| 6. Story intelligence and evidence | Not started | Depends on Section 5 |
+| 7. Editorial production | Not started | Depends on Section 6 |
+| 8. Edition assembly | Not started | Depends on Section 7 |
+| 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |
+| 10. End-to-end handover | Not started | Depends on all prior sections |
+
+No section is formally complete until its acceptance gates are verified. The current GitHub Actions blocker prevents Sections 2 and 3 from being marked complete, even though their implementation work is committed.
+
 ## Execution order
 
 Complete Section 1 baseline first, then Sections 2–10 in order. A later section may be researched early, but implementation must respect the dependencies and acceptance gates above.
