@@ -1846,7 +1846,7 @@ class SQLiteRegistry:
                 review_note = payload.get("review_note")
                 if not isinstance(reviewed_at, str) or not isinstance(review_note, str) or not review_note.strip():
                     raise RegistryIntegrityError(
-                        "reviewed claim assessment requires reviewed_at and a non-empty review_note"
+                        "reviewed claim assessment requires a review timestamp and a non-empty review note (review_note)"
                     )
                 if _aware_datetime(reviewed_at, "reviewed_at") < _aware_datetime(payload["created_at"], "created_at"):
                     raise RegistryIntegrityError("claim review cannot predate claim creation")
