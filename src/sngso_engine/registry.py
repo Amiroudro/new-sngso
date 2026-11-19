@@ -459,6 +459,9 @@ _MIGRATION_8 = (
             SELECT CASE WHEN NEW.source_id IS NOT NULL AND NOT EXISTS (
                 SELECT 1 FROM sources WHERE id = NEW.source_id
             ) THEN RAISE(ABORT, 'perspective source is not registered') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.kind') = 'publisher_framing'
+                AND (NEW.source_id IS NULL OR NEW.article_id IS NULL)
+            THEN RAISE(ABORT, 'publisher framing requires its source and article') END;
             SELECT CASE WHEN NEW.article_id IS NOT NULL AND NOT EXISTS (
                 SELECT 1 FROM domain_records article
                 WHERE article.record_type = 'article' AND article.id = NEW.article_id
@@ -3059,6 +3062,7 @@ class SQLiteRegistry:
     def add_perspective(self, payload: dict[str, Any]) -> PerspectiveRecord:
         """Append an attributed perspective; corrections supersede, never rewrite."""
         validate_payload("perspective", payload)
+        _aware_datetime(payload["created_at"], "created_at")
         record = PerspectiveRecord.from_payload(payload)
         with self._transaction() as connection:
             story_row = connection.execute(
