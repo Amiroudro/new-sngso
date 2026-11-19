@@ -115,6 +115,7 @@ _MIGRATION_1 = (
         source_id TEXT NOT NULL,
         evidence_id TEXT NOT NULL,
         PRIMARY KEY (grant_id, evidence_id),
+        UNIQUE (grant_id, source_id, evidence_id),
         FOREIGN KEY (grant_id, source_id)
             REFERENCES permission_grants(id, source_id) ON DELETE RESTRICT,
         FOREIGN KEY (evidence_id, source_id)
