@@ -215,6 +215,7 @@ class TimelineEventRecord(_JsonRecord):
     story_id: str
     event_type: str
     precision: str
+    review_status: str
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "TimelineEventRecord":
@@ -224,6 +225,7 @@ class TimelineEventRecord(_JsonRecord):
             story_id=payload["story_id"],
             event_type=payload["event_type"],
             precision=payload["occurred"]["precision"],
+            review_status=payload.get("review_status", "unreviewed"),
         )
 
 
