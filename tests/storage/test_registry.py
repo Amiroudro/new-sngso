@@ -695,6 +695,8 @@ def test_assessed_claim_must_link_to_its_own_evidence():
         claim = claim_record()
         claim["assessment"] = "supported"
         claim["evidence_ids"] = ["evidence:sample-event-001"]
+        claim["reviewed_at"] = STAMP
+        claim["review_note"] = "The source directly supports this proposition."
         revised = registry.revise_domain_record(
             "claim", claim["id"], claim, expected_revision=1,
             actor="editor", reason="Reviewed the supporting source passage.",
@@ -737,6 +739,8 @@ def test_supported_claim_cannot_ignore_contradicting_evidence():
             "evidence:sample-event-contradiction",
         ]
         claim["assessment"] = "supported"
+        claim["reviewed_at"] = STAMP
+        claim["review_note"] = "Initial assessment pending contradiction review."
         with pytest.raises(RegistryIntegrityError, match="no unresolved contradiction"):
             registry.revise_domain_record(
                 "claim", claim["id"], claim, expected_revision=1,
@@ -756,7 +760,8 @@ def test_retracted_claim_requires_a_review_note():
         claim = claim_record()
         claim["assessment"] = "retracted"
         claim["evidence_ids"] = ["evidence:sample-event-001"]
-        with pytest.raises(RegistryIntegrityError, match="review note"):
+        claim["reviewed_at"] = STAMP
+        with pytest.raises(RegistryIntegrityError, match="review_note"):
             registry.revise_domain_record(
                 "claim", claim["id"], claim, expected_revision=1,
                 actor="editor", reason="Retraction needs an explanation.",
