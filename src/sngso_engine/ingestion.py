@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .canonical import sha256_fingerprint
 from .domains import canonical_dns_name
-from .registry import RegistryIntegrityError, SQLiteRegistry
+from .ports import IngestionRepository
 
 
 _TRACKING_KEYS = frozenset({
@@ -254,7 +254,7 @@ def normalize_observation(observation: dict, source_language: str) -> tuple[dict
 
 
 def ingest_observation(
-    registry: SQLiteRegistry,
+    registry: IngestionRepository,
     observation_id: str,
     *,
     source_language: str,
