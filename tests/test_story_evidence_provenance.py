@@ -394,7 +394,16 @@ def _story_decision(operation, story_ids, canonical_story_id, article_ids, *, sp
         "operation": operation,
         "story_ids": story_ids,
         "canonical_story_id": canonical_story_id,
+        "expected_story_revisions": [
+            {"story_id": story_id, "expected_revision": 1}
+            for story_id in story_ids
+        ],
         "article_assignments": assignments,
+        "claim_assignments": [{
+            "claim_id": "claim:event-date",
+            "assigned_story_id": canonical_story_id,
+            "expected_revision": 1,
+        }],
         "decided_by": "senior-editor",
         "rationale": "Human review found these reports describe the same underlying event.",
         "decided_at": STAMP,
