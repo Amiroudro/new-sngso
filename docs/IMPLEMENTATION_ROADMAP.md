@@ -68,7 +68,7 @@ Acceptance:
 
 **Goal:** make it technically impossible for a connector to collect beyond approved scope.
 
-**Design and implementation progress:** `docs/SECTION_4_COLLECTION_DESIGN.md` defines the authorization sequence, connector boundary, observation provenance, resource limits, fixture-first policy, and test gates. The first implementation now includes a permission-first orchestrator, fixture connector protocol, operation-specific result validation, SQLite migration 2 for append-only collection observations, a storage-time grant-revision/evidence recheck, a per-domain fixed-window rate limiter, and a bounded observation-output budget. It supports fixture-based discovery and metadata only. No live network connector is approved or implemented. GitHub Actions run #116 passed with 136 tests.
+**Design and implementation progress:** `docs/SECTION_4_COLLECTION_DESIGN.md` defines the authorization sequence, connector boundary, observation provenance, resource limits, fixture-first policy, and test gates. The first implementation now includes a permission-first orchestrator, fixture connector protocol, operation-specific result validation, SQLite migration 2 for append-only collection observations, a second permission evaluation immediately before connector invocation, an atomic grant revision attached to the decision, a storage-time grant-revision/evidence recheck, a per-domain fixed-window rate limiter, and a bounded observation-output budget. It supports fixture-based discovery and metadata only. No live network connector is approved or implemented. GitHub Actions run #123 passed with 137 tests.
 
 Tasks:
 - Define connector protocol and capability declarations.
@@ -195,7 +195,7 @@ Acceptance:
 | 1. Repository audit | Documented, targeted audit | Full static/dependency/runtime audit remains future work |
 | 2. Source governance | **Complete:** contracts, fail-closed evaluator, fixtures, review policy, and passing full test suite | No real publisher approval implied; human review and reviewer authorization remain future controls |
 | 3. Domain models and persistence | **Complete:** typed models, SQLite registry, cross-record validation, revisions, audit chain, commit-failure rollback, targeted review, and passing full test suite in run #91 | Source-observation persistence, backups, external audit anchoring, and production authentication remain future work |
-| 4. Permission-first collection | **In progress:** fixture-first orchestrator, discovery/metadata separation, append-only persisted observations, revocation-race guard, per-domain rate limiting, bounded output size, 136 tests passing | Add actual transport-level timeout/response-byte/retry enforcement, stronger URL/redirect checks, adversarial tests, and final review; no live connector |
+| 4. Permission-first collection | **In progress:** fixture-first orchestrator, discovery/metadata separation, append-only persisted observations, revocation-race guard, per-domain rate limiting, bounded output size, 137 tests passing | Add actual transport-level timeout/response-byte/retry enforcement, stronger URL/redirect checks, adversarial tests, and final review; no live connector |
 | 5. Ingestion and identity | Not started | Depends on Section 4 |
 | 6. Story intelligence and evidence | Not started | Depends on Section 5 |
 | 7. Editorial production | Not started | Depends on Section 6 |
