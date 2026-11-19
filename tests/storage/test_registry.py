@@ -784,3 +784,209 @@ def test_evidence_locator_must_stay_inside_registered_source_domains():
         evidence["locator"]["uri"] = "https://unregistered.example.net/report"
         with pytest.raises(RegistryIntegrityError, match="outside its registered source domains"):
             registry.add_domain_record("evidence", evidence)
+
+
+def _two_story_decision_registry(registry: SQLiteRegistry, operation: str) -> str:
+    registry.add_source(source_record())
+    first_article = article_record()
+    second_article = article_record()
+    second_article.update({
+        "id": "article:publisher-a-002",
+        "canonical_uri": "https://publisher-a.example.org/news/002",
+        "title": "A second sample report",
+    })
+    registry.add_domain_record("article", first_article)
+    registry.add_domain_record("article", second_article)
+
+    first_story = story_record()
+    second_story = story_record()
+    second_story.update({
+        "id": "story:sample-event-002",
+        "canonical_title": "A related sample event",
+        "article_ids": ["article:publisher-a-002"],
+    })
+    registry.add_domain_record("story", first_story)
+    registry.add_domain_record("story", second_story)
+
+    first_claim = claim_record()
+    second_claim = claim_record()
+    second_claim.update({
+        "id": "claim:sample-event-002",
+        "story_id": "story:sample-event-002",
+        "text": "A second attributable proposition.",
+        "provenance": [{
+            "source_id": "source:publisher-a",
+            "article_id": "article:publisher-a-002",
+            "observed_at": STAMP,
+            "method": "manual_fixture",
+            "method_version": "1.0",
+        }],
+    })
+    registry.add_domain_record("claim", first_claim)
+    registry.add_domain_record("claim", second_claim)
+    registry.add_domain_record("evidence", factual_evidence_record())
+
+    edition = edition_record()
+    edition["story_ids"] = ["story:sample-event", "story:sample-event-002"]
+    registry.add_domain_record("edition", edition)
+
+    if operation == "merge":
+        article_assignments = [
+            {"article_id": "article:publisher-a-001", "assigned_story_id": "story:sample-event"},
+            {"article_id": "article:publisher-a-002", "assigned_story_id": "story:sample-event"},
+        ]
+        claim_assignments = [
+            {"claim_id": "claim:sample-event-001", "assigned_story_id": "story:sample-event", "expected_revision": 1},
+            {"claim_id": "claim:sample-event-002", "assigned_story_id": "story:sample-event", "expected_revision": 1},
+        ]
+    else:
+        article_assignments = [
+            {"article_id": "article:publisher-a-001", "assigned_story_id": "story:sample-event"},
+            {"article_id": "article:publisher-a-002", "assigned_story_id": "story:sample-event-002"},
+        ]
+        claim_assignments = [
+            {"claim_id": "claim:sample-event-001", "assigned_story_id": "story:sample-event", "expected_revision": 1},
+            {"claim_id": "claim:sample-event-002", "assigned_story_id": "story:sample-event-002", "expected_revision": 1},
+        ]
+    decision = {
+        "schema_version": "1.0.0",
+        "id": f"story-decision:sample-{operation}",
+        "operation": operation,
+        "story_ids": ["story:sample-event", "story:sample-event-002"],
+        "canonical_story_id": "story:sample-event",
+        "expected_story_revisions": [
+            {"story_id": "story:sample-event", "expected_revision": 1},
+            {"story_id": "story:sample-event-002", "expected_revision": 1},
+        ],
+        "article_assignments": article_assignments,
+        "claim_assignments": claim_assignments,
+        "decided_by": "editor",
+        "rationale": f"Fixture {operation} decision with explicit allocations.",
+        "decided_at": STAMP,
+    }
+    registry.add_domain_record("story_decision", decision)
+    return decision["id"]
+
+
+def test_atomic_story_merge_moves_membership_and_claims_preserving_history() -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "merge")
+        before_edition = registry.get_domain_record("edition", "edition:sample-2026-11-19").to_payload()
+        preview = registry.preview_story_decision_application(decision_id)
+        assert preview["applicable"] is True
+        applied = registry.apply_story_decision(
+            decision_id,
+            expected_impact_fingerprint=preview["impact_fingerprint"],
+            actor="senior-editor",
+            rationale="The two reports describe the same verified event.",
+        )
+        assert applied["already_applied"] is False
+        assert registry.get_domain_record("story", "story:sample-event").to_payload()["article_ids"] == [
+            "article:publisher-a-001", "article:publisher-a-002"
+        ]
+        archived = registry.get_domain_record("story", "story:sample-event-002").to_payload()
+        assert archived["status"] == "archived"
+        assert archived["article_ids"] == []
+        assert registry.get_domain_record("claim", "claim:sample-event-002").to_payload()["story_id"] == "story:sample-event"
+        assert applied["result"]["preserved_evidence_ids"] == ["evidence:sample-event-001"]
+        assert registry.get_domain_record("edition", "edition:sample-2026-11-19").to_payload() == before_edition
+        assert len(registry.domain_record_history("story", "story:sample-event")) == 2
+        assert len(registry.domain_record_history("claim", "claim:sample-event-002")) == 2
+        assert registry.verify_audit_chain()
+
+
+def test_atomic_story_split_keeps_each_existing_story_and_claim_allocation() -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "split")
+        preview = registry.preview_story_decision_application(decision_id)
+        assert preview["applicable"] is True
+        applied = registry.apply_story_decision(
+            decision_id,
+            expected_impact_fingerprint=preview["impact_fingerprint"],
+            actor="editor",
+            rationale="Separate the two independently attributable developments.",
+        )
+        assert applied["result"]["operation"] == "split"
+        assert registry.get_domain_record("story", "story:sample-event").to_payload()["article_ids"] == [
+            "article:publisher-a-001"
+        ]
+        assert registry.get_domain_record("story", "story:sample-event-002").to_payload()["article_ids"] == [
+            "article:publisher-a-002"
+        ]
+        assert registry.get_domain_record("claim", "claim:sample-event-002").to_payload()["story_id"] == "story:sample-event-002"
+        assert registry.verify_audit_chain()
+
+
+def test_story_decision_application_is_idempotent_on_retry() -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "merge")
+        preview = registry.preview_story_decision_application(decision_id)
+        first = registry.apply_story_decision(
+            decision_id,
+            expected_impact_fingerprint=preview["impact_fingerprint"],
+            actor="editor",
+            rationale="Merge after review.",
+        )
+        audit_count = len(registry.audit_events())
+        retry = registry.apply_story_decision(
+            decision_id,
+            expected_impact_fingerprint=preview["impact_fingerprint"],
+            actor="another-editor",
+            rationale="Retry after a lost response.",
+        )
+        assert retry["already_applied"] is True
+        assert retry["application_id"] == first["application_id"]
+        assert retry["result"] == first["result"]
+        assert len(registry.audit_events()) == audit_count
+        assert registry.preview_story_decision_application(decision_id)["already_applied"] is True
+
+
+def test_story_decision_application_rejects_stale_preview_fingerprint() -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "merge")
+        preview = registry.preview_story_decision_application(decision_id)
+        with pytest.raises(RegistryIntegrityError, match="preview is stale"):
+            registry.apply_story_decision(
+                decision_id,
+                expected_impact_fingerprint="sha256:" + "0" * 64,
+                actor="editor",
+                rationale="Attempt with an obsolete preview.",
+            )
+        assert registry.get_domain_record("story", "story:sample-event").to_payload()["article_ids"] == [
+            "article:publisher-a-001"
+        ]
+        assert registry.verify_audit_chain()
+
+
+def test_story_decision_application_rolls_back_every_write_on_audit_failure(monkeypatch) -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "merge")
+        preview = registry.preview_story_decision_application(decision_id)
+        checkpoint = registry.audit_checkpoint()
+        story_history_before = registry.domain_record_history("story", "story:sample-event")
+        claim_history_before = registry.domain_record_history("claim", "claim:sample-event-002")
+
+        def fail_audit(*args, **kwargs):
+            raise RuntimeError("injected audit failure")
+
+        monkeypatch.setattr(registry, "_append_audit", fail_audit)
+        with pytest.raises(RuntimeError, match="injected audit failure"):
+            registry.apply_story_decision(
+                decision_id,
+                expected_impact_fingerprint=preview["impact_fingerprint"],
+                actor="editor",
+                rationale="This must roll back.",
+            )
+
+        assert registry.get_domain_record("story", "story:sample-event").to_payload()["article_ids"] == [
+            "article:publisher-a-001"
+        ]
+        assert registry.get_domain_record("claim", "claim:sample-event-002").to_payload()["story_id"] == "story:sample-event-002"
+        assert registry.domain_record_history("story", "story:sample-event") == story_history_before
+        assert registry.domain_record_history("claim", "claim:sample-event-002") == claim_history_before
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM story_decision_applications WHERE decision_id = ?",
+            (decision_id,),
+        ).fetchone()[0] == 0
+        assert registry.audit_checkpoint() == checkpoint
+        assert registry.verify_audit_chain()
