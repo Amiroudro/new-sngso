@@ -196,6 +196,13 @@ def normalize_observation(observation: dict, source_language: str) -> tuple[dict
     article_id = "article:" + sha256_fingerprint(
         {"source_id": source_id, "canonical_uri": canonical_uri}
     ).split(":", 1)[1]
+    connector_name = observation.get("connector_name")
+    connector_version = observation.get("connector_version")
+    if not isinstance(connector_name, str) or not 1 <= len(connector_name) <= 100:
+        raise IngestionError("connector_name must contain 1 to 100 characters")
+    if not isinstance(connector_version, str) or not 1 <= len(connector_version) <= 80:
+        raise IngestionError("connector_version must contain 1 to 80 characters")
+    provenance_locator = observation.get("final_locator") or observation.get("locator")
     payload = {
         "schema_version": "1.0.0",
         "id": article_id,
@@ -204,8 +211,17 @@ def normalize_observation(observation: dict, source_language: str) -> tuple[dict
         "title": title,
         "source_language": language,
         "discovered_at": discovered_at,
+        "updated_at": discovered_at,
         "record_status": "active",
         "permission_id": observation.get("grant_id"),
+        "provenance": {
+            "source_id": source_id,
+            "observation_id": observation.get("id"),
+            "observed_at": discovered_at,
+            "method": connector_name,
+            "method_version": connector_version,
+            "locator": {"uri": provenance_locator},
+        },
     }
     if byline is not None:
         payload["byline"] = byline
