@@ -19,7 +19,7 @@ from .models import (
     SourceEndpointRecord,
     SourceRecord,
 )
-from .permissions import PermissionDecision, evaluate_permission as evaluate_permission_record
+from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
@@ -670,7 +670,9 @@ class SQLiteRegistry:
                     WHERE id = ? AND source_id = ?""",
                     (endpoint_id, source_id),
                 ).fetchone()
-                if source is None:
+                if not isinstance(operation, str) or operation not in OPERATIONS:
+                    decision = PermissionDecision(False, "unknown_operation", grant_id)
+                elif source is None:
                     decision = PermissionDecision(False, "source_record_missing", grant_id)
                 elif source["status"] != "active":
                     decision = PermissionDecision(False, "source_not_active", grant_id)
@@ -727,7 +729,11 @@ class SQLiteRegistry:
                     "allowed": decision.allowed,
                     "reason": decision.reason,
                     "permission_id": decision.permission_id,
-                    "evaluated_at": (now.isoformat() if now else _utc_now()),
+                    "evaluated_at": (
+                        now.isoformat()
+                        if isinstance(now, datetime)
+                        else (str(now) if now is not None else _utc_now())
+                    ),
                 },
             )
         return decision
