@@ -20,7 +20,7 @@ def test_valid_http_uri_accepts_absolute_http_and_https(uri):
     "https://publisher.example.org:99999/story/1",
     "https://publisher.example.org:bad/story/1",
     "https://publisher.example.org/story with spaces",
-    "https://publisher.example.org\\\\@attacker.example/story/1",
+    "https://publisher.example.org" + chr(92) + "@attacker.example/story/1",
     "https://127.0.0.1/story/1",
     "//publisher.example.org/story/1",
     "javascript:alert(1)",
