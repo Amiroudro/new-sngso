@@ -407,3 +407,38 @@ def test_transport_rejects_duplicate_singleton_headers(headers):
             allowed_domains=("example.org",),
         )
     assert len(connections) == 1
+
+
+
+def test_pinned_connection_dials_ip_but_uses_original_host_for_tls(monkeypatch):
+    captured = {}
+    raw_socket = object()
+
+    class FakeTLSContext:
+        def wrap_socket(self, raw, *, server_hostname):
+            captured["raw"] = raw
+            captured["server_hostname"] = server_hostname
+            return "wrapped-tls-socket"
+
+    def fake_create_connection(address, timeout, source_address):
+        captured["address"] = address
+        captured["timeout"] = timeout
+        return raw_socket
+
+    monkeypatch.setattr(
+        transport.ssl, "create_default_context", lambda: FakeTLSContext()
+    )
+    monkeypatch.setattr(transport.socket, "create_connection", fake_create_connection)
+
+    connection = transport._PinnedHTTPSConnection(
+        "news.example.org", 443, "93.184.216.34", 4.0
+    )
+    connection.connect()
+
+    assert captured == {
+        "address": ("93.184.216.34", 443),
+        "timeout": 4.0,
+        "raw": raw_socket,
+        "server_hostname": "news.example.org",
+    }
+    assert connection.sock == "wrapped-tls-socket"
