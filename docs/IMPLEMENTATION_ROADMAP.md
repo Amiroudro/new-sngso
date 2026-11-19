@@ -62,7 +62,7 @@ Acceptance:
 - Permission decisions can be reconstructed from stored evidence and policy versions.
 - Failed migrations or transactions do not corrupt existing data.
 
-## 4. Permission-first collection framework
+**Section 3 progress:** typed records and a SQLite registry now cover publisher sources, endpoints, permission evidence, scoped grants, articles, stories, claims, factual evidence, and edition metadata. Migration 1, cross-record checks, grant lifecycle revisions, optimistic editorial revisions, and a hash-linked append-only audit trail are implemented. Fixture tests cover the main integrity and rollback cases, but CI has not executed them successfully yet. Source observations, pipeline runs, external audit anchoring, backups, and production authentication remain outside this section.\n\n## 4. Permission-first collection framework
 
 **Goal:** make it technically impossible for a connector to collect beyond approved scope.
 
