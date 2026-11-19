@@ -1356,7 +1356,7 @@ class SQLiteRegistry:
                 or article_payload.get("permission_id") != observation["grant_id"]
             ):
                 raise RegistryIntegrityError("article source/permission does not match its observation")
-            from .ingestion import normalize_observation
+            from .ingestion import language_is_supported, normalize_observation
             expected_payload, expected_fingerprint = normalize_observation(
                 self.get_collection_observation(observation_id),
                 article_payload.get("source_language", ""),
@@ -1372,14 +1372,11 @@ class SQLiteRegistry:
             ).fetchone()["payload_json"])
             declared_languages = endpoint_payload.get("supported_languages", [])
             article_language = article_payload.get("source_language", "")
-            if not any(
-                isinstance(item, str)
-                and (
-                    item.casefold() == article_language.casefold()
-                    or ("-" not in item and article_language.casefold().startswith(item.casefold() + "-"))
-                )
-                for item in declared_languages
-            ):
+            try:
+                language_supported = language_is_supported(article_language, declared_languages)
+            except ValueError as exc:
+                raise RegistryIntegrityError("endpoint language declaration is invalid") from exc
+            if not language_supported:
                 raise RegistryIntegrityError("article language is outside the endpoint language declaration")
 
             existing_article = connection.execute(
