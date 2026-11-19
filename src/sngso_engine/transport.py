@@ -365,6 +365,9 @@ class SafeHTTPSTransport:
                 raise TransportError("invalid Content-Length header")
             if "transfer-encoding" in headers and content_lengths:
                 raise TransportError("ambiguous transfer and content length headers")
+            transfer_encoding = headers.get("transfer-encoding", "").strip().lower()
+            if transfer_encoding not in {"", "chunked"}:
+                raise TransportError("unsupported transfer encoding")
             if headers.get("content-encoding", "identity").lower() not in {"", "identity"}:
                 raise TransportError("compressed responses are not accepted")
             content_length = headers.get("content-length")
