@@ -227,7 +227,11 @@ class SQLiteRegistry:
         self._connection.execute("PRAGMA busy_timeout = 10000")
         if self.database != ":memory:":
             self._connection.execute("PRAGMA journal_mode = WAL")
-        self.migrate()
+        try:
+            self.migrate()
+        except Exception:
+            self._connection.close()
+            raise
 
     def close(self) -> None:
         with self._lock:
@@ -694,19 +698,28 @@ class SQLiteRegistry:
         """Resolve and verify stored scope/evidence before evaluating a grant."""
         if not isinstance(grant_id, str) or not grant_id.strip():
             return PermissionDecision(False, "invalid_permission_id")
+        evaluation_time = now if now is not None else datetime.now(timezone.utc)
+        grant_revision = None
+        permission_record_hash = None
+        evidence_snapshot: dict[str, str] = {}
+        source_status = None
+        endpoint_status = None
         with self._transaction() as connection:
             row = connection.execute(
-                "SELECT payload_json FROM permission_grants WHERE id = ?", (grant_id,)
+                "SELECT revision, payload_json FROM permission_grants WHERE id = ?", (grant_id,)
             ).fetchone()
             if row is None:
                 decision = PermissionDecision(False, "no_permission_record", grant_id)
                 source_id = None
             else:
+                grant_revision = row["revision"]
                 payload = self._load_payload(row)
+                permission_record_hash = sha256_fingerprint(payload)
                 source_id = payload["source_id"]
                 source = connection.execute(
                     "SELECT status FROM sources WHERE id = ?", (source_id,)
                 ).fetchone()
+                source_status = source["status"] if source else None
                 endpoint = None
                 if isinstance(endpoint_id, str) and endpoint_id.strip():
                     endpoint = connection.execute(
@@ -714,6 +727,7 @@ class SQLiteRegistry:
                         WHERE id = ? AND source_id = ?""",
                         (endpoint_id, source_id),
                     ).fetchone()
+                endpoint_status = endpoint["status"] if endpoint else None
                 if not isinstance(operation, str) or operation not in OPERATIONS:
                     decision = PermissionDecision(False, "unknown_operation", grant_id)
                 elif not isinstance(endpoint_id, str) or not endpoint_id.strip():
@@ -737,6 +751,7 @@ class SQLiteRegistry:
                         ).fetchone()
                         if evidence is not None:
                             evidence_map[evidence_id] = evidence["review_status"]
+                    evidence_snapshot = dict(evidence_map)
                     if len(evidence_map) != len(set(all_evidence)):
                         decision = PermissionDecision(
                             False, "permission_evidence_missing", grant_id
@@ -760,7 +775,7 @@ class SQLiteRegistry:
                                 operation,
                                 source_id=source_id,
                                 endpoint_id=endpoint_id,
-                                now=now,
+                                now=evaluation_time,
                             )
             self._append_audit(
                 connection,
@@ -775,10 +790,15 @@ class SQLiteRegistry:
                     "allowed": decision.allowed,
                     "reason": decision.reason,
                     "permission_id": decision.permission_id,
+                    "grant_revision": grant_revision,
+                    "permission_record_hash": permission_record_hash,
+                    "source_status": source_status,
+                    "endpoint_status": endpoint_status,
+                    "evidence_statuses": evidence_snapshot,
                     "evaluated_at": (
-                        now.isoformat()
-                        if isinstance(now, datetime)
-                        else (str(now) if now is not None else _utc_now())
+                        evaluation_time.isoformat()
+                        if isinstance(evaluation_time, datetime)
+                        else str(evaluation_time)
                     ),
                 },
             )
