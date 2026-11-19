@@ -165,3 +165,10 @@ Relationships are append-only. Corrections create a superseding record, and the 
 ## Timeline editorial review gate
 
 Timeline assertions now have an optional review state for backward-compatible v1 payloads. When supplied, the state is `unreviewed`, `review_required`, `approved`, or `rejected`. Approved/rejected assertions require reviewer identity, a timezone-aware review timestamp, and a non-empty review note. Unreviewed/review-required assertions cannot carry review metadata. Review cannot predate event creation. The registry validates these rules and schema migration 10 adds a SQLite insert trigger that repeats the metadata and time-order checks. Reviewer identity is an attribution field, not proof of authentication. Event corrections remain append-only.
+
+
+## Consistent story editorial snapshot
+
+`story_editorial_snapshot(story_id)` returns a read-only dossier assembled under one SQLite read transaction. It includes the story and revision, linked articles, claims and evidence, full and current timeline assertions, full and current perspectives, full and current claim relationships, story decision history, and the conservative reporting-independence view. A deterministic SHA-256 fingerprint identifies the assembled snapshot. Repeated reads of unchanged editorial state produce the same fingerprint; the method does not append audit events or mutate records.
+
+This is the hand-off boundary for later editorial production: downstream work receives one internally consistent, provenance-rich context rather than separately fetched fragments that might reflect different database states. The dossier does not generate summaries, decide disputed claims, or infer publisher independence.
