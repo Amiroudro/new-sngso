@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 import pytest
 
 from sngso_engine.collection import (
-    CollectionCapabilities,
     CollectionError,
     CollectionRequest,
     ConnectorCapabilities,
