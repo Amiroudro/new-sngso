@@ -1,6 +1,6 @@
 # Section 4: Permission-First Collection Design
 
-Status: design baseline; implementation not yet accepted  
+Status: first fixture-first implementation committed; Section 4 acceptance remains open  
 Scope: fixture-first collection framework in the new engine only
 
 ## 1. Non-negotiable boundary
@@ -87,3 +87,30 @@ Required tests include:
 ## 8. Explicit non-goals
 
 This section does not approve any real publisher, implement live scraping, bypass paywalls, infer copyright permission, retain full article text by default, translate unapproved content, or publish editions. No production destination or live source list is configured.
+
+## 9. Implemented first milestone
+
+The current implementation is in `src/sngso_engine/collection.py` and the SQLite observation adapter in `src/sngso_engine/registry.py`.
+
+Implemented and CI-verified:
+- exact source, endpoint, grant, and operation resolution before connector invocation;
+- source/endpoint active-state checks and connector capability checks;
+- discovery and metadata as separate permission-gated operations;
+- rejection of unimplemented operations, including full-text storage, translation, images, and republication;
+- bounded item count and strict operation-specific output fields;
+- append-only SQLite observation storage with source/endpoint/grant foreign keys;
+- a storage-time recheck of grant status, revision, evidence state, and effective permission;
+- rejection of observations when a grant changes during connector execution;
+- audit events for persisted observations;
+- fixture-only tests with no publisher network calls.
+
+GitHub Actions run #107 passed with 132 tests.
+
+## 10. Remaining Section 4 gates
+
+- Enforce wall-clock deadlines, response-byte limits, per-domain rate limits, and bounded retry policy in the transport boundary before any live connector exists.
+- Add stronger URI and redirect-scope validation for a future network adapter.
+- Add tests for inactive sources/endpoints, expired grants, invalid metadata, oversized responses, and sink transaction rollback.
+- Review the collection module and observation storage together before marking this section complete.
+
+No live connector, publisher approval, article-body storage, or production collection has been enabled.
