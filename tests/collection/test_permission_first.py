@@ -711,6 +711,7 @@ def test_registered_domain_allowlist_requires_canonical_ascii_domains():
     ("publisher-a.example.org.",),
     ("127.0.0.1",),
     ("publisher-a.example.org", "publisher-a.example.org"),
+    ["publisher-a.example.org"],
 ])
 def test_connector_execution_context_rejects_noncanonical_domain_scope(domains):
     with pytest.raises(ValueError, match="canonical DNS"):
