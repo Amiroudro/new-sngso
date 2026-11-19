@@ -82,6 +82,10 @@ def test_https_transport_pins_resolved_ip_and_preserves_host_header():
     "https://news.example.org:/feed.xml",
     "https://news.example.org../feed.xml",
     "https://127.0.0.1/feed.xml",
+    "https://news.example.org:0443/feed.xml",
+    "https://news.example.org/feed.xml#",
+    "https://news.example.org/bad path",
+    "https://news.example.org/bad" + chr(92) + "path",
 ])
 def test_transport_rejects_unsafe_url_before_dns(url):
     called = []
@@ -130,6 +134,18 @@ def test_response_body_limit_is_enforced_while_streaming():
 def test_declared_content_length_over_limit_is_rejected_before_body_read():
     client, _ = make_transport([
         FakeResponse(headers=[("Content-Length", "1000")], body=b"")
+    ])
+    with pytest.raises(transport.ResponseTooLarge):
+        client.fetch(
+            "https://news.example.org/feed.xml",
+            allowed_domains=("example.org",),
+            max_bytes=100,
+        )
+
+
+def test_oversized_content_length_digits_are_rejected_cleanly():
+    client, _ = make_transport([
+        FakeResponse(headers=[("Content-Length", "9" * 5000)], body=b"")
     ])
     with pytest.raises(transport.ResponseTooLarge):
         client.fetch(
