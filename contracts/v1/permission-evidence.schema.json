@@ -4,7 +4,7 @@
   "title": "PermissionEvidence",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "id", "source_id", "evidence_type", "evidence_uri", "captured_at", "content_fingerprint", "review_status"],
+  "required": ["schema_version", "id", "source_id", "evidence_type", "evidence_uri", "captured_at", "content_fingerprint", "scope_description", "review_status"],
   "properties": {
     "schema_version": {"const": "1.0.0"},
     "id": {"$ref": "common.schema.json#/$defs/id"},
