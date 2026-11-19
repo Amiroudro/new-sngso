@@ -927,10 +927,7 @@ class SQLiteRegistry:
         validate_payload(record_type, payload)
         record = model.from_payload(payload)
         created_at = self._domain_record_timestamp(record_type, payload)
-        updated_at = payload.get("updated_at", created_at)
-        _aware_datetime(updated_at, "updated_at")
-        if _aware_datetime(updated_at, "updated_at") < _aware_datetime(created_at, "created_at"):
-            raise RegistryIntegrityError("updated_at cannot be earlier than record creation")
+        updated_at = _utc_now()
         with self._transaction() as connection:
             self._validate_domain_references(connection, record_type, payload)
             connection.execute(
@@ -995,8 +992,7 @@ class SQLiteRegistry:
             raise ValueError("reason is required")
         validate_payload(record_type, payload)
         record = model.from_payload(payload)
-        updated_at = payload.get("updated_at", _utc_now())
-        _aware_datetime(updated_at, "updated_at")
+        updated_at = _utc_now()
         with self._transaction() as connection:
             row = connection.execute(
                 """SELECT revision, status FROM domain_records
