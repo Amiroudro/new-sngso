@@ -25,6 +25,7 @@ from .models import (
     PermissionGrantRecord,
     SourceEndpointRecord,
     SourceRecord,
+    StoryDecisionRecord,
     StoryRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
@@ -1708,6 +1709,7 @@ class SQLiteRegistry:
     _DOMAIN_MODELS = {
         "article": ArticleRecord,
         "story": StoryRecord,
+        "story_decision": StoryDecisionRecord,
         "claim": ClaimRecord,
         "evidence": EvidenceRecord,
         "edition": EditionRecord,
@@ -1945,6 +1947,31 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("evidence locator is malformed")
             if not _host_in_domains(parsed_locator.hostname, source_domains):
                 raise RegistryIntegrityError("evidence locator is outside its registered source domains")
+        elif record_type == "story_decision":
+            story_ids = set(payload["story_ids"])
+            if payload["canonical_story_id"] not in story_ids:
+                raise RegistryIntegrityError(
+                    "story decision canonical story must be one of the affected stories"
+                )
+            story_payloads = {
+                story_id: require_record("story", story_id, "story decision")
+                for story_id in story_ids
+            }
+            available_articles = {
+                article_id
+                for story_payload in story_payloads.values()
+                for article_id in story_payload.get("article_ids", [])
+            }
+            for article_id in payload["article_ids"]:
+                require_record("article", article_id, "story decision")
+                if article_id not in available_articles:
+                    raise RegistryIntegrityError(
+                        "story decision article must belong to at least one affected story"
+                    )
+            if payload["operation"] == "split" and len(payload["article_ids"]) < 2:
+                raise RegistryIntegrityError(
+                    "split decision must identify at least two articles for editorial allocation"
+                )
         elif record_type == "edition":
             for story_id in payload["story_ids"]:
                 require_record("story", story_id, "edition")
@@ -1956,6 +1983,7 @@ class SQLiteRegistry:
             "story": "created_at",
             "claim": "created_at",
             "evidence": "assessed_at",
+            "story_decision": "decided_at",
             "edition": "created_at",
         }[record_type]
         _aware_datetime(payload[field], field)
@@ -2120,6 +2148,22 @@ class SQLiteRegistry:
             "independence_claim": "not_established_by_publisher_count_or_no_candidate",
         }
 
+    def story_decision_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Return immutable merge/split decisions involving a story, oldest first."""
+        if self.get_domain_record("story", story_id) is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT payload_json FROM domain_records
+                WHERE record_type = 'story_decision'
+                ORDER BY created_at, id"""
+            ).fetchall()
+        return [
+            payload
+            for row in rows
+            if story_id in (payload := json.loads(row["payload_json"]))["story_ids"]
+        ]
+
     def get_domain_record(self, record_type: str, record_id: str):
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
@@ -2171,8 +2215,10 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("cannot revise an unknown domain record")
             if row["revision"] != expected_revision:
                 raise RegistryIntegrityError("domain record revision conflict")
-            if record_type == "edition":
-                raise RegistryIntegrityError("edition snapshots are immutable")
+            if record_type in {"edition", "story_decision"}:
+                raise RegistryIntegrityError(
+                    "edition snapshots and story decision records are immutable"
+                )
             previous_payload = json.loads(row["payload_json"])
             immutable_time_field = {
                 "article": "discovered_at",
