@@ -272,8 +272,9 @@ class SafeHTTPSTransport:
                 remaining = deadline - self._clock()
                 if remaining <= 0:
                     raise TransportError("request deadline exceeded")
-                if connection.sock is not None:
-                    connection.sock.settimeout(remaining)
+                active_socket = getattr(connection, "sock", None)
+                if active_socket is not None:
+                    active_socket.settimeout(remaining)
                 chunk = response.read(min(16384, max_bytes + 1 - len(body)))
                 if not chunk:
                     break
