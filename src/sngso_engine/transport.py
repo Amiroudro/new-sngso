@@ -40,8 +40,11 @@ class TransportResponse:
 def _canonical_host(host: str) -> str:
     if not isinstance(host, str) or not host:
         raise TransportError("URL host is missing")
+    raw_host = host[:-1] if host.endswith(".") else host
+    if not raw_host or raw_host.endswith("."):
+        raise TransportError("URL host is invalid")
     try:
-        canonical = host.rstrip(".").encode("idna").decode("ascii").lower()
+        canonical = raw_host.encode("idna").decode("ascii").lower()
     except UnicodeError as exc:
         raise TransportError("URL host is invalid") from exc
     if not canonical or len(canonical) > 253:
