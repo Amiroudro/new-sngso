@@ -269,7 +269,7 @@ _MIGRATION_4 = (
             'created', 'reused', 'possible_duplicate', 'confirmed_duplicate', 'distinct'
         )),
         duplicate_of_article_id TEXT,
-        fingerprint TEXT,
+        fingerprint TEXT CHECK (fingerprint IS NULL OR (length(fingerprint) = 71 AND substr(fingerprint, 1, 7) = 'sha256:' AND substr(fingerprint, 8) NOT GLOB '*[^0-9a-f]*')),
         canonical_uri TEXT NOT NULL,
         reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 1000),
         decided_at TEXT NOT NULL,
@@ -294,7 +294,8 @@ _MIGRATION_4 = (
                 SELECT 1 FROM domain_records
                 WHERE record_type = 'article' AND id = NEW.article_id
                   AND json_extract(payload_json, '$.source_id') = NEW.source_id
-            ) THEN RAISE(ABORT, 'ingestion decision article/source mismatch') END;
+                  AND json_extract(payload_json, '$.canonical_uri') = NEW.canonical_uri
+            ) THEN RAISE(ABORT, 'ingestion decision article/source/URI mismatch') END;
             SELECT CASE WHEN NOT EXISTS (
                 SELECT 1 FROM collection_observations
                 WHERE observation_id = NEW.observation_id AND source_id = NEW.source_id
@@ -302,7 +303,8 @@ _MIGRATION_4 = (
             SELECT CASE WHEN NEW.duplicate_of_article_id IS NOT NULL AND NOT EXISTS (
                 SELECT 1 FROM domain_records
                 WHERE record_type = 'article' AND id = NEW.duplicate_of_article_id
-            ) THEN RAISE(ABORT, 'ingestion duplicate target does not exist') END;
+                  AND json_extract(payload_json, '$.source_id') != NEW.source_id
+            ) THEN RAISE(ABORT, 'ingestion duplicate target must be a different source article') END;
         END""",
     """CREATE TRIGGER ingestion_decisions_no_update
         BEFORE UPDATE ON ingestion_decisions
