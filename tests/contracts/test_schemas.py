@@ -22,7 +22,7 @@ def load_schema(name: str) -> dict:
 
 @pytest.mark.parametrize(
     "name",
-    ["source-permission", "source-observation", "article", "story", "claim", "evidence", "timeline-event", "perspective", "learning-object", "pipeline-run", "editorial-decision", "edition"],
+    ["source-permission", "source-observation", "article", "story", "claim", "evidence", "timeline-event", "perspective", "claim-relation", "learning-object", "pipeline-run", "editorial-decision", "edition"],
 )
 def test_schema_is_valid_draft_2020_12(name: str) -> None:
     schema = load_schema(name)
@@ -160,11 +160,13 @@ def test_minimal_valid_contract_instances(name: str, instance: dict) -> None:
                 "schema_version": "1.0.0",
                 "id": "event:sample-001",
                 "story_id": "story:sample-001",
-                "label": "Notice issued",
-                "time_precision": "date",
-                "occurred_on": "2026-11-18",
+                "title": "Notice issued",
+                "event_type": "announcement",
+                "occurred": {"precision": "date", "start": "2026-11-18"},
                 "claim_ids": ["claim:sample-001"],
                 "created_at": "2026-11-19T00:00:00Z",
+                "created_by": "editor",
+                "rationale": "Linked claim records the announcement.",
             },
         ),
         (
@@ -180,6 +182,21 @@ def test_minimal_valid_contract_instances(name: str, instance: dict) -> None:
                 "language": "en",
                 "text": "The publisher's framing, clearly attributed.",
                 "claim_ids": ["claim:sample-001"],
+                "created_at": "2026-11-19T00:00:00Z",
+                "review_status": "unreviewed",
+            },
+        ),
+        (
+            "claim-relation",
+            {
+                "schema_version": "1.0.0",
+                "id": "claim-relation:sample-001",
+                "story_id": "story:sample-001",
+                "claim_id": "claim:sample-001",
+                "related_claim_id": "claim:sample-002",
+                "relationship": "contradicts",
+                "rationale": "The two attributed propositions cannot both be accurate as written.",
+                "created_by": "editor",
                 "created_at": "2026-11-19T00:00:00Z",
                 "review_status": "unreviewed",
             },
@@ -271,5 +288,34 @@ def test_article_contract_rejects_unknown_fields() -> None:
         load_schema("article"),
         registry=REGISTRY,
         format_checker=FORMAT_CHECKER,
+    )
+    assert list(validator.iter_errors(instance))
+
+
+@pytest.mark.parametrize(
+    "occurred",
+    [
+        {"precision": "instant"},
+        {"precision": "date", "start": "2026-11-18T12:00:00Z"},
+        {"precision": "range", "start": "2026-11-18T12:00:00Z"},
+        {"precision": "approximate", "start": "2026-11-18"},
+        {"precision": "unknown", "start": "2026-11-18"},
+    ],
+)
+def test_timeline_event_schema_enforces_temporal_precision(occurred: dict) -> None:
+    instance = {
+        "schema_version": "1.0.0",
+        "id": "event:invalid-temporal-precision",
+        "story_id": "story:sample-001",
+        "title": "A dated development",
+        "event_type": "occurrence",
+        "occurred": occurred,
+        "claim_ids": ["claim:sample-001"],
+        "created_at": "2026-11-19T00:00:00Z",
+        "created_by": "editor",
+        "rationale": "Contract fixture.",
+    }
+    validator = Draft202012Validator(
+        load_schema("timeline-event"), registry=REGISTRY, format_checker=FORMAT_CHECKER
     )
     assert list(validator.iter_errors(instance))

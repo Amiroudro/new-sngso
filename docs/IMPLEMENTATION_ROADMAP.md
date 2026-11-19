@@ -1,6 +1,6 @@
 # Engine Implementation Programme
 
-Status: Sections 1–5 implemented to their documented scope; Sections 6–10 remain planned  
+Status: Sections 1–6 implemented to their documented local/fixture-first scope; Sections 7–10 planned  
 Baseline branch: `fix/engine-ci-source-triggers`  
 Scope: the new `new-sngso` engine repository only
 
@@ -102,6 +102,9 @@ Acceptance:
 
 ## 6. Story intelligence, claims, and evidence
 
+**Status: in progress.** Provenance integrity, human claim assessment, immutable merge/split decisions, explicit article and claim allocations, stale-revision checks, deterministic read-only impact preview, and atomic/idempotent story-decision application are implemented. The application path revalidates the preview in one `BEGIN IMMEDIATE` transaction, writes story and claim revisions, records one append-only application, and appends an audit event. Concurrent attempts produce one application and one revision set. Merge archives non-canonical stories; split redistributes among existing story IDs, assigns every affected article exactly once, and leaves every resulting story with an article. Evidence and historical editions remain unchanged.
+
+Attributed perspectives are now persisted separately from claims and timeline events. Publisher framing requires a registered source and a same-story article; optional claim links are checked against the same story. Stakeholder, expert, and editorial viewpoints retain explicit attribution. Perspective corrections append a superseding record with editor and rationale; the original remains in history. The SQLite boundary repeats the reference checks and prevents updates, deletion, and branching corrections. This records viewpoints without treating them as facts or computing truth scores. Schema migration 8 adds this append-only store.\n\nA claim-backed event chronology is now implemented. Timeline events require claims belonging to the same story, distinguish exact timestamps, dates, timestamp ranges, approximate dates, and unknown timing, and preserve uncertainty instead of inventing a time. Corrections append a new event and supersede the earlier assertion without rewriting it. SQLite triggers enforce active-story and same-story claim references; a composite foreign key prevents cross-story correction links. GitHub Actions [run #44617451161](https://github.com/Amiroudro/new-sngso/actions/runs/44617451161) passed **371 tests in 1.99 seconds** on code head `bce8926c1f525c219d395e43c5271b62633d9faa`. Remaining Section 6 work includes curated event extraction workflows, richer contradiction/perspective handling, and editorial quality gates. Automatic truth scoring and live collection remain out of scope.
 **Goal:** build traceable understanding rather than headline aggregation.
 
 Tasks:
@@ -199,8 +202,8 @@ Acceptance:
 | 2. Source governance | **Complete:** contracts, fail-closed evaluator, fixtures, review policy, and passing full test suite | No real publisher approval implied; human review and reviewer authorization remain future controls |
 | 3. Domain models and persistence | **Complete:** typed models, SQLite registry, cross-record validation, revisions, audit chain, commit-failure rollback, targeted review, and passing full test suite in run #91 | Source-observation persistence, backups, external audit anchoring, and production authentication remain future work |
 | 4. Permission-first collection | **Complete for the fixture-first framework:** permission-first orchestration, independent storage rechecks, cross-connection revocation tests, atomic batch persistence, full observation provenance including HTTP method, bounded pinned-IP HTTPS transport prototype, strict URL/DNS/header/redirect/body controls, and passing current-head CI | Live publisher adapters remain gated on source-specific rights review, trusted connector review, shared rate limiting, and deployment-level network-egress controls |
-| 5. Ingestion and identity | **Complete:** canonical URL/text/timestamp/language normalization; metadata-only permission-rechecked ingestion; exact observation provenance; deterministic article identity; ordered immutable metadata revisions; idempotency; cross-publisher duplicate candidates; reversible duplicate resolutions; migration 4; 297 passing tests | Story assignment and event clustering belong to Section 6; no live publisher integration is enabled |
-| 6. Story intelligence and evidence | **Next** | Depends on the completed Section 5 article identity layer |
+| 5. Ingestion and identity | **Complete:** canonical URL/text/timestamp/language normalization; metadata-only permission-rechecked ingestion; exact observation provenance; deterministic article identity; ordered immutable metadata revisions; idempotency; cross-publisher duplicate candidates; reversible duplicate resolutions; migration 4; 311-test verification | No live publisher integration is enabled |
+| 6. Story intelligence and evidence | **Complete for local registry/fixture scope:** provenance and claim assessment; immutable merge/split decisions with atomic application; claim-backed timeline with correction and review history; attributed perspectives with review gates; curated claim-to-claim contradiction/qualification/reframing links; deterministic read-only editorial dossier; schema migrations through v10; 404 passing tests | Reviewer authentication, production editorial interface, automated extraction/discovery, live publisher adapters, and edition integration remain separate gates |
 | 7. Editorial production | Not started | Depends on Section 6 |
 | 8. Edition assembly | Not started | Depends on Section 7 |
 | 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |

@@ -69,6 +69,123 @@
         "approved",
         "rejected"
       ]
+    },
+    "supersedes_perspective_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "created_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "reviewed_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "reviewed_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "review_note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "publisher_framing"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "source_id",
+          "article_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "supersedes_perspective_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "created_by",
+          "rationale"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          }
+        },
+        "required": [
+          "review_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "reviewed_at",
+          "reviewed_by",
+          "review_note"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "enum": [
+              "unreviewed",
+              "review_required"
+            ]
+          }
+        },
+        "required": [
+          "review_status"
+        ]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "reviewed_at"
+              ]
+            },
+            {
+              "required": [
+                "reviewed_by"
+              ]
+            },
+            {
+              "required": [
+                "review_note"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
 }

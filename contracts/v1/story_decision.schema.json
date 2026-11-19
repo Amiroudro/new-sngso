@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/story_decision.schema.json",
+  "title": "Story relationship decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "operation",
+    "story_ids",
+    "canonical_story_id",
+    "expected_story_revisions",
+    "article_assignments",
+    "claim_assignments",
+    "decided_by",
+    "rationale",
+    "decided_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "operation": { "enum": ["merge", "split"] },
+    "story_ids": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/id" }
+    },
+    "canonical_story_id": { "$ref": "common.schema.json#/$defs/id" },
+    "expected_story_revisions": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["story_id", "expected_revision"],
+        "properties": {
+          "story_id": { "$ref": "common.schema.json#/$defs/id" },
+          "expected_revision": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "article_assignments": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["article_id", "assigned_story_id"],
+        "properties": {
+          "article_id": { "$ref": "common.schema.json#/$defs/id" },
+          "assigned_story_id": { "$ref": "common.schema.json#/$defs/id" }
+        }
+      }
+    },
+    "claim_assignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim_id", "assigned_story_id", "expected_revision"],
+        "properties": {
+          "claim_id": { "$ref": "common.schema.json#/$defs/id" },
+          "assigned_story_id": { "$ref": "common.schema.json#/$defs/id" },
+          "expected_revision": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "decided_by": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "decided_at": { "$ref": "common.schema.json#/$defs/dateTime" }
+  }
+}

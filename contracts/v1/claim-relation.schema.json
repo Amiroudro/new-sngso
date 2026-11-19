@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/claim-relation.schema.json",
+  "title": "Claim relation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "story_id",
+    "claim_id",
+    "related_claim_id",
+    "relationship",
+    "rationale",
+    "created_by",
+    "created_at",
+    "review_status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "story_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "claim_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "related_claim_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "relationship": {
+      "enum": [
+        "contradicts",
+        "qualifies",
+        "narrows",
+        "reframes"
+      ]
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "created_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "review_status": {
+      "enum": [
+        "unreviewed",
+        "accepted",
+        "rejected"
+      ]
+    },
+    "reviewed_at": {
+      "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "reviewed_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "review_note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "supersedes_relation_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ]
+          }
+        },
+        "required": [
+          "review_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "reviewed_at",
+          "reviewed_by",
+          "review_note"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "const": "unreviewed"
+          }
+        },
+        "required": [
+          "review_status"
+        ]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "reviewed_at"
+              ]
+            },
+            {
+              "required": [
+                "reviewed_by"
+              ]
+            },
+            {
+              "required": [
+                "review_note"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

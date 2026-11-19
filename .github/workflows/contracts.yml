@@ -1,5 +1,8 @@
 name: Contract validation
 
+# Run the complete test suite when contracts, engine code, or tests change.
+# This also exercises SQLite migrations and append-only editorial decision records.
+
 on:
   push:
     branches: [main]

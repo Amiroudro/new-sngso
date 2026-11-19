@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from sngso_engine import registry as registry_module
+from sngso_engine.contracts import ContractValidationError
 
 from sngso_engine.registry import (
     POLICY_VERSION,
@@ -119,21 +120,21 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 4
+        assert registry.schema_version() == 10
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 4
+        assert reopened.schema_version() == 10
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
-def test_existing_schema_v2_database_migrates_to_v4(tmp_path, monkeypatch):
+def test_existing_schema_v2_database_migrates_to_v7(tmp_path, monkeypatch):
     database = tmp_path / "registry-v2.sqlite"
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 2)
     with SQLiteRegistry(database) as old_registry:
         assert old_registry.schema_version() == 2
-    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 4)
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 7)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 4
+        assert migrated.schema_version() == 7
         columns = {
             row["name"]
             for row in migrated._connection.execute(
@@ -687,3 +688,643 @@ def test_failed_commit_rolls_back_and_leaves_connection_usable() -> None:
         # The same connection remains usable after the failed COMMIT.
         registry.add_source(source_record())
         assert registry.get_source("source:publisher-a") is not None
+
+
+def test_assessed_claim_must_link_to_its_own_evidence():
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        claim = claim_record()
+        claim["assessment"] = "supported"
+        claim["evidence_ids"] = ["evidence:sample-event-001"]
+        claim["reviewed_at"] = STAMP
+        claim["review_note"] = "The source directly supports this proposition."
+        revised = registry.revise_domain_record(
+            "claim", claim["id"], claim, expected_revision=1,
+            actor="editor", reason="Reviewed the supporting source passage.",
+        )
+        assert revised.assessment == "supported"
+
+
+def test_claim_cannot_link_evidence_owned_by_another_claim():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        registry.add_domain_record("claim", claim_record())
+        second_claim = claim_record()
+        second_claim["id"] = "claim:sample-event-002"
+        registry.add_domain_record("claim", second_claim)
+        registry.add_domain_record("evidence", factual_evidence_record())
+        second_claim["evidence_ids"] = ["evidence:sample-event-001"]
+        with pytest.raises(RegistryIntegrityError, match="belongs to another claim"):
+            registry.revise_domain_record(
+                "claim", second_claim["id"], second_claim, expected_revision=1,
+                actor="editor", reason="Attempted cross-claim evidence link.",
+            )
+
+
+def test_supported_claim_cannot_ignore_contradicting_evidence():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        registry.add_domain_record("claim", claim_record())
+        registry.add_domain_record("evidence", factual_evidence_record())
+        contradiction = factual_evidence_record()
+        contradiction["id"] = "evidence:sample-event-contradiction"
+        contradiction["relationship"] = "contradicts"
+        registry.add_domain_record("evidence", contradiction)
+        claim = claim_record()
+        claim["evidence_ids"] = [
+            "evidence:sample-event-001",
+            "evidence:sample-event-contradiction",
+        ]
+        claim["assessment"] = "supported"
+        claim["reviewed_at"] = STAMP
+        claim["review_note"] = "Initial assessment pending contradiction review."
+        with pytest.raises(RegistryIntegrityError, match="no unresolved contradiction"):
+            registry.revise_domain_record(
+                "claim", claim["id"], claim, expected_revision=1,
+                actor="editor", reason="Incorrectly marked as fully supported.",
+            )
+        claim["assessment"] = "disputed"
+        revised = registry.revise_domain_record(
+            "claim", claim["id"], claim, expected_revision=1,
+            actor="editor", reason="Sources materially disagree.",
+        )
+        assert revised.assessment == "disputed"
+
+
+def test_retracted_claim_requires_a_review_note():
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        claim = claim_record()
+        claim["assessment"] = "retracted"
+        claim["evidence_ids"] = ["evidence:sample-event-001"]
+        claim["reviewed_at"] = STAMP
+        with pytest.raises(RegistryIntegrityError, match="review_note"):
+            registry.revise_domain_record(
+                "claim", claim["id"], claim, expected_revision=1,
+                actor="editor", reason="Retraction needs an explanation.",
+            )
+        claim["review_note"] = "The original proposition was withdrawn after correction."
+        revised = registry.revise_domain_record(
+            "claim", claim["id"], claim, expected_revision=1,
+            actor="editor", reason="The proposition was formally retracted.",
+        )
+        assert revised.assessment == "retracted"
+
+
+def test_evidence_locator_must_stay_inside_registered_source_domains():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        registry.add_domain_record("claim", claim_record())
+        evidence = factual_evidence_record()
+        evidence["locator"]["uri"] = "https://unregistered.example.net/report"
+        with pytest.raises(RegistryIntegrityError, match="outside its registered source domains"):
+            registry.add_domain_record("evidence", evidence)
+
+
+def _two_story_decision_registry(registry: SQLiteRegistry, operation: str) -> str:
+    registry.add_source(source_record())
+    first_article = article_record()
+    second_article = article_record()
+    second_article.update({
+        "id": "article:publisher-a-002",
+        "canonical_uri": "https://publisher-a.example.org/news/002",
+        "title": "A second sample report",
+    })
+    registry.add_domain_record("article", first_article)
+    registry.add_domain_record("article", second_article)
+
+    first_story = story_record()
+    second_story = story_record()
+    second_story.update({
+        "id": "story:sample-event-002",
+        "canonical_title": "A related sample event",
+        "article_ids": ["article:publisher-a-002"],
+    })
+    registry.add_domain_record("story", first_story)
+    registry.add_domain_record("story", second_story)
+
+    first_claim = claim_record()
+    second_claim = claim_record()
+    second_claim.update({
+        "id": "claim:sample-event-002",
+        "story_id": "story:sample-event-002",
+        "text": "A second attributable proposition.",
+        "provenance": [{
+            "source_id": "source:publisher-a",
+            "article_id": "article:publisher-a-002",
+            "observed_at": STAMP,
+            "method": "manual_fixture",
+            "method_version": "1.0",
+        }],
+    })
+    registry.add_domain_record("claim", first_claim)
+    registry.add_domain_record("claim", second_claim)
+    registry.add_domain_record("evidence", factual_evidence_record())
+
+    edition = edition_record()
+    edition["story_ids"] = ["story:sample-event", "story:sample-event-002"]
+    registry.add_domain_record("edition", edition)
+
+    if operation == "merge":
+        article_assignments = [
+            {"article_id": "article:publisher-a-001", "assigned_story_id": "story:sample-event"},
+            {"article_id": "article:publisher-a-002", "assigned_story_id": "story:sample-event"},
+        ]
+        claim_assignments = [
+            {"claim_id": "claim:sample-event-001", "assigned_story_id": "story:sample-event", "expected_revision": 1},
+            {"claim_id": "claim:sample-event-002", "assigned_story_id": "story:sample-event", "expected_revision": 1},
+        ]
+    else:
+        article_assignments = [
+            {"article_id": "article:publisher-a-001", "assigned_story_id": "story:sample-event"},
+            {"article_id": "article:publisher-a-002", "assigned_story_id": "story:sample-event-002"},
+        ]
+        claim_assignments = [
+            {"claim_id": "claim:sample-event-001", "assigned_story_id": "story:sample-event", "expected_revision": 1},
+            {"claim_id": "claim:sample-event-002", "assigned_story_id": "story:sample-event-002", "expected_revision": 1},
+        ]
+    decision = {
+        "schema_version": "1.0.0",
+        "id": f"story-decision:sample-{operation}",
+        "operation": operation,
+        "story_ids": ["story:sample-event", "story:sample-event-002"],
+        "canonical_story_id": "story:sample-event",
+        "expected_story_revisions": [
+            {"story_id": "story:sample-event", "expected_revision": 1},
+            {"story_id": "story:sample-event-002", "expected_revision": 1},
+        ],
+        "article_assignments": article_assignments,
+        "claim_assignments": claim_assignments,
+        "decided_by": "editor",
+        "rationale": f"Fixture {operation} decision with explicit allocations.",
+        "decided_at": STAMP,
+    }
+    registry.add_domain_record("story_decision", decision)
+    return decision["id"]
+
+
+def test_atomic_story_merge_moves_membership_and_claims_preserving_history() -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "merge")
+        before_edition = registry.get_domain_record("edition", "edition:sample-2026-11-19").to_payload()
+        preview = registry.preview_story_decision_application(decision_id)
+        assert preview["applicable"] is True
+        applied = registry.apply_story_decision(
+            decision_id,
+            expected_impact_fingerprint=preview["impact_fingerprint"],
+            actor="senior-editor",
+            rationale="The two reports describe the same verified event.",
+        )
+        assert applied["already_applied"] is False
+        assert registry.get_domain_record("story", "story:sample-event").to_payload()["article_ids"] == [
+            "article:publisher-a-001", "article:publisher-a-002"
+        ]
+        archived = registry.get_domain_record("story", "story:sample-event-002").to_payload()
+        assert archived["status"] == "archived"
+        assert archived["article_ids"] == []
+        assert registry.get_domain_record("claim", "claim:sample-event-002").to_payload()["story_id"] == "story:sample-event"
+        assert applied["result"]["preserved_evidence_ids"] == ["evidence:sample-event-001"]
+        assert registry.get_domain_record("edition", "edition:sample-2026-11-19").to_payload() == before_edition
+        assert len(registry.domain_record_history("story", "story:sample-event")) == 2
+        assert len(registry.domain_record_history("claim", "claim:sample-event-002")) == 2
+        assert registry.verify_audit_chain()
+
+
+def test_atomic_story_split_keeps_each_existing_story_and_claim_allocation() -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "split")
+        preview = registry.preview_story_decision_application(decision_id)
+        assert preview["applicable"] is True
+        applied = registry.apply_story_decision(
+            decision_id,
+            expected_impact_fingerprint=preview["impact_fingerprint"],
+            actor="editor",
+            rationale="Separate the two independently attributable developments.",
+        )
+        assert applied["result"]["operation"] == "split"
+        assert registry.get_domain_record("story", "story:sample-event").to_payload()["article_ids"] == [
+            "article:publisher-a-001"
+        ]
+        assert registry.get_domain_record("story", "story:sample-event-002").to_payload()["article_ids"] == [
+            "article:publisher-a-002"
+        ]
+        assert registry.get_domain_record("claim", "claim:sample-event-002").to_payload()["story_id"] == "story:sample-event-002"
+        assert registry.verify_audit_chain()
+
+
+def test_story_decision_application_is_idempotent_on_retry() -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "merge")
+        preview = registry.preview_story_decision_application(decision_id)
+        first = registry.apply_story_decision(
+            decision_id,
+            expected_impact_fingerprint=preview["impact_fingerprint"],
+            actor="editor",
+            rationale="Merge after review.",
+        )
+        audit_count = len(registry.audit_events())
+        retry = registry.apply_story_decision(
+            decision_id,
+            expected_impact_fingerprint=preview["impact_fingerprint"],
+            actor="another-editor",
+            rationale="Retry after a lost response.",
+        )
+        assert retry["already_applied"] is True
+        assert retry["application_id"] == first["application_id"]
+        assert retry["result"] == first["result"]
+        assert len(registry.audit_events()) == audit_count
+        assert registry.preview_story_decision_application(decision_id)["already_applied"] is True
+
+
+def test_story_decision_application_rejects_stale_preview_fingerprint() -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "merge")
+        preview = registry.preview_story_decision_application(decision_id)
+        with pytest.raises(RegistryIntegrityError, match="preview is stale"):
+            registry.apply_story_decision(
+                decision_id,
+                expected_impact_fingerprint="sha256:" + "0" * 64,
+                actor="editor",
+                rationale="Attempt with an obsolete preview.",
+            )
+        assert registry.get_domain_record("story", "story:sample-event").to_payload()["article_ids"] == [
+            "article:publisher-a-001"
+        ]
+        assert registry.verify_audit_chain()
+
+
+def test_story_decision_application_rolls_back_every_write_on_audit_failure(monkeypatch) -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "merge")
+        preview = registry.preview_story_decision_application(decision_id)
+        checkpoint = registry.audit_checkpoint()
+        story_history_before = registry.domain_record_history("story", "story:sample-event")
+        claim_history_before = registry.domain_record_history("claim", "claim:sample-event-002")
+
+        def fail_audit(*args, **kwargs):
+            raise RuntimeError("injected audit failure")
+
+        monkeypatch.setattr(registry, "_append_audit", fail_audit)
+        with pytest.raises(RuntimeError, match="injected audit failure"):
+            registry.apply_story_decision(
+                decision_id,
+                expected_impact_fingerprint=preview["impact_fingerprint"],
+                actor="editor",
+                rationale="This must roll back.",
+            )
+
+        assert registry.get_domain_record("story", "story:sample-event").to_payload()["article_ids"] == [
+            "article:publisher-a-001"
+        ]
+        assert registry.get_domain_record("claim", "claim:sample-event-002").to_payload()["story_id"] == "story:sample-event-002"
+        assert registry.domain_record_history("story", "story:sample-event") == story_history_before
+        assert registry.domain_record_history("claim", "claim:sample-event-002") == claim_history_before
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM story_decision_applications WHERE decision_id = ?",
+            (decision_id,),
+        ).fetchone()[0] == 0
+        assert registry.audit_checkpoint() == checkpoint
+        assert registry.verify_audit_chain()
+
+
+def test_split_decision_cannot_drop_an_unassigned_article() -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "split")
+        third_article = article_record()
+        third_article.update({
+            "id": "article:publisher-a-003",
+            "canonical_uri": "https://publisher-a.example.org/news/003",
+            "title": "A third sample report",
+        })
+        registry.add_domain_record("article", third_article)
+        story = registry.get_domain_record("story", "story:sample-event").to_payload()
+        story["article_ids"].append("article:publisher-a-003")
+        registry.revise_domain_record(
+            "story", story["id"], story, expected_revision=1,
+            actor="editor", reason="Add a third article before testing split completeness.",
+        )
+        row = registry._connection.execute(
+            "SELECT payload_json FROM story_decisions WHERE id = ?", (decision_id,)
+        ).fetchone()
+        incomplete = __import__("json").loads(row["payload_json"])
+        incomplete["id"] = "story-decision:sample-split-incomplete"
+        incomplete["expected_story_revisions"][0]["expected_revision"] = 2
+        with pytest.raises(RegistryIntegrityError, match="must account for every article"):
+            registry.add_domain_record("story_decision", incomplete)
+
+
+def test_concurrent_story_decision_apply_creates_one_application(tmp_path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    database = tmp_path / "concurrent-story-apply.sqlite"
+    first = SQLiteRegistry(database)
+    second = None
+    try:
+        decision_id = _two_story_decision_registry(first, "merge")
+        preview = first.preview_story_decision_application(decision_id)
+        second = SQLiteRegistry(database)
+
+        def apply(registry: SQLiteRegistry) -> dict:
+            return registry.apply_story_decision(
+                decision_id,
+                expected_impact_fingerprint=preview["impact_fingerprint"],
+                actor="editor",
+                rationale="Concurrent retry must not duplicate the application.",
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(apply, [first, second]))
+
+        assert results[0]["application_id"] == results[1]["application_id"]
+        assert sorted(result["already_applied"] for result in results) == [False, True]
+        assert first._connection.execute(
+            "SELECT COUNT(*) FROM story_decision_applications WHERE decision_id = ?",
+            (decision_id,),
+        ).fetchone()[0] == 1
+        assert len(first.domain_record_history("story", "story:sample-event")) == 2
+        assert len(first.domain_record_history("claim", "claim:sample-event-002")) == 2
+        assert first.verify_audit_chain()
+    finally:
+        if second is not None:
+            second.close()
+        first.close()
+
+
+def _timeline_event_record(event_id: str = "timeline-event:sample-001") -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "id": event_id,
+        "story_id": "story:sample-event",
+        "title": "The event was publicly announced",
+        "event_type": "announcement",
+        "occurred": {"precision": "date", "start": "2026-11-18"},
+        "claim_ids": ["claim:sample-event-001"],
+        "created_at": STAMP,
+        "created_by": "editor",
+        "rationale": "The linked claim records the announcement date from the cited report.",
+    }
+
+
+def test_timeline_event_round_trip_and_chronological_order() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        later = _timeline_event_record("timeline-event:later")
+        later["occurred"] = {"precision": "date", "start": "2026-11-19"}
+        earlier = _timeline_event_record("timeline-event:earlier")
+        earlier["occurred"] = {"precision": "date", "start": "2026-11-17"}
+        unknown = _timeline_event_record("timeline-event:unknown")
+        unknown["occurred"] = {"precision": "unknown"}
+        registry.add_timeline_event(later)
+        registry.add_timeline_event(unknown)
+        registry.add_timeline_event(earlier)
+        assert registry.get_timeline_event(later["id"]).to_payload() == later
+        assert [item["event_id"] for item in registry.story_timeline("story:sample-event")] == [
+            "timeline-event:earlier", "timeline-event:later", "timeline-event:unknown"
+        ]
+        assert registry.verify_audit_chain()
+
+
+def test_timeline_event_preserves_approximate_date_and_uncertainty_note() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        event = _timeline_event_record()
+        event["occurred"] = {
+            "precision": "approximate",
+            "start": "2026-11-18",
+            "note": "The source says the event happened around this date.",
+        }
+        saved = registry.add_timeline_event(event)
+        assert saved.to_payload()["occurred"] == event["occurred"]
+
+
+@pytest.mark.parametrize(
+    "occurred",
+    [
+        {"precision": "instant", "start": "2026-11-18T12:00:00"},
+        {"precision": "date", "start": "2026-02-30"},
+        {"precision": "range", "start": "2026-11-19T00:00:00Z", "end": "2026-11-18T00:00:00Z"},
+        {"precision": "approximate", "start": "2026-11-18"},
+        {"precision": "unknown", "start": "2026-11-18"},
+    ],
+)
+def test_timeline_event_rejects_invalid_temporal_precision(occurred) -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        event = _timeline_event_record()
+        event["occurred"] = occurred
+        with pytest.raises((RegistryIntegrityError, ContractValidationError)):
+            registry.add_timeline_event(event)
+
+
+def test_timeline_event_requires_claim_from_same_story() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        event = _timeline_event_record()
+        event["claim_ids"] = ["claim:missing"]
+        with pytest.raises(RegistryIntegrityError, match="unknown claim"):
+            registry.add_timeline_event(event)
+
+
+def test_timeline_event_correction_appends_and_supersedes_without_rewriting() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        original = _timeline_event_record()
+        registry.add_timeline_event(original)
+        correction = _timeline_event_record("timeline-event:sample-correction")
+        correction["title"] = "The announcement date was corrected"
+        correction["occurred"] = {"precision": "date", "start": "2026-11-17"}
+        correction["supersedes_event_id"] = original["id"]
+        correction["rationale"] = "A later reviewed report corrects the earlier date."
+        registry.add_timeline_event(correction)
+        assert registry.get_timeline_event(original["id"]).to_payload() == original
+        assert [item["event_id"] for item in registry.story_timeline("story:sample-event")] == [
+            correction["id"]
+        ]
+        history = registry.timeline_event_history("story:sample-event")
+        assert len(history) == 2
+        assert next(item for item in history if item["event_id"] == original["id"])["is_superseded"]
+        assert registry.verify_audit_chain()
+
+
+def test_timeline_event_cannot_correct_an_event_from_another_story() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        original = _timeline_event_record()
+        registry.add_timeline_event(original)
+        correction = _timeline_event_record("timeline-event:bad-correction")
+        correction["supersedes_event_id"] = "timeline-event:not-in-story"
+        with pytest.raises(RegistryIntegrityError, match="same story"):
+            registry.add_timeline_event(correction)
+
+
+def test_timeline_events_are_append_only_at_sqlite_boundary() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        event = registry.add_timeline_event(_timeline_event_record())
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "UPDATE timeline_events SET payload_json = '{}' WHERE id = ?",
+                (event.id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "DELETE FROM timeline_events WHERE id = ?", (event.id,)
+            )
+
+
+def test_existing_schema_v6_database_migrates_to_v7(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "registry-v6.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 6)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 6
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'timeline_events'"
+        ).fetchone() is None
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 7)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 7
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'timeline_events'"
+        ).fetchone() is not None
+
+
+def test_timeline_event_rejects_invalid_iana_timezone() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        event = _timeline_event_record()
+        event["occurred"] = {
+            "precision": "instant",
+            "start": "2026-11-18T12:00:00Z",
+            "timezone": "Not/A_Real_Zone",
+        }
+        with pytest.raises(RegistryIntegrityError, match="valid IANA timezone"):
+            registry.add_timeline_event(event)
+
+
+def test_timeline_event_cannot_have_two_direct_corrections() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        original = _timeline_event_record()
+        registry.add_timeline_event(original)
+        for suffix in ("first", "second"):
+            correction = _timeline_event_record(f"timeline-event:{suffix}")
+            correction["supersedes_event_id"] = original["id"]
+            correction["rationale"] = f"Correction {suffix}."
+            if suffix == "first":
+                registry.add_timeline_event(correction)
+            else:
+                with pytest.raises(sqlite3.IntegrityError):
+                    registry.add_timeline_event(correction)
+
+
+def test_timeline_event_sqlite_trigger_rejects_claim_from_another_story() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        other_article = article_record()
+        other_article.update({
+            "id": "article:publisher-a-002",
+            "canonical_uri": "https://publisher-a.example.org/news/002",
+        })
+        other_story = story_record()
+        other_story.update({
+            "id": "story:other-event",
+            "article_ids": ["article:publisher-a-002"],
+        })
+        other_claim = claim_record()
+        other_claim.update({
+            "id": "claim:other-event",
+            "story_id": "story:other-event",
+            "provenance": [{
+                "source_id": "source:publisher-a",
+                "article_id": "article:publisher-a-002",
+                "observed_at": STAMP,
+                "method": "manual_fixture",
+                "method_version": "1.0",
+            }],
+        })
+        registry.add_domain_record("article", other_article)
+        registry.add_domain_record("story", other_story)
+        registry.add_domain_record("claim", other_claim)
+        payload = _timeline_event_record()
+        with pytest.raises(sqlite3.IntegrityError, match="claims must belong"):
+            registry._connection.execute(
+                """INSERT INTO timeline_events
+                (id, story_id, occurred_sort_key, precision, supersedes_event_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    "timeline-event:sql-invalid",
+                    "story:sample-event",
+                    "2026-11-18",
+                    "date",
+                    None,
+                    STAMP,
+                    __import__("json").dumps({**payload, "claim_ids": ["claim:other-event"]}),
+                ),
+            )
+
+
+def test_existing_schema_v7_database_migrates_to_v8(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "registry-v7.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 7)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 7
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'perspectives'"
+        ).fetchone() is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 8)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 8
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'perspectives'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 8
+
+
+def test_existing_schema_v8_database_migrates_to_v9(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "registry-v8.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 8)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 8
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'claim_relations'"
+        ).fetchone() is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 9)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 9
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'claim_relations'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 9
+
+
+def test_existing_schema_v9_database_migrates_to_v10(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "registry-v9.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 9)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 9
+        trigger = old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'timeline_events_review_validate_insert'"
+        ).fetchone()
+        assert trigger is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 10)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 10
+        trigger = migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'timeline_events_review_validate_insert'"
+        ).fetchone()
+        assert trigger is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 10

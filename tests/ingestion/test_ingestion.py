@@ -433,6 +433,57 @@ def test_duplicate_matching_uses_latest_article_metadata_not_stale_observations(
         assert candidate["duplicate_of_article_id"] is None
 
 
+def test_story_reporting_independence_separates_publishers_from_duplicate_status():
+    with SQLiteRegistry() as registry:
+        add_publisher(registry, "publisher-a")
+        add_publisher(registry, "publisher-b")
+        add_observation(registry, "publisher-a", "observation:a")
+        add_observation(registry, "publisher-b", "observation:b", path="/world/report")
+        first = ingest_observation(registry, "observation:a", source_language="bn")
+        second = ingest_observation(registry, "observation:b", source_language="bn")
+        registry.add_domain_record("story", {
+            "schema_version": "1.0.0",
+            "id": "story:independence-test",
+            "canonical_title": "A shared report",
+            "status": "developing",
+            "article_ids": [first["article_id"], second["article_id"]],
+            "created_at": STAMP,
+            "updated_at": STAMP,
+        })
+
+        unresolved = registry.story_reporting_independence("story:independence-test")
+        assert unresolved["publisher_count"] == 2
+        assert unresolved["unresolved_candidate_count"] == 1
+        assert unresolved["no_candidate_count"] == 1
+        assert unresolved["independence_claim"] == "not_established_by_publisher_count_or_no_candidate"
+
+        registry.resolve_ingestion_duplicate(
+            "observation:b", outcome="confirmed_duplicate", expected_revision=1,
+            actor="editor", reason="Both reports reproduce the same wire copy.",
+        )
+        confirmed = registry.story_reporting_independence("story:independence-test")
+        assert confirmed["confirmed_duplicate_count"] == 1
+        assert confirmed["confirmed_duplicate_groups"] == [
+            sorted([first["article_id"], second["article_id"]])
+        ]
+
+        registry.resolve_ingestion_duplicate(
+            "observation:b", outcome="distinct", expected_revision=2,
+            actor="editor", reason="Review found independent reporting.",
+        )
+        distinct = registry.story_reporting_independence("story:independence-test")
+        assert distinct["reviewed_distinct_count"] == 1
+        assert distinct["confirmed_duplicate_count"] == 0
+        assert distinct["unresolved_candidate_count"] == 0
+        assert distinct["independence_claim"] == "not_established_by_publisher_count_or_no_candidate"
+
+
+def test_story_reporting_independence_rejects_unknown_story():
+    with SQLiteRegistry() as registry:
+        with pytest.raises(RegistryIntegrityError, match="unknown story"):
+            registry.story_reporting_independence("story:missing")
+
+
 def test_duplicate_candidate_requires_publication_timestamp():
     with SQLiteRegistry() as registry:
         add_publisher(registry, "publisher-a")

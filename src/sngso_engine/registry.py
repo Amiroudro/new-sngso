@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any, Iterator
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .contracts import validate_payload
@@ -25,13 +25,17 @@ from .models import (
     PermissionGrantRecord,
     SourceEndpointRecord,
     SourceRecord,
+    StoryDecisionRecord,
     StoryRecord,
+    TimelineEventRecord,
+    PerspectiveRecord,
+    ClaimRelationRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 10
 
 
 class RegistryIntegrityError(ValueError):
@@ -334,6 +338,258 @@ _MIGRATION_4 = (
 )
 
 
+_MIGRATION_5 = (
+    """CREATE TABLE story_decisions (
+        id TEXT PRIMARY KEY,
+        operation TEXT NOT NULL CHECK (operation IN ('merge', 'split')),
+        canonical_story_id TEXT NOT NULL,
+        story_ids_json TEXT NOT NULL CHECK (json_valid(story_ids_json)),
+        article_ids_json TEXT NOT NULL CHECK (json_valid(article_ids_json)),
+        decided_by TEXT NOT NULL,
+        rationale TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json))
+    )""",
+    "CREATE INDEX idx_story_decisions_decided_at ON story_decisions(decided_at, id)",
+    """CREATE TRIGGER story_decisions_no_update
+        BEFORE UPDATE ON story_decisions
+        BEGIN SELECT RAISE(ABORT, 'story decisions are append-only'); END""",
+    """CREATE TRIGGER story_decisions_no_delete
+        BEFORE DELETE ON story_decisions
+        BEGIN SELECT RAISE(ABORT, 'story decisions are append-only'); END""",
+)
+
+
+_MIGRATION_6 = (
+    """CREATE TABLE story_decision_applications (
+        application_id TEXT PRIMARY KEY,
+        decision_id TEXT NOT NULL UNIQUE,
+        applied_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) BETWEEN 1 AND 200),
+        rationale TEXT NOT NULL CHECK (length(trim(rationale)) BETWEEN 1 AND 4000),
+        decision_fingerprint TEXT NOT NULL CHECK (
+            length(decision_fingerprint) = 71
+            AND substr(decision_fingerprint, 1, 7) = 'sha256:'
+            AND substr(decision_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+        ),
+        impact_fingerprint TEXT NOT NULL CHECK (
+            length(impact_fingerprint) = 71
+            AND substr(impact_fingerprint, 1, 7) = 'sha256:'
+            AND substr(impact_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+        ),
+        result_json TEXT NOT NULL CHECK (json_valid(result_json)),
+        FOREIGN KEY (decision_id) REFERENCES story_decisions(id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_story_decision_applications_applied_at ON story_decision_applications(applied_at, application_id)",
+    """CREATE TRIGGER story_decision_applications_no_update
+        BEFORE UPDATE ON story_decision_applications
+        BEGIN SELECT RAISE(ABORT, 'story decision applications are append-only'); END""",
+    """CREATE TRIGGER story_decision_applications_no_delete
+        BEFORE DELETE ON story_decision_applications
+        BEGIN SELECT RAISE(ABORT, 'story decision applications are append-only'); END""",
+)
+
+
+_MIGRATION_7 = (
+    """CREATE TABLE timeline_events (
+        id TEXT PRIMARY KEY,
+        story_id TEXT NOT NULL,
+        occurred_sort_key TEXT,
+        precision TEXT NOT NULL CHECK (precision IN (
+            'instant', 'date', 'range', 'approximate', 'unknown'
+        )),
+        supersedes_event_id TEXT UNIQUE,
+        created_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        UNIQUE (story_id, id),
+        FOREIGN KEY (story_id, supersedes_event_id)
+            REFERENCES timeline_events(story_id, id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_timeline_events_story_time ON timeline_events(story_id, occurred_sort_key, created_at, id)",
+    """CREATE TRIGGER timeline_events_validate_insert
+        BEFORE INSERT ON timeline_events
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'story' AND id = NEW.story_id
+                  AND json_extract(payload_json, '$.status') != 'archived'
+            ) THEN RAISE(ABORT, 'timeline event requires an active registered story') END;
+            SELECT CASE WHEN json_array_length(NEW.payload_json, '$.claim_ids') IS NULL
+                OR json_array_length(NEW.payload_json, '$.claim_ids') = 0
+                OR (
+                    SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.claim_ids') claim_ref
+                    JOIN domain_records claim_record
+                      ON claim_record.record_type = 'claim'
+                     AND claim_record.id = claim_ref.value
+                     AND json_extract(claim_record.payload_json, '$.story_id') = NEW.story_id
+                ) != json_array_length(NEW.payload_json, '$.claim_ids')
+            THEN RAISE(ABORT, 'timeline event claims must belong to its story') END;
+        END""",
+    """CREATE TRIGGER timeline_events_no_update
+        BEFORE UPDATE ON timeline_events
+        BEGIN SELECT RAISE(ABORT, 'timeline events are append-only'); END""",
+    """CREATE TRIGGER timeline_events_no_delete
+        BEFORE DELETE ON timeline_events
+        BEGIN SELECT RAISE(ABORT, 'timeline events are append-only'); END""",
+)
+
+
+_MIGRATION_8 = (
+    """CREATE TABLE perspectives (
+        id TEXT PRIMARY KEY,
+        story_id TEXT NOT NULL,
+        source_id TEXT,
+        article_id TEXT,
+        supersedes_perspective_id TEXT UNIQUE,
+        created_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        UNIQUE (story_id, id),
+        FOREIGN KEY (story_id, supersedes_perspective_id)
+            REFERENCES perspectives(story_id, id) ON DELETE RESTRICT,
+        FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_perspectives_story_created ON perspectives(story_id, created_at, id)",
+    """CREATE TRIGGER perspectives_validate_insert
+        BEFORE INSERT ON perspectives
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'story' AND id = NEW.story_id
+                  AND json_extract(payload_json, '$.status') != 'archived'
+            ) THEN RAISE(ABORT, 'perspective requires an active registered story') END;
+            SELECT CASE WHEN NEW.source_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM sources WHERE id = NEW.source_id
+            ) THEN RAISE(ABORT, 'perspective source is not registered') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.kind') = 'publisher_framing'
+                AND (NEW.source_id IS NULL OR NEW.article_id IS NULL)
+            THEN RAISE(ABORT, 'publisher framing requires its source and article') END;
+            SELECT CASE WHEN NEW.article_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM domain_records article
+                WHERE article.record_type = 'article' AND article.id = NEW.article_id
+                  AND json_extract(article.payload_json, '$.source_id') = NEW.source_id
+                  AND EXISTS (
+                    SELECT 1 FROM domain_records story
+                    WHERE story.record_type = 'story' AND story.id = NEW.story_id
+                      AND EXISTS (
+                        SELECT 1 FROM json_each(story.payload_json, '$.article_ids') member
+                        WHERE member.value = NEW.article_id
+                      )
+                  )
+            ) THEN RAISE(ABORT, 'perspective article must belong to its source and story') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('approved', 'rejected')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NULL
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.reviewed_by'), '')) = ''
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
+                )
+            THEN RAISE(ABORT, 'reviewed perspective requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('unreviewed', 'review_required')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+                )
+            THEN RAISE(ABORT, 'unreviewed perspective cannot contain review metadata') END;
+            SELECT CASE WHEN json_array_length(NEW.payload_json, '$.claim_ids') IS NULL
+                OR (
+                    SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.claim_ids') claim_ref
+                    JOIN domain_records claim_record
+                      ON claim_record.record_type = 'claim'
+                     AND claim_record.id = claim_ref.value
+                     AND json_extract(claim_record.payload_json, '$.story_id') = NEW.story_id
+                ) != json_array_length(NEW.payload_json, '$.claim_ids')
+            THEN RAISE(ABORT, 'perspective claims must belong to its story') END;
+        END""",
+    """CREATE TRIGGER perspectives_no_update
+        BEFORE UPDATE ON perspectives
+        BEGIN SELECT RAISE(ABORT, 'perspectives are append-only'); END""",
+    """CREATE TRIGGER perspectives_no_delete
+        BEFORE DELETE ON perspectives
+        BEGIN SELECT RAISE(ABORT, 'perspectives are append-only'); END""",
+)
+
+
+_MIGRATION_9 = (
+    """CREATE TABLE claim_relations (
+        id TEXT PRIMARY KEY,
+        story_id TEXT NOT NULL,
+        claim_id TEXT NOT NULL,
+        related_claim_id TEXT NOT NULL,
+        relationship TEXT NOT NULL CHECK (relationship IN (
+            'contradicts', 'qualifies', 'narrows', 'reframes'
+        )),
+        supersedes_relation_id TEXT UNIQUE,
+        created_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        UNIQUE (story_id, id),
+        FOREIGN KEY (story_id, supersedes_relation_id)
+            REFERENCES claim_relations(story_id, id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_claim_relations_story_created ON claim_relations(story_id, created_at, id)",
+    """CREATE TRIGGER claim_relations_validate_insert
+        BEFORE INSERT ON claim_relations
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'story' AND id = NEW.story_id
+                  AND json_extract(payload_json, '$.status') != 'archived'
+            ) THEN RAISE(ABORT, 'claim relation requires an active registered story') END;
+            SELECT CASE WHEN NEW.claim_id = NEW.related_claim_id
+                THEN RAISE(ABORT, 'claim relation must connect two different claims') END;
+            SELECT CASE WHEN (
+                SELECT COUNT(*) FROM domain_records
+                WHERE record_type = 'claim' AND id IN (NEW.claim_id, NEW.related_claim_id)
+                  AND json_extract(payload_json, '$.story_id') = NEW.story_id
+            ) != 2
+            THEN RAISE(ABORT, 'claim relation endpoints must belong to its story') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('accepted', 'rejected')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NULL
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.reviewed_by'), '')) = ''
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
+                )
+            THEN RAISE(ABORT, 'reviewed claim relation requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') = 'unreviewed'
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+                )
+            THEN RAISE(ABORT, 'unreviewed claim relation cannot contain review metadata') END;
+        END""",
+    """CREATE TRIGGER claim_relations_no_update
+        BEFORE UPDATE ON claim_relations
+        BEGIN SELECT RAISE(ABORT, 'claim relations are append-only'); END""",
+    """CREATE TRIGGER claim_relations_no_delete
+        BEFORE DELETE ON claim_relations
+        BEGIN SELECT RAISE(ABORT, 'claim relations are append-only'); END""",
+)
+
+
+_MIGRATION_10 = (
+    """CREATE TRIGGER timeline_events_review_validate_insert
+        BEFORE INSERT ON timeline_events
+        BEGIN
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('approved', 'rejected')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NULL
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.reviewed_by'), '')) = ''
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
+                )
+            THEN RAISE(ABORT, 'reviewed timeline event requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('unreviewed', 'review_required')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+                )
+            THEN RAISE(ABORT, 'unreviewed timeline event cannot contain review metadata') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('approved', 'rejected')
+                AND julianday(json_extract(NEW.payload_json, '$.reviewed_at')) < julianday(NEW.created_at)
+            THEN RAISE(ABORT, 'timeline event review cannot predate its creation') END;
+        END""",
+)
+
 
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
@@ -445,8 +701,86 @@ class SQLiteRegistry:
                         (4, _utc_now()),
                     )
                     connection.execute("PRAGMA user_version = 4")
+                    version = 4
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 4 failed; transaction rolled back") from exc
+            if version == 4:
+                try:
+                    for statement in _MIGRATION_5:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (5, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 5")
+                    version = 5
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 5 failed; transaction rolled back") from exc
+
+            if version == 5:
+                try:
+                    for statement in _MIGRATION_6:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (6, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 6")
+                    version = 6
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 6 failed; transaction rolled back") from exc
+
+            if version == 6 and _SCHEMA_VERSION >= 7:
+                try:
+                    for statement in _MIGRATION_7:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (7, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 7")
+                    version = 7
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 7 failed; transaction rolled back") from exc
+            
+            if version == 7 and _SCHEMA_VERSION >= 8:
+                try:
+                    for statement in _MIGRATION_8:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (8, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 8")
+                    version = 8
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 8 failed; transaction rolled back") from exc
+
+            if version == 8 and _SCHEMA_VERSION >= 9:
+                try:
+                    for statement in _MIGRATION_9:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (9, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 9")
+                    version = 9
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 9 failed; transaction rolled back") from exc
+
+            if version == 9 and _SCHEMA_VERSION >= 10:
+                try:
+                    for statement in _MIGRATION_10:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (10, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 10")
+                    version = 10
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 10 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -1708,6 +2042,7 @@ class SQLiteRegistry:
     _DOMAIN_MODELS = {
         "article": ArticleRecord,
         "story": StoryRecord,
+        "story_decision": StoryDecisionRecord,
         "claim": ClaimRecord,
         "evidence": EvidenceRecord,
         "edition": EditionRecord,
@@ -1741,36 +2076,339 @@ class SQLiteRegistry:
                         "article permission reference is missing or belongs to another source"
                     )
         elif record_type == "story":
-            for article_id in payload.get("article_ids", []):
+            article_ids = set(payload.get("article_ids", []))
+            for article_id in article_ids:
                 require_record("article", article_id, "story")
+            existing_claims = connection.execute(
+                """SELECT payload_json FROM domain_records
+                WHERE record_type = 'claim'
+                  AND json_extract(payload_json, '$.story_id') = ?""",
+                (payload["id"],),
+            ).fetchall()
+            for row in existing_claims:
+                claim_payload = json.loads(row["payload_json"])
+                if any(
+                    item.get("article_id") is not None
+                    and item["article_id"] not in article_ids
+                    for item in claim_payload.get("provenance", [])
+                ):
+                    raise RegistryIntegrityError(
+                        "story revision would orphan existing claim provenance"
+                    )
         elif record_type == "claim":
-            require_record("story", payload["story_id"], "claim")
+            story_payload = require_record("story", payload["story_id"], "claim")
+            story_article_ids = set(story_payload.get("article_ids", []))
             for provenance in payload["provenance"]:
+                source_id = provenance["source_id"]
                 source = connection.execute(
-                    "SELECT 1 FROM sources WHERE id = ?", (provenance["source_id"],)
+                    "SELECT 1 FROM sources WHERE id = ?", (source_id,)
                 ).fetchone()
                 if source is None:
                     raise RegistryIntegrityError("claim provenance references an unknown source")
                 article_id = provenance.get("article_id")
+                observation_id = provenance.get("observation_id")
                 if article_id:
                     article = require_record("article", article_id, "claim provenance")
-                    if article["source_id"] != provenance["source_id"]:
+                    if article["source_id"] != source_id:
                         raise RegistryIntegrityError(
                             "claim provenance article and source do not match"
                         )
+                    if article_id not in story_article_ids:
+                        raise RegistryIntegrityError(
+                            "claim provenance article is not linked to its story"
+                        )
+                if observation_id:
+                    observation = connection.execute(
+                        "SELECT source_id FROM collection_observations WHERE observation_id = ?",
+                        (observation_id,),
+                    ).fetchone()
+                    if observation is None or observation["source_id"] != source_id:
+                        raise RegistryIntegrityError(
+                            "claim provenance observation is missing or belongs to another source"
+                        )
+                if article_id and observation_id:
+                    linked = connection.execute(
+                        """SELECT 1 FROM ingestion_current c
+                        JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                        WHERE c.observation_id = ? AND d.article_id = ?""",
+                        (observation_id, article_id),
+                    ).fetchone()
+                    if linked is None:
+                        raise RegistryIntegrityError(
+                            "claim provenance article and observation are not linked by ingestion"
+                        )
+            existing_evidence = connection.execute(
+                """SELECT id, payload_json FROM domain_records
+                WHERE record_type = 'evidence'
+                  AND json_extract(payload_json, '$.claim_id') = ?""",
+                (payload["id"],),
+            ).fetchall()
+            for row in existing_evidence:
+                evidence_payload = json.loads(row["payload_json"])
+                evidence_source = evidence_payload["source_id"]
+                evidence_article = evidence_payload.get("article_id")
+                evidence_observation = evidence_payload.get("observation_id")
+                if not any(
+                    item.get("source_id") == evidence_source
+                    and (evidence_article is None or item.get("article_id") == evidence_article)
+                    and (evidence_observation is None or item.get("observation_id") == evidence_observation)
+                    for item in payload.get("provenance", [])
+                ):
+                    raise RegistryIntegrityError(
+                        "claim revision would orphan existing evidence provenance"
+                    )
+            linked_evidence = []
+            for evidence_id in payload.get("evidence_ids", []):
+                evidence = require_record("evidence", evidence_id, "claim evidence")
+                if evidence["claim_id"] != payload["id"]:
+                    raise RegistryIntegrityError(
+                        "claim evidence reference belongs to another claim"
+                    )
+                linked_evidence.append(evidence)
+            assessment = payload["assessment"]
+            relationships = {item["relationship"] for item in linked_evidence}
+            if assessment != "unassessed":
+                if not linked_evidence:
+                    raise RegistryIntegrityError(
+                        "an assessed claim must reference at least one evidence record"
+                    )
+                expected_evidence_ids = {row["id"] for row in existing_evidence}
+                if set(payload.get("evidence_ids", [])) != expected_evidence_ids:
+                    raise RegistryIntegrityError(
+                        "reviewed claim must reference every evidence record linked to it"
+                    )
+                reviewed_at = payload.get("reviewed_at")
+                review_note = payload.get("review_note")
+                if not isinstance(reviewed_at, str) or not isinstance(review_note, str) or not review_note.strip():
+                    raise RegistryIntegrityError(
+                        "reviewed claim assessment requires a review timestamp and a non-empty review note (review_note)"
+                    )
+                if _aware_datetime(reviewed_at, "reviewed_at") < _aware_datetime(payload["created_at"], "created_at"):
+                    raise RegistryIntegrityError("claim review cannot predate claim creation")
+            if assessment == "supported" and (
+                "supports" not in relationships or "contradicts" in relationships
+            ):
+                raise RegistryIntegrityError(
+                    "supported claim requires supporting evidence and no unresolved contradiction"
+                )
+            if assessment == "partially_supported" and not (
+                "supports" in relationships and ({"qualifies", "unclear"} & relationships)
+            ):
+                raise RegistryIntegrityError(
+                    "partially supported claim requires support and qualifying/unclear evidence"
+                )
+            if assessment == "disputed" and not (
+                "supports" in relationships and "contradicts" in relationships
+            ):
+                raise RegistryIntegrityError(
+                    "disputed claim requires both supporting and contradicting evidence"
+                )
+            if assessment == "contradicted" and (
+                "contradicts" not in relationships or "supports" in relationships
+            ):
+                raise RegistryIntegrityError(
+                    "contradicted claim requires contradicting evidence without supporting evidence"
+                )
+            if assessment == "retracted" and not (
+                isinstance(payload.get("review_note"), str) and payload["review_note"].strip()
+            ):
+                raise RegistryIntegrityError("retracted claim requires a non-empty review note")
         elif record_type == "evidence":
-            require_record("claim", payload["claim_id"], "evidence")
+            claim = require_record("claim", payload["claim_id"], "evidence")
+            if claim.get("assessment") != "unassessed":
+                raise RegistryIntegrityError(
+                    "claim must be reset to unassessed before adding new evidence"
+                )
+            source_id = payload["source_id"]
             source = connection.execute(
-                "SELECT 1 FROM sources WHERE id = ?", (payload["source_id"],)
+                "SELECT payload_json FROM sources WHERE id = ?", (source_id,)
             ).fetchone()
             if source is None:
                 raise RegistryIntegrityError("evidence references an unknown source")
+            source_domains = json.loads(source["payload_json"]).get("domains", [])
+            if not valid_domain_allowlist(source_domains):
+                raise RegistryIntegrityError("evidence source domain allowlist is invalid")
             article_id = payload.get("article_id")
+            observation_id = payload.get("observation_id")
             if article_id:
                 article = require_record("article", article_id, "evidence")
-                if article["source_id"] != payload["source_id"]:
+                if article["source_id"] != source_id:
                     raise RegistryIntegrityError(
                         "evidence article and source do not match"
+                    )
+            if observation_id:
+                observation = connection.execute(
+                    "SELECT source_id FROM collection_observations WHERE observation_id = ?",
+                    (observation_id,),
+                ).fetchone()
+                if observation is None or observation["source_id"] != source_id:
+                    raise RegistryIntegrityError(
+                        "evidence observation is missing or belongs to another source"
+                    )
+            if article_id and observation_id:
+                linked = connection.execute(
+                    """SELECT 1 FROM ingestion_current c
+                    JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                    WHERE c.observation_id = ? AND d.article_id = ?""",
+                    (observation_id, article_id),
+                ).fetchone()
+                if linked is None:
+                    raise RegistryIntegrityError(
+                        "evidence article and observation are not linked by ingestion"
+                    )
+            provenance_matches = any(
+                item.get("source_id") == source_id
+                and (article_id is None or item.get("article_id") == article_id)
+                and (observation_id is None or item.get("observation_id") == observation_id)
+                for item in claim.get("provenance", [])
+            )
+            if not provenance_matches:
+                raise RegistryIntegrityError(
+                    "evidence source/article/observation is not present in claim provenance"
+                )
+            locator_uri = payload["locator"]["uri"]
+            try:
+                parsed_locator = urlsplit(locator_uri)
+            except ValueError as exc:
+                raise RegistryIntegrityError("evidence locator is malformed") from exc
+            if parsed_locator.scheme.lower() not in {"http", "https"} or not parsed_locator.hostname:
+                raise RegistryIntegrityError("evidence locator must be an absolute HTTP(S) URL")
+            if parsed_locator.username is not None or parsed_locator.password is not None:
+                raise RegistryIntegrityError("evidence locator cannot contain credentials")
+            safe_locator = urlunsplit(parsed_locator._replace(fragment=""))
+            if not valid_http_uri(safe_locator, max_length=2048):
+                raise RegistryIntegrityError("evidence locator is malformed")
+            if not _host_in_domains(parsed_locator.hostname, source_domains):
+                raise RegistryIntegrityError("evidence locator is outside its registered source domains")
+        elif record_type == "story_decision":
+            story_ids = set(payload["story_ids"])
+            if payload["canonical_story_id"] not in story_ids:
+                raise RegistryIntegrityError(
+                    "story decision canonical story must be one of the affected stories"
+                )
+            story_payloads = {
+                story_id: require_record("story", story_id, "story decision")
+                for story_id in story_ids
+            }
+
+            expected_story_revisions = payload["expected_story_revisions"]
+            expected_story_ids = [item["story_id"] for item in expected_story_revisions]
+            if len(expected_story_ids) != len(set(expected_story_ids)) or set(expected_story_ids) != story_ids:
+                raise RegistryIntegrityError(
+                    "story decision must capture exactly one expected revision for every affected story"
+                )
+            for item in expected_story_revisions:
+                row = connection.execute(
+                    "SELECT revision FROM domain_records WHERE record_type = 'story' AND id = ?",
+                    (item["story_id"],),
+                ).fetchone()
+                if row is None or row["revision"] != item["expected_revision"]:
+                    raise RegistryIntegrityError(
+                        f"story decision expected revision is stale for story: {item['story_id']}"
+                    )
+
+            available_articles = {
+                article_id
+                for story_payload in story_payloads.values()
+                for article_id in story_payload.get("article_ids", [])
+            }
+            assignments = payload["article_assignments"]
+            assigned_articles = [item["article_id"] for item in assignments]
+            article_destinations = {
+                item["article_id"]: item["assigned_story_id"] for item in assignments
+            }
+            assigned_stories = {item["assigned_story_id"] for item in assignments}
+            if len(assigned_articles) != len(set(assigned_articles)):
+                raise RegistryIntegrityError("story decision cannot assign an article more than once")
+            for assignment in assignments:
+                article_id = assignment["article_id"]
+                assigned_story_id = assignment["assigned_story_id"]
+                require_record("article", article_id, "story decision")
+                if article_id not in available_articles:
+                    raise RegistryIntegrityError(
+                        "story decision article must belong to at least one affected story"
+                    )
+                if assigned_story_id not in story_ids:
+                    raise RegistryIntegrityError(
+                        "story decision article assignment target must be in the decision scope"
+                    )
+            if payload["operation"] == "merge":
+                if assigned_stories != {payload["canonical_story_id"]}:
+                    raise RegistryIntegrityError(
+                        "merge decision must assign every article to the canonical story"
+                    )
+                if set(assigned_articles) != available_articles:
+                    raise RegistryIntegrityError(
+                        "merge decision must account for every article in the affected stories"
+                    )
+            elif set(assigned_articles) != available_articles:
+                raise RegistryIntegrityError(
+                    "split decision must account for every article in the affected stories"
+                )
+            elif len(assigned_stories) < 2:
+                raise RegistryIntegrityError(
+                    "split decision must allocate articles to at least two resulting stories"
+                )
+            elif any(
+                not any(item["assigned_story_id"] == story_id for item in assignments)
+                for story_id in story_ids
+            ):
+                raise RegistryIntegrityError(
+                    "split decision must leave at least one article in every resulting story"
+                )
+
+            claim_rows = connection.execute(
+                """SELECT id, revision, payload_json FROM domain_records
+                WHERE record_type = 'claim'
+                  AND json_extract(payload_json, '$.story_id') IN (
+                      SELECT value FROM json_each(?)
+                  )""",
+                (_json_text(sorted(story_ids)),),
+            ).fetchall()
+            current_claims = {
+                row["id"]: (row["revision"], json.loads(row["payload_json"]))
+                for row in claim_rows
+            }
+            claim_assignments = payload["claim_assignments"]
+            assigned_claim_ids = [item["claim_id"] for item in claim_assignments]
+            if len(assigned_claim_ids) != len(set(assigned_claim_ids)):
+                raise RegistryIntegrityError("story decision cannot assign a claim more than once")
+            if set(assigned_claim_ids) != set(current_claims):
+                raise RegistryIntegrityError(
+                    "story decision must account for every claim in the affected stories"
+                )
+            for item in claim_assignments:
+                claim_id = item["claim_id"]
+                destination = item["assigned_story_id"]
+                current_revision, claim_payload = current_claims[claim_id]
+                if destination not in story_ids:
+                    raise RegistryIntegrityError(
+                        "story decision claim assignment target must be in the decision scope"
+                    )
+                if current_revision != item["expected_revision"]:
+                    raise RegistryIntegrityError(
+                        f"story decision expected revision is stale for claim: {claim_id}"
+                    )
+                provenance_destinations = {
+                    article_destinations[entry["article_id"]]
+                    for entry in claim_payload.get("provenance", [])
+                    if entry.get("article_id") in article_destinations
+                }
+                if any(
+                    entry.get("article_id") is not None
+                    and entry["article_id"] not in article_destinations
+                    for entry in claim_payload.get("provenance", [])
+                ):
+                    raise RegistryIntegrityError(
+                        f"story decision is missing an article assignment used by claim: {claim_id}"
+                    )
+                if provenance_destinations and provenance_destinations != {destination}:
+                    raise RegistryIntegrityError(
+                        f"claim provenance does not fit its assigned resulting story: {claim_id}"
+                    )
+                if payload["operation"] == "merge" and destination != payload["canonical_story_id"]:
+                    raise RegistryIntegrityError(
+                        "merge decision must assign every claim to the canonical story"
                     )
         elif record_type == "edition":
             for story_id in payload["story_ids"]:
@@ -1783,13 +2421,45 @@ class SQLiteRegistry:
             "story": "created_at",
             "claim": "created_at",
             "evidence": "assessed_at",
+            "story_decision": "decided_at",
             "edition": "created_at",
         }[record_type]
         _aware_datetime(payload[field], field)
         return payload[field]
 
     def add_domain_record(self, record_type: str, payload: dict[str, Any]):
-        """Persist a validated article/story/claim/evidence/edition record."""
+        """Persist a validated domain record."""
+        if record_type == "story_decision":
+            validate_payload(record_type, payload)
+            record = StoryDecisionRecord.from_payload(payload)
+            created_at = self._domain_record_timestamp(record_type, payload)
+            with self._transaction() as connection:
+                self._validate_domain_references(connection, record_type, payload)
+                connection.execute(
+                    """INSERT INTO story_decisions
+                    (id, operation, canonical_story_id, story_ids_json, article_ids_json,
+                     decided_by, rationale, decided_at, payload_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        payload["id"],
+                        payload["operation"],
+                        payload["canonical_story_id"],
+                        _json_text(payload["story_ids"]),
+                        _json_text([item["article_id"] for item in payload["article_assignments"]]),
+                        payload["decided_by"],
+                        payload["rationale"],
+                        created_at,
+                        record.payload_json,
+                    ),
+                )
+                self._append_audit(
+                    connection,
+                    event_type="story_decision.created",
+                    entity_type="story_decision",
+                    entity_id=record.id,
+                    payload={"revision": 1, "record": payload},
+                )
+            return record
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
             raise ValueError(f"unsupported domain record type: {record_type}")
@@ -1827,7 +2497,1005 @@ class SQLiteRegistry:
             )
         return record
 
+    def story_reporting_independence(self, story_id: str) -> dict[str, Any]:
+        """Summarize publisher count and duplicate-review state without claiming proof of independence."""
+        story = self.get_domain_record("story", story_id)
+        if story is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        story_payload = story.to_payload()
+        article_ids = list(story_payload.get("article_ids", []))
+        article_payloads: dict[str, dict[str, Any]] = {}
+        for article_id in article_ids:
+            article = self.get_domain_record("article", article_id)
+            if article is None:
+                raise RegistryIntegrityError(
+                    f"story references a missing article: {article_id}"
+                )
+            article_payloads[article_id] = article.to_payload()
+
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT d.* FROM ingestion_current c
+                JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                WHERE d.article_id IN (
+                    SELECT id FROM domain_records WHERE record_type = 'article'
+                )
+                ORDER BY d.decided_at, d.decision_id"""
+            ).fetchall()
+
+        relevant = set(article_ids)
+        latest_review: dict[str, sqlite3.Row] = {}
+        for row in rows:
+            if row["article_id"] not in relevant:
+                continue
+            if row["outcome"] not in {
+                "possible_duplicate", "confirmed_duplicate", "distinct"
+            }:
+                continue
+            previous = latest_review.get(row["article_id"])
+            if previous is None or (
+                row["decided_at"], row["decision_id"]
+            ) > (
+                previous["decided_at"], previous["decision_id"]
+            ):
+                latest_review[row["article_id"]] = row
+
+        statuses: list[dict[str, Any]] = []
+        unresolved: list[dict[str, str]] = []
+        confirmed_pairs: list[dict[str, str]] = []
+        reviewed_distinct = 0
+        no_candidate = 0
+        external_confirmed = 0
+
+        parent = {article_id: article_id for article_id in article_ids}
+
+        def find(item: str) -> str:
+            while parent[item] != item:
+                parent[item] = parent[parent[item]]
+                item = parent[item]
+            return item
+
+        def union(left: str, right: str) -> None:
+            root_left, root_right = find(left), find(right)
+            if root_left != root_right:
+                parent[root_right] = root_left
+
+        for article_id in article_ids:
+            payload = article_payloads[article_id]
+            decision = latest_review.get(article_id)
+            if decision is None:
+                status = "no_candidate"
+                duplicate_of = None
+                no_candidate += 1
+            else:
+                status = decision["outcome"]
+                duplicate_of = decision["duplicate_of_article_id"]
+                if status == "possible_duplicate":
+                    unresolved.append({
+                        "article_id": article_id,
+                        "duplicate_of_article_id": duplicate_of or "",
+                    })
+                elif status == "distinct":
+                    reviewed_distinct += 1
+                elif status == "confirmed_duplicate":
+                    confirmed_pairs.append({
+                        "article_id": article_id,
+                        "duplicate_of_article_id": duplicate_of or "",
+                    })
+                    if duplicate_of in parent:
+                        union(article_id, duplicate_of)
+                    else:
+                        external_confirmed += 1
+            statuses.append({
+                "article_id": article_id,
+                "source_id": payload["source_id"],
+                "duplicate_status": status,
+                "duplicate_of_article_id": duplicate_of,
+            })
+
+        grouped: dict[str, list[str]] = {}
+        for article_id in article_ids:
+            root = find(article_id)
+            grouped.setdefault(root, []).append(article_id)
+        confirmed_groups = [
+            sorted(group) for group in grouped.values() if len(group) > 1
+        ]
+
+        return {
+            "story_id": story_id,
+            "article_count": len(article_ids),
+            "publisher_count": len({item["source_id"] for item in statuses}),
+            "articles": statuses,
+            "unresolved_candidates": unresolved,
+            "confirmed_duplicate_pairs": confirmed_pairs,
+            "confirmed_duplicate_groups": confirmed_groups,
+            "unresolved_candidate_count": len(unresolved),
+            "confirmed_duplicate_count": len(confirmed_pairs),
+            "external_confirmed_duplicate_count": external_confirmed,
+            "reviewed_distinct_count": reviewed_distinct,
+            "no_candidate_count": no_candidate,
+            "independence_claim": "not_established_by_publisher_count_or_no_candidate",
+        }
+
+    def _preview_story_decision_application(
+        self, connection: sqlite3.Connection, decision_id: str
+    ) -> dict[str, Any]:
+        """Build the preview using a caller-owned transaction."""
+        decision_row = connection.execute(
+            "SELECT payload_json FROM story_decisions WHERE id = ?",
+            (decision_id,),
+        ).fetchone()
+        if decision_row is None:
+            raise RegistryIntegrityError(f"unknown story decision: {decision_id}")
+        decision = json.loads(decision_row["payload_json"])
+        story_ids = sorted(set(decision["story_ids"]))
+        application_row = connection.execute(
+            """SELECT application_id, applied_at, actor, rationale,
+                      decision_fingerprint, impact_fingerprint, result_json
+            FROM story_decision_applications WHERE decision_id = ?""",
+            (decision_id,),
+        ).fetchone()
+        application = (
+            {
+                "application_id": application_row["application_id"],
+                "applied_at": application_row["applied_at"],
+                "actor": application_row["actor"],
+                "rationale": application_row["rationale"],
+                "decision_fingerprint": application_row["decision_fingerprint"],
+                "impact_fingerprint": application_row["impact_fingerprint"],
+                "result": json.loads(application_row["result_json"]),
+            }
+            if application_row is not None else None
+        )
+
+        blockers: list[str] = []
+        if application is not None:
+            blockers.append("story decision has already been applied")
+        try:
+            self._validate_domain_references(connection, "story_decision", decision)
+        except RegistryIntegrityError as exc:
+            blockers.append(str(exc))
+
+        def load_records(record_type: str, ids: list[str]) -> list[dict[str, Any]]:
+            if not ids:
+                return []
+            placeholders = ",".join("?" for _ in ids)
+            rows = connection.execute(
+                f"""SELECT id, revision, payload_json FROM domain_records
+                WHERE record_type = ? AND id IN ({placeholders}) ORDER BY id""",
+                (record_type, *ids),
+            ).fetchall()
+            return [
+                {
+                    "id": row["id"],
+                    "revision": row["revision"],
+                    "payload": json.loads(row["payload_json"]),
+                }
+                for row in rows
+            ]
+
+        stories = load_records("story", story_ids)
+        article_ids = sorted({
+            item["article_id"] for item in decision["article_assignments"]
+        })
+        articles = load_records("article", article_ids)
+
+        claim_rows = connection.execute(
+            """SELECT id, revision, payload_json FROM domain_records
+            WHERE record_type = 'claim'
+              AND json_extract(payload_json, '$.story_id') IN (
+                  SELECT value FROM json_each(?)
+              )
+            ORDER BY id""",
+            (_json_text(story_ids),),
+        ).fetchall()
+        claims = [
+            {
+                "id": row["id"],
+                "revision": row["revision"],
+                "payload": json.loads(row["payload_json"]),
+            }
+            for row in claim_rows
+        ]
+        claim_ids = [item["id"] for item in claims]
+        evidence = load_records("evidence", sorted(
+            row["id"]
+            for row in connection.execute(
+                """SELECT id FROM domain_records
+                WHERE record_type = 'evidence'
+                  AND json_extract(payload_json, '$.claim_id') IN (
+                      SELECT value FROM json_each(?)
+                  )""",
+                (_json_text(claim_ids),),
+            ).fetchall()
+        ))
+
+        edition_rows = connection.execute(
+            """SELECT DISTINCT d.id, d.revision, d.payload_json
+            FROM domain_records d, json_each(d.payload_json, '$.story_ids') story_ref
+            WHERE d.record_type = 'edition'
+              AND story_ref.value IN (
+                  SELECT value FROM json_each(?)
+              )
+            ORDER BY d.id""",
+            (_json_text(story_ids),),
+        ).fetchall()
+        editions = [
+            {
+                "id": row["id"],
+                "revision": row["revision"],
+                "payload": json.loads(row["payload_json"]),
+            }
+            for row in edition_rows
+        ]
+
+        if len(stories) != len(story_ids):
+            blockers.append("one or more affected stories are missing")
+        if len(articles) != len(article_ids):
+            blockers.append("one or more assigned articles are missing")
+
+        story_summaries = [
+            {
+                "story_id": item["id"],
+                "revision": item["revision"],
+                "status": item["payload"]["status"],
+                "canonical_title": item["payload"]["canonical_title"],
+                "article_ids": sorted(item["payload"].get("article_ids", [])),
+            }
+            for item in stories
+        ]
+        article_summaries = [
+            {
+                "article_id": item["id"],
+                "source_id": item["payload"]["source_id"],
+                "title": item["payload"]["title"],
+                "assigned_story_id": next(
+                    assignment["assigned_story_id"]
+                    for assignment in decision["article_assignments"]
+                    if assignment["article_id"] == item["id"]
+                ),
+            }
+            for item in articles
+        ]
+        claim_destination = {
+            item["claim_id"]: item["assigned_story_id"]
+            for item in decision["claim_assignments"]
+        }
+        claim_summaries = [
+            {
+                "claim_id": item["id"],
+                "revision": item["revision"],
+                "current_story_id": item["payload"]["story_id"],
+                "assigned_story_id": claim_destination.get(item["id"]),
+                "assessment": item["payload"]["assessment"],
+                "evidence_ids": sorted(item["payload"].get("evidence_ids", [])),
+            }
+            for item in claims
+        ]
+        evidence_summaries = [
+            {
+                "evidence_id": item["id"],
+                "claim_id": item["payload"]["claim_id"],
+                "source_id": item["payload"]["source_id"],
+                "relationship": item["payload"]["relationship"],
+            }
+            for item in evidence
+        ]
+        edition_summaries = [
+            {
+                "edition_id": item["id"],
+                "status": item["payload"]["status"],
+                "content_hash": item["payload"]["content_hash"],
+                "affected_story_ids": sorted(
+                    set(item["payload"]["story_ids"]) & set(story_ids)
+                ),
+            }
+            for item in editions
+        ]
+
+        fingerprint_payload = {
+            "decision": decision,
+            "stories": stories,
+            "articles": articles,
+            "claims": claims,
+            "evidence": evidence,
+            "editions": editions,
+            "application": application,
+            "blockers": sorted(set(blockers)),
+        }
+        return {
+            "decision_id": decision_id,
+            "operation": decision["operation"],
+            "applicable": not blockers,
+            "already_applied": application is not None,
+            "application": application,
+            "blockers": sorted(set(blockers)),
+            "impact_fingerprint": sha256_fingerprint(fingerprint_payload),
+            "stories": story_summaries,
+            "articles": article_summaries,
+            "claims": claim_summaries,
+            "evidence": evidence_summaries,
+            "editions": edition_summaries,
+        }
+
+
+    def preview_story_decision_application(self, decision_id: str) -> dict[str, Any]:
+        """Return a deterministic, read-only impact preview for a story decision."""
+        with self._transaction("DEFERRED") as connection:
+            return self._preview_story_decision_application(connection, decision_id)
+
+    def apply_story_decision(
+        self,
+        decision_id: str,
+        *,
+        expected_impact_fingerprint: str,
+        actor: str,
+        rationale: str,
+    ) -> dict[str, Any]:
+        """Atomically apply a reviewed story decision using its exact preview fingerprint."""
+        if not isinstance(actor, str) or not actor.strip() or len(actor.strip()) > 200:
+            raise ValueError("actor must contain 1 to 200 non-whitespace characters")
+        if not isinstance(rationale, str) or not rationale.strip() or len(rationale.strip()) > 4000:
+            raise ValueError("rationale must contain 1 to 4000 non-whitespace characters")
+        if not isinstance(expected_impact_fingerprint, str):
+            raise ValueError("expected_impact_fingerprint is required")
+
+        with self._transaction("IMMEDIATE") as connection:
+            existing = connection.execute(
+                """SELECT application_id, applied_at, actor, rationale, result_json
+                FROM story_decision_applications WHERE decision_id = ?""",
+                (decision_id,),
+            ).fetchone()
+            if existing is not None:
+                return {
+                    "decision_id": decision_id,
+                    "application_id": existing["application_id"],
+                    "applied_at": existing["applied_at"],
+                    "actor": existing["actor"],
+                    "rationale": existing["rationale"],
+                    "already_applied": True,
+                    "result": json.loads(existing["result_json"]),
+                }
+
+            preview = self._preview_story_decision_application(connection, decision_id)
+            if not preview["applicable"]:
+                raise RegistryIntegrityError(
+                    "story decision cannot be applied: " + "; ".join(preview["blockers"])
+                )
+            if preview["impact_fingerprint"] != expected_impact_fingerprint:
+                raise RegistryIntegrityError("story decision preview is stale; create a new preview")
+
+            decision_row = connection.execute(
+                "SELECT payload_json FROM story_decisions WHERE id = ?", (decision_id,)
+            ).fetchone()
+            if decision_row is None:
+                raise RegistryIntegrityError(f"unknown story decision: {decision_id}")
+            decision = json.loads(decision_row["payload_json"])
+            decision_fingerprint = sha256_fingerprint(decision)
+            story_ids = sorted(decision["story_ids"])
+            article_destinations = {
+                item["article_id"]: item["assigned_story_id"]
+                for item in decision["article_assignments"]
+            }
+            claim_destinations = {
+                item["claim_id"]: item["assigned_story_id"]
+                for item in decision["claim_assignments"]
+            }
+            now = _utc_now()
+            story_changes: list[dict[str, Any]] = []
+            claim_changes: list[dict[str, Any]] = []
+            changed_story_payloads: dict[str, dict[str, Any]] = {}
+            changed_claim_payloads: dict[str, dict[str, Any]] = {}
+
+            for story_id in story_ids:
+                row = connection.execute(
+                    "SELECT revision, payload_json FROM domain_records WHERE record_type = 'story' AND id = ?",
+                    (story_id,),
+                ).fetchone()
+                if row is None:
+                    raise RegistryIntegrityError(f"affected story disappeared: {story_id}")
+                old_revision = row["revision"]
+                payload = json.loads(row["payload_json"])
+                new_articles = sorted(
+                    article_id for article_id, destination in article_destinations.items()
+                    if destination == story_id
+                )
+                if decision["operation"] == "merge" and story_id != decision["canonical_story_id"]:
+                    payload["status"] = "archived"
+                    payload["article_ids"] = []
+                else:
+                    payload["article_ids"] = new_articles
+                if "revision" in payload:
+                    payload["revision"] = old_revision + 1
+                if "updated_at" in payload:
+                    payload["updated_at"] = now
+                validate_payload("story", payload)
+                next_revision = old_revision + 1
+                encoded = _json_text(payload)
+                updated = connection.execute(
+                    """UPDATE domain_records SET revision = ?, updated_at = ?, payload_json = ?
+                    WHERE record_type = 'story' AND id = ? AND revision = ?""",
+                    (next_revision, now, encoded, story_id, old_revision),
+                )
+                if updated.rowcount != 1:
+                    raise RegistryIntegrityError(f"story revision conflict: {story_id}")
+                connection.execute(
+                    """INSERT INTO domain_record_revisions
+                    (record_type, record_id, revision, created_at, actor, reason, payload_json)
+                    VALUES ('story', ?, ?, ?, ?, ?, ?)""",
+                    (story_id, next_revision, now, actor.strip(), rationale.strip(), encoded),
+                )
+                changed_story_payloads[story_id] = payload
+                story_changes.append({
+                    "story_id": story_id,
+                    "from_revision": old_revision,
+                    "to_revision": next_revision,
+                    "status": payload["status"],
+                    "article_ids": payload["article_ids"],
+                })
+
+            for claim_id in sorted(claim_destinations):
+                row = connection.execute(
+                    "SELECT revision, payload_json FROM domain_records WHERE record_type = 'claim' AND id = ?",
+                    (claim_id,),
+                ).fetchone()
+                if row is None:
+                    raise RegistryIntegrityError(f"assigned claim disappeared: {claim_id}")
+                old_revision = row["revision"]
+                payload = json.loads(row["payload_json"])
+                payload["story_id"] = claim_destinations[claim_id]
+                validate_payload("claim", payload)
+                next_revision = old_revision + 1
+                encoded = _json_text(payload)
+                updated = connection.execute(
+                    """UPDATE domain_records SET revision = ?, updated_at = ?, payload_json = ?
+                    WHERE record_type = 'claim' AND id = ? AND revision = ?""",
+                    (next_revision, now, encoded, claim_id, old_revision),
+                )
+                if updated.rowcount != 1:
+                    raise RegistryIntegrityError(f"claim revision conflict: {claim_id}")
+                connection.execute(
+                    """INSERT INTO domain_record_revisions
+                    (record_type, record_id, revision, created_at, actor, reason, payload_json)
+                    VALUES ('claim', ?, ?, ?, ?, ?, ?)""",
+                    (claim_id, next_revision, now, actor.strip(), rationale.strip(), encoded),
+                )
+                changed_claim_payloads[claim_id] = payload
+                claim_changes.append({
+                    "claim_id": claim_id,
+                    "from_revision": old_revision,
+                    "to_revision": next_revision,
+                    "story_id": payload["story_id"],
+                })
+
+            # Validate the completed graph only after both sides of every
+            # story/article and claim/provenance move have been updated.
+            for story_id, payload in changed_story_payloads.items():
+                self._validate_domain_references(connection, "story", payload)
+            for claim_id, payload in changed_claim_payloads.items():
+                self._validate_domain_references(connection, "claim", payload)
+                evidence_rows = connection.execute(
+                    "SELECT id, payload_json FROM domain_records WHERE record_type = 'evidence' AND json_extract(payload_json, '$.claim_id') = ?",
+                    (claim_id,),
+                ).fetchall()
+                for evidence_row in evidence_rows:
+                    self._validate_domain_references(
+                        connection, "evidence", json.loads(evidence_row["payload_json"])
+                    )
+
+            result = {
+                "decision_id": decision_id,
+                "operation": decision["operation"],
+                "canonical_story_id": decision["canonical_story_id"],
+                "stories": story_changes,
+                "claims": claim_changes,
+                "preserved_evidence_ids": sorted(item["evidence_id"] for item in preview["evidence"]),
+                "preserved_editions": [
+                    {"edition_id": item["edition_id"], "content_hash": item["content_hash"]}
+                    for item in preview["editions"]
+                ],
+            }
+            application_id = f"story-application:{uuid.uuid4().hex}"
+            impact_fingerprint = preview["impact_fingerprint"]
+            connection.execute(
+                """INSERT INTO story_decision_applications
+                (application_id, decision_id, applied_at, actor, rationale,
+                 decision_fingerprint, impact_fingerprint, result_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (application_id, decision_id, now, actor.strip(), rationale.strip(),
+                 decision_fingerprint, impact_fingerprint, _json_text(result)),
+            )
+            self._append_audit(
+                connection,
+                event_type="story_decision.applied",
+                entity_type="story_decision",
+                entity_id=decision_id,
+                payload={
+                    "application_id": application_id,
+                    "actor": actor.strip(),
+                    "rationale": rationale.strip(),
+                    "decision_fingerprint": decision_fingerprint,
+                    "impact_fingerprint": impact_fingerprint,
+                    "result": result,
+                },
+            )
+            return {
+                "decision_id": decision_id,
+                "application_id": application_id,
+                "applied_at": now,
+                "actor": actor.strip(),
+                "rationale": rationale.strip(),
+                "already_applied": False,
+                "result": result,
+            }
+
+
+    def add_timeline_event(self, payload: dict[str, Any]) -> TimelineEventRecord:
+        """Append a claim-backed event assertion; corrections supersede, never rewrite."""
+        validate_payload("timeline-event", payload)
+        created_at = _aware_datetime(payload["created_at"], "created_at")
+        review_status = payload.get("review_status", "unreviewed")
+        review_fields = ("reviewed_at", "reviewed_by", "review_note")
+        if review_status in {"approved", "rejected"}:
+            if any(not isinstance(payload.get(field), str) or not payload[field].strip() for field in review_fields):
+                raise RegistryIntegrityError("reviewed timeline event requires reviewer, timestamp, and note")
+            if _aware_datetime(payload["reviewed_at"], "reviewed_at") < created_at:
+                raise RegistryIntegrityError("timeline event review cannot predate its creation")
+        elif any(field in payload for field in review_fields):
+            raise RegistryIntegrityError("unreviewed timeline event cannot contain review metadata")
+        occurred = payload["occurred"]
+        precision = occurred["precision"]
+        start = occurred.get("start")
+        end = occurred.get("end")
+        sort_key = None
+        if precision in {"instant", "range"}:
+            if not isinstance(start, str):
+                raise RegistryIntegrityError("timeline event precision requires a start timestamp")
+            parsed_start = _aware_datetime(start, "occurred.start")
+            sort_key = parsed_start.isoformat()
+            if precision == "range":
+                if not isinstance(end, str):
+                    raise RegistryIntegrityError("timeline event range requires an end timestamp")
+                parsed_end = _aware_datetime(end, "occurred.end")
+                if parsed_end < parsed_start:
+                    raise RegistryIntegrityError("timeline event end cannot precede its start")
+            elif end is not None:
+                raise RegistryIntegrityError("instant timeline event cannot include an end")
+        elif precision == "date":
+            if not isinstance(start, str):
+                raise RegistryIntegrityError("date precision requires an ISO date start")
+            try:
+                from datetime import date
+                sort_key = date.fromisoformat(start).isoformat()
+            except ValueError as exc:
+                raise RegistryIntegrityError("date precision requires an ISO calendar date") from exc
+            if end is not None:
+                raise RegistryIntegrityError("date precision cannot include an end")
+        elif precision == "approximate":
+            if not isinstance(start, str) or not isinstance(occurred.get("note"), str) or not occurred["note"].strip():
+                raise RegistryIntegrityError("approximate event timing requires a date and an uncertainty note")
+            try:
+                from datetime import date
+                sort_key = date.fromisoformat(start).isoformat()
+            except ValueError as exc:
+                raise RegistryIntegrityError("approximate event timing requires an ISO calendar date") from exc
+            if end is not None:
+                raise RegistryIntegrityError("approximate event timing cannot include an end")
+        elif precision == "unknown":
+            if start is not None or end is not None:
+                raise RegistryIntegrityError("unknown event timing cannot include a start or end")
+        timezone_name = occurred.get("timezone")
+        if timezone_name:
+            try:
+                from zoneinfo import ZoneInfo
+                ZoneInfo(timezone_name)
+            except (KeyError, ValueError) as exc:
+                raise RegistryIntegrityError("timeline event timezone must be a valid IANA timezone") from exc
+
+        record = TimelineEventRecord.from_payload(payload)
+        with self._transaction() as connection:
+            story_row = connection.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = 'story' AND id = ?",
+                (record.story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise RegistryIntegrityError("timeline event references an unknown story")
+            story_payload = json.loads(story_row["payload_json"])
+            if story_payload.get("status") == "archived":
+                raise RegistryIntegrityError("cannot append a timeline event to an archived story")
+            claim_ids = payload["claim_ids"]
+            placeholders = ",".join("?" for _ in claim_ids)
+            claim_rows = connection.execute(
+                f"""SELECT id, payload_json FROM domain_records
+                WHERE record_type = 'claim' AND id IN ({placeholders})""",
+                tuple(claim_ids),
+            ).fetchall()
+            if len(claim_rows) != len(claim_ids):
+                raise RegistryIntegrityError("timeline event references an unknown claim")
+            if any(json.loads(row["payload_json"])["story_id"] != record.story_id for row in claim_rows):
+                raise RegistryIntegrityError("timeline event claims must belong to its story")
+            supersedes_id = payload.get("supersedes_event_id")
+            if supersedes_id:
+                prior = connection.execute(
+                    "SELECT story_id FROM timeline_events WHERE id = ?", (supersedes_id,)
+                ).fetchone()
+                if prior is None or prior["story_id"] != record.story_id:
+                    raise RegistryIntegrityError("timeline correction must supersede an event in the same story")
+            connection.execute(
+                """INSERT INTO timeline_events
+                (id, story_id, occurred_sort_key, precision, supersedes_event_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (record.id, record.story_id, sort_key, precision, supersedes_id,
+                 payload["created_at"], record.payload_json),
+            )
+            self._append_audit(
+                connection,
+                event_type="timeline_event.created",
+                entity_type="timeline_event",
+                entity_id=record.id,
+                payload={"record": payload, "supersedes_event_id": supersedes_id},
+            )
+        return record
+
+    def get_timeline_event(self, event_id: str) -> TimelineEventRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload_json FROM timeline_events WHERE id = ?", (event_id,)
+            ).fetchone()
+        return TimelineEventRecord.from_payload(json.loads(row["payload_json"])) if row else None
+
+    def timeline_event_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Return all event assertions and correction links, including superseded records."""
+        if self.get_domain_record("story", story_id) is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT id, occurred_sort_key, precision, supersedes_event_id, created_at, payload_json
+                FROM timeline_events WHERE story_id = ?
+                ORDER BY CASE WHEN occurred_sort_key IS NULL THEN 1 ELSE 0 END,
+                         occurred_sort_key, created_at, id""",
+                (story_id,),
+            ).fetchall()
+        superseded = {row["supersedes_event_id"] for row in rows if row["supersedes_event_id"]}
+        return [
+            {
+                "event_id": row["id"],
+                "precision": row["precision"],
+                "occurred_sort_key": row["occurred_sort_key"],
+                "created_at": row["created_at"],
+                "supersedes_event_id": row["supersedes_event_id"],
+                "is_superseded": row["id"] in superseded,
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def story_timeline(self, story_id: str) -> list[dict[str, Any]]:
+        """Return the current event assertions in chronological order, retaining uncertainty."""
+        return [
+            item for item in self.timeline_event_history(story_id)
+            if not item["is_superseded"]
+        ]
+
+    def story_decision_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Return immutable merge/split decisions involving a story, oldest first."""
+        if self.get_domain_record("story", story_id) is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT payload_json FROM story_decisions
+                ORDER BY decided_at, id"""
+            ).fetchall()
+        return [
+            payload
+            for row in rows
+            if story_id in (payload := json.loads(row["payload_json"]))["story_ids"]
+        ]
+
+    def add_perspective(self, payload: dict[str, Any]) -> PerspectiveRecord:
+        """Append an attributed perspective; corrections supersede, never rewrite."""
+        validate_payload("perspective", payload)
+        _aware_datetime(payload["created_at"], "created_at")
+        review_status = payload.get("review_status", "unreviewed")
+        review_fields = ("reviewed_at", "reviewed_by", "review_note")
+        if review_status in {"approved", "rejected"}:
+            if any(not isinstance(payload.get(field), str) or not payload[field].strip() for field in review_fields):
+                raise RegistryIntegrityError("reviewed perspective requires reviewer, timestamp, and note")
+            _aware_datetime(payload["reviewed_at"], "reviewed_at")
+        elif any(field in payload for field in review_fields):
+            raise RegistryIntegrityError("unreviewed perspective cannot contain review metadata")
+        record = PerspectiveRecord.from_payload(payload)
+        with self._transaction() as connection:
+            story_row = connection.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = 'story' AND id = ?",
+                (record.story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise RegistryIntegrityError("perspective references an unknown story")
+            story = json.loads(story_row["payload_json"])
+            if story.get("status") == "archived":
+                raise RegistryIntegrityError("cannot append a perspective to an archived story")
+            source_id = payload.get("source_id")
+            article_id = payload.get("article_id")
+            if source_id:
+                source = connection.execute("SELECT 1 FROM sources WHERE id = ?", (source_id,)).fetchone()
+                if source is None:
+                    raise RegistryIntegrityError("perspective references an unknown source")
+            if article_id:
+                article_row = connection.execute(
+                    "SELECT payload_json FROM domain_records WHERE record_type = 'article' AND id = ?",
+                    (article_id,),
+                ).fetchone()
+                if article_row is None:
+                    raise RegistryIntegrityError("perspective references an unknown article")
+                article = json.loads(article_row["payload_json"])
+                if article.get("source_id") != source_id or article_id not in story.get("article_ids", []):
+                    raise RegistryIntegrityError("perspective article must belong to its source and story")
+            if payload["kind"] == "publisher_framing" and (not source_id or not article_id):
+                raise RegistryIntegrityError("publisher framing requires its source and article")
+            claim_ids = payload["claim_ids"]
+            if claim_ids:
+                placeholders = ",".join("?" for _ in claim_ids)
+                rows = connection.execute(
+                    f"SELECT id, payload_json FROM domain_records WHERE record_type = 'claim' AND id IN ({placeholders})",
+                    tuple(claim_ids),
+                ).fetchall()
+                if len(rows) != len(claim_ids) or any(
+                    json.loads(row["payload_json"])["story_id"] != record.story_id for row in rows
+                ):
+                    raise RegistryIntegrityError("perspective claims must belong to its story")
+            supersedes_id = payload.get("supersedes_perspective_id")
+            if supersedes_id:
+                prior = connection.execute(
+                    "SELECT story_id, created_at FROM perspectives WHERE id = ?", (supersedes_id,)
+                ).fetchone()
+                if prior is None or prior["story_id"] != record.story_id:
+                    raise RegistryIntegrityError("perspective correction must supersede an entry in the same story")
+                if _aware_datetime(payload["created_at"], "created_at") < _aware_datetime(prior["created_at"], "prior.created_at"):
+                    raise RegistryIntegrityError("perspective correction cannot predate the assertion it supersedes")
+            connection.execute(
+                """INSERT INTO perspectives
+                (id, story_id, source_id, article_id, supersedes_perspective_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (record.id, record.story_id, source_id, article_id, supersedes_id,
+                 payload["created_at"], record.payload_json),
+            )
+            self._append_audit(
+                connection,
+                event_type="perspective.created",
+                entity_type="perspective",
+                entity_id=record.id,
+                payload={"record": payload, "supersedes_perspective_id": supersedes_id},
+            )
+        return record
+
+    def get_perspective(self, perspective_id: str) -> PerspectiveRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload_json FROM perspectives WHERE id = ?", (perspective_id,)
+            ).fetchone()
+        return PerspectiveRecord.from_payload(json.loads(row["payload_json"])) if row else None
+
+    def perspective_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Return all attributed framings and corrections, including superseded entries."""
+        if self.get_domain_record("story", story_id) is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT id, source_id, article_id, supersedes_perspective_id, created_at, payload_json
+                FROM perspectives WHERE story_id = ? ORDER BY created_at, id""",
+                (story_id,),
+            ).fetchall()
+        superseded = {row["supersedes_perspective_id"] for row in rows if row["supersedes_perspective_id"]}
+        return [
+            {
+                "perspective_id": row["id"],
+                "source_id": row["source_id"],
+                "article_id": row["article_id"],
+                "created_at": row["created_at"],
+                "supersedes_perspective_id": row["supersedes_perspective_id"],
+                "is_superseded": row["id"] in superseded,
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def story_perspectives(self, story_id: str) -> list[dict[str, Any]]:
+        """Return current attributed perspectives without rewriting prior assertions."""
+        return [
+            item for item in self.perspective_history(story_id)
+            if not item["is_superseded"]
+        ]
+
+    def add_claim_relation(self, payload: dict[str, Any]) -> ClaimRelationRecord:
+        """Append an explicit relationship between two claims in one story."""
+        validate_payload("claim-relation", payload)
+        payload = dict(payload)
+        _aware_datetime(payload["created_at"], "created_at")
+        if payload["claim_id"] == payload["related_claim_id"]:
+            raise RegistryIntegrityError("claim relation must connect two different claims")
+        if payload["relationship"] == "contradicts" and payload["related_claim_id"] < payload["claim_id"]:
+            payload["claim_id"], payload["related_claim_id"] = payload["related_claim_id"], payload["claim_id"]
+        review_status = payload["review_status"]
+        review_fields = ("reviewed_at", "reviewed_by", "review_note")
+        if review_status in {"accepted", "rejected"}:
+            if any(not isinstance(payload.get(field), str) or not payload[field].strip() for field in review_fields):
+                raise RegistryIntegrityError("reviewed claim relation requires reviewer, timestamp, and note")
+            _aware_datetime(payload["reviewed_at"], "reviewed_at")
+        elif any(field in payload for field in review_fields):
+            raise RegistryIntegrityError("unreviewed claim relation cannot contain review metadata")
+        record = ClaimRelationRecord.from_payload(payload)
+        with self._transaction() as connection:
+            story_row = connection.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = 'story' AND id = ?",
+                (record.story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise RegistryIntegrityError("claim relation references an unknown story")
+            story = json.loads(story_row["payload_json"])
+            if story.get("status") == "archived":
+                raise RegistryIntegrityError("cannot append a claim relation to an archived story")
+            ids = (payload["claim_id"], payload["related_claim_id"])
+            placeholders = ",".join("?" for _ in ids)
+            rows = connection.execute(
+                f"SELECT id, payload_json FROM domain_records WHERE record_type = 'claim' AND id IN ({placeholders})",
+                ids,
+            ).fetchall()
+            if len(rows) != 2 or any(json.loads(row["payload_json"])["story_id"] != record.story_id for row in rows):
+                raise RegistryIntegrityError("claim relation endpoints must belong to its story")
+            supersedes_id = payload.get("supersedes_relation_id")
+            if supersedes_id:
+                prior = connection.execute(
+                    "SELECT story_id, created_at FROM claim_relations WHERE id = ?", (supersedes_id,)
+                ).fetchone()
+                if prior is None or prior["story_id"] != record.story_id:
+                    raise RegistryIntegrityError("claim relation correction must supersede a relation in the same story")
+                if _aware_datetime(payload["created_at"], "created_at") < _aware_datetime(prior["created_at"], "prior.created_at"):
+                    raise RegistryIntegrityError("claim relation correction cannot predate the relation it supersedes")
+            connection.execute(
+                """INSERT INTO claim_relations
+                (id, story_id, claim_id, related_claim_id, relationship, supersedes_relation_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (record.id, record.story_id, record.claim_id, record.related_claim_id,
+                 record.relationship, supersedes_id, payload["created_at"], record.payload_json),
+            )
+            self._append_audit(
+                connection,
+                event_type="claim_relation.created",
+                entity_type="claim_relation",
+                entity_id=record.id,
+                payload={"record": payload, "supersedes_relation_id": supersedes_id},
+            )
+        return record
+
+    def get_claim_relation(self, relation_id: str) -> ClaimRelationRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload_json FROM claim_relations WHERE id = ?", (relation_id,)
+            ).fetchone()
+        return ClaimRelationRecord.from_payload(json.loads(row["payload_json"])) if row else None
+
+    def claim_relation_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Return all explicit claim relationships, including superseded assertions."""
+        if self.get_domain_record("story", story_id) is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT id, claim_id, related_claim_id, relationship,
+                          supersedes_relation_id, created_at, payload_json
+                FROM claim_relations WHERE story_id = ?
+                ORDER BY julianday(created_at), created_at, id""",
+                (story_id,),
+            ).fetchall()
+        superseded = {row["supersedes_relation_id"] for row in rows if row["supersedes_relation_id"]}
+        return [
+            {
+                "relation_id": row["id"],
+                "claim_id": row["claim_id"],
+                "related_claim_id": row["related_claim_id"],
+                "relationship": row["relationship"],
+                "created_at": row["created_at"],
+                "supersedes_relation_id": row["supersedes_relation_id"],
+                "is_superseded": row["id"] in superseded,
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def story_claim_relations(self, story_id: str) -> list[dict[str, Any]]:
+        """Return current reviewed and unreviewed relationships without resolving disputes."""
+        return [
+            item for item in self.claim_relation_history(story_id)
+            if not item["is_superseded"]
+        ]
+
+    def story_editorial_snapshot(self, story_id: str) -> dict[str, Any]:
+        """Build a deterministic, read-only editorial dossier from one SQLite snapshot."""
+        with self._transaction("DEFERRED") as connection:
+            story_row = connection.execute(
+                """SELECT revision, updated_at, payload_json FROM domain_records
+                WHERE record_type = 'story' AND id = ?""",
+                (story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise RegistryIntegrityError(f"unknown story: {story_id}")
+            story_payload = json.loads(story_row["payload_json"])
+            article_ids = sorted(story_payload.get("article_ids", []))
+            articles = []
+            if article_ids:
+                placeholders = ",".join("?" for _ in article_ids)
+                rows = connection.execute(
+                    f"""SELECT id, revision, updated_at, payload_json FROM domain_records
+                    WHERE record_type = 'article' AND id IN ({placeholders}) ORDER BY id""",
+                    tuple(article_ids),
+                ).fetchall()
+                if len(rows) != len(article_ids):
+                    raise RegistryIntegrityError("story editorial snapshot found a missing article")
+                articles = [
+                    {"id": row["id"], "revision": row["revision"],
+                     "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
+                    for row in rows
+                ]
+            claim_rows = connection.execute(
+                """SELECT id, revision, updated_at, payload_json FROM domain_records
+                WHERE record_type = 'claim' AND json_extract(payload_json, '$.story_id') = ?
+                ORDER BY id""",
+                (story_id,),
+            ).fetchall()
+            claims = [
+                {"id": row["id"], "revision": row["revision"],
+                 "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
+                for row in claim_rows
+            ]
+            claim_ids = [row["id"] for row in claim_rows]
+            evidence = []
+            if claim_ids:
+                placeholders = ",".join("?" for _ in claim_ids)
+                evidence_rows = connection.execute(
+                    f"""SELECT id, revision, updated_at, payload_json FROM domain_records
+                    WHERE record_type = 'evidence'
+                      AND json_extract(payload_json, '$.claim_id') IN ({placeholders})
+                    ORDER BY id""",
+                    tuple(claim_ids),
+                ).fetchall()
+                evidence = [
+                    {"id": row["id"], "revision": row["revision"],
+                     "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
+                    for row in evidence_rows
+                ]
+            timeline_history = self.timeline_event_history(story_id)
+            perspective_history = self.perspective_history(story_id)
+            claim_relation_history = self.claim_relation_history(story_id)
+            decisions = self.story_decision_history(story_id)
+            reporting_independence = self.story_reporting_independence(story_id)
+            snapshot = {
+                "story_id": story_id,
+                "story_revision": story_row["revision"],
+                "story_updated_at": story_row["updated_at"],
+                "story": story_payload,
+                "articles": articles,
+                "claims": claims,
+                "evidence": evidence,
+                "timeline_history": timeline_history,
+                "timeline": [item for item in timeline_history if not item["is_superseded"]],
+                "perspective_history": perspective_history,
+                "perspectives": [item for item in perspective_history if not item["is_superseded"]],
+                "claim_relation_history": claim_relation_history,
+                "claim_relations": [item for item in claim_relation_history if not item["is_superseded"]],
+                "story_decisions": decisions,
+                "reporting_independence": reporting_independence,
+            }
+            snapshot["fingerprint"] = sha256_fingerprint(snapshot)
+            return snapshot
+
     def get_domain_record(self, record_type: str, record_id: str):
+        if record_type == "story_decision":
+            with self._lock:
+                row = self._connection.execute(
+                    "SELECT payload_json FROM story_decisions WHERE id = ?",
+                    (record_id,),
+                ).fetchone()
+            return StoryDecisionRecord.from_payload(json.loads(row["payload_json"])) if row else None
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
             raise ValueError(f"unsupported domain record type: {record_type}")
@@ -1850,6 +3518,8 @@ class SQLiteRegistry:
         reason: str,
     ):
         """Append a domain-record revision using optimistic concurrency control."""
+        if record_type == "story_decision":
+            raise RegistryIntegrityError("story decision records are immutable")
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
             raise ValueError(f"unsupported domain record type: {record_type}")
@@ -1891,7 +3561,7 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("record creation/observation time cannot be rewritten")
             immutable_identity_fields = {
                 "article": ("source_id", "canonical_uri"),
-                "evidence": ("source_id", "claim_id"),
+                "evidence": ("source_id", "claim_id", "article_id", "observation_id", "locator"),
             }.get(record_type, ())
             if any(payload.get(field) != previous_payload.get(field) for field in immutable_identity_fields):
                 raise RegistryIntegrityError("domain record identity links cannot be rewritten")
