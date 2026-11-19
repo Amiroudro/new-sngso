@@ -4232,7 +4232,7 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("learning object revision conflict")
             previous = json.loads(row["payload_json"])
             for field in ("story_id", "kind", "language", "variant_group_id", "created_at"):
-                if payload[field] != previous[field]:
+                if payload.get(field) != previous.get(field):
                     raise RegistryIntegrityError("learning object identity fields cannot be rewritten")
             claim_ids = payload["claim_ids"]
             if claim_ids:
