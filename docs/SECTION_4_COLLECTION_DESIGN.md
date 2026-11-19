@@ -135,3 +135,12 @@ This is an integration-test harness only. The production HTTPS transport remains
 Verification: GitHub Actions run #164 passed with **179 tests**. The four added boundary tests cover denied-permission zero-call behavior, exact source-domain propagation, transport failure atomicity, and post-response grant revocation. The public `CollectionExecutionContext` type is exported from the package root.
 
 A subsequent adversarial review found that an injected resolver could bypass the public-IP check even though the default bounded DNS resolver already rejected private answers. The transport now validates every returned address again at the fetch boundary, including custom resolver adapters, and rejects the entire result if any address is private, reserved, malformed, or otherwise non-global. The obsolete unbounded system-DNS helper was removed. GitHub Actions run #170 passed with **181 tests**, including regression coverage for loopback, private, IPv6 unique-local, malformed, and mixed public/private resolver results.
+
+
+### Additional transport adversarial review
+
+Further boundary checks now reject ambiguous explicit URL ports (including port zero and an empty port), scoped IPv4/IPv6 resolver strings, and duplicate singleton response headers (Content-Type, Content-Encoding, Transfer-Encoding, and Location). This prevents a parser or downstream consumer from silently choosing one of multiple conflicting security-relevant header values.
+
+A dedicated pinned-connection test verifies that the socket connects to the validated IP address while TLS still receives the original DNS hostname for certificate verification and SNI. This is a deterministic unit test of the connection boundary, not a live TLS handshake against a publisher.
+
+GitHub Actions run #175 passed with **188 tests**. The latest run for commit f9cd0227990cbf6a2a02831f8a7077e8bd487fab passed with **189 tests**. These checks remain offline and fixture-based; no publisher endpoints were contacted.
