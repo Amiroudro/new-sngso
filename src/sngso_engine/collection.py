@@ -142,6 +142,8 @@ class PermissionFirstCollector:
         self._clock = clock
 
     def collect(self, request: CollectionRequest, connector_name: str) -> CollectionResult:
+        if request.operation not in {"discovery", "metadata"}:
+            return CollectionResult(False, "operation_not_implemented")
         connector = self._connectors.get(connector_name)
         if connector is None:
             return CollectionResult(False, "connector_not_registered")
@@ -257,6 +259,7 @@ class PermissionFirstCollector:
         for key, value in metadata.items():
             if not isinstance(value, str) or len(value) > 1000:
                 raise CollectionError(f"metadata field {key} must be a string of at most 1000 characters")
+            clean_metadata[key] = value
 
         if request.operation == "discovery" and metadata:
             raise CollectionError("discovery cannot retain article metadata")
