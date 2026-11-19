@@ -78,6 +78,6 @@ GitHub Actions [run #44609248199](https://github.com/Amiroudro/new-sngso/actions
 - Disputed requires both supporting and contradicting evidence.
 - Contradicted requires contradicting evidence without supporting evidence.
 - Retracted requires a recorded review rationale.
-- Adding new evidence to a reviewed claim is blocked until an editor explicitly resets the claim to unassessed. The new evidence is then added, the complete evidence list is revised, and the claim is reviewed again.
+- Adding or revising evidence on a reviewed claim is blocked until an editor explicitly resets the claim to unassessed. The new or corrected evidence is then recorded, the complete evidence list is revised, and the claim is reviewed again.
 
 These are conservative workflow consistency rules, not a machine-generated truth score. A human reviewer records the assessment, timestamp, actor, and rationale; the system checks that the selected status is consistent with the evidence relationships recorded in the registry.
