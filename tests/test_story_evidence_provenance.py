@@ -688,6 +688,8 @@ def test_story_decision_preview_is_read_only_and_has_stable_impact_fingerprint()
         after = registry.audit_checkpoint()
 
         assert first["applicable"] is True
+        assert first["already_applied"] is False
+        assert first["application"] is None
         assert first["blockers"] == []
         assert first["impact_fingerprint"].startswith("sha256:")
         assert first["impact_fingerprint"] == second["impact_fingerprint"]
