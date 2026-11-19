@@ -162,3 +162,8 @@ Canonical DNS normalization, IDNA handling, allowlist validation, and exact/subd
 
 
 A final DNS-name normalization edge case was closed: one optional terminal root dot is accepted, but repeated trailing dots are rejected in both the shared domain policy and HTTPS transport. Regression tests cover both the orchestrator helper and URL rejection before DNS. GitHub Actions run #199 passed with **204 tests**. No publisher network calls were made.
+
+
+### HTTP transfer-coding policy
+
+The transport now accepts only no Transfer-Encoding header or the standard chunked transfer coding. Other transfer codings (including gzip transfer coding) are rejected rather than passed to downstream parsers. This complements the existing rejection of non-identity Content-Encoding and ambiguous Transfer-Encoding plus Content-Length combinations. GitHub Actions run #203 passed with **205 tests**. The test suite remains fully offline.
