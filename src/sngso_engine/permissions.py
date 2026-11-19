@@ -76,13 +76,13 @@ def evaluate_permission(
     if current < starts:
         return PermissionDecision(False, "permission_not_yet_effective", permission_id)
 
-    ends_value = permission.get("effective_until")
-    if ends_value is not None:
-        ends = _parse_aware_datetime(ends_value)
-        if ends is None:
-            return PermissionDecision(False, "invalid_effective_until", permission_id)
-        if current >= ends:
-            return PermissionDecision(False, "permission_expired", permission_id)
+    ends = _parse_aware_datetime(permission.get("effective_until"))
+    if ends is None:
+        return PermissionDecision(False, "invalid_or_missing_effective_until", permission_id)
+    if ends <= starts:
+        return PermissionDecision(False, "invalid_permission_window", permission_id)
+    if current >= ends:
+        return PermissionDecision(False, "permission_expired", permission_id)
 
     operations = permission.get("operations")
     if not isinstance(operations, dict):
