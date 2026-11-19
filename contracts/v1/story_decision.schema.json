@@ -10,7 +10,7 @@
     "operation",
     "story_ids",
     "canonical_story_id",
-    "article_ids",
+    "article_assignments",
     "decided_by",
     "rationale",
     "decided_at"
@@ -26,11 +26,18 @@
       "items": { "$ref": "common.schema.json#/$defs/id" }
     },
     "canonical_story_id": { "$ref": "common.schema.json#/$defs/id" },
-    "article_ids": {
+    "article_assignments": {
       "type": "array",
-      "minItems": 1,
-      "uniqueItems": true,
-      "items": { "$ref": "common.schema.json#/$defs/id" }
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["article_id", "assigned_story_id"],
+        "properties": {
+          "article_id": { "$ref": "common.schema.json#/$defs/id" },
+          "assigned_story_id": { "$ref": "common.schema.json#/$defs/id" }
+        }
+      }
     },
     "decided_by": { "type": "string", "minLength": 1, "maxLength": 160 },
     "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 },
