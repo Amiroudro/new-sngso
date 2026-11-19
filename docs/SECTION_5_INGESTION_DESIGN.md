@@ -1,6 +1,6 @@
 # Section 5: Ingestion, normalization, and identity
 
-Status: implementation delivered; final current-head CI acceptance pending.
+Status: **complete** for metadata-only, fixture-first ingestion; no live publisher access is enabled.
 
 ## Boundary
 
@@ -54,7 +54,9 @@ This conservative fingerprint is a candidate-generation signal, not proof of syn
 
 ## Acceptance evidence
 
-Section 5 can close only when CI proves:
+Section 5 acceptance was verified by GitHub Actions run [#44607783960](https://github.com/Amiroudro/new-sngso/actions/runs/44607783960), which passed with **297 tests** on code head 5ae0a5f9ca624f14d9350b6d039ef7abe86690b7. Later changes on the current PR head are documentation-only.
+
+The verified acceptance checks were:
 
 - canonical URL, text, timestamp, and language normalization, including malformed input rejection;
 - original observation values remain unchanged;
