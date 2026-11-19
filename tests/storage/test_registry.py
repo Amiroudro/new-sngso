@@ -134,7 +134,7 @@ def test_existing_schema_v2_database_migrates_to_v7(tmp_path, monkeypatch):
         assert old_registry.schema_version() == 2
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 7)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 8
+        assert migrated.schema_version() == 7
         columns = {
             row["name"]
             for row in migrated._connection.execute(
@@ -1190,7 +1190,7 @@ def test_existing_schema_v6_database_migrates_to_v7(tmp_path, monkeypatch) -> No
         ).fetchone() is None
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 7)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 8
+        assert migrated.schema_version() == 7
         assert migrated._connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'timeline_events'"
         ).fetchone() is not None
