@@ -102,7 +102,7 @@ Acceptance:
 
 ## 6. Story intelligence, claims, and evidence
 
-**Status: in progress.** The provenance-integrity and initial human claim-assessment workflows are implemented and verified by GitHub Actions [run #44609541576](https://github.com/Amiroudro/new-sngso/actions/runs/44609541576): **328 tests passed** on code head `c0c62caac9bc5fb32d2d3d1511a274dc9bc93f11`. The workflow also blocks changing evidence relationships while a claim remains reviewed. An append-only, audited story merge/split decision ledger is now implemented. Remaining work includes an atomic workflow that applies those decisions to story membership without orphaning claims, plus event chronology.
+**Status: in progress.** The provenance-integrity and initial human claim-assessment workflows are implemented and verified by GitHub Actions [run #44609541576](https://github.com/Amiroudro/new-sngso/actions/runs/44609541576): **328 tests passed** on code head `c0c62caac9bc5fb32d2d3d1511a274dc9bc93f11`. The workflow also blocks changing evidence relationships while a claim remains reviewed. An append-only, audited story merge/split decision ledger is implemented and verified in GitHub Actions [run #44610479213](https://github.com/Amiroudro/new-sngso/actions/runs/44610479213), with 336 tests passing. Remaining work includes an atomic workflow that applies those decisions to story membership without orphaning claims, plus event chronology.
 
 **Goal:** build traceable understanding rather than headline aggregation.
 
