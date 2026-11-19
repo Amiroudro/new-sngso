@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any, Iterator
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .contracts import validate_payload
@@ -1822,14 +1822,59 @@ class SQLiteRegistry:
                     raise RegistryIntegrityError(
                         "claim revision would orphan existing evidence provenance"
                     )
+            linked_evidence = []
+            for evidence_id in payload.get("evidence_ids", []):
+                evidence = require_record("evidence", evidence_id, "claim evidence")
+                if evidence["claim_id"] != payload["id"]:
+                    raise RegistryIntegrityError(
+                        "claim evidence reference belongs to another claim"
+                    )
+                linked_evidence.append(evidence)
+            assessment = payload["assessment"]
+            relationships = {item["relationship"] for item in linked_evidence}
+            if assessment != "unassessed" and not linked_evidence:
+                raise RegistryIntegrityError(
+                    "an assessed claim must reference at least one evidence record"
+                )
+            if assessment == "supported" and (
+                "supports" not in relationships or "contradicts" in relationships
+            ):
+                raise RegistryIntegrityError(
+                    "supported claim requires supporting evidence and no unresolved contradiction"
+                )
+            if assessment == "partially_supported" and not (
+                "supports" in relationships and ({"qualifies", "unclear"} & relationships)
+            ):
+                raise RegistryIntegrityError(
+                    "partially supported claim requires support and qualifying/unclear evidence"
+                )
+            if assessment == "disputed" and not (
+                "supports" in relationships and "contradicts" in relationships
+            ):
+                raise RegistryIntegrityError(
+                    "disputed claim requires both supporting and contradicting evidence"
+                )
+            if assessment == "contradicted" and (
+                "contradicts" not in relationships or "supports" in relationships
+            ):
+                raise RegistryIntegrityError(
+                    "contradicted claim requires contradicting evidence without supporting evidence"
+                )
+            if assessment == "retracted" and not (
+                isinstance(payload.get("review_note"), str) and payload["review_note"].strip()
+            ):
+                raise RegistryIntegrityError("retracted claim requires a non-empty review note")
         elif record_type == "evidence":
             claim = require_record("claim", payload["claim_id"], "evidence")
             source_id = payload["source_id"]
             source = connection.execute(
-                "SELECT 1 FROM sources WHERE id = ?", (source_id,)
+                "SELECT payload_json FROM sources WHERE id = ?", (source_id,)
             ).fetchone()
             if source is None:
                 raise RegistryIntegrityError("evidence references an unknown source")
+            source_domains = json.loads(source["payload_json"]).get("domains", [])
+            if not valid_domain_allowlist(source_domains):
+                raise RegistryIntegrityError("evidence source domain allowlist is invalid")
             article_id = payload.get("article_id")
             observation_id = payload.get("observation_id")
             if article_id:
@@ -1868,6 +1913,20 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError(
                     "evidence source/article/observation is not present in claim provenance"
                 )
+            locator_uri = payload["locator"]["uri"]
+            try:
+                parsed_locator = urlsplit(locator_uri)
+            except ValueError as exc:
+                raise RegistryIntegrityError("evidence locator is malformed") from exc
+            if parsed_locator.scheme.lower() not in {"http", "https"} or not parsed_locator.hostname:
+                raise RegistryIntegrityError("evidence locator must be an absolute HTTP(S) URL")
+            if parsed_locator.username is not None or parsed_locator.password is not None:
+                raise RegistryIntegrityError("evidence locator cannot contain credentials")
+            safe_locator = urlunsplit(parsed_locator._replace(fragment=""))
+            if not valid_http_uri(safe_locator, max_length=2048):
+                raise RegistryIntegrityError("evidence locator is malformed")
+            if not _host_in_domains(parsed_locator.hostname, source_domains):
+                raise RegistryIntegrityError("evidence locator is outside its registered source domains")
         elif record_type == "edition":
             for story_id in payload["story_ids"]:
                 require_record("story", story_id, "edition")
