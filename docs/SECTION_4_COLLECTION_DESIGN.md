@@ -45,7 +45,7 @@ A connector declares:
 - a stable connector name and version;
 - a bounded operation method that receives a validated request.
 
-The orchestrator passes only the requested operation and its explicit budget. The connector interface must not expose an unrestricted shared HTTP client or direct access to the database.
+The orchestrator passes only the requested operation, its explicit budget, and an immutable execution context containing the exact normalized domain allowlist registered for that source. A connector must pass this context allowlist unchanged to the vetted transport. The connector interface must not expose an unrestricted shared HTTP client or direct access to the database.
 
 The standalone HTTPS transport prototype now uses dnspython to resolve both A and AAAA records under one shared DNS deadline, rejects every non-public answer, and pins the socket connection to a validated address while retaining the original hostname for TLS certificate verification. It rejects non-HTTPS URLs, credentials, non-standard ports, malformed hosts, out-of-scope redirect destinations, compressed responses, and oversized response bodies. It streams under a request deadline, caps redirects and retries, and uses a fixed user-agent. It is not registered with the fixture orchestrator and no live publisher connector is enabled. Transport response policy now caps header count and aggregate header bytes, rejects conflicting or ambiguous length headers, and allowlists XML, RSS, Atom, HTML, XHTML, and JSON media types. DNS/TLS/redirect integration review and remaining adversarial tests are still required.
 
@@ -75,6 +75,9 @@ The fixture-first implementation should use deterministic clocks, fake rate limi
 Required tests include:
 - denied permission produces zero connector calls;
 - denied permission produces zero transport calls;
+- an authorized connector receives only the exact registered source-domain allowlist;
+- transport failure creates no partial observation;
+- permission revoked after transport returns is rejected by the storage-time grant recheck;
 - exact source and endpoint mismatch denies;
 - expired, revoked, suspended, inactive, or unverified grants deny;
 - discovery permission cannot invoke metadata or full-text operations;
@@ -90,7 +93,7 @@ This section does not approve any real publisher, implement live scraping, bypas
 
 ## 9. Implemented first milestone
 
-The current implementation is in `src/sngso_engine/collection.py` and the SQLite observation adapter in `src/sngso_engine/registry.py`.
+The current implementation is in `src/sngso_engine/collection.py` and the SQLite observation adapter in `src/sngso_engine/registry.py`. The connector call receives a frozen `CollectionExecutionContext` with the source domain allowlist; the orchestrator creates it only after the permission recheck immediately before connector invocation.
 
 Implemented and CI-verified:
 - exact source, endpoint, grant, and operation resolution before connector invocation;
@@ -117,3 +120,14 @@ GitHub Actions run #123 passed with 137 tests.
 - Review the collection module and observation storage together before marking this section complete.
 
 No live connector, publisher approval, article-body storage, or production collection has been enabled.
+
+
+### Transport integration boundary test milestone
+
+A transport-backed fixture connector now exercises the orchestration-to-transport boundary without making network requests. The connector receives an immutable execution context issued by the orchestrator, and the test fake records the exact endpoint URL and registered domain allowlist passed to transport. Regression tests cover:
+- denied operation: zero connector calls, zero transport calls, zero observations;
+- approved operation: one transport call with the exact registered domain tuple;
+- transport exception: no observation and no partial audit write;
+- grant revocation after a successful transport response: storage-time revision check rejects the observation.
+
+This is an integration-test harness only. The production HTTPS transport remains unregistered, no publisher network requests are made, and no live connector is enabled. The tests must pass in GitHub Actions before this milestone is considered verified.
