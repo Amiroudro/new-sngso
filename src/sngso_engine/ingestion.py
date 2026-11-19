@@ -118,6 +118,8 @@ def canonicalize_article_url(value: str) -> str:
         port = parsed.port
         if port is not None and not 1 <= port <= 65535:
             raise IngestionError("article URL port is invalid")
+        if ":" in parsed.netloc and parsed.netloc.rsplit(":", 1)[1] != str(port):
+            raise IngestionError("article URL port must use canonical decimal spelling")
     except ValueError as exc:
         if isinstance(exc, IngestionError):
             raise
