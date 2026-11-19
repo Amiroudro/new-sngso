@@ -749,6 +749,16 @@ def _validate_learning_object_traceability(payload: dict[str, Any]) -> None:
         raise RegistryIntegrityError("summary claim links must exactly match its segment claim links")
 
 
+def _validate_learning_object_answer_links(payload: dict[str, Any]) -> None:
+    """Ensure every question answer is grounded in claims linked to the object."""
+    if payload.get("kind") not in {"comprehension_question", "analysis_question"}:
+        return
+    answer_claims = set(payload.get("content", {}).get("answer_claim_ids", []))
+    object_claims = set(payload.get("claim_ids", []))
+    if not answer_claims or not answer_claims.issubset(object_claims):
+        raise RegistryIntegrityError("question answer claim links must be a non-empty subset of the object's claims")
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -3676,6 +3686,7 @@ class SQLiteRegistry:
         """Create a language-specific learning object in a non-approved state."""
         validate_payload("learning-object", payload)
         _validate_learning_object_traceability(payload)
+        _validate_learning_object_answer_links(payload)
         if not isinstance(actor, str) or not actor.strip():
             raise ValueError("actor is required")
         if not isinstance(reason, str) or not reason.strip():
@@ -3744,6 +3755,7 @@ class SQLiteRegistry:
         """Revise an editorial object with optimistic concurrency and immutable history."""
         validate_payload("learning-object", payload)
         _validate_learning_object_traceability(payload)
+        _validate_learning_object_answer_links(payload)
         if payload.get("id") != learning_object_id:
             raise RegistryIntegrityError("learning object identity cannot change during revision")
         if not isinstance(actor, str) or not actor.strip():
