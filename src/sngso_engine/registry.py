@@ -1024,11 +1024,14 @@ class SQLiteRegistry:
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("reason is required")
         payload = dict(payload)
-        if record_type == "story" and "revision" in payload:
-            payload["revision"] = expected_revision + 1
+        updated_at = _utc_now()
+        if record_type == "story":
+            if "revision" in payload:
+                payload["revision"] = expected_revision + 1
+            if "updated_at" in payload:
+                payload["updated_at"] = updated_at
         validate_payload(record_type, payload)
         record = model.from_payload(payload)
-        updated_at = _utc_now()
         with self._transaction() as connection:
             row = connection.execute(
                 """SELECT revision, payload_json FROM domain_records
