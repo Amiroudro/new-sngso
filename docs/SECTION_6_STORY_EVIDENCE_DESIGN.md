@@ -1,6 +1,6 @@
 # Section 6: Story intelligence, claims, and evidence
 
-Status: in progress. The first provenance-integrity slice is implemented and verified. GitHub Actions run #44608678246 passed with 319 tests on code head ea2263497c108ebbbbad8a0cd84b1a1f79719fed. Automated story clustering, event chronology, claim extraction, and corroboration scoring remain unimplemented.
+Status: in progress. The first provenance and claim-assessment integrity slice is implemented and verified. GitHub Actions run #44609248199 passed with 327 tests on code head ccfed66a8de1c783fa3ca9f5c291e06693c554e8. Later changes on the current PR head are documentation-only. Automated story clustering, event chronology, claim extraction, and corroboration scoring remain unimplemented.
 
 ## Core distinctions
 
@@ -65,7 +65,7 @@ Section 6 will remain open until the full fixture suite verifies the provenance 
 
 ## First-slice verification
 
-GitHub Actions [run #44608678246](https://github.com/Amiroudro/new-sngso/actions/runs/44608678246) executed the full Python 3.12 fixture suite: **319 passed in 1.53 seconds**. The verified slice covers source/article/observation provenance matching, evidence-to-claim binding, prevention of story revisions that orphan claim provenance, prevention of claim revisions that orphan evidence, and immutable evidence identity links. This is a verified foundation, not completion of all Section 6 work.
+GitHub Actions [run #44609248199](https://github.com/Amiroudro/new-sngso/actions/runs/44609248199) executed the full Python 3.12 fixture suite: **327 passed in 1.15 seconds**. The verified slice covers source/article/observation provenance matching, evidence-to-claim binding, prevention of story revisions that orphan claim provenance, prevention of claim revisions that orphan evidence, immutable evidence identity links, evidence locator domain scope, reviewed claim evidence requirements, assessment/relationship consistency, and retraction review notes. This is a verified foundation, not completion of all Section 6 work.
 
 
 ## Human claim assessment workflow
