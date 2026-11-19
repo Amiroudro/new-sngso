@@ -1128,7 +1128,23 @@ class SQLiteRegistry:
             for row in rows
         ]
 
+    def audit_checkpoint(self) -> dict[str, Any]:
+        """Return the current chain tip for storage outside this database.
+
+        Persist this sequence/hash pair in an independently controlled system
+        if later verification must detect deletion or truncation of the chain tail.
+        A checkpoint kept only in this database provides no external protection.
+        """
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT sequence, event_hash FROM audit_events ORDER BY sequence DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return {"sequence": 0, "event_hash": None}
+        return {"sequence": row["sequence"], "event_hash": row["event_hash"]}
+
     def verify_audit_chain(self) -> bool:
+        """Verify links from the first retained event; this cannot detect tail truncation."""
         events = self.audit_events()
         previous_hash = None
         for event in events:
