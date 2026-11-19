@@ -1,6 +1,6 @@
 # Section 6: Story intelligence, claims, and evidence
 
-Status: in progress. Provenance integrity, human claim assessment, immutable story merge/split decisions and atomic application, claim-backed event chronology, and attributed perspective history are implemented. The current Section 6 work remains fixture-verified and does not include automatic story clustering, claim extraction, event extraction, truth scoring, or live collection.
+Status: complete for the documented local registry and fixture-first scope. The section now covers provenance integrity, human claim assessment, immutable story merge/split decisions and atomic application, claim-backed event chronology and review, attributed perspectives and review, curated claim-to-claim relationships, and a consistent editorial snapshot. This does not imply a production editorial interface, reviewer authentication, automated extraction/discovery, truth scoring, or live collection.
 
 ## Core distinctions
 
@@ -65,7 +65,7 @@ The view deliberately does **not** emit an independent-source count. A publisher
 
 ## Acceptance path
 
-Section 6 remains open while the full fixture suite verifies provenance invariants, story/article relationship revisions and atomic decision application, claim assessment, claim-backed event chronology, attributed perspective corrections, schema migrations, and audit integrity. Remaining work is focused on richer contradiction workflows, curated editorial quality gates, and end-to-end acceptance. No automated truth or corroboration score is planned.
+The local registry acceptance path is verified: claims retain source/article/observation provenance; evidence is tied to a specific provenance entry; claims have human-reviewed assessments; merge/split decisions are previewed and applied atomically with audit history; timeline events, perspectives, and claim relationships preserve corrections; editorial review metadata is enforced at the contract and SQLite boundaries; and a deterministic story dossier gathers the full editorial context in one read transaction. GitHub Actions run #44620966640 passed **404 tests** on the current documentation head.\n\nThe remaining gates are outside this section's local registry scope: reviewer authentication, a production editorial interface, automated extraction or conflict discovery, live publisher adapters, and publication/edition integration. No automated truth or corroboration score is planned.
 
 
 ## First-slice verification
