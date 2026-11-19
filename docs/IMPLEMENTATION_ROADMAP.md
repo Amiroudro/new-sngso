@@ -206,7 +206,7 @@ Acceptance:
 | 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |
 | 10. End-to-end handover | Not started | Depends on all prior sections |
 
-No section is formally complete until its acceptance gates are verified. Sections 2, 3 and 4 have passed their documented acceptance gates and are closed for this implementation stage. Sections 2–5 have passed their documented acceptance gates and are closed for this implementation stage. Production limitations and source-specific approval requirements remain explicit gates, not hidden assumptions.
+No section is formally complete until its acceptance gates are verified. Sections 2–5 have passed their documented acceptance gates and are closed for this implementation stage. Production limitations and source-specific approval requirements remain explicit gates, not hidden assumptions.
 
 ## Execution order
 
