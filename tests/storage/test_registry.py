@@ -119,7 +119,7 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 3
+        assert registry.schema_version() == 4
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
         assert reopened.schema_version() == 3
@@ -131,9 +131,9 @@ def test_existing_schema_v2_database_migrates_to_v3(tmp_path, monkeypatch):
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 2)
     with SQLiteRegistry(database) as old_registry:
         assert old_registry.schema_version() == 2
-    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 3)
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 4)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 3
+        assert migrated.schema_version() == 4
         columns = {
             row["name"]
             for row in migrated._connection.execute(
@@ -141,6 +141,13 @@ def test_existing_schema_v2_database_migrates_to_v3(tmp_path, monkeypatch):
             ).fetchall()
         }
         assert "http_method" in columns
+        tables = {
+            row["name"]
+            for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "ingestion_decisions" in tables
 
 
 def test_typed_registry_records_round_trip(tmp_path) -> None:
