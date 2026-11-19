@@ -1,5 +1,6 @@
 """Integrity and correction tests for attributed story perspectives."""
 
+import json
 import sqlite3
 
 import pytest
@@ -186,3 +187,28 @@ def test_publisher_framing_contract_requires_source_and_article():
 def test_stakeholder_position_can_be_attributed_without_publisher_source():
     payload = _perspective(None, None, identifier="perspective:stakeholder", kind="stakeholder_position")
     validate_payload("perspective", payload)
+
+
+def test_sqlite_boundary_rejects_unattributed_publisher_framing():
+    registry, _, _ = _prepared()
+    try:
+        payload = {
+            "schema_version": "1.0.0",
+            "id": "perspective:direct-sql",
+            "story_id": "story:one",
+            "kind": "publisher_framing",
+            "attribution": "Unverified publisher label",
+            "language": "en",
+            "text": "A framing inserted without its publisher/article link.",
+            "claim_ids": [],
+            "created_at": STAMP,
+        }
+        with pytest.raises(sqlite3.IntegrityError, match="publisher framing requires its source and article"):
+            registry._connection.execute(
+                """INSERT INTO perspectives
+                (id, story_id, source_id, article_id, supersedes_perspective_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                ("perspective:direct-sql", "story:one", None, None, None, STAMP, json.dumps(payload)),
+            )
+    finally:
+        registry.close()
