@@ -178,6 +178,7 @@ def test_learning_object_requires_claims_from_the_same_story():
         })
         payload = _summary("learning:cross-story")
         payload["claim_ids"] = ["claim:other"]
+        payload["content"]["segments"][0]["claim_ids"] = ["claim:other"]
         with pytest.raises(RegistryIntegrityError, match="claims must belong to its story"):
             registry.add_learning_object(
                 payload, actor="editor", reason="This must be rejected."
