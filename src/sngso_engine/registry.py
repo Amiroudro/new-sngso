@@ -28,12 +28,13 @@ from .models import (
     StoryDecisionRecord,
     StoryRecord,
     TimelineEventRecord,
+    PerspectiveRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 7
+_SCHEMA_VERSION = 8
 
 
 class RegistryIntegrityError(ValueError):
@@ -432,6 +433,64 @@ _MIGRATION_7 = (
 )
 
 
+_MIGRATION_8 = (
+    """CREATE TABLE perspectives (
+        id TEXT PRIMARY KEY,
+        story_id TEXT NOT NULL,
+        source_id TEXT,
+        article_id TEXT,
+        supersedes_perspective_id TEXT UNIQUE,
+        created_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        UNIQUE (story_id, id),
+        FOREIGN KEY (story_id, supersedes_perspective_id)
+            REFERENCES perspectives(story_id, id) ON DELETE RESTRICT,
+        FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_perspectives_story_created ON perspectives(story_id, created_at, id)",
+    """CREATE TRIGGER perspectives_validate_insert
+        BEFORE INSERT ON perspectives
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'story' AND id = NEW.story_id
+                  AND json_extract(payload_json, '$.status') != 'archived'
+            ) THEN RAISE(ABORT, 'perspective requires an active registered story') END;
+            SELECT CASE WHEN NEW.source_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM sources WHERE id = NEW.source_id
+            ) THEN RAISE(ABORT, 'perspective source is not registered') END;
+            SELECT CASE WHEN NEW.article_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM domain_records article
+                WHERE article.record_type = 'article' AND article.id = NEW.article_id
+                  AND json_extract(article.payload_json, '$.source_id') = NEW.source_id
+                  AND EXISTS (
+                    SELECT 1 FROM domain_records story
+                    WHERE story.record_type = 'story' AND story.id = NEW.story_id
+                      AND EXISTS (
+                        SELECT 1 FROM json_each(story.payload_json, '$.article_ids') member
+                        WHERE member.value = NEW.article_id
+                      )
+                  )
+            ) THEN RAISE(ABORT, 'perspective article must belong to its source and story') END;
+            SELECT CASE WHEN json_array_length(NEW.payload_json, '$.claim_ids') IS NULL
+                OR (
+                    SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.claim_ids') claim_ref
+                    JOIN domain_records claim_record
+                      ON claim_record.record_type = 'claim'
+                     AND claim_record.id = claim_ref.value
+                     AND json_extract(claim_record.payload_json, '$.story_id') = NEW.story_id
+                ) != json_array_length(NEW.payload_json, '$.claim_ids')
+            THEN RAISE(ABORT, 'perspective claims must belong to its story') END;
+        END""",
+    """CREATE TRIGGER perspectives_no_update
+        BEFORE UPDATE ON perspectives
+        BEGIN SELECT RAISE(ABORT, 'perspectives are append-only'); END""",
+    """CREATE TRIGGER perspectives_no_delete
+        BEFORE DELETE ON perspectives
+        BEGIN SELECT RAISE(ABORT, 'perspectives are append-only'); END""",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -583,6 +642,19 @@ class SQLiteRegistry:
                     version = 7
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 7 failed; transaction rolled back") from exc
+            
+            if version == 7 and _SCHEMA_VERSION >= 8:
+                try:
+                    for statement in _MIGRATION_8:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (8, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 8")
+                    version = 8
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 8 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -2982,6 +3054,112 @@ class SQLiteRegistry:
             payload
             for row in rows
             if story_id in (payload := json.loads(row["payload_json"]))["story_ids"]
+        ]
+
+    def add_perspective(self, payload: dict[str, Any]) -> PerspectiveRecord:
+        """Append an attributed perspective; corrections supersede, never rewrite."""
+        validate_payload("perspective", payload)
+        record = PerspectiveRecord.from_payload(payload)
+        with self._transaction() as connection:
+            story_row = connection.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = 'story' AND id = ?",
+                (record.story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise RegistryIntegrityError("perspective references an unknown story")
+            story = json.loads(story_row["payload_json"])
+            if story.get("status") == "archived":
+                raise RegistryIntegrityError("cannot append a perspective to an archived story")
+            source_id = payload.get("source_id")
+            article_id = payload.get("article_id")
+            if source_id:
+                source = connection.execute("SELECT 1 FROM sources WHERE id = ?", (source_id,)).fetchone()
+                if source is None:
+                    raise RegistryIntegrityError("perspective references an unknown source")
+            if article_id:
+                article_row = connection.execute(
+                    "SELECT payload_json FROM domain_records WHERE record_type = 'article' AND id = ?",
+                    (article_id,),
+                ).fetchone()
+                if article_row is None:
+                    raise RegistryIntegrityError("perspective references an unknown article")
+                article = json.loads(article_row["payload_json"])
+                if article.get("source_id") != source_id or article_id not in story.get("article_ids", []):
+                    raise RegistryIntegrityError("perspective article must belong to its source and story")
+            if payload["kind"] == "publisher_framing" and (not source_id or not article_id):
+                raise RegistryIntegrityError("publisher framing requires its source and article")
+            claim_ids = payload["claim_ids"]
+            if claim_ids:
+                placeholders = ",".join("?" for _ in claim_ids)
+                rows = connection.execute(
+                    f"SELECT id, payload_json FROM domain_records WHERE record_type = 'claim' AND id IN ({placeholders})",
+                    tuple(claim_ids),
+                ).fetchall()
+                if len(rows) != len(claim_ids) or any(
+                    json.loads(row["payload_json"])["story_id"] != record.story_id for row in rows
+                ):
+                    raise RegistryIntegrityError("perspective claims must belong to its story")
+            supersedes_id = payload.get("supersedes_perspective_id")
+            if supersedes_id:
+                prior = connection.execute(
+                    "SELECT story_id, created_at FROM perspectives WHERE id = ?", (supersedes_id,)
+                ).fetchone()
+                if prior is None or prior["story_id"] != record.story_id:
+                    raise RegistryIntegrityError("perspective correction must supersede an entry in the same story")
+                if _aware_datetime(payload["created_at"], "created_at") < _aware_datetime(prior["created_at"], "prior.created_at"):
+                    raise RegistryIntegrityError("perspective correction cannot predate the assertion it supersedes")
+            connection.execute(
+                """INSERT INTO perspectives
+                (id, story_id, source_id, article_id, supersedes_perspective_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (record.id, record.story_id, source_id, article_id, supersedes_id,
+                 payload["created_at"], record.payload_json),
+            )
+            self._append_audit(
+                connection,
+                event_type="perspective.created",
+                entity_type="perspective",
+                entity_id=record.id,
+                payload={"record": payload, "supersedes_perspective_id": supersedes_id},
+            )
+        return record
+
+    def get_perspective(self, perspective_id: str) -> PerspectiveRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload_json FROM perspectives WHERE id = ?", (perspective_id,)
+            ).fetchone()
+        return PerspectiveRecord.from_payload(json.loads(row["payload_json"])) if row else None
+
+    def perspective_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Return all attributed framings and corrections, including superseded entries."""
+        if self.get_domain_record("story", story_id) is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT id, source_id, article_id, supersedes_perspective_id, created_at, payload_json
+                FROM perspectives WHERE story_id = ? ORDER BY created_at, id""",
+                (story_id,),
+            ).fetchall()
+        superseded = {row["supersedes_perspective_id"] for row in rows if row["supersedes_perspective_id"]}
+        return [
+            {
+                "perspective_id": row["id"],
+                "source_id": row["source_id"],
+                "article_id": row["article_id"],
+                "created_at": row["created_at"],
+                "supersedes_perspective_id": row["supersedes_perspective_id"],
+                "is_superseded": row["id"] in superseded,
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def story_perspectives(self, story_id: str) -> list[dict[str, Any]]:
+        """Return current attributed perspectives without rewriting prior assertions."""
+        return [
+            item for item in self.perspective_history(story_id)
+            if not item["is_superseded"]
         ]
 
     def get_domain_record(self, record_type: str, record_id: str):

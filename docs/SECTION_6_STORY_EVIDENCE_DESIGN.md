@@ -138,3 +138,12 @@ Timeline event records are append-only. A correction creates a new event record 
 The registry rejects events for unknown or archived stories, missing claims, claims belonging to another story, and corrections that point outside the same story. SQLite triggers repeat the active-story and same-story claim checks at the persistence boundary; a composite foreign key also prevents a correction from pointing to an event in another story. A unique successor constraint prevents branching correction histories. This is a curated timeline foundation, not automatic event extraction, date inference, conflict resolution, or a claim that every event is independently verified.
 
 GitHub Actions [run #44617451161](https://github.com/Amiroudro/new-sngso/actions/runs/44617451161) passed **371 tests in 1.99 seconds** on code head `bce8926c1f525c219d395e43c5271b62633d9faa`, including schema precision checks, v6-to-v7 migration, correction history, SQLite boundary enforcement, and invalid-time rejection.
+
+
+## Attributed perspectives and correction history
+
+Perspectives are stored separately from claims and timeline events. A perspective records *who is framing or asserting a position*, the kind of viewpoint, its language and text, and any linked claims. A publisher-framing record must identify both the registered publisher and an article from that publisher that belongs to the story. Stakeholder, expert, and editorial perspectives retain explicit attribution without being promoted into factual claims.
+
+A perspective is not evidence that its contents are true, and publisher count is not a measure of independent corroboration. Claim links are optional context links and must point only to claims in the same story. The SQLite boundary repeats the source/article/story and claim/story checks.
+
+Perspective records are append-only. A correction creates a new record with `supersedes_perspective_id`, an editor identity, and a rationale. Prior wording remains available in `perspective_history(story_id)`; `story_perspectives(story_id)` returns only current, non-superseded perspectives. A unique successor constraint prevents branching correction histories. This workflow records attributed viewpoints; it does not resolve contradictions or assign truth scores.

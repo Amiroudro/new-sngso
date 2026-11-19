@@ -69,6 +69,52 @@
         "approved",
         "rejected"
       ]
+    },
+    "supersedes_perspective_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "created_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "publisher_framing"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "source_id",
+          "article_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "supersedes_perspective_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "created_by",
+          "rationale"
+        ]
+      }
+    }
+  ]
 }

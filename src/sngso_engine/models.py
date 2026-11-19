@@ -225,3 +225,23 @@ class TimelineEventRecord(_JsonRecord):
             event_type=payload["event_type"],
             precision=payload["occurred"]["precision"],
         )
+
+
+
+@dataclass(frozen=True, slots=True)
+class PerspectiveRecord(_JsonRecord):
+    """Attributed publisher framing or stakeholder viewpoint, not a fact verdict."""
+
+    story_id: str
+    kind: str
+    attribution: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "PerspectiveRecord":
+        return cls(
+            id=payload["id"],
+            payload_json=canonical_json_bytes(payload).decode("utf-8"),
+            story_id=payload["story_id"],
+            kind=payload["kind"],
+            attribution=payload["attribution"],
+        )
