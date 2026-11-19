@@ -399,7 +399,6 @@ _MIGRATION_7 = (
         supersedes_event_id TEXT UNIQUE,
         created_at TEXT NOT NULL,
         payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
-        FOREIGN KEY (story_id) REFERENCES domain_records(id) ON DELETE RESTRICT,
         FOREIGN KEY (supersedes_event_id) REFERENCES timeline_events(id) ON DELETE RESTRICT
     )""",
     "CREATE INDEX idx_timeline_events_story_time ON timeline_events(story_id, occurred_sort_key, created_at, id)",
@@ -547,6 +546,7 @@ class SQLiteRegistry:
                         (6, _utc_now()),
                     )
                     connection.execute("PRAGMA user_version = 6")
+                    version = 6
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 6 failed; transaction rolled back") from exc
 
