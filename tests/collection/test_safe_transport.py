@@ -179,6 +179,38 @@ def test_redirect_count_is_bounded():
         )
 
 
+@pytest.mark.parametrize("kwargs", [
+    {"timeout_seconds": True},
+    {"timeout_seconds": float("nan")},
+    {"timeout_seconds": float("inf")},
+    {"max_bytes": True},
+    {"max_retries": True},
+    {"max_redirects": True},
+])
+def test_transport_rejects_boolean_and_non_finite_budgets(kwargs):
+    client, _ = make_transport([FakeResponse()])
+    with pytest.raises(ValueError):
+        client.fetch(
+            "https://news.example.org/",
+            allowed_domains=("example.org",),
+            **kwargs,
+        )
+
+
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), float("-inf")])
+def test_bounded_dns_resolver_rejects_invalid_timeout_values(value):
+    with pytest.raises(ValueError, match="DNS timeout"):
+        transport.BoundedDNSResolver(max_timeout_seconds=value)
+
+
+def test_bounded_dns_resolver_rejects_boolean_resolution_timeout():
+    resolver = transport.BoundedDNSResolver(
+        resolver_factory=lambda: pytest.fail("must reject timeout before DNS")
+    )
+    with pytest.raises(transport.TransportError, match="usable time budget"):
+        resolver.resolve("news.example.org", 443, timeout_seconds=True)
+
+
 def test_transport_requires_a_finite_deadline_and_bounded_budgets():
     client, _ = make_transport([FakeResponse()])
     with pytest.raises(ValueError, match="timeout_seconds"):
