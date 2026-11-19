@@ -2085,6 +2085,10 @@ class SQLiteRegistry:
                     raise RegistryIntegrityError(
                         "merge decision must account for every article in the affected stories"
                     )
+            elif set(assigned_articles) != available_articles:
+                raise RegistryIntegrityError(
+                    "split decision must account for every article in the affected stories"
+                )
             elif len(assigned_stories) < 2:
                 raise RegistryIntegrityError(
                     "split decision must allocate articles to at least two resulting stories"

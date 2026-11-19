@@ -990,3 +990,16 @@ def test_story_decision_application_rolls_back_every_write_on_audit_failure(monk
         ).fetchone()[0] == 0
         assert registry.audit_checkpoint() == checkpoint
         assert registry.verify_audit_chain()
+
+
+def test_split_decision_cannot_drop_an_unassigned_article() -> None:
+    with SQLiteRegistry() as registry:
+        decision_id = _two_story_decision_registry(registry, "split")
+        row = registry._connection.execute(
+            "SELECT payload_json FROM story_decisions WHERE id = ?", (decision_id,)
+        ).fetchone()
+        incomplete = __import__("json").loads(row["payload_json"])
+        incomplete["id"] = "story-decision:sample-split-incomplete"
+        incomplete["article_assignments"] = incomplete["article_assignments"][:1]
+        with pytest.raises(RegistryIntegrityError, match="must account for every article"):
+            registry.add_domain_record("story_decision", incomplete)
