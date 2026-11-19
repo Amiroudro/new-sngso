@@ -263,7 +263,7 @@ def test_permission_grant_cannot_approve_without_review_metadata() -> None:
         validate_payload("source-permission-grant", record)
 
 
-def test_permission_grant_requires_revocation_details() -> None:
+def test_revoked_permission_with_audit_details_is_valid() -> None:
     record = permission_grant()
     record["status"] = "revoked"
     record["revoked_at"] = STAMP
