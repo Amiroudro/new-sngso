@@ -88,11 +88,12 @@ class CollectionExecutionContext:
     allowed_domains: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        if not self.allowed_domains or any(
-            not isinstance(domain, str) or not domain or domain != domain.strip().lower()
-            for domain in self.allowed_domains
+        if (
+            not self.allowed_domains
+            or any(_canonical_dns_name(domain) != domain for domain in self.allowed_domains)
+            or len(set(self.allowed_domains)) != len(self.allowed_domains)
         ):
-            raise ValueError("execution context requires normalized source domains")
+            raise ValueError("execution context requires unique canonical DNS source domains")
 
 
 @dataclass(frozen=True, slots=True)
