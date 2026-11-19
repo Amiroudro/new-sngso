@@ -105,10 +105,20 @@ class AuditRepository(Protocol):
     def verify_audit_chain(self) -> bool: ...
 
 
+class CollectionObservationRepository(Protocol):
+    """Append-only sink for permission-checked collection observations."""
+
+    def append_many(self, observations: tuple[Any, ...]) -> None: ...
+    def collection_observations(
+        self, *, source_id: str | None = None
+    ) -> list[dict[str, Any]]: ...
+
+
 class EngineRepository(
     SourceGovernanceRepository,
     EditorialRepository,
     AuditRepository,
+    CollectionObservationRepository,
     Protocol,
 ):
     """Combined repository port implemented by the SQLite adapter."""
