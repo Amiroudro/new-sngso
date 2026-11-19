@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .contracts import validate_payload
+from .domains import host_in_domain_allowlist, valid_domain_allowlist
 from .models import (
     ArticleRecord,
     ClaimRecord,
@@ -59,19 +60,7 @@ def _aware_datetime(value: str, field: str) -> datetime:
 
 
 def _host_in_domains(host: str, domains: Any) -> bool:
-    if not isinstance(host, str) or not isinstance(domains, list):
-        return False
-    normalized_host = host.rstrip(".").lower()
-    if not normalized_host:
-        return False
-    return any(
-        isinstance(domain, str)
-        and (
-            normalized_host == domain.rstrip(".").lower()
-            or normalized_host.endswith("." + domain.rstrip(".").lower())
-        )
-        for domain in domains
-    )
+    return host_in_domain_allowlist(host, domains)
 
 
 def _json_text(value: Any) -> str:
@@ -1002,6 +991,8 @@ class SQLiteRegistry:
                 if endpoint is None or endpoint["status"] != "active":
                     raise RegistryIntegrityError("collection endpoint is missing or inactive")
                 allowed_domains = json.loads(source["payload_json"]).get("domains", [])
+                if not valid_domain_allowlist(allowed_domains):
+                    raise RegistryIntegrityError("collection source domain allowlist is invalid")
                 endpoint_host = urlsplit(endpoint["endpoint_uri"]).hostname or ""
                 if not _host_in_domains(endpoint_host, allowed_domains):
                     raise RegistryIntegrityError("collection endpoint is outside the registered source domains")
