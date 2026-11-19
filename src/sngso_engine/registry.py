@@ -30,12 +30,13 @@ from .models import (
     TimelineEventRecord,
     PerspectiveRecord,
     ClaimRelationRecord,
+    LearningObjectRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 10
+_SCHEMA_VERSION = 11
 
 
 class RegistryIntegrityError(ValueError):
@@ -591,6 +592,118 @@ _MIGRATION_10 = (
 )
 
 
+_MIGRATION_11 = (
+    """CREATE TABLE learning_objects (
+        id TEXT PRIMARY KEY,
+        story_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (
+            'headline_summary', 'brief_summary', 'detailed_summary',
+            'vocabulary', 'comprehension_question', 'analysis_question',
+            'revision_card'
+        )),
+        language TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('draft', 'review_required', 'approved', 'rejected')),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        UNIQUE (story_id, id)
+    )""",
+    """CREATE TABLE learning_object_revisions (
+        learning_object_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (learning_object_id, revision),
+        FOREIGN KEY (learning_object_id) REFERENCES learning_objects(id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_learning_objects_story_kind_language ON learning_objects(story_id, kind, language, id)",
+    """CREATE TRIGGER learning_objects_validate_insert
+        BEFORE INSERT ON learning_objects
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'story' AND id = NEW.story_id
+                  AND json_extract(payload_json, '$.status') != 'archived'
+            ) THEN RAISE(ABORT, 'learning object requires an active registered story') END;
+            SELECT CASE WHEN json_array_length(NEW.payload_json, '$.claim_ids') IS NULL
+                OR (
+                    SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.claim_ids') claim_ref
+                    JOIN domain_records claim_record
+                      ON claim_record.record_type = 'claim'
+                     AND claim_record.id = claim_ref.value
+                     AND json_extract(claim_record.payload_json, '$.story_id') = NEW.story_id
+                ) != json_array_length(NEW.payload_json, '$.claim_ids')
+            THEN RAISE(ABORT, 'learning object claims must belong to its story') END;
+            SELECT CASE WHEN NEW.status NOT IN ('draft', 'review_required')
+                THEN RAISE(ABORT, 'new learning object must start in draft or review-required state') END;
+            SELECT CASE WHEN json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+            THEN RAISE(ABORT, 'new learning object cannot contain review metadata') END;
+        END""",
+    """CREATE TRIGGER learning_objects_validate_update
+        BEFORE UPDATE ON learning_objects
+        BEGIN
+            SELECT CASE WHEN NEW.id != OLD.id OR NEW.story_id != OLD.story_id
+                OR NEW.kind != OLD.kind OR NEW.language != OLD.language
+                OR NEW.created_at != OLD.created_at
+            THEN RAISE(ABORT, 'learning object identity is immutable') END;
+            SELECT CASE WHEN NEW.revision != OLD.revision + 1
+                THEN RAISE(ABORT, 'learning object revision must increment by one') END;
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM learning_object_revisions
+                WHERE learning_object_id = NEW.id AND revision = NEW.revision
+                  AND payload_json = NEW.payload_json
+            ) THEN RAISE(ABORT, 'learning object update requires matching revision history') END;
+            SELECT CASE WHEN json_array_length(NEW.payload_json, '$.claim_ids') IS NULL
+                OR (
+                    SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.claim_ids') claim_ref
+                    JOIN domain_records claim_record
+                      ON claim_record.record_type = 'claim'
+                     AND claim_record.id = claim_ref.value
+                     AND json_extract(claim_record.payload_json, '$.story_id') = NEW.story_id
+                ) != json_array_length(NEW.payload_json, '$.claim_ids')
+            THEN RAISE(ABORT, 'learning object claims must belong to its story') END;
+            SELECT CASE WHEN NEW.status IN ('approved', 'rejected')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NULL
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.reviewed_by'), '')) = ''
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
+                )
+            THEN RAISE(ABORT, 'reviewed learning object requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN NEW.status IN ('draft', 'review_required')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+                )
+            THEN RAISE(ABORT, 'unreviewed learning object cannot contain review metadata') END;
+        END""",
+    """CREATE TRIGGER learning_objects_no_delete
+        BEFORE DELETE ON learning_objects
+        BEGIN SELECT RAISE(ABORT, 'learning objects cannot be deleted'); END""",
+    """CREATE TRIGGER learning_object_revisions_validate_insert
+        BEFORE INSERT ON learning_object_revisions
+        BEGIN
+            SELECT CASE WHEN NEW.revision != (
+                SELECT revision + 1 FROM learning_objects WHERE id = NEW.learning_object_id
+            ) AND NEW.revision != (
+                SELECT revision FROM learning_objects WHERE id = NEW.learning_object_id
+            )
+            THEN RAISE(ABORT, 'learning object revision history is out of sequence') END;
+        END""",
+    """CREATE TRIGGER learning_object_revisions_no_update
+        BEFORE UPDATE ON learning_object_revisions
+        BEGIN SELECT RAISE(ABORT, 'learning object revisions are append-only'); END""",
+    """CREATE TRIGGER learning_object_revisions_no_delete
+        BEFORE DELETE ON learning_object_revisions
+        BEGIN SELECT RAISE(ABORT, 'learning object revisions are append-only'); END""",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -781,6 +894,19 @@ class SQLiteRegistry:
                     version = 10
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 10 failed; transaction rolled back") from exc
+
+            if version == 10 and _SCHEMA_VERSION >= 11:
+                try:
+                    for statement in _MIGRATION_11:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (11, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 11")
+                    version = 11
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 11 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -3487,6 +3613,186 @@ class SQLiteRegistry:
             }
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
             return snapshot
+
+    def add_learning_object(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> LearningObjectRecord:
+        """Create a language-specific learning object in a non-approved state."""
+        validate_payload("learning-object", payload)
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        _aware_datetime(payload["created_at"], "created_at")
+        if payload["status"] not in {"draft", "review_required"}:
+            raise RegistryIntegrityError("new learning object must start in draft or review-required state")
+        if any(field in payload for field in ("reviewed_at", "reviewed_by", "review_note")):
+            raise RegistryIntegrityError("new learning object cannot contain review metadata")
+        record = LearningObjectRecord.from_payload(payload, revision=1)
+        with self._transaction() as connection:
+            story_row = connection.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = 'story' AND id = ?",
+                (record.story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise RegistryIntegrityError("learning object references an unknown story")
+            story = json.loads(story_row["payload_json"])
+            if story.get("status") == "archived":
+                raise RegistryIntegrityError("cannot create a learning object for an archived story")
+            claim_ids = payload["claim_ids"]
+            if claim_ids:
+                placeholders = ",".join("?" for _ in claim_ids)
+                rows = connection.execute(
+                    f"SELECT id, payload_json FROM domain_records WHERE record_type = 'claim' AND id IN ({placeholders})",
+                    tuple(claim_ids),
+                ).fetchall()
+                if len(rows) != len(claim_ids) or any(
+                    json.loads(row["payload_json"])["story_id"] != record.story_id for row in rows
+                ):
+                    raise RegistryIntegrityError("learning object claims must belong to its story")
+            connection.execute(
+                """INSERT INTO learning_objects
+                (id, story_id, kind, language, status, revision, created_at, updated_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                (record.id, record.story_id, record.kind, record.language, record.status,
+                 payload["created_at"], payload["created_at"], record.payload_json),
+            )
+            connection.execute(
+                """INSERT INTO learning_object_revisions
+                (learning_object_id, revision, created_at, actor, reason, payload_json)
+                VALUES (?, 1, ?, ?, ?, ?)""",
+                (record.id, payload["created_at"], actor.strip(), reason.strip(), record.payload_json),
+            )
+            self._append_audit(
+                connection,
+                event_type="learning_object.created",
+                entity_type="learning_object",
+                entity_id=record.id,
+                payload={"record": payload, "actor": actor.strip(), "reason": reason.strip(), "revision": 1},
+            )
+        return record
+
+    def get_learning_object(self, learning_object_id: str) -> LearningObjectRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT revision, payload_json FROM learning_objects WHERE id = ?",
+                (learning_object_id,),
+            ).fetchone()
+        return LearningObjectRecord.from_payload(json.loads(row["payload_json"]), row["revision"]) if row else None
+
+    def revise_learning_object(
+        self,
+        learning_object_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+    ) -> LearningObjectRecord:
+        """Revise an editorial object with optimistic concurrency and immutable history."""
+        validate_payload("learning-object", payload)
+        if payload.get("id") != learning_object_id:
+            raise RegistryIntegrityError("learning object identity cannot change during revision")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        record = LearningObjectRecord.from_payload(payload, revision=expected_revision + 1)
+        _aware_datetime(payload["created_at"], "created_at")
+        if record.status in {"approved", "rejected"}:
+            _aware_datetime(payload["reviewed_at"], "reviewed_at")
+            if _aware_datetime(payload["reviewed_at"], "reviewed_at") < _aware_datetime(payload["created_at"], "created_at"):
+                raise RegistryIntegrityError("learning object review cannot predate its creation")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM learning_objects WHERE id = ?",
+                (learning_object_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot revise an unknown learning object")
+            if row["revision"] != expected_revision:
+                raise RegistryIntegrityError("learning object revision conflict")
+            previous = json.loads(row["payload_json"])
+            for field in ("story_id", "kind", "language", "created_at"):
+                if payload[field] != previous[field]:
+                    raise RegistryIntegrityError("learning object identity fields cannot be rewritten")
+            claim_ids = payload["claim_ids"]
+            if claim_ids:
+                placeholders = ",".join("?" for _ in claim_ids)
+                claims = connection.execute(
+                    f"SELECT id, payload_json FROM domain_records WHERE record_type = 'claim' AND id IN ({placeholders})",
+                    tuple(claim_ids),
+                ).fetchall()
+                if len(claims) != len(claim_ids) or any(
+                    json.loads(item["payload_json"])["story_id"] != record.story_id for item in claims
+                ):
+                    raise RegistryIntegrityError("learning object claims must belong to its story")
+            now = _utc_now()
+            connection.execute(
+                """INSERT INTO learning_object_revisions
+                (learning_object_id, revision, created_at, actor, reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (learning_object_id, expected_revision + 1, now, actor.strip(), reason.strip(), record.payload_json),
+            )
+            updated = connection.execute(
+                """UPDATE learning_objects
+                SET status = ?, revision = ?, updated_at = ?, payload_json = ?
+                WHERE id = ? AND revision = ?""",
+                (record.status, expected_revision + 1, now, record.payload_json,
+                 learning_object_id, expected_revision),
+            )
+            if updated.rowcount != 1:
+                raise RegistryIntegrityError("learning object revision conflict")
+            self._append_audit(
+                connection,
+                event_type="learning_object.revised",
+                entity_type="learning_object",
+                entity_id=learning_object_id,
+                payload={
+                    "revision": expected_revision + 1,
+                    "actor": actor.strip(),
+                    "reason": reason.strip(),
+                    "record": payload,
+                },
+            )
+        return record
+
+    def learning_object_history(self, learning_object_id: str) -> list[dict[str, Any]]:
+        """Return the immutable editorial revision history for one learning object."""
+        if self.get_learning_object(learning_object_id) is None:
+            raise RegistryIntegrityError(f"unknown learning object: {learning_object_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, created_at, actor, reason, payload_json
+                FROM learning_object_revisions
+                WHERE learning_object_id = ? ORDER BY revision""",
+                (learning_object_id,),
+            ).fetchall()
+        return [
+            {
+                "revision": row["revision"],
+                "created_at": row["created_at"],
+                "actor": row["actor"],
+                "reason": row["reason"],
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def story_learning_objects(self, story_id: str) -> list[LearningObjectRecord]:
+        """Return current language-specific learning objects for one story."""
+        if self.get_domain_record("story", story_id) is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, payload_json FROM learning_objects
+                WHERE story_id = ? ORDER BY kind, language, id""",
+                (story_id,),
+            ).fetchall()
+        return [
+            LearningObjectRecord.from_payload(json.loads(row["payload_json"]), row["revision"])
+            for row in rows
+        ]
 
     def get_domain_record(self, record_type: str, record_id: str):
         if record_type == "story_decision":
