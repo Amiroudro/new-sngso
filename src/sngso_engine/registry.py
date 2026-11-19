@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .contracts import validate_payload
-from .domains import host_in_domain_allowlist, valid_domain_allowlist
+from .domains import host_in_domain_allowlist, valid_domain_allowlist, valid_http_uri
 from .models import (
     ArticleRecord,
     ClaimRecord,
@@ -943,14 +943,10 @@ class SQLiteRegistry:
                 uri = payload[uri_field]
                 if uri is None and uri_field == "final_locator":
                     continue
-                if not isinstance(uri, str) or len(uri) > 2048:
-                    raise RegistryIntegrityError(f"collection {uri_field} is invalid")
-                try:
-                    parsed_uri = urlsplit(uri)
-                except ValueError as exc:
-                    raise RegistryIntegrityError(f"collection {uri_field} is invalid") from exc
-                if parsed_uri.scheme not in {"http", "https"} or not parsed_uri.hostname:
-                    raise RegistryIntegrityError(f"collection {uri_field} must be an absolute HTTP(S) URI")
+                if not valid_http_uri(uri, max_length=2048):
+                    raise RegistryIntegrityError(
+                        f"collection {uri_field} must be a safe absolute HTTP(S) URI"
+                    )
             fingerprint = payload["content_fingerprint"]
             if fingerprint is not None and (
                 not isinstance(fingerprint, str)
