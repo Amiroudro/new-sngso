@@ -35,7 +35,7 @@ from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as 
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 9
+_SCHEMA_VERSION = 10
 
 
 class RegistryIntegrityError(ValueError):
@@ -566,6 +566,31 @@ _MIGRATION_9 = (
 )
 
 
+_MIGRATION_10 = (
+    """CREATE TRIGGER timeline_events_review_validate_insert
+        BEFORE INSERT ON timeline_events
+        BEGIN
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('approved', 'rejected')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NULL
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.reviewed_by'), '')) = ''
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
+                )
+            THEN RAISE(ABORT, 'reviewed timeline event requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('unreviewed', 'review_required')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+                )
+            THEN RAISE(ABORT, 'unreviewed timeline event cannot contain review metadata') END;
+            SELECT CASE WHEN json_extract(NEW.payload_json, '$.review_status') IN ('approved', 'rejected')
+                AND julianday(json_extract(NEW.payload_json, '$.reviewed_at')) < julianday(NEW.created_at)
+            THEN RAISE(ABORT, 'timeline event review cannot predate its creation') END;
+        END""",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -743,6 +768,19 @@ class SQLiteRegistry:
                     version = 9
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 9 failed; transaction rolled back") from exc
+
+            if version == 9 and _SCHEMA_VERSION >= 10:
+                try:
+                    for statement in _MIGRATION_10:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (10, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 10")
+                    version = 10
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 10 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -2995,6 +3033,16 @@ class SQLiteRegistry:
     def add_timeline_event(self, payload: dict[str, Any]) -> TimelineEventRecord:
         """Append a claim-backed event assertion; corrections supersede, never rewrite."""
         validate_payload("timeline-event", payload)
+        created_at = _aware_datetime(payload["created_at"], "created_at")
+        review_status = payload.get("review_status", "unreviewed")
+        review_fields = ("reviewed_at", "reviewed_by", "review_note")
+        if review_status in {"approved", "rejected"}:
+            if any(not isinstance(payload.get(field), str) or not payload[field].strip() for field in review_fields):
+                raise RegistryIntegrityError("reviewed timeline event requires reviewer, timestamp, and note")
+            if _aware_datetime(payload["reviewed_at"], "reviewed_at") < created_at:
+                raise RegistryIntegrityError("timeline event review cannot predate its creation")
+        elif any(field in payload for field in review_fields):
+            raise RegistryIntegrityError("unreviewed timeline event cannot contain review metadata")
         occurred = payload["occurred"]
         precision = occurred["precision"]
         start = occurred.get("start")
