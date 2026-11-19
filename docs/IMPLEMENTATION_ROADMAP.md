@@ -1,6 +1,6 @@
 # Engine Implementation Programme
 
-Status: Sections 1–4 implemented to their documented scope; Sections 5–10 remain planned  
+Status: Sections 1–4 implemented to their documented scope; Section 5 ingestion implementation in progress  
 Baseline branch: `fix/engine-ci-source-triggers`  
 Scope: the new `new-sngso` engine repository only
 
@@ -197,14 +197,14 @@ Acceptance:
 | 2. Source governance | **Complete:** contracts, fail-closed evaluator, fixtures, review policy, and passing full test suite | No real publisher approval implied; human review and reviewer authorization remain future controls |
 | 3. Domain models and persistence | **Complete:** typed models, SQLite registry, cross-record validation, revisions, audit chain, commit-failure rollback, targeted review, and passing full test suite in run #91 | Source-observation persistence, backups, external audit anchoring, and production authentication remain future work |
 | 4. Permission-first collection | **Complete for the fixture-first framework:** permission-first orchestration, independent storage rechecks, cross-connection revocation tests, atomic batch persistence, full observation provenance including HTTP method, bounded pinned-IP HTTPS transport prototype, strict URL/DNS/header/redirect/body controls, and passing current-head CI | Live publisher adapters remain gated on source-specific rights review, trusted connector review, shared rate limiting, and deployment-level network-egress controls |
-| 5. Ingestion and identity | Not started | Depends on Section 4 |
+| 5. Ingestion and identity | **In progress:** canonical URL/text/timestamp/language normalization; metadata-only ingestion; atomic, idempotent article creation/reuse; explainable cross-publisher duplicate candidates; append-only, reversible duplicate resolutions | Complete adversarial normalization, migration, idempotency, permission-revocation, and resolution tests; record passing CI before closing |
 | 6. Story intelligence and evidence | Not started | Depends on Section 5 |
 | 7. Editorial production | Not started | Depends on Section 6 |
 | 8. Edition assembly | Not started | Depends on Section 7 |
 | 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |
 | 10. End-to-end handover | Not started | Depends on all prior sections |
 
-No section is formally complete until its acceptance gates are verified. Sections 2, 3 and 4 have passed their documented acceptance gates and are closed for this implementation stage. Production limitations and source-specific approval requirements remain explicit gates, not hidden assumptions.
+No section is formally complete until its acceptance gates are verified. Sections 2, 3 and 4 have passed their documented acceptance gates and are closed for this implementation stage. Section 5 remains open until its full test suite passes. Production limitations and source-specific approval requirements remain explicit gates, not hidden assumptions.
 
 ## Execution order
 
