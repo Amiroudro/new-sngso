@@ -54,7 +54,7 @@ Tasks:
 - Add typed internal models and repository interfaces.
 - Add SQLite schema and versioned migrations.
 - Store source registry, permission evidence, policy decisions, and append-only audit events.
-- Add deterministic IDs, timestamp rules, transactions, and integrity constraints.
+- Enforce stable opaque IDs, timezone-aware timestamp rules, transactions, and integrity constraints.
 - Test migrations, rollback behavior, and concurrent-safe updates.
 
 Acceptance:
@@ -180,8 +180,8 @@ Acceptance:
 - Existing schemas include shared primitives, articles, stories, claims, evidence, and editions.
 - Runtime schema validation and a fail-closed operation permission evaluator exist.
 - The evaluator now requires a valid, timezone-aware expiry and rejects non-positive permission windows.
-- Source, endpoint, permission-evidence, and scoped permission-grant contracts now exist; evaluator-level source/endpoint matching is implemented. Cross-record validation, persistent registry, human review workflow, and connector enforcement are not implemented.
-- Current CI is a fixture-only contract test workflow. Latest branch commit has no associated workflow run; tests are not verified as passing.
+- Source, endpoint, permission-evidence, and scoped permission-grant contracts now exist. The SQLite registry implements cross-record validation, grant and domain-record revisions, and audit events. Human reviewer authentication and connector enforcement are not implemented.
+- Current CI is fixture-only and now targets the full pytest suite, including temporary-database tests. GitHub runner allocation has blocked successful execution; tests are not verified as passing.
 - Pull request #1 remains draft and unmerged. Its merge is not authorized by this plan.
 
 ## Execution order
