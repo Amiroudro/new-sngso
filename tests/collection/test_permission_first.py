@@ -743,3 +743,13 @@ def test_sqlite_storage_rejects_noncanonical_source_domain_allowlist():
         with pytest.raises(RegistryIntegrityError, match="domain allowlist is invalid"):
             registry.append_many(result.observations)
         assert registry.collection_observations() == []
+
+
+
+def test_registry_rejects_noncanonical_source_domains_at_creation():
+    payload = source_payload()
+    payload["domains"] = ["publisher-a.example.org."]
+    with SQLiteRegistry() as registry:
+        with pytest.raises(RegistryIntegrityError, match="canonical DNS names"):
+            registry.add_source(payload)
+        assert registry.get_source("source:publisher-a") is None
