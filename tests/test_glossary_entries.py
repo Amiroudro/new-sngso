@@ -180,6 +180,12 @@ def test_vocabulary_learning_object_must_match_registered_glossary_entry():
             registry.add_learning_object(
                 mismatch, actor="editor", reason="Reject mismatched headword."
             )
+        wrong_meaning = _vocabulary("learning:vocab-wrong-meaning")
+        wrong_meaning["content"]["meaning"] = "দায়িত্ব"
+        with pytest.raises(RegistryIntegrityError, match="meaning must match a glossary sense"):
+            registry.add_learning_object(
+                wrong_meaning, actor="editor", reason="Reject a meaning absent from the glossary."
+            )
     finally:
         registry.close()
 
