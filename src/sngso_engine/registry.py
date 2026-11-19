@@ -603,6 +603,7 @@ _MIGRATION_11 = (
             'mcq_question', 'revision_card'
         )),
         language TEXT NOT NULL,
+        variant_group_id TEXT,
         status TEXT NOT NULL CHECK (status IN ('draft', 'review_required', 'approved', 'rejected')),
         revision INTEGER NOT NULL CHECK (revision >= 1),
         created_at TEXT NOT NULL,
@@ -623,6 +624,9 @@ _MIGRATION_11 = (
         FOREIGN KEY (learning_object_id) REFERENCES learning_objects(id) ON DELETE RESTRICT
     )""",
     "CREATE INDEX idx_learning_objects_story_kind_language ON learning_objects(story_id, kind, language, id)",
+    """CREATE UNIQUE INDEX idx_learning_objects_variant_language
+        ON learning_objects(story_id, kind, variant_group_id, language)
+        WHERE variant_group_id IS NOT NULL""",
     """CREATE TRIGGER learning_objects_validate_insert
         BEFORE INSERT ON learning_objects
         BEGIN
@@ -652,6 +656,7 @@ _MIGRATION_11 = (
         BEGIN
             SELECT CASE WHEN NEW.id != OLD.id OR NEW.story_id != OLD.story_id
                 OR NEW.kind != OLD.kind OR NEW.language != OLD.language
+                OR NEW.variant_group_id IS NOT OLD.variant_group_id
                 OR NEW.created_at != OLD.created_at
             THEN RAISE(ABORT, 'learning object identity is immutable') END;
             SELECT CASE WHEN NEW.revision != OLD.revision + 1
@@ -4137,10 +4142,10 @@ class SQLiteRegistry:
             self._validate_learning_object_glossary_reference(connection, payload)
             connection.execute(
                 """INSERT INTO learning_objects
-                (id, story_id, kind, language, status, revision, created_at, updated_at,
+                (id, story_id, kind, language, variant_group_id, status, revision, created_at, updated_at,
                  last_actor, last_reason, payload_json)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
-                (record.id, record.story_id, record.kind, record.language, record.status,
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (record.id, record.story_id, record.kind, record.language, record.variant_group_id, record.status,
                  payload["created_at"], payload["created_at"], actor.strip(), reason.strip(), record.payload_json),
             )
             self._append_audit(
@@ -4195,7 +4200,7 @@ class SQLiteRegistry:
             if row["revision"] != expected_revision:
                 raise RegistryIntegrityError("learning object revision conflict")
             previous = json.loads(row["payload_json"])
-            for field in ("story_id", "kind", "language", "created_at"):
+            for field in ("story_id", "kind", "language", "variant_group_id", "created_at"):
                 if payload[field] != previous[field]:
                     raise RegistryIntegrityError("learning object identity fields cannot be rewritten")
             claim_ids = payload["claim_ids"]
