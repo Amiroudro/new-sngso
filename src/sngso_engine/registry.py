@@ -395,6 +395,8 @@ class SQLiteRegistry:
 
     def add_source(self, payload: dict[str, Any]) -> SourceRecord:
         validate_payload("source", payload)
+        if not valid_domain_allowlist(payload.get("domains")):
+            raise RegistryIntegrityError("source domain allowlist must contain unique canonical DNS names")
         self._check_record_times(payload, "created_at", "updated_at")
         record = SourceRecord.from_payload(payload)
         with self._transaction() as connection:
