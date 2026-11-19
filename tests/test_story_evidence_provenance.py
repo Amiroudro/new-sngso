@@ -347,3 +347,28 @@ def test_new_evidence_requires_claim_to_be_reset_before_review():
         assert registry.verify_audit_chain()
     finally:
         registry.close()
+
+
+
+def test_evidence_relationship_cannot_change_while_claim_is_reviewed():
+    registry, source_a, host_a, article_a, *_ = _prepared_registry()
+    try:
+        evidence = registry.add_domain_record(
+            "evidence",
+            _evidence("claim:event-date", source_a, article_a, host_a),
+        )
+        _review_claim(registry, [evidence.id])
+        current = registry.get_domain_record("evidence", evidence.id)
+        payload = current.to_payload()
+        payload["relationship"] = "contradicts"
+        with pytest.raises(RegistryIntegrityError, match="reset to unassessed"):
+            registry.revise_domain_record(
+                "evidence",
+                evidence.id,
+                payload,
+                expected_revision=1,
+                actor="editor",
+                reason="Attempted to change an evidence relationship after claim review.",
+            )
+    finally:
+        registry.close()
