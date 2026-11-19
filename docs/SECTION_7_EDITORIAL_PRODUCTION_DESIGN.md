@@ -65,3 +65,12 @@ Question objects must identify `answer_claim_ids`, a non-empty subset of the obj
 ## Controlled glossary verification
 
 The glossary registry is stored under schema migration 12. A headword is unique by term language and part of speech, contains one or more language-specific senses, and has its own review and revision history. Vocabulary learning objects must point to a matching registered headword; an approved vocabulary item also requires an approved glossary entry. The story dossier includes the referenced glossary entries alongside the learning objects. This keeps translations and lexical metadata consistent across stories without pretending that translation is automatic.
+
+
+## Deterministic editorial quality report
+
+`learning_object_quality_report(learning_object_id)` checks workflow and provenance conditions without attempting to decide truth. It returns named checks, blockers, and warnings. The registry gate blocks an unapproved artifact, missing claim/provenance references, factual summary segments whose claims are not supported/partially supported with evidence, question answers whose answer-claim links are not supported/partially supported with evidence, and vocabulary objects whose controlled glossary entry is not approved or does not match. Disputed, contradicted, retracted, or unassessed claims in attributed/analysis segments remain visible as warnings so the wording can preserve the qualification.
+
+The report is deterministic and read-only. It does not generate a numerical quality score, rank claims, or replace an editor's judgement. It provides a machine-checkable hand-off for later edition assembly.
+
+GitHub Actions [run #44624483102](https://github.com/Amiroudro/new-sngso/actions/runs/44624483102) passed **431 tests in 2.49 seconds** on code head `29aa4a12825e3e9af80e1bc28913afca294dc468`, including quality-report pass/blocker cases and proof that the report does not write audit events.
