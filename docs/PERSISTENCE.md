@@ -81,9 +81,9 @@ Edition snapshots are immutable through the repository API, including published 
 
 ## Audit integrity
 
-Every source, endpoint, permission evidence, grant, grant transition, domain record, domain revision, permission decision, and persisted collection observation appends an audit event. Each event hashes its canonical payload and the previous event hash. SQLite triggers reject ordinary UPDATE and DELETE operations on audit events and revision history. `verify_audit_chain()` checks the sequence and hashes.
+Every source, endpoint, permission evidence, grant, grant transition, domain record, domain revision, permission decision, and persisted collection observation appends an audit event. Each event hashes its canonical payload and the previous event hash. SQLite triggers reject ordinary UPDATE and DELETE operations on audit events and revision history. `verify_audit_chain()` checks the retained sequence and hashes. `audit_checkpoint()` exposes the current sequence and chain-tip hash so an operator can store that pair in an independently controlled system. Comparing a later database against that external checkpoint can detect deletion or truncation of the chain tail. A checkpoint stored only in the same database does not help: the same privileged operator could rewrite both.
 
-This is **tamper-evident, not tamper-proof**. A person with direct control of the database file can disable triggers or rewrite the file. Production deployment will need protected backups, restricted filesystem access, and potentially external audit anchoring. The current implementation does not claim cryptographic protection against a fully privileged database operator.
+The verifier alone cannot detect tail truncation. If the last events are removed after local triggers are bypassed, the remaining prefix still forms a valid chain. This is **tamper-evident, not tamper-proof**. A person with direct control of the database file can disable triggers or rewrite the file. Production deployment will need protected backups, restricted filesystem access, and potentially external audit anchoring. The current implementation does not claim cryptographic protection against a fully privileged database operator.
 
 ## Deliberate limitations
 
