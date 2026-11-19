@@ -587,3 +587,31 @@ def test_variant_group_rejects_duplicate_language_and_mismatched_kind():
             registry.add_learning_object(wrong_kind, actor="editor", reason="Reject kind mismatch.")
     finally:
         registry.close()
+
+
+def test_sqlite_boundary_rejects_variant_group_kind_mismatch():
+    registry = _prepared()
+    try:
+        first = _summary("learning:variant-first", "bn")
+        first["variant_group_id"] = "variant:db-guard"
+        registry.add_learning_object(
+            first, actor="editor", reason="Create first language variant."
+        )
+        wrong_kind = _summary("learning:variant-wrong-kind", "en")
+        wrong_kind["kind"] = "detailed_summary"
+        wrong_kind["variant_group_id"] = "variant:db-guard"
+        with pytest.raises(sqlite3.IntegrityError, match="variants must share the same story and kind"):
+            registry._connection.execute(
+                """INSERT INTO learning_objects
+                (id, story_id, kind, language, variant_group_id, status, revision,
+                 created_at, updated_at, last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (
+                    wrong_kind["id"], wrong_kind["story_id"], wrong_kind["kind"],
+                    wrong_kind["language"], wrong_kind["variant_group_id"], wrong_kind["status"],
+                    wrong_kind["created_at"], wrong_kind["created_at"], "editor",
+                    "Direct SQL variant guard.", json.dumps(wrong_kind),
+                ),
+            )
+    finally:
+        registry.close()
