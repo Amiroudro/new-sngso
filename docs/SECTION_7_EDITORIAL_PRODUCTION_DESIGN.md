@@ -16,7 +16,7 @@ Initial kinds:
 - `analysis_question`: an interpretation question with an evidence-grounded explanation.
 - `revision_card`: a concise exam-preparation learning unit.
 
-Each artifact carries its story ID, language tag, claim IDs, structured content, lifecycle status, creation time, and revision number. Claim references must belong to the same story. The contract validates kind-specific minimum content: summaries/cards need text; vocabulary needs term, meaning, context, and example; questions need question, answer, and explanation.
+Each artifact carries its story ID, language tag, claim IDs, structured content, lifecycle status, creation time, and revision number. Claim references must belong to the same story. The contract validates kind-specific minimum content: summaries/cards need text; vocabulary needs term, meaning, context, and example; questions need question, answer, and explanation. Summary kinds also require sentence-level segments. Each segment has a role (fact, attributed, or analysis) and one or more claim links; attributed segments name their attribution. The registry requires the rendered text to equal the ordered segment text and the union of segment claim IDs to equal the object's claim list.
 
 ## Lifecycle and review
 
@@ -26,7 +26,7 @@ Revisions use optimistic concurrency with an expected revision. Story, kind, lan
 
 ## Editorial constraints
 
-- Every factual learning object should link to the claims it uses. Empty claim lists remain representable for non-factual learning material, but they must not be used to disguise factual assertions without provenance.
+- Every factual learning object should link to the claims it uses. Summary segments must each link to one or more claims, and the object-level claim list must exactly match the segment links. Empty claim lists remain representable for non-factual learning material, but they must not be used to disguise factual assertions without provenance.
 - Vocabulary entries must preserve the sentence or context in which the word appeared. A dictionary meaning without source context is insufficient.
 - Questions must have an answer and explanation. The answer must be supported by linked claims.
 - Bangla and English outputs are reviewed independently. A reviewed English artifact does not approve a Bangla counterpart.
@@ -35,7 +35,7 @@ Revisions use optimistic concurrency with an expected revision. Story, kind, lan
 
 ## First acceptance slice
 
-1. Contract validation enforces kind-specific content and review metadata.
+1. Contract validation enforces kind-specific content, sentence-level claim mapping, and review metadata.
 2. SQLite migration 11 persists learning objects and immutable revision history.
 3. The registry validates active story and same-story claim references.
 4. New objects begin unapproved; approval/rejection requires review metadata.
