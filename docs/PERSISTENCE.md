@@ -1,6 +1,6 @@
 # Persistence, Revisions, and Audit Trail
 
-Status: implemented foundation; fixture test suite verified by GitHub Actions.  
+Status: Sections 1–4 foundation verified; Section 5 schema and ingestion implementation delivered, with final current-head CI acceptance pending.  
 Storage engine: Python `sqlite3` and SQLite.  
 Migration line: schema version 4.
 
@@ -85,7 +85,7 @@ Approval records reviewer identity and timestamp. Revocation records its timesta
 
 ## Editorial record revisions
 
-Article, story, claim, factual evidence, and edition payloads are stored as typed records validated against their existing contracts. Section 5 ingestion creates or reuses an article inside the same transaction as its append-only identity decision; source observations remain intact and separate. Non-edition records can be revised with an expected revision number, actor, and reason. Stale writes fail rather than overwriting newer records. Source links and original observation/creation timestamps are protected against rewriting.
+Article, story, claim, factual evidence, and edition payloads are stored as typed records validated against their existing contracts. Section 5 ingestion creates or reuses an article inside the same transaction as its append-only identity decision; source observations remain intact and separate. Newer observations refresh mutable article metadata through immutable revisions, while older/equal-time observations cannot overwrite it. The article's source and canonical URL identity links cannot be rewritten. Non-edition records can be revised with an expected revision number, actor, and reason. Stale writes fail rather than overwriting newer records. Source links and original observation/creation timestamps are protected against rewriting.
 
 Edition snapshots are immutable through the repository API, including published editions. A correction must be represented as a new edition with the appropriate supersession relationship, not by editing the old snapshot.
 
