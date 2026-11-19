@@ -13,13 +13,6 @@ class _JsonRecord:
     id: str
     payload_json: str
 
-    @classmethod
-    def _from_payload(cls, payload: dict[str, Any]):
-        return cls(
-            id=payload["id"],
-            payload_json=canonical_json_bytes(payload).decode("utf-8"),
-        )
-
     def to_payload(self) -> dict[str, Any]:
         import json
 
