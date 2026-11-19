@@ -332,6 +332,12 @@ class SafeHTTPSTransport:
                     "Connection": "close",
                 },
             )
+            remaining_for_headers = deadline - self._clock()
+            if remaining_for_headers <= 0:
+                raise TransportError("request deadline exceeded while sending request")
+            active_socket = getattr(connection, "sock", None)
+            if active_socket is not None:
+                active_socket.settimeout(remaining_for_headers)
             response = connection.getresponse()
             raw_headers = response.getheaders()
             if len(raw_headers) > 64:
