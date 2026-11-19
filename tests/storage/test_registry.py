@@ -119,21 +119,21 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 6
+        assert registry.schema_version() == 7
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 6
+        assert reopened.schema_version() == 7
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
-def test_existing_schema_v2_database_migrates_to_v6(tmp_path, monkeypatch):
+def test_existing_schema_v2_database_migrates_to_v7(tmp_path, monkeypatch):
     database = tmp_path / "registry-v2.sqlite"
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 2)
     with SQLiteRegistry(database) as old_registry:
         assert old_registry.schema_version() == 2
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 6)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 6
+        assert migrated.schema_version() == 7
         columns = {
             row["name"]
             for row in migrated._connection.execute(
@@ -1053,3 +1053,127 @@ def test_concurrent_story_decision_apply_creates_one_application(tmp_path) -> No
         if second is not None:
             second.close()
         first.close()
+
+
+def _timeline_event_record(event_id: str = "timeline-event:sample-001") -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "id": event_id,
+        "story_id": "story:sample-event",
+        "title": "The event was publicly announced",
+        "event_type": "announcement",
+        "occurred": {"precision": "date", "start": "2026-11-18"},
+        "claim_ids": ["claim:sample-event-001"],
+        "created_at": STAMP,
+        "created_by": "editor",
+        "rationale": "The linked claim records the announcement date from the cited report.",
+    }
+
+
+def test_timeline_event_round_trip_and_chronological_order() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        later = _timeline_event_record("timeline-event:later")
+        later["occurred"] = {"precision": "date", "start": "2026-11-19"}
+        earlier = _timeline_event_record("timeline-event:earlier")
+        earlier["occurred"] = {"precision": "date", "start": "2026-11-17"}
+        unknown = _timeline_event_record("timeline-event:unknown")
+        unknown["occurred"] = {"precision": "unknown"}
+        registry.add_timeline_event(later)
+        registry.add_timeline_event(unknown)
+        registry.add_timeline_event(earlier)
+        assert registry.get_timeline_event(later["id"]).to_payload() == later
+        assert [item["event_id"] for item in registry.story_timeline("story:sample-event")] == [
+            "timeline-event:earlier", "timeline-event:later", "timeline-event:unknown"
+        ]
+        assert registry.verify_audit_chain()
+
+
+def test_timeline_event_preserves_approximate_date_and_uncertainty_note() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        event = _timeline_event_record()
+        event["occurred"] = {
+            "precision": "approximate",
+            "start": "2026-11-18",
+            "note": "The source says the event happened around this date.",
+        }
+        saved = registry.add_timeline_event(event)
+        assert saved.to_payload()["occurred"] == event["occurred"]
+
+
+@pytest.mark.parametrize(
+    ("occurred", "message"),
+    [
+        ({"precision": "instant", "start": "2026-11-18T12:00:00"}, "timezone-aware"),
+        ({"precision": "date", "start": "2026-02-30"}, "ISO calendar date"),
+        ({"precision": "range", "start": "2026-11-19T00:00:00Z", "end": "2026-11-18T00:00:00Z"}, "cannot precede"),
+        ({"precision": "approximate", "start": "2026-11-18"}, "uncertainty note"),
+        ({"precision": "unknown", "start": "2026-11-18"}, "cannot include"),
+    ],
+)
+def test_timeline_event_rejects_invalid_temporal_precision(occurred, message) -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        event = _timeline_event_record()
+        event["occurred"] = occurred
+        with pytest.raises(RegistryIntegrityError, match=message):
+            registry.add_timeline_event(event)
+
+
+def test_timeline_event_requires_claim_from_same_story() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        event = _timeline_event_record()
+        event["claim_ids"] = ["claim:missing"]
+        with pytest.raises(RegistryIntegrityError, match="unknown claim"):
+            registry.add_timeline_event(event)
+
+
+def test_timeline_event_correction_appends_and_supersedes_without_rewriting() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        original = _timeline_event_record()
+        registry.add_timeline_event(original)
+        correction = _timeline_event_record("timeline-event:sample-correction")
+        correction["title"] = "The announcement date was corrected"
+        correction["occurred"] = {"precision": "date", "start": "2026-11-17"}
+        correction["supersedes_event_id"] = original["id"]
+        correction["rationale"] = "A later reviewed report corrects the earlier date."
+        registry.add_timeline_event(correction)
+        assert registry.get_timeline_event(original["id"]).to_payload() == original
+        assert [item["event_id"] for item in registry.story_timeline("story:sample-event")] == [
+            correction["id"]
+        ]
+        history = registry.timeline_event_history("story:sample-event")
+        assert len(history) == 2
+        assert next(item for item in history if item["event_id"] == original["id"])["is_superseded"]
+        assert registry.verify_audit_chain()
+
+
+def test_timeline_event_cannot_correct_an_event_from_another_story() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        original = _timeline_event_record()
+        registry.add_timeline_event(original)
+        correction = _timeline_event_record("timeline-event:bad-correction")
+        correction["supersedes_event_id"] = "timeline-event:not-in-story"
+        with pytest.raises(RegistryIntegrityError, match="same story"):
+            registry.add_timeline_event(correction)
+
+
+def test_timeline_events_are_append_only_at_sqlite_boundary() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        event = registry.add_timeline_event(_timeline_event_record())
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "UPDATE timeline_events SET title = 'rewritten' WHERE id = ?",
+                (event.id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "DELETE FROM timeline_events WHERE id = ?", (event.id,)
+            )

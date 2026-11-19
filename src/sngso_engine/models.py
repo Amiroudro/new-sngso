@@ -206,3 +206,22 @@ class StoryDecisionRecord(_JsonRecord):
             operation=payload["operation"],
             canonical_story_id=payload["canonical_story_id"],
         )
+
+
+@dataclass(frozen=True, slots=True)
+class TimelineEventRecord(_JsonRecord):
+    """Append-only, claim-backed event assertion within a story timeline."""
+
+    story_id: str
+    event_type: str
+    precision: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "TimelineEventRecord":
+        return cls(
+            id=payload["id"],
+            payload_json=canonical_json_bytes(payload).decode("utf-8"),
+            story_id=payload["story_id"],
+            event_type=payload["event_type"],
+            precision=payload["occurred"]["precision"],
+        )

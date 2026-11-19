@@ -27,6 +27,7 @@ from .models import (
     SourceRecord,
     StoryDecisionRecord,
     StoryRecord,
+    TimelineEventRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 
@@ -387,6 +388,29 @@ _MIGRATION_6 = (
 )
 
 
+_MIGRATION_7 = (
+    """CREATE TABLE timeline_events (
+        id TEXT PRIMARY KEY,
+        story_id TEXT NOT NULL,
+        occurred_sort_key TEXT,
+        precision TEXT NOT NULL CHECK (precision IN (
+            'instant', 'date', 'range', 'approximate', 'unknown'
+        )),
+        supersedes_event_id TEXT UNIQUE,
+        created_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        FOREIGN KEY (story_id) REFERENCES domain_records(id) ON DELETE RESTRICT,
+        FOREIGN KEY (supersedes_event_id) REFERENCES timeline_events(id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_timeline_events_story_time ON timeline_events(story_id, occurred_sort_key, created_at, id)",
+    """CREATE TRIGGER timeline_events_no_update
+        BEFORE UPDATE ON timeline_events
+        BEGIN SELECT RAISE(ABORT, 'timeline events are append-only'); END""",
+    """CREATE TRIGGER timeline_events_no_delete
+        BEFORE DELETE ON timeline_events
+        BEGIN SELECT RAISE(ABORT, 'timeline events are append-only'); END""",
+)
+
 
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
@@ -525,6 +549,19 @@ class SQLiteRegistry:
                     connection.execute("PRAGMA user_version = 6")
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 6 failed; transaction rolled back") from exc
+
+            if version == 6:
+                try:
+                    for statement in _MIGRATION_7:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (7, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 7")
+                    version = 7
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 7 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -2772,6 +2809,144 @@ class SQLiteRegistry:
                 "already_applied": False,
                 "result": result,
             }
+
+
+    def add_timeline_event(self, payload: dict[str, Any]) -> TimelineEventRecord:
+        """Append a claim-backed event assertion; corrections supersede, never rewrite."""
+        validate_payload("timeline-event", payload)
+        occurred = payload["occurred"]
+        precision = occurred["precision"]
+        start = occurred.get("start")
+        end = occurred.get("end")
+        sort_key = None
+        if precision in {"instant", "range"}:
+            if not isinstance(start, str):
+                raise RegistryIntegrityError("timeline event precision requires a start timestamp")
+            parsed_start = _aware_datetime(start, "occurred.start")
+            sort_key = parsed_start.isoformat()
+            if precision == "range":
+                if not isinstance(end, str):
+                    raise RegistryIntegrityError("timeline event range requires an end timestamp")
+                parsed_end = _aware_datetime(end, "occurred.end")
+                if parsed_end < parsed_start:
+                    raise RegistryIntegrityError("timeline event end cannot precede its start")
+            elif end is not None:
+                raise RegistryIntegrityError("instant timeline event cannot include an end")
+        elif precision == "date":
+            if not isinstance(start, str):
+                raise RegistryIntegrityError("date precision requires an ISO date start")
+            try:
+                from datetime import date
+                sort_key = date.fromisoformat(start).isoformat()
+            except ValueError as exc:
+                raise RegistryIntegrityError("date precision requires an ISO calendar date") from exc
+            if end is not None:
+                raise RegistryIntegrityError("date precision cannot include an end")
+        elif precision == "approximate":
+            if not isinstance(start, str) or not isinstance(occurred.get("note"), str) or not occurred["note"].strip():
+                raise RegistryIntegrityError("approximate event timing requires a date and an uncertainty note")
+            try:
+                from datetime import date
+                sort_key = date.fromisoformat(start).isoformat()
+            except ValueError as exc:
+                raise RegistryIntegrityError("approximate event timing requires an ISO calendar date") from exc
+            if end is not None:
+                raise RegistryIntegrityError("approximate event timing cannot include an end")
+        elif precision == "unknown":
+            if start is not None or end is not None:
+                raise RegistryIntegrityError("unknown event timing cannot include a start or end")
+        timezone_name = occurred.get("timezone")
+        if timezone_name:
+            try:
+                from zoneinfo import ZoneInfo
+                ZoneInfo(timezone_name)
+            except (KeyError, ValueError) as exc:
+                raise RegistryIntegrityError("timeline event timezone must be a valid IANA timezone") from exc
+
+        record = TimelineEventRecord.from_payload(payload)
+        with self._transaction() as connection:
+            story_row = connection.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = 'story' AND id = ?",
+                (record.story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise RegistryIntegrityError("timeline event references an unknown story")
+            story_payload = json.loads(story_row["payload_json"])
+            if story_payload.get("status") == "archived":
+                raise RegistryIntegrityError("cannot append a timeline event to an archived story")
+            claim_ids = payload["claim_ids"]
+            placeholders = ",".join("?" for _ in claim_ids)
+            claim_rows = connection.execute(
+                f"""SELECT id, payload_json FROM domain_records
+                WHERE record_type = 'claim' AND id IN ({placeholders})""",
+                tuple(claim_ids),
+            ).fetchall()
+            if len(claim_rows) != len(claim_ids):
+                raise RegistryIntegrityError("timeline event references an unknown claim")
+            if any(json.loads(row["payload_json"])["story_id"] != record.story_id for row in claim_rows):
+                raise RegistryIntegrityError("timeline event claims must belong to its story")
+            supersedes_id = payload.get("supersedes_event_id")
+            if supersedes_id:
+                prior = connection.execute(
+                    "SELECT story_id FROM timeline_events WHERE id = ?", (supersedes_id,)
+                ).fetchone()
+                if prior is None or prior["story_id"] != record.story_id:
+                    raise RegistryIntegrityError("timeline correction must supersede an event in the same story")
+            connection.execute(
+                """INSERT INTO timeline_events
+                (id, story_id, occurred_sort_key, precision, supersedes_event_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (record.id, record.story_id, sort_key, precision, supersedes_id,
+                 payload["created_at"], record.payload_json),
+            )
+            self._append_audit(
+                connection,
+                event_type="timeline_event.created",
+                entity_type="timeline_event",
+                entity_id=record.id,
+                payload={"record": payload, "supersedes_event_id": supersedes_id},
+            )
+        return record
+
+    def get_timeline_event(self, event_id: str) -> TimelineEventRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload_json FROM timeline_events WHERE id = ?", (event_id,)
+            ).fetchone()
+        return TimelineEventRecord.from_payload(json.loads(row["payload_json"])) if row else None
+
+    def timeline_event_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Return all event assertions and correction links, including superseded records."""
+        if self.get_domain_record("story", story_id) is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT id, occurred_sort_key, precision, supersedes_event_id, created_at, payload_json
+                FROM timeline_events WHERE story_id = ?
+                ORDER BY CASE WHEN occurred_sort_key IS NULL THEN 1 ELSE 0 END,
+                         occurred_sort_key, created_at, id""",
+                (story_id,),
+            ).fetchall()
+        superseded = {row["supersedes_event_id"] for row in rows if row["supersedes_event_id"]}
+        return [
+            {
+                "event_id": row["id"],
+                "precision": row["precision"],
+                "occurred_sort_key": row["occurred_sort_key"],
+                "created_at": row["created_at"],
+                "supersedes_event_id": row["supersedes_event_id"],
+                "is_superseded": row["id"] in superseded,
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def story_timeline(self, story_id: str) -> list[dict[str, Any]]:
+        """Return the current event assertions in chronological order, retaining uncertainty."""
+        return [
+            item for item in self.timeline_event_history(story_id)
+            if not item["is_superseded"]
+        ]
 
     def story_decision_history(self, story_id: str) -> list[dict[str, Any]]:
         """Return immutable merge/split decisions involving a story, oldest first."""
