@@ -79,18 +79,6 @@
   },
   "allOf": [
     {
-      "not": {
-        "properties": {
-          "claim_id": {
-            "const": "$same"
-          },
-          "related_claim_id": {
-            "const": "$same"
-          }
-        }
-      }
-    },
-    {
       "if": {
         "properties": {
           "review_status": {
