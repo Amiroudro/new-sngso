@@ -79,7 +79,11 @@ def _parse_url(url: str, allowed_domains: tuple[str, ...]) -> tuple[object, str,
         raise TransportError("URL is missing or too long")
     try:
         parsed = urlsplit(url)
-        port = parsed.port or 443
+        authority = parsed.netloc.rsplit("@", 1)[-1]
+        if authority.endswith(":"):
+            raise TransportError("URL port is empty")
+        parsed_port = parsed.port
+        port = 443 if parsed_port is None else parsed_port
     except ValueError as exc:
         raise TransportError("URL is malformed") from exc
     if parsed.scheme.lower() != "https":
@@ -103,8 +107,10 @@ def _validate_public_addresses(values: object) -> tuple[str, ...]:
         raise TransportError("DNS returned no addresses")
     checked: list[str] = []
     for value in dict.fromkeys(str(item) for item in values):
+        if "%" in value:
+            raise TransportError("DNS returned a scoped IP address")
         try:
-            address = ipaddress.ip_address(value.split("%", 1)[0])
+            address = ipaddress.ip_address(value)
         except ValueError as exc:
             raise TransportError("DNS returned an invalid address") from exc
         if not address.is_global:
