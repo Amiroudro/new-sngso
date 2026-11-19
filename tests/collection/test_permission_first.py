@@ -9,6 +9,7 @@ import pytest
 from sngso_engine import collection as collection_module
 from sngso_engine.collection import (
     CollectionError,
+    CollectionExecutionContext,
     CollectionRequest,
     ConnectorCapabilities,
     InMemoryDomainRateLimiter,
@@ -702,3 +703,14 @@ def test_registered_domain_allowlist_rejects_noncanonical_or_unsafe_domains(doma
 def test_registered_domain_allowlist_requires_canonical_ascii_domains():
     assert collection_module._valid_domain_allowlist(["publisher-a.example.org"]) is True
     assert collection_module._valid_domain_allowlist(["xn--bcher-kva.example"]) is True
+
+
+
+@pytest.mark.parametrize("domains", [
+    ("publisher-a.example.org.",),
+    ("127.0.0.1",),
+    ("publisher-a.example.org", "publisher-a.example.org"),
+])
+def test_connector_execution_context_rejects_noncanonical_domain_scope(domains):
+    with pytest.raises(ValueError, match="canonical DNS"):
+        CollectionExecutionContext(domains)
