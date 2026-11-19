@@ -1279,6 +1279,8 @@ class SQLiteRegistry:
         for locator in (observation["locator"], observation["final_locator"]):
             if locator is None:
                 continue
+            if not valid_http_uri(locator, max_length=2048):
+                raise RegistryIntegrityError("ingestion observation locator is malformed")
             host = urlsplit(locator).hostname or ""
             if not _host_in_domains(host, source_domains):
                 raise RegistryIntegrityError("ingestion observation locator is outside source scope")
