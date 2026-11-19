@@ -995,11 +995,24 @@ def test_story_decision_application_rolls_back_every_write_on_audit_failure(monk
 def test_split_decision_cannot_drop_an_unassigned_article() -> None:
     with SQLiteRegistry() as registry:
         decision_id = _two_story_decision_registry(registry, "split")
+        third_article = article_record()
+        third_article.update({
+            "id": "article:publisher-a-003",
+            "canonical_uri": "https://publisher-a.example.org/news/003",
+            "title": "A third sample report",
+        })
+        registry.add_domain_record("article", third_article)
+        story = registry.get_domain_record("story", "story:sample-event").to_payload()
+        story["article_ids"].append("article:publisher-a-003")
+        registry.revise_domain_record(
+            "story", story["id"], story, expected_revision=1,
+            actor="editor", reason="Add a third article before testing split completeness.",
+        )
         row = registry._connection.execute(
             "SELECT payload_json FROM story_decisions WHERE id = ?", (decision_id,)
         ).fetchone()
         incomplete = __import__("json").loads(row["payload_json"])
         incomplete["id"] = "story-decision:sample-split-incomplete"
-        incomplete["article_assignments"] = incomplete["article_assignments"][:1]
+        incomplete["expected_story_revisions"][0]["expected_revision"] = 2
         with pytest.raises(RegistryIntegrityError, match="must account for every article"):
             registry.add_domain_record("story_decision", incomplete)
