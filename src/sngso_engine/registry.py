@@ -1385,7 +1385,7 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("article language is outside the endpoint language declaration")
 
             existing_article = connection.execute(
-                """SELECT id, payload_json FROM domain_records
+                """SELECT id, revision, payload_json FROM domain_records
                 WHERE record_type = 'article'
                   AND json_extract(payload_json, '$.source_id') = ?
                   AND json_extract(payload_json, '$.canonical_uri') = ?
@@ -1396,7 +1396,53 @@ class SQLiteRegistry:
             if existing_article is not None:
                 article_id = existing_article["id"]
                 outcome = "reused"
-                reason = "same_source_canonical_uri_already_exists"
+                existing_payload = json.loads(existing_article["payload_json"])
+                incoming_time = _aware_datetime(article_payload["updated_at"], "updated_at")
+                existing_time = _aware_datetime(
+                    existing_payload.get("updated_at", existing_payload["discovered_at"]),
+                    "updated_at",
+                )
+                if incoming_time > existing_time:
+                    refreshed = dict(existing_payload)
+                    for field in (
+                        "title", "source_language", "updated_at", "provenance",
+                        "byline", "published_at", "summary_metadata", "content_fingerprint",
+                    ):
+                        if field in article_payload:
+                            refreshed[field] = article_payload[field]
+                    validate_payload("article", refreshed)
+                    next_revision = existing_article["revision"] + 1
+                    refreshed_json = _json_text(refreshed)
+                    connection.execute(
+                        """UPDATE domain_records
+                        SET revision = ?, updated_at = ?, payload_json = ?
+                        WHERE record_type = 'article' AND id = ? AND revision = ?""",
+                        (
+                            next_revision, article_payload["updated_at"], refreshed_json,
+                            article_id, existing_article["revision"],
+                        ),
+                    )
+                    connection.execute(
+                        """INSERT INTO domain_record_revisions
+                        (record_type, record_id, revision, created_at, actor, reason, payload_json)
+                        VALUES ('article', ?, ?, ?, 'ingestion', 'metadata refreshed from newer observation', ?)""",
+                        (article_id, next_revision, _utc_now(), refreshed_json),
+                    )
+                    self._append_audit(
+                        connection,
+                        event_type="article.revised",
+                        entity_type="article",
+                        entity_id=article_id,
+                        payload={
+                            "revision": next_revision,
+                            "actor": "ingestion",
+                            "reason": "metadata refreshed from newer observation",
+                            "observation_id": observation_id,
+                        },
+                    )
+                    reason = "same_source_article_reused_and_metadata_refreshed"
+                else:
+                    reason = "same_source_canonical_uri_already_exists_newer_or_equal_metadata_retained"
             else:
                 self._validate_domain_references(connection, "article", article_payload)
                 article_json = _json_text(article_payload)
@@ -1836,7 +1882,7 @@ class SQLiteRegistry:
             if payload[immutable_time_field] != previous_payload[immutable_time_field]:
                 raise RegistryIntegrityError("record creation/observation time cannot be rewritten")
             immutable_identity_fields = {
-                "article": ("source_id",),
+                "article": ("source_id", "canonical_uri"),
                 "evidence": ("source_id", "claim_id"),
             }.get(record_type, ())
             if any(payload.get(field) != previous_payload.get(field) for field in immutable_identity_fields):
