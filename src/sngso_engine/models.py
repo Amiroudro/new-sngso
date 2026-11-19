@@ -280,6 +280,7 @@ class LearningObjectRecord(_JsonRecord):
     kind: str
     language: str
     status: str
+    variant_group_id: str | None = None
     revision: int = 1
 
     @classmethod
@@ -291,6 +292,7 @@ class LearningObjectRecord(_JsonRecord):
             kind=payload["kind"],
             language=payload["language"],
             status=payload["status"],
+            variant_group_id=payload.get("variant_group_id"),
             revision=revision,
         )
 
