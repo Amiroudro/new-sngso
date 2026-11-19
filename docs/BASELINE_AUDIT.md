@@ -34,7 +34,7 @@ Typed immutable record views cover sources, endpoints, permission evidence, gran
 
 The fixture-first orchestrator supports discovery and metadata only. It verifies source, endpoint, connector capability, and exact operation permission before connector invocation. It rechecks permission immediately before invocation and the persistent sink rechecks grant revision, source/endpoint state, evidence, and permission before storing observations. The fixture boundary applies a per-domain rate limiter, item and observation-byte budgets, operation-specific output fields, and source-domain restrictions for endpoint and returned locator/final-locator hosts. The SQLite observation sink repeats the endpoint and locator host checks inside its write transaction, so callers cannot bypass the domain boundary by calling the storage API directly.
 
-There is no live network transport. Timeout and retry values are bounded request declarations, not active transport enforcement. DNS/IP restrictions, redirect handling, response-body byte limits, and real network timeouts/retries must be implemented and reviewed before any live connector is considered.
+A standalone HTTPS transport prototype now exists in `src/sngso_engine/transport.py`, but is not connected to the orchestrator or any publisher connector. It pins sockets to validated public DNS IPs while verifying TLS against the original hostname; rejects malformed/out-of-scope URLs, private/non-public DNS answers, unsafe redirects, non-standard ports, credentials, and compressed responses; streams response bodies under a byte ceiling; and bounds socket/read deadlines, redirects, and transient retries. DNS resolution still uses the operating-system resolver and is not independently deadline-bounded. Content-type/header policy, final adversarial review, and transport integration remain open.
 
 ## Verification evidence
 
@@ -45,7 +45,7 @@ There is no live network transport. Timeout and retry values are bounded request
 - The workflow runs the full test suite on relevant source, contract, test, packaging, and workflow changes. It does not contact publisher websites.
 - A passing fixture test suite proves the tested software behavior only. It does not approve publishers, establish copyright permission, or prove production readiness.
 
-Latest verified collection test commit: `c81351f7f228e339d2b280669b7b1fd805b6bb1e`. GitHub Actions run #136 passed for the expanded suite. The Section 4 acceptance gates remain open for real transport controls and final adversarial review.
+Latest verified code commit: `c21b97658b6e79d2349a0fe3f1cd9601f8c385bc`. GitHub Actions run #148 passed with 167 tests. Section 4 remains open for a deadline-bounded DNS resolver, content-type/header policy, transport-to-connector integration, and final adversarial review.
 
 ## Ten-section programme status
 
@@ -54,7 +54,7 @@ Latest verified collection test commit: `c81351f7f228e339d2b280669b7b1fd805b6bb1
 | 1. Repository audit | Targeted audit documented | Exhaustive dependency/security/static/runtime audit remains future work |
 | 2. Source governance | Complete for foundation scope | Human reviewer authentication/authorization and real publisher rights review remain future controls |
 | 3. Domain models and persistence | Complete for foundation scope | Backups, restore drills, external audit anchoring, and production authorization remain future controls |
-| 4. Permission-first collection | In progress | Reviewed network transport, actual timeouts/retries/response-byte enforcement, DNS/IP and redirect controls, remaining adversarial tests, and final review |
+| 4. Permission-first collection | In progress | Deadline-bounded DNS resolution, content-type/header policy, transport-to-connector integration, remaining adversarial tests, and final review |
 | 5. Ingestion and identity | Not started | Depends on Section 4 |
 | 6. Story intelligence and evidence | Not started | Depends on Section 5 |
 | 7. Editorial production | Not started | Depends on Section 6 |
