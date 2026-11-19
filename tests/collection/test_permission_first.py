@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import replace
 import sqlite3
 
 import pytest
@@ -351,3 +352,17 @@ def test_timeout_and_retry_budgets_have_hard_bounds() -> None:
         make_request(timeout_seconds=60)
     with pytest.raises(ValueError, match="max_retries"):
         make_request(max_retries=3)
+
+def test_persistence_boundary_rejects_unapproved_content_fields() -> None:
+    with populated_registry() as registry:
+        connector = FixtureConnector([{"locator": "https://publisher-a.example.org/news/1"}])
+        temporary_sink = InMemoryObservationSink()
+        result = make_collector(registry, connector, temporary_sink).collect(
+            make_request(), "fixture-feed"
+        )
+        forged = replace(result.observations[0], metadata={"full_text": "article body"})
+
+        with pytest.raises(RegistryIntegrityError, match="unsupported fields"):
+            registry.append_many((forged,))
+
+        assert registry.collection_observations() == []
