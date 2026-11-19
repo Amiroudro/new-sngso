@@ -16,13 +16,17 @@ from .models import (
     StoryRecord,
 )
 from .permissions import PermissionDecision, evaluate_permission
+from .ports import AuditRepository, EditorialRepository, EngineRepository, SourceGovernanceRepository
 from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegistry
 
 __all__ = [
     "ArticleRecord",
+    "AuditRepository",
     "ClaimRecord",
     "ContractValidationError",
     "EditionRecord",
+    "EditorialRepository",
+    "EngineRepository",
     "EvidenceRecord",
     "PermissionDecision",
     "PermissionEvidenceRecord",
@@ -31,6 +35,7 @@ __all__ = [
     "RegistryMigrationError",
     "SQLiteRegistry",
     "SourceEndpointRecord",
+    "SourceGovernanceRepository",
     "SourceRecord",
     "StoryRecord",
     "canonical_json_bytes",
