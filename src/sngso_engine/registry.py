@@ -1301,6 +1301,12 @@ class SQLiteRegistry:
             status != "verified" for status in evidence_statuses.values()
         ):
             raise RegistryIntegrityError("ingestion permission evidence is no longer verified")
+        metadata_operation = grant_payload.get("operations", {}).get("metadata", {})
+        operation_evidence = metadata_operation.get("evidence_ids", [])
+        if metadata_operation.get("allowed") is not True or any(
+            evidence_statuses.get(item) != "verified" for item in operation_evidence
+        ):
+            raise RegistryIntegrityError("metadata permission evidence is no longer verified")
         decision = evaluate_permission_record(
             grant_payload,
             "metadata",
@@ -1347,6 +1353,18 @@ class SQLiteRegistry:
                 or article_payload.get("permission_id") != observation["grant_id"]
             ):
                 raise RegistryIntegrityError("article source/permission does not match its observation")
+            from .ingestion import canonicalize_article_url
+            expected_uri = canonicalize_article_url(
+                observation["final_locator"] or observation["locator"]
+            )
+            if article_payload.get("canonical_uri") != expected_uri:
+                raise RegistryIntegrityError("article canonical URI does not match its source observation")
+            expected_article_id = "article:" + sha256_fingerprint({
+                "source_id": article_payload["source_id"],
+                "canonical_uri": expected_uri,
+            }).split(":", 1)[1]
+            if article_payload.get("id") != expected_article_id:
+                raise RegistryIntegrityError("article ID does not match deterministic source/URL identity")
             self._check_ingestion_permission(connection, observation)
 
             existing_article = connection.execute(
