@@ -206,6 +206,7 @@ def test_repeated_observation_ingestion_is_idempotent_and_preserves_originals():
         add_observation(registry, "publisher-a", "observation:first")
         original = registry.get_collection_observation("observation:first")
 
+        audit_count = len(registry.audit_events())
         first = ingest_observation(
             registry, "observation:first", source_language="bn-BD"
         )
@@ -214,6 +215,7 @@ def test_repeated_observation_ingestion_is_idempotent_and_preserves_originals():
         )
 
         assert first == second
+        assert len(registry.audit_events()) == audit_count + 1
         assert first["outcome"] == "created"
         assert first["decision_revision"] == 1
         assert registry.get_collection_observation("observation:first") == original
@@ -331,6 +333,47 @@ def test_ingestion_rejects_language_not_declared_by_endpoint():
         with pytest.raises(IngestionError, match="not supported"):
             ingest_observation(registry, "observation:first", source_language="en")
         assert registry.get_ingestion_decision("observation:first") is None
+
+
+def test_duplicate_candidate_requires_publication_timestamp():
+    with SQLiteRegistry() as registry:
+        add_publisher(registry, "publisher-a")
+        add_publisher(registry, "publisher-b")
+        add_observation(registry, "publisher-a", "observation:a", published_at=None)
+        add_observation(registry, "publisher-b", "observation:b", path="/world/report", published_at=None)
+        first = ingest_observation(registry, "observation:a", source_language="bn")
+        second = ingest_observation(registry, "observation:b", source_language="bn")
+        assert first["outcome"] == "created"
+        assert second["outcome"] == "created"
+        assert second["fingerprint"] is None
+
+
+def test_registry_rejects_article_identity_not_bound_to_observation():
+    with SQLiteRegistry() as registry:
+        add_publisher(registry, "publisher-a")
+        add_observation(registry, "publisher-a", "observation:first")
+        observation = registry.get_collection_observation("observation:first")
+        payload, fingerprint = normalize_observation(observation, "bn")
+        payload["canonical_uri"] = "https://publisher-a.example.org/another-page"
+        with pytest.raises(RegistryIntegrityError, match="does not match its source observation"):
+            registry.ingest_article_observation(
+                "observation:first", payload, duplicate_fingerprint=fingerprint
+            )
+        assert registry.get_ingestion_decision("observation:first") is None
+        assert registry.get_domain_record("article", payload["id"]) is None
+
+
+def test_invalid_optional_metadata_types_are_rejected_cleanly():
+    observation = {
+        "operation": "metadata",
+        "source_id": "source:publisher-a",
+        "grant_id": "permission:publisher-a-metadata",
+        "observed_at": STAMP,
+        "locator": "https://publisher-a.example.org/news/one",
+        "metadata": {"title": "A title", "byline": 123},
+    }
+    with pytest.raises(IngestionError, match="byline must be text"):
+        normalize_observation(observation, "bn")
 
 
 def test_discovery_observation_cannot_be_ingested():
