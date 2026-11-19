@@ -2,130 +2,81 @@
 
 Audit date: 2026-11-20  
 Audited ref: `fix/engine-ci-source-triggers`  
-Purpose: establish an evidence-based starting point for the ten-section implementation programme.
+Scope: the greenfield `Amiroudro/new-sngso` engine repository only.
 
-## 1. Repository identity and boundaries
+## Repository boundary
 
-The repository README describes a greenfield Python engine. It explicitly states that the prior app and editions repositories are reference-only and are not deployment targets. The migration plan prohibits writes to those repositories and prohibits publishing into the existing editions archive.
+This repository is the new Python engine. The Android client, legacy engine work, and published-edition archives are separate and remain untouched. No production destination, publisher connector, secret, or paid service has been configured.
 
-**Audit result:** the documented separation rule is clear. This audit made changes only in `Amiroudro/new-sngso`.
+## Technology baseline
 
-## 2. Technology baseline
-
-| Area | Observed baseline |
+| Area | Current implementation |
 |---|---|
 | Runtime | Python >=3.12 |
 | Packaging | setuptools, `pyproject.toml` |
 | Runtime dependency | `jsonschema[format]>=4.23,<5` |
-| Test dependency | `pytest>=8.3,<9` |
 | Contract format | JSON Schema Draft 2020-12 |
-| Persistence | Initial SQLite registry and versioned migration now implemented in `src/sngso_engine/registry.py` |
-| Collection | No implemented connector framework verified |
-| Publication | No implemented edition assembly/publisher verified |
+| Persistence | Python standard-library SQLite, migrations v1 and v2 |
+| Tests | pytest, fixture-based; no publisher network dependency |
+| CI | GitHub Actions, Python 3.12, full pytest suite |
 
-## 3. Contracts inspected
+## Implemented foundations
 
-The following versioned contracts were read from `contracts/v1/`:
+### Source governance and permission contracts
 
-- `common.schema.json`: shared IDs, language tags, timestamps, URI, SHA-256 hash, locator, provenance, and language-variant definitions.
-- `article.schema.json`: article identity, source ID, canonical URI, title, language, discovery time, record status, optional permission ID and provenance.
-- `story.schema.json`: story identity, title, status, topic/region tags, article IDs, and timestamps.
-- `claim.schema.json`: atomic claim text, story relationship, language, assessment, evidence IDs, provenance, and review metadata.
-- `evidence.schema.json`: claim/source relationship, support/qualification/contradiction state, locator, assessment method, and assessment time.
-- `edition.schema.json`: edition identity, status, content hash, pipeline run ID, story IDs, language variants, and correction/supersession metadata.
+The repository contains separate contracts for publisher sources, source endpoints, permission evidence, and scoped permission grants. The evaluator is operation-specific and fail-closed. Grants are time-bounded and scoped to exact source and endpoint identities. Approved grants require verified evidence. No real publisher is approved.
 
-The contract README states that schemas prove structural conformance, not factual accuracy, copyright permission, source independence, translation quality, or editorial approval.
+### Domain records and persistence
 
-### Contract gaps relevant to source governance
+Typed immutable record views cover sources, endpoints, permission evidence, grants, articles, stories, claims, factual evidence, and editions. SQLite migrations create relational ownership constraints, grant and editorial revision history, append-only audit events, and append-only collection observations. The registry validates cross-record relationships inside transactions. Permission decisions retain policy version, grant revision, evidence state, and evaluation time.
 
-- No source registry schema was found at the inspected expected paths.
-- No source permission schema was found at the inspected expected paths.
-- No source observation schema was found at the inspected expected path.
-- The article contract references `source_id` and optionally `permission_id`, but the inspected contract set does not yet define the full source/permission lifecycle.
-- There is no contract yet for permission evidence, endpoint-specific scope, revocation, review history, or policy-decision audit events.
+### Permission-first collection
 
-These are findings about the inspected repository paths, not a claim that every possible file path was exhaustively enumerated.
+The fixture-first orchestrator supports discovery and metadata only. It verifies source, endpoint, connector capability, and exact operation permission before connector invocation. It rechecks permission immediately before invocation and the persistent sink rechecks grant revision, source/endpoint state, evidence, and permission before storing observations. The fixture boundary applies a per-domain rate limiter, item and observation-byte budgets, operation-specific output fields, and source-domain restrictions for endpoint and returned locator/final-locator hosts.
 
-## 4. Runtime code inspected
+There is no live network transport. Timeout and retry values are bounded request declarations, not active transport enforcement. DNS/IP restrictions, redirect handling, response-body byte limits, and real network timeouts/retries must be implemented and reviewed before any live connector is considered.
 
-### Contract validation
+## Verification evidence
 
-`src/sngso_engine/contracts.py` loads versioned schema files, checks schema meta-structure, resolves the shared common schema, applies format checking, and raises a structured validation error for invalid payloads.
+- GitHub Actions run #127 passed the full pytest workflow for the first verified 137-test collection milestone.
+- GitHub Actions run #128 passed after adding source-domain scope regression tests for endpoint hosts, returned locators, final locators, and allowed subdomains.
+- The workflow runs the full test suite on relevant source, contract, test, packaging, and workflow changes. It does not contact publisher websites.
+- A passing fixture test suite proves the tested software behavior only. It does not approve publishers, establish copyright permission, or prove production readiness.
 
-The loader accepts a schema filename stem and prevents path separators. The SQLite registry invokes schema validation and cross-record checks inside write transactions; API and connector boundaries are not yet implemented.
+Latest reviewed code change for the source-domain boundary: `1c23b7ff3369f01ed54bd11c89938c7fd0a3d86c`. Subsequent documentation commits record the same verified behavior and CI evidence; the latest workflow result must be checked before merge.
 
-### Permission evaluation
+## Ten-section programme status
 
-`src/sngso_engine/permissions.py` contains an operation-specific, fail-closed evaluator for discovery, metadata, excerpt storage, full-text storage, translation, image storage, and republication.
+| Section | Status | Remaining gate |
+|---|---|---|
+| 1. Repository audit | Targeted audit documented | Exhaustive dependency/security/static/runtime audit remains future work |
+| 2. Source governance | Complete for foundation scope | Human reviewer authentication/authorization and real publisher rights review remain future controls |
+| 3. Domain models and persistence | Complete for foundation scope | Backups, restore drills, external audit anchoring, and production authorization remain future controls |
+| 4. Permission-first collection | In progress | Reviewed network transport, actual timeouts/retries/response-byte enforcement, DNS/IP and redirect controls, remaining adversarial tests, and final review |
+| 5. Ingestion and identity | Not started | Depends on Section 4 |
+| 6. Story intelligence and evidence | Not started | Depends on Section 5 |
+| 7. Editorial production | Not started | Depends on Section 6 |
+| 8. Edition assembly and publication safety | Not started | Depends on Section 7 |
+| 9. Operations and free-first automation | Not started | Depends on stable pipeline and publication gates |
+| 10. End-to-end verification and handover | Not started | Depends on all preceding gates |
 
-The evaluator checks record shape, permission ID, global and operation approval, timezone-aware effective start and expiry, operation allow flag, and conditions. Conditions are denied pending a typed evaluator.
+## Known risks and deliberate limits
 
-The current branch also requires `effective_until` and rejects an expiry that is equal to or earlier than `effective_from`. This is stricter than the previous implementation and is covered by newly authored tests.
+- Human reviewer identity is recorded, but authentication and role-based authorization are not implemented.
+- Permission conditions without a typed evaluator fail closed.
+- Source and endpoint lifecycle changes do not yet have dedicated governance APIs.
+- Collection observations store bounded discovery/metadata only, not article bodies, excerpts, images, or translations.
+- No live connector or publisher approval exists.
+- SQLite is intended for local and early low-volume operation, not yet validated for hosted multi-user production.
+- Audit history is tamper-evident, not tamper-proof against a privileged database operator.
+- Backup/restore, encryption-at-rest policy, retention automation, external audit anchoring, and pipeline-run persistence remain future work.
+- The current CI is a foundation gate. Lint, formatting, static typing, dependency/security scans, and full publication integration tests are not yet configured.
 
-**Boundary:** the evaluator is now called by the SQLite registry after source, endpoint, grant, and evidence lookup. It is still not enforced before connector network requests because connectors do not yet exist.
+## Preservation and release rules
 
-## 5. Tests and CI
-
-The inspected permission tests cover explicit approval, missing/unapproved operations, malformed records and IDs, unhashable operation input, malformed evaluation time, future start, exact expiry, naive timestamps, unhandled conditions, malformed conditions, missing/invalid expiry, and invalid permission windows.
-
-The workflow `.github/workflows/contracts.yml` runs on relevant contract/source/test/workflow changes, installs the package with test dependencies, and runs the full pytest suite on Python 3.12.
-
-The workflow is fixture-based and does not contact publisher websites.
-
-Workflow run #50 failed before runner allocation and did not execute tests. The storage suite was added after that run; no successful run has verified the expanded suite. Tests are authored but not verified as passing.
-
-## 6. Documentation inspected
-
-- `README.md`: mission, stack direction, non-goals, project status, and preservation rule.
-- `docs/ARCHITECTURE.md`: proposed modular-monolith boundaries and conceptual pipeline; explicitly a design proposal, not proof of implementation.
-- `docs/DOMAIN_MODEL.md`: proposed source, permission, observation, article, story, claim, evidence, timeline, learning, edition, and run concepts.
-- `docs/PRODUCT_PRINCIPLES.md`: evidence-first, rights-before-collection, deterministic core, human accountability, bilingual integrity, reproducibility, and explicit failure.
-- `docs/MIGRATION_PLAN.md`: read-only legacy reference policy and staged knowledge transfer.
-- `docs/QUALITY_GATES.md`: target publication gates and a current implementation-status table.
-
-## 7. Findings and risk register
-
-| ID | Finding | Risk | Required response |
-|---|---|---|---|
-| GOV-01 | Source identity and source permission lifecycle lack dedicated contracts in inspected paths | High | Section 2 |
-| GOV-02 | Permission evaluator is not yet connected to a source registry or collector | Critical before collection | Sections 2–4 |
-| GOV-03 | Evidence records and grant transitions are persisted; human reviewer authentication and role authorization are not implemented | High before production | Sections 2–3 and 9 |
-| DATA-01 | SQLite persistence is implemented, but backup/restore, source observations, and production operations remain unverified | Medium before operational runs | Sections 3 and 9 |
-| COL-01 | No connector framework verified | High before live collection | Section 4 |
-| EVD-01 | Claim/evidence contracts exist, but end-to-end evidence pipeline is not implemented | High | Section 6 |
-| PUB-01 | Edition contract exists, but publication assembly and last-known-good protection are not implemented | Critical before publishing | Section 8 |
-| QA-01 | Current CI is a small contract test gate, not the complete quality policy | Medium | Sections 1, 9, 10 |
-| QA-02 | Latest branch tests have no verified CI result | High | Re-run/repair CI before merge |
-| OPS-01 | Scheduling, observability, backup, and recovery are not verified as implemented | Medium | Section 9 |
-
-## 8. Baseline disposition
-
-- Keep the current PR draft and unmerged.
-- Do not connect live publishers yet.
-- Do not mark any source as approved without permission evidence.
-- Do not build collection before source/permission contracts and enforcement are in place.
+- Keep PR #1 draft and unmerged until review and explicit approval.
+- Do not connect live publishers or treat a public URL as permission.
+- Do not store full article text, translate, or republish without separate operation-specific permission.
 - Do not publish or export into legacy repositories.
-- Section 2 contracts and Section 3 persistence are now implemented at foundation level; continue with Section 4 only after test execution and code review.
-
-## 9. Section 2 progress update
-
-After the initial baseline, Section 2 added four contracts: `source.schema.json`, `source-endpoint.schema.json`, `permission-evidence.schema.json`, and `source-permission-grant.schema.json`. The older `source-permission.schema.json` is now annotated as deprecated for new records while remaining available for legacy fixtures.
-
-The permission evaluator now requires exact source and endpoint matches whenever a scoped grant is evaluated and denies missing global or operation-level evidence references. New fixture tests cover valid records, malformed/missing scope, missing evidence, approval review metadata, and revocation metadata. These tests are authored; they are not reported as passing until CI executes them. Workflow run #50 failed twice before allocating a runner (`runner_id: 0`, no steps or logs); the test suite did not start, and the run record does not identify the underlying allocation cause.
-
-Section 3 has since implemented cross-record ownership checks, verified-evidence requirements for approved grants, persistence, grant revisions, and an audit trail. Still outstanding are human reviewer authentication/authorization, typed conditions, and enforcement before connector network calls. Those remain in Sections 4 and 9.
-
-
-## 10. Section 3 progress update
-
-Section 3 added typed immutable record views for sources, endpoints, permission evidence, grants, articles, stories, claims, factual evidence, and editions. The SQLite registry uses Python's standard-library `sqlite3`, migration version 1, foreign-key constraints, transactional writes, WAL for file databases, and bounded write locking.
-
-Cross-record checks now require endpoints and rights evidence to belong to the grant's source; approved grants require active source/endpoints and verified evidence; article, story, claim, factual-evidence, and edition references are checked against stored records. Grant transitions and editorial revisions preserve append-only revision histories. Permission decisions record the grant revision, permission-record fingerprint, evidence review states, evaluation time, and evaluator policy version. Audit events form a hash-linked chain with ordinary UPDATE/DELETE blocked by SQLite triggers.
-
-Fixture tests have been authored for migration idempotency/rollback, cross-source reference rejection, evidence approval, grant lifecycle, permission decisions, audit tampering detection, append-only history, optimistic revision conflicts, and writes from separate registry instances. The GitHub workflow now runs the full pytest suite. **None of these new storage tests are reported as passing until a runner completes the workflow successfully.**
-
-Remaining limits include no source-observation or pipeline-run persistence, no live connectors, no network-boundary enforcement, no human reviewer authentication/authorization, no backup/restore drills, and no external audit anchoring. Hash-linked local audit records are tamper-evident, not tamper-proof against a privileged database operator.
-
-## 11. Audit limitations
-
-This was a targeted content audit of the core README, architecture/domain/quality/migration documents, package configuration, contract loader, permission evaluator, selected v1 contracts, permission tests, and CI workflow. It was not a full exhaustive file-tree, dependency vulnerability, static-analysis, runtime, or integration audit. Those checks remain future work.
+- Do not change the Android client or published editions as part of this engine programme.
+- Do not claim production readiness from fixture CI alone.
