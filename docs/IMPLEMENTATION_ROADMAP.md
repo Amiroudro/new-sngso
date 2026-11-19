@@ -185,7 +185,7 @@ Acceptance:
 - Runtime schema validation and a fail-closed operation permission evaluator exist.
 - The evaluator now requires a valid, timezone-aware expiry and rejects non-positive permission windows.
 - Source, endpoint, permission-evidence, and scoped permission-grant contracts now exist. The SQLite registry implements cross-record validation, grant and domain-record revisions, and audit events. Human reviewer authentication and connector enforcement are not implemented.
-- Current CI is fixture-only and targets the full pytest suite, including temporary-database tests. Workflow run #89 passed on attempt 2 after the repository became public. The later transaction-rollback fix, its regression test, and Section 4 design document are newer commits and await their own CI result.
+- Current CI is fixture-only and targets the full pytest suite, including temporary-database and collection tests. Runs #126–#128 passed after the repository became public; run #128 includes the latest source-domain scope changes.
 - Pull request #1 remains draft and unmerged. Its merge is not authorized by this plan.
 
 ## Current execution status
@@ -195,7 +195,7 @@ Acceptance:
 | 1. Repository audit | Documented, targeted audit | Full static/dependency/runtime audit remains future work |
 | 2. Source governance | **Complete:** contracts, fail-closed evaluator, fixtures, review policy, and passing full test suite | No real publisher approval implied; human review and reviewer authorization remain future controls |
 | 3. Domain models and persistence | **Complete:** typed models, SQLite registry, cross-record validation, revisions, audit chain, commit-failure rollback, targeted review, and passing full test suite in run #91 | Source-observation persistence, backups, external audit anchoring, and production authentication remain future work |
-| 4. Permission-first collection | **In progress:** fixture-first orchestrator, discovery/metadata separation, append-only persisted observations, revocation-race guard, per-domain rate limiting, bounded output size, 137 tests passing | Add actual transport-level timeout/response-byte/retry enforcement, stronger URL/redirect checks, adversarial tests, and final review; no live connector |
+| 4. Permission-first collection | **In progress:** fixture-first orchestrator, discovery/metadata separation, append-only observations, revocation-race guard, per-domain rate limiting, bounded output, source-domain locator scope, and passing CI run #128 | Add actual transport-level timeout/response-byte/retry enforcement, DNS/IP and redirect protections, remaining adversarial tests, and final review; no live connector |
 | 5. Ingestion and identity | Not started | Depends on Section 4 |
 | 6. Story intelligence and evidence | Not started | Depends on Section 5 |
 | 7. Editorial production | Not started | Depends on Section 6 |
