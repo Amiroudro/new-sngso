@@ -167,6 +167,58 @@
           "items": {
             "$ref": "common.schema.json#/$defs/id"
           }
+        },
+        "term_language": {
+          "$ref": "common.schema.json#/$defs/languageTag"
+        },
+        "pronunciation": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "part_of_speech": {
+          "enum": [
+            "noun",
+            "verb",
+            "adjective",
+            "adverb",
+            "preposition",
+            "conjunction",
+            "interjection",
+            "phrase",
+            "other"
+          ]
+        },
+        "synonyms": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "antonyms": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "collocations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "exam_context": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
         }
       }
     },
@@ -245,9 +297,11 @@
           "content": {
             "required": [
               "term",
+              "term_language",
               "meaning",
               "context",
-              "example"
+              "example",
+              "part_of_speech"
             ]
           }
         }
