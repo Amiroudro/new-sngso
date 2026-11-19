@@ -31,17 +31,20 @@ Acceptance:
 **Goal:** define the lawful boundary before implementing collection.
 
 Tasks:
-- Design versioned contracts for publisher/source identity, source endpoints, permission grants, evidence references, scope, operations, effective dates, review, revocation, and restrictions.
-- Define the difference between publisher identity, feed/endpoint, and individual source record.
-- Enforce least privilege: no permission inheritance across domains, endpoints, content types, or operations unless explicitly represented.
-- Add schema fixtures and invalid/boundary cases.
-- Define a human review process for uncertain or conflicting permission evidence.
+- Add separate contracts for publisher identity, endpoint identity, permission evidence, and scoped permission grants.
+- Keep the older `source-permission` contract as deprecated compatibility input; new registry records use `source-permission-grant`.
+- Require explicit endpoint IDs, evidence IDs, operation decisions, and bounded effective intervals.
+- Enforce least privilege in the evaluator by requiring exact source and endpoint matches for scoped grants.
+- Require operation-level evidence references when an operation is allowed and review metadata for approved grants.
+- Add valid, invalid, boundary, scope-mismatch, and revocation fixtures.
 
 Acceptance:
-- Schemas validate with the existing runtime contract loader.
-- Missing, expired, revoked, ambiguous, or out-of-scope permission denies.
-- Tests cover scope boundaries and revocation.
-- No real publisher is marked approved without documented evidence.
+- All four new schemas pass Draft 2020-12 meta-validation and runtime payload validation.
+- Missing, expired, revoked, malformed, or out-of-scope permission denies in the evaluator or is rejected by the contract.
+- Tests cover source and endpoint scope, missing evidence, expiry, and revocation.
+- Cross-record ownership checks are explicitly deferred to Section 3; no real publisher is marked approved without documented evidence.
+
+**Progress:** contracts and evaluator-level scope checks have been committed. Tests are authored but await a successful CI run. Cross-record reference validation and human evidence review remain incomplete.
 
 ## 3. Domain models, persistence, and audit trail
 
@@ -177,7 +180,7 @@ Acceptance:
 - Existing schemas include shared primitives, articles, stories, claims, evidence, and editions.
 - Runtime schema validation and a fail-closed operation permission evaluator exist.
 - The evaluator now requires a valid, timezone-aware expiry and rejects non-positive permission windows.
-- No source registry, source permission schema, permission evidence workflow, persistence adapter, connector framework, or publication pipeline has been verified as implemented.
+- Source, endpoint, permission-evidence, and scoped permission-grant contracts now exist; evaluator-level source/endpoint matching is implemented. Cross-record validation, persistent registry, human review workflow, and connector enforcement are not implemented.
 - Current CI is a fixture-only contract test workflow. Latest branch commit has no associated workflow run; tests are not verified as passing.
 - Pull request #1 remains draft and unmerged. Its merge is not authorized by this plan.
 
