@@ -685,6 +685,7 @@ def test_domain_scope_and_rate_limit_identity_use_canonical_dns_names():
     assert collection_module._canonical_dns_name("News.Publisher-A.Example.Org.") == (
         "news.publisher-a.example.org"
     )
+    assert collection_module._canonical_dns_name("news.publisher-a.example.org..") is None
     assert collection_module._host_in_domain_allowlist(
         "News.Publisher-A.Example.Org.",
         ["publisher-a.example.org"],
