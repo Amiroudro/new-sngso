@@ -118,7 +118,7 @@ def _prepared():
         "kind": "brief_summary",
         "language": "bn",
         "status": "draft",
-        "content": {"text": "কর্তৃপক্ষ একটি বিজ্ঞপ্তি জারি করেছে।"},
+        "content": {"text": "কর্তৃপক্ষ একটি বিজ্ঞপ্তি জারি করেছে।", "segments": [{"text": "কর্তৃপক্ষ একটি বিজ্ঞপ্তি জারি করেছে।", "claim_ids": ["claim:a"], "role": "fact"}]},
         "claim_ids": ["claim:a"],
         "created_at": STAMP,
     }, actor="editor", reason="Fixture learning object.")
