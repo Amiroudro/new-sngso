@@ -363,3 +363,25 @@ def test_transport_rejects_conflicting_or_ambiguous_length_headers():
                 "https://news.example.org/feed.xml",
                 allowed_domains=("example.org",),
             )
+
+
+
+@pytest.mark.parametrize("addresses", [
+    ("127.0.0.1",),
+    ("10.0.0.8", "93.184.216.34"),
+    ("fd00::1",),
+    ("not-an-ip",),
+])
+def test_transport_revalidates_all_injected_resolver_addresses(addresses):
+    connected = []
+    client = transport.SafeHTTPSTransport(
+        resolver=lambda host, port: addresses,
+        connection_factory=lambda *args: connected.append(args)
+        or pytest.fail("private or malformed DNS answer must never connect"),
+    )
+    with pytest.raises(transport.TransportError):
+        client.fetch(
+            "https://news.example.org/feed.xml",
+            allowed_domains=("example.org",),
+        )
+    assert connected == []
