@@ -389,6 +389,53 @@ def test_discovery_observation_cannot_be_ingested():
         normalize_observation(observation, "bn")
 
 
+def test_ingestion_transaction_rolls_back_article_and_decision_on_audit_failure(monkeypatch):
+    with SQLiteRegistry() as registry:
+        add_publisher(registry, "publisher-a")
+        add_observation(registry, "publisher-a", "observation:first")
+
+        def fail_audit(*args, **kwargs):
+            raise RuntimeError("simulated audit write failure")
+
+        monkeypatch.setattr(registry, "_append_audit", fail_audit)
+        observation = registry.get_collection_observation("observation:first")
+        payload, fingerprint = normalize_observation(observation, "bn")
+        with pytest.raises(RuntimeError, match="audit write failure"):
+            registry.ingest_article_observation(
+                "observation:first", payload, duplicate_fingerprint=fingerprint
+            )
+        assert registry.get_ingestion_decision("observation:first") is None
+        assert registry.ingestion_decision_history("observation:first") == []
+        assert registry.get_domain_record("article", payload["id"]) is None
+        assert registry._connection.in_transaction is False
+
+
+def test_two_registry_instances_ingest_one_observation_once(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    database = tmp_path / "ingestion-race.sqlite"
+    first = SQLiteRegistry(database)
+    try:
+        add_publisher(first, "publisher-a")
+        add_observation(first, "publisher-a", "observation:first")
+        second = SQLiteRegistry(database)
+        try:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(
+                    lambda registry: ingest_observation(
+                        registry, "observation:first", source_language="bn"
+                    ),
+                    (first, second),
+                ))
+            assert results[0] == results[1]
+            assert len(first.ingestion_decision_history("observation:first")) == 1
+            assert first.verify_audit_chain()
+        finally:
+            second.close()
+    finally:
+        first.close()
+
+
 def test_ingestion_decision_history_is_append_only():
     with SQLiteRegistry() as registry:
         add_publisher(registry, "publisher-a")
