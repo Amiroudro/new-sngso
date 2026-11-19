@@ -73,4 +73,4 @@ The glossary registry is stored under schema migration 12. A headword is unique 
 
 The report is deterministic and read-only. It does not generate a numerical quality score, rank claims, or replace an editor's judgement. It provides a machine-checkable hand-off for later edition assembly.
 
-GitHub Actions [run #44624483102](https://github.com/Amiroudro/new-sngso/actions/runs/44624483102) passed **431 tests in 2.49 seconds** on code head `29aa4a12825e3e9af80e1bc28913afca294dc468`, including quality-report pass/blocker cases and proof that the report does not write audit events.
+GitHub Actions [run #44624870017](https://github.com/Amiroudro/new-sngso/actions/runs/44624870017) passed **433 tests in 3.35 seconds** on code head `5fe0baba03896ba8dee5292ac5e23d37145d4548`. The suite includes quality-report pass/blocker cases, proof that reports do not write audit events, and MCQ option/key validation.
