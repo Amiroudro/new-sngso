@@ -27,7 +27,7 @@ A source observation is never deleted when an article is created. The ingestion 
 
 ## Article identity and duplicate candidates
 
-The article ID is a deterministic SHA-256-derived identifier over (source_id, canonical_uri). Repeated observations of the same source URL reuse the existing article. A changed tracking parameter does not create another article. Later observations of the same URL refresh mutable metadata only when their observation timestamp is newer; each refresh creates an article revision and audit event. Older or equal-time observations remain linked as provenance without overwriting newer metadata.
+The article ID is a deterministic SHA-256-derived identifier over (source_id, canonical_uri). Repeated observations of the same source URL reuse the existing article. A changed tracking parameter does not create another article. Later observations of the same URL refresh mutable metadata only when their observation timestamp is newer; each refresh creates an article revision and audit event. Candidate matching uses only the latest current fingerprint for each article, not stale earlier headlines. Older or equal-time observations remain linked as provenance without overwriting newer metadata.
 
 A separate duplicate fingerprint is calculated only when both title and publication timestamp are present. It uses normalized title, normalized language, and normalized UTC publication timestamp. A cross-publisher match creates a **possible duplicate** decision, not a merge. Each publisher retains its own article record.
 
