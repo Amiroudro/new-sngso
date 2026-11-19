@@ -749,7 +749,7 @@ def test_sqlite_storage_rejects_noncanonical_source_domain_allowlist():
 
 def test_registry_rejects_noncanonical_source_domains_at_creation():
     payload = source_payload()
-    payload["domains"] = ["publisher-a.example.org."]
+    payload["domains"] = ["publisher-a.example.org", "publisher-a.example.org"]
     with SQLiteRegistry() as registry:
         with pytest.raises(RegistryIntegrityError, match="canonical DNS names"):
             registry.add_source(payload)
