@@ -151,6 +151,28 @@ def test_scoped_grant_without_endpoint_ids_fails_closed() -> None:
     assert (result.allowed, result.reason) == (False, "invalid_endpoint_scope")
 
 
+def test_scoped_grant_rejects_blank_source_and_endpoint_identifiers() -> None:
+    record = permission_grant()
+    record["source_id"] = "   "
+    result = evaluate_permission(
+        record,
+        "discovery",
+        source_id="   ",
+        endpoint_id="endpoint:publisher-a-rss",
+    )
+    assert (result.allowed, result.reason) == (False, "invalid_source_scope")
+
+    record = permission_grant()
+    record["endpoint_ids"] = ["   "]
+    result = evaluate_permission(
+        record,
+        "discovery",
+        source_id="source:publisher-a",
+        endpoint_id="   ",
+    )
+    assert (result.allowed, result.reason) == (False, "invalid_endpoint_scope")
+
+
 def test_scoped_grant_without_source_id_fails_closed() -> None:
     record = permission_grant()
     record.pop("source_id")
