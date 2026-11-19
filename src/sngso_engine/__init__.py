@@ -33,6 +33,7 @@ from .models import (
     PermissionGrantRecord,
     SourceEndpointRecord,
     SourceRecord,
+    StoryDecisionRecord,
     StoryRecord,
 )
 from .permissions import PermissionDecision, evaluate_permission
@@ -76,6 +77,7 @@ __all__ = [
     "SourceEndpointRecord",
     "SourceGovernanceRepository",
     "SourceRecord",
+    "StoryDecisionRecord",
     "StoryRecord",
     "canonical_json_bytes",
     "canonicalize_article_url",
