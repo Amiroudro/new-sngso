@@ -44,6 +44,16 @@ def _canonical_host(host: str) -> str:
         raise TransportError("URL host is invalid") from exc
     if not canonical or len(canonical) > 253:
         raise TransportError("URL host is invalid")
+    labels = canonical.split(".")
+    if any(
+        not label
+        or len(label) > 63
+        or label.startswith("-")
+        or label.endswith("-")
+        or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789-" for char in label)
+        for label in labels
+    ):
+        raise TransportError("URL host is invalid")
     try:
         ipaddress.ip_address(canonical)
     except ValueError:
@@ -185,7 +195,8 @@ class SafeHTTPSTransport:
                 attempts += 1
                 try:
                     response = self._request_once(
-                        host, port, addresses[0], path, remaining, max_bytes
+                        host, port, addresses[0], path, remaining, max_bytes,
+                        deadline,
                     )
                 except (ssl.SSLError, TransportError):
                     raise
@@ -228,7 +239,7 @@ class SafeHTTPSTransport:
 
     def _request_once(
         self, host: str, port: int, address: str, path: str,
-        timeout: float, max_bytes: int,
+        timeout: float, max_bytes: int, deadline: float,
     ) -> tuple[int, dict[str, str], bytes]:
         connection = self._connection_factory(host, port, address, timeout)
         try:
@@ -256,6 +267,11 @@ class SafeHTTPSTransport:
                     raise TransportError("invalid Content-Length header") from exc
             body = bytearray()
             while True:
+                remaining = deadline - self._clock()
+                if remaining <= 0:
+                    raise TransportError("request deadline exceeded")
+                if connection.sock is not None:
+                    connection.sock.settimeout(remaining)
                 chunk = response.read(min(16384, max_bytes + 1 - len(body)))
                 if not chunk:
                     break
