@@ -6,10 +6,14 @@ after the repository has approved the exact source/endpoint/operation tuple.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable, Protocol
+from threading import Lock
+from time import monotonic
+from typing import Any, Callable, Iterable, Protocol
 from urllib.parse import urlsplit
+import json
 import uuid
 
 from .permissions import OPERATIONS, PermissionDecision
@@ -33,6 +37,9 @@ class CollectionRequest:
     grant_id: str
     operation: str
     max_items: int = 20
+    timeout_seconds: float = 10.0
+    max_retries: int = 0
+    max_observation_bytes: int = 65536
 
     def __post_init__(self) -> None:
         for field_name in ("source_id", "endpoint_id", "grant_id"):
@@ -45,6 +52,24 @@ class CollectionRequest:
             raise ValueError("max_items must be an integer")
         if not 1 <= self.max_items <= 100:
             raise ValueError("max_items must be between 1 and 100")
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or not 0.1 <= self.timeout_seconds <= 30
+        ):
+            raise ValueError("timeout_seconds must be between 0.1 and 30")
+        if (
+            isinstance(self.max_retries, bool)
+            or not isinstance(self.max_retries, int)
+            or not 0 <= self.max_retries <= 2
+        ):
+            raise ValueError("max_retries must be between 0 and 2")
+        if (
+            isinstance(self.max_observation_bytes, bool)
+            or not isinstance(self.max_observation_bytes, int)
+            or not 1024 <= self.max_observation_bytes <= 1_000_000
+        ):
+            raise ValueError("max_observation_bytes must be between 1024 and 1000000")
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +132,42 @@ class ObservationSink(Protocol):
     def append_many(self, observations: tuple[CollectionObservation, ...]) -> None: ...
 
 
+class DomainRateLimiter(Protocol):
+    def acquire(self, domain: str) -> bool: ...
+
+
+class InMemoryDomainRateLimiter:
+    """Thread-safe fixed-window limiter suitable for fixture and local runs."""
+
+    def __init__(
+        self,
+        *,
+        max_requests: int = 10,
+        window_seconds: float = 60.0,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        if max_requests < 1 or window_seconds <= 0:
+            raise ValueError("rate-limit settings must be positive")
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._clock = clock
+        self._events: dict[str, deque[float]] = {}
+        self._lock = Lock()
+
+    def acquire(self, domain: str) -> bool:
+        if not isinstance(domain, str) or not domain.strip():
+            return False
+        now = self._clock()
+        with self._lock:
+            events = self._events.setdefault(domain.lower(), deque())
+            while events and now - events[0] >= self.window_seconds:
+                events.popleft()
+            if len(events) >= self.max_requests:
+                return False
+            events.append(now)
+            return True
+
+
 class InMemoryObservationSink:
     """Deterministic append-only sink for tests and local fixtures only."""
 
@@ -135,11 +196,13 @@ class PermissionFirstCollector:
         observation_sink: ObservationSink,
         *,
         clock=lambda: datetime.now(timezone.utc),
+        rate_limiter: DomainRateLimiter | None = None,
     ) -> None:
         self._repository = repository
         self._connectors = dict(connectors)
         self._sink = observation_sink
         self._clock = clock
+        self._rate_limiter = rate_limiter or InMemoryDomainRateLimiter()
 
     def collect(self, request: CollectionRequest, connector_name: str) -> CollectionResult:
         if request.operation not in {"discovery", "metadata"}:
@@ -168,6 +231,10 @@ class PermissionFirstCollector:
         if request.operation not in capabilities.operations:
             return CollectionResult(False, "connector_operation_unsupported")
 
+        domain = urlsplit(endpoint.endpoint_uri).hostname
+        if not domain:
+            return CollectionResult(False, "invalid_endpoint_uri")
+
         evaluated_at = self._clock()
         decision = self._repository.evaluate_grant(
             request.grant_id,
@@ -177,6 +244,8 @@ class PermissionFirstCollector:
         )
         if not decision.allowed:
             return CollectionResult(False, decision.reason)
+        if not self._rate_limiter.acquire(domain):
+            return CollectionResult(False, "rate_limited")
 
         # Capture the authorized revision before connector execution. The
         # persistent sink checks it again so revocation during collection
@@ -186,9 +255,18 @@ class PermissionFirstCollector:
         # This is the first point at which connector code is invoked.
         raw_items = connector.collect(request, endpoint)
         validated: list[CollectionObservation] = []
+        total_observation_bytes = 0
         for index, raw in enumerate(raw_items):
             if index >= request.max_items:
                 raise CollectionError("connector exceeded max_items")
+            try:
+                total_observation_bytes += len(
+                    json.dumps(raw, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                )
+            except (TypeError, ValueError) as exc:
+                raise CollectionError("connector returned a non-JSON observation") from exc
+            if total_observation_bytes > request.max_observation_bytes:
+                raise CollectionError("connector exceeded max_observation_bytes")
             validated.append(
                 self._validate_observation(
                     raw,
