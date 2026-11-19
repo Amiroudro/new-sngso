@@ -102,7 +102,7 @@ Acceptance:
 
 ## 6. Story intelligence, claims, and evidence
 
-**Status: in progress.** The first provenance-integrity slice is implemented and verified by GitHub Actions [run #44608678246](https://github.com/Amiroudro/new-sngso/actions/runs/44608678246): **319 tests passed** on code head `ea2263497c108ebbbbad8a0cd84b1a1f79719fed`. Remaining work includes explicit story merge/split history, event chronology, and reviewed claim/evidence workflows.
+**Status: in progress.** The provenance-integrity slice and initial human claim-assessment workflow are implemented. The first slice passed GitHub Actions [run #44608678246](https://github.com/Amiroudro/new-sngso/actions/runs/44608678246) with 319 tests on code head `ea2263497c108ebbbbad8a0cd84b1a1f79719fed`. The expanded assessment workflow is awaiting its current-head CI run. Remaining work includes explicit story merge/split history and event chronology.
 
 **Goal:** build traceable understanding rather than headline aggregation.
 
