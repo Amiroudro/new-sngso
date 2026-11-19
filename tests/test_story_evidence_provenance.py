@@ -248,3 +248,102 @@ def test_evidence_source_article_and_locator_identity_cannot_be_rewritten():
             )
     finally:
         registry.close()
+
+
+
+def _review_claim(registry, evidence_ids, *, assessment="supported", reviewed_at=STAMP, review_note="Reviewed against recorded evidence."):
+    claim = registry.get_domain_record("claim", "claim:event-date")
+    payload = claim.to_payload()
+    payload["evidence_ids"] = evidence_ids
+    payload["assessment"] = assessment
+    if reviewed_at is not None:
+        payload["reviewed_at"] = reviewed_at
+    if review_note is not None:
+        payload["review_note"] = review_note
+    return registry.revise_domain_record(
+        "claim",
+        claim.id,
+        payload,
+        expected_revision=1,
+        actor="editor",
+        reason="Human assessment after evidence review.",
+    )
+
+
+def test_human_claim_assessment_requires_review_metadata_and_linked_evidence():
+    registry, source_a, host_a, article_a, *_ = _prepared_registry()
+    try:
+        evidence = registry.add_domain_record(
+            "evidence",
+            _evidence("claim:event-date", source_a, article_a, host_a),
+        )
+        with pytest.raises(RegistryIntegrityError, match="reviewed_at and a non-empty review_note"):
+            _review_claim(registry, [evidence.id], reviewed_at=None, review_note=None)
+    finally:
+        registry.close()
+
+
+def test_supported_claim_requires_a_complete_evidence_list():
+    registry, source_a, host_a, article_a, *_ = _prepared_registry()
+    try:
+        first = registry.add_domain_record(
+            "evidence",
+            _evidence("claim:event-date", source_a, article_a, host_a),
+        )
+        second_payload = _evidence("claim:event-date", source_a, article_a, host_a)
+        second_payload["id"] = "evidence:source-a-second"
+        second_payload["relationship"] = "qualifies"
+        second = registry.add_domain_record("evidence", second_payload)
+        with pytest.raises(RegistryIntegrityError, match="every evidence record linked"):
+            _review_claim(registry, [first.id])
+        assert second.id != first.id
+    finally:
+        registry.close()
+
+
+def test_new_evidence_requires_claim_to_be_reset_before_review():
+    registry, source_a, host_a, article_a, *_ = _prepared_registry()
+    try:
+        first = registry.add_domain_record(
+            "evidence",
+            _evidence("claim:event-date", source_a, article_a, host_a),
+        )
+        reviewed = _review_claim(registry, [first.id])
+        assert reviewed.assessment == "supported"
+
+        second_payload = _evidence("claim:event-date", source_a, article_a, host_a)
+        second_payload["id"] = "evidence:source-a-contradiction"
+        second_payload["relationship"] = "contradicts"
+        with pytest.raises(RegistryIntegrityError, match="reset to unassessed"):
+            registry.add_domain_record("evidence", second_payload)
+
+        claim = registry.get_domain_record("claim", "claim:event-date")
+        reset_payload = claim.to_payload()
+        reset_payload["assessment"] = "unassessed"
+        registry.revise_domain_record(
+            "claim",
+            claim.id,
+            reset_payload,
+            expected_revision=2,
+            actor="editor",
+            reason="Reopened assessment after new reporting became available.",
+        )
+        second = registry.add_domain_record("evidence", second_payload)
+        claim = registry.get_domain_record("claim", "claim:event-date")
+        final_payload = claim.to_payload()
+        final_payload["evidence_ids"] = [first.id, second.id]
+        final_payload["assessment"] = "disputed"
+        final_payload["reviewed_at"] = STAMP
+        final_payload["review_note"] = "Supporting and contradicting reports were reviewed."
+        final = registry.revise_domain_record(
+            "claim",
+            claim.id,
+            final_payload,
+            expected_revision=3,
+            actor="editor",
+            reason="Reassessed after contradictory evidence.",
+        )
+        assert final.assessment == "disputed"
+        assert registry.verify_audit_chain()
+    finally:
+        registry.close()
