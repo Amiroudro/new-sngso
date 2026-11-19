@@ -751,13 +751,25 @@ def _validate_learning_object_traceability(payload: dict[str, Any]) -> None:
 
 
 def _validate_learning_object_answer_links(payload: dict[str, Any]) -> None:
-    """Ensure every question answer is grounded in claims linked to the object."""
-    if payload.get("kind") not in {"comprehension_question", "analysis_question"}:
+    """Ensure question answers and MCQ keys are structurally grounded."""
+    kind = payload.get("kind")
+    if kind not in {"comprehension_question", "analysis_question", "mcq_question"}:
         return
-    answer_claims = set(payload.get("content", {}).get("answer_claim_ids", []))
+    content = payload.get("content", {})
+    answer_claims = set(content.get("answer_claim_ids", []))
     object_claims = set(payload.get("claim_ids", []))
     if not answer_claims or not answer_claims.issubset(object_claims):
         raise RegistryIntegrityError("question answer claim links must be a non-empty subset of the object's claims")
+    if kind == "mcq_question":
+        options = content.get("options", [])
+        option_ids = [item["id"] for item in options]
+        option_texts = [item["text"].strip().casefold() for item in options]
+        if len(option_ids) != len(set(option_ids)):
+            raise RegistryIntegrityError("MCQ option IDs must be unique")
+        if len(option_texts) != len(set(option_texts)):
+            raise RegistryIntegrityError("MCQ option text must be unique")
+        if content.get("correct_option_id") not in set(option_ids):
+            raise RegistryIntegrityError("MCQ correct option must reference one of its options")
 
 
 _MIGRATION_12 = (
@@ -4325,7 +4337,7 @@ class SQLiteRegistry:
                 "Every factual summary segment cites assessed claims with linked evidence.",
             )
 
-            if payload["kind"] in {"comprehension_question", "analysis_question"}:
+            if payload["kind"] in {"comprehension_question", "analysis_question", "mcq_question"}:
                 answer_claims = payload["content"].get("answer_claim_ids", [])
                 answer_supported = bool(answer_claims) and all(
                     claim_assessments.get(claim_id) in {"supported", "partially_supported"}
