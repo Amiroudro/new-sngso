@@ -340,3 +340,188 @@ def test_invalid_operation_input_denies_without_crashing() -> None:
             endpoint_id="endpoint:publisher-a-rss",
         )
         assert (decision.allowed, decision.reason) == (False, "unknown_operation")
+
+
+def article_record() -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "id": "article:publisher-a-001",
+        "source_id": "source:publisher-a",
+        "canonical_uri": "https://publisher-a.example.org/news/001",
+        "title": "A sample report",
+        "source_language": "en",
+        "discovered_at": STAMP,
+        "record_status": "active",
+    }
+
+
+def story_record() -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "id": "story:sample-event",
+        "canonical_title": "A sample event",
+        "status": "developing",
+        "article_ids": ["article:publisher-a-001"],
+        "created_at": STAMP,
+        "updated_at": STAMP,
+        "revision": 1,
+    }
+
+
+def claim_record() -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "id": "claim:sample-event-001",
+        "story_id": "story:sample-event",
+        "text": "The event began on the stated date.",
+        "language": "en",
+        "assessment": "unassessed",
+        "provenance": [
+            {
+                "source_id": "source:publisher-a",
+                "article_id": "article:publisher-a-001",
+                "observed_at": STAMP,
+                "method": "manual_fixture",
+                "method_version": "1.0",
+            }
+        ],
+        "created_at": STAMP,
+    }
+
+
+def factual_evidence_record() -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "id": "evidence:sample-event-001",
+        "claim_id": "claim:sample-event-001",
+        "source_id": "source:publisher-a",
+        "article_id": "article:publisher-a-001",
+        "relationship": "supports",
+        "assessment_method": "human",
+        "locator": {"uri": "https://publisher-a.example.org/news/001"},
+        "assessed_at": STAMP,
+        "assessed_by": "editor",
+    }
+
+
+def edition_record() -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "id": "edition:sample-2026-11-19",
+        "edition_key": "2026-11-19",
+        "created_at": STAMP,
+        "status": "draft",
+        "content_hash": "sha256:" + "b" * 64,
+        "pipeline_run_id": "pipeline-run:sample-001",
+        "story_ids": ["story:sample-event"],
+        "language_variants": [{"language": "en", "status": "draft"}],
+    }
+
+
+def populate_editorial_records(registry: SQLiteRegistry) -> None:
+    registry.add_source(source_record())
+    registry.add_domain_record("article", article_record())
+    registry.add_domain_record("story", story_record())
+    registry.add_domain_record("claim", claim_record())
+    registry.add_domain_record("evidence", factual_evidence_record())
+    registry.add_domain_record("edition", edition_record())
+
+
+def test_editorial_domain_records_round_trip_with_typed_models() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        assert registry.get_domain_record("article", "article:publisher-a-001").title == "A sample report"
+        assert registry.get_domain_record("story", "story:sample-event").canonical_title == "A sample event"
+        assert registry.get_domain_record("claim", "claim:sample-event-001").assessment == "unassessed"
+        assert registry.get_domain_record("evidence", "evidence:sample-event-001").relationship == "supports"
+        assert registry.get_domain_record("edition", "edition:sample-2026-11-19").status == "draft"
+
+
+def test_story_cannot_reference_unknown_article() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        record = story_record()
+        record["article_ids"] = ["article:not-yet-stored"]
+        with pytest.raises(RegistryIntegrityError, match="unknown article"):
+            registry.add_domain_record("story", record)
+
+
+def test_claim_cannot_reference_unknown_story() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        record = claim_record()
+        record["story_id"] = "story:missing"
+        with pytest.raises(RegistryIntegrityError, match="unknown story"):
+            registry.add_domain_record("claim", record)
+
+
+def test_factual_evidence_cannot_cross_article_source_boundary() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_source(source_record("source:publisher-b"))
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        registry.add_domain_record("claim", claim_record())
+        record = factual_evidence_record()
+        record["source_id"] = "source:publisher-b"
+        with pytest.raises(RegistryIntegrityError, match="article and source do not match"):
+            registry.add_domain_record("evidence", record)
+
+
+def test_domain_record_revision_is_audited_and_uses_optimistic_locking() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        revised = story_record()
+        revised["status"] = "ongoing"
+        revised["updated_at"] = "2026-11-20T00:00:00Z"
+        record = registry.revise_domain_record(
+            "story",
+            "story:sample-event",
+            revised,
+            expected_revision=1,
+            actor="editor",
+            reason="Additional reporting confirms the story remains active.",
+        )
+        assert record.status == "ongoing"
+        assert [item["revision"] for item in registry.domain_record_history("story", record.id)] == [1, 2]
+        with pytest.raises(RegistryIntegrityError, match="revision conflict"):
+            registry.revise_domain_record(
+                "story",
+                "story:sample-event",
+                revised,
+                expected_revision=1,
+                actor="editor",
+                reason="Stale write must not overwrite the newer revision.",
+            )
+
+
+def test_published_edition_snapshot_cannot_be_revised() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        edition = edition_record()
+        edition["status"] = "published"
+        registry.add_domain_record("edition", edition)
+        with pytest.raises(RegistryIntegrityError, match="snapshots are immutable"):
+            registry.revise_domain_record(
+                "edition",
+                edition["id"],
+                edition,
+                expected_revision=1,
+                actor="editor",
+                reason="Published snapshots must remain immutable.",
+            )
+
+
+def test_domain_record_revisions_are_append_only() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "DELETE FROM domain_record_revisions WHERE record_type = 'story'"
+            )
