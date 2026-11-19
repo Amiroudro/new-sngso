@@ -1355,18 +1355,15 @@ class SQLiteRegistry:
                 or article_payload.get("permission_id") != observation["grant_id"]
             ):
                 raise RegistryIntegrityError("article source/permission does not match its observation")
-            from .ingestion import canonicalize_article_url
-            expected_uri = canonicalize_article_url(
-                observation["final_locator"] or observation["locator"]
+            from .ingestion import normalize_observation
+            expected_payload, expected_fingerprint = normalize_observation(
+                self.get_collection_observation(observation_id),
+                article_payload.get("source_language", ""),
             )
-            if article_payload.get("canonical_uri") != expected_uri:
-                raise RegistryIntegrityError("article canonical URI does not match its source observation")
-            expected_article_id = "article:" + sha256_fingerprint({
-                "source_id": article_payload["source_id"],
-                "canonical_uri": expected_uri,
-            }).split(":", 1)[1]
-            if article_payload.get("id") != expected_article_id:
-                raise RegistryIntegrityError("article ID does not match deterministic source/URL identity")
+            if article_payload != expected_payload or duplicate_fingerprint != expected_fingerprint:
+                raise RegistryIntegrityError(
+                    "article payload and duplicate fingerprint do not match normalized source observation"
+                )
             self._check_ingestion_permission(connection, observation)
             endpoint_payload = json.loads(connection.execute(
                 "SELECT payload_json FROM source_endpoints WHERE id = ?",
