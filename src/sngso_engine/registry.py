@@ -2000,6 +2000,126 @@ class SQLiteRegistry:
             )
         return record
 
+    def story_reporting_independence(self, story_id: str) -> dict[str, Any]:
+        """Summarize publisher count and duplicate-review state without claiming proof of independence."""
+        story = self.get_domain_record("story", story_id)
+        if story is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        story_payload = story.to_payload()
+        article_ids = list(story_payload.get("article_ids", []))
+        article_payloads: dict[str, dict[str, Any]] = {}
+        for article_id in article_ids:
+            article = self.get_domain_record("article", article_id)
+            if article is None:
+                raise RegistryIntegrityError(
+                    f"story references a missing article: {article_id}"
+                )
+            article_payloads[article_id] = article.to_payload()
+
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT d.* FROM ingestion_current c
+                JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                WHERE d.article_id IN (
+                    SELECT id FROM domain_records WHERE record_type = 'article'
+                )
+                ORDER BY d.decided_at, d.decision_id"""
+            ).fetchall()
+
+        relevant = set(article_ids)
+        latest_review: dict[str, sqlite3.Row] = {}
+        for row in rows:
+            if row["article_id"] not in relevant:
+                continue
+            if row["outcome"] not in {
+                "possible_duplicate", "confirmed_duplicate", "distinct"
+            }:
+                continue
+            previous = latest_review.get(row["article_id"])
+            if previous is None or (
+                row["decided_at"], row["decision_id"]
+            ) > (
+                previous["decided_at"], previous["decision_id"]
+            ):
+                latest_review[row["article_id"]] = row
+
+        statuses: list[dict[str, Any]] = []
+        unresolved: list[dict[str, str]] = []
+        confirmed_pairs: list[dict[str, str]] = []
+        reviewed_distinct = 0
+        no_candidate = 0
+        external_confirmed = 0
+
+        parent = {article_id: article_id for article_id in article_ids}
+
+        def find(item: str) -> str:
+            while parent[item] != item:
+                parent[item] = parent[parent[item]]
+                item = parent[item]
+            return item
+
+        def union(left: str, right: str) -> None:
+            root_left, root_right = find(left), find(right)
+            if root_left != root_right:
+                parent[root_right] = root_left
+
+        for article_id in article_ids:
+            payload = article_payloads[article_id]
+            decision = latest_review.get(article_id)
+            if decision is None:
+                status = "no_candidate"
+                duplicate_of = None
+                no_candidate += 1
+            else:
+                status = decision["outcome"]
+                duplicate_of = decision["duplicate_of_article_id"]
+                if status == "possible_duplicate":
+                    unresolved.append({
+                        "article_id": article_id,
+                        "duplicate_of_article_id": duplicate_of or "",
+                    })
+                elif status == "distinct":
+                    reviewed_distinct += 1
+                elif status == "confirmed_duplicate":
+                    confirmed_pairs.append({
+                        "article_id": article_id,
+                        "duplicate_of_article_id": duplicate_of or "",
+                    })
+                    if duplicate_of in parent:
+                        union(article_id, duplicate_of)
+                    else:
+                        external_confirmed += 1
+            statuses.append({
+                "article_id": article_id,
+                "source_id": payload["source_id"],
+                "duplicate_status": status,
+                "duplicate_of_article_id": duplicate_of,
+            })
+
+        grouped: dict[str, list[str]] = {}
+        for article_id in article_ids:
+            root = find(article_id)
+            grouped.setdefault(root, []).append(article_id)
+        confirmed_groups = [
+            sorted(group) for group in grouped.values() if len(group) > 1
+        ]
+
+        return {
+            "story_id": story_id,
+            "article_count": len(article_ids),
+            "publisher_count": len({item["source_id"] for item in statuses}),
+            "articles": statuses,
+            "unresolved_candidates": unresolved,
+            "confirmed_duplicate_pairs": confirmed_pairs,
+            "confirmed_duplicate_groups": confirmed_groups,
+            "unresolved_candidate_count": len(unresolved),
+            "confirmed_duplicate_count": len(confirmed_pairs),
+            "external_confirmed_duplicate_count": external_confirmed,
+            "reviewed_distinct_count": reviewed_distinct,
+            "no_candidate_count": no_candidate,
+            "independence_claim": "not_established_by_publisher_count_or_no_candidate",
+        }
+
     def get_domain_record(self, record_type: str, record_id: str):
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
