@@ -3617,6 +3617,16 @@ class SQLiteRegistry:
             perspective_history = self.perspective_history(story_id)
             claim_relation_history = self.claim_relation_history(story_id)
             decisions = self.story_decision_history(story_id)
+            learning_object_rows = connection.execute(
+                """SELECT id, revision, updated_at, payload_json FROM learning_objects
+                WHERE story_id = ? ORDER BY kind, language, id""",
+                (story_id,),
+            ).fetchall()
+            learning_objects = [
+                {"id": row["id"], "revision": row["revision"],
+                 "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
+                for row in learning_object_rows
+            ]
             reporting_independence = self.story_reporting_independence(story_id)
             snapshot = {
                 "story_id": story_id,
@@ -3633,6 +3643,7 @@ class SQLiteRegistry:
                 "claim_relation_history": claim_relation_history,
                 "claim_relations": [item for item in claim_relation_history if not item["is_superseded"]],
                 "story_decisions": decisions,
+                "learning_objects": learning_objects,
                 "reporting_independence": reporting_independence,
             }
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
