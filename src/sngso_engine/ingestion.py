@@ -69,6 +69,28 @@ def normalize_timestamp(value: str, *, field: str = "timestamp") -> str:
     return utc.isoformat(timespec=timespec).replace("+00:00", "Z")
 
 
+def _remove_dot_segments(path: str) -> str:
+    leading = path.startswith("/")
+    trailing = path.endswith("/") or path.endswith("/.") or path.endswith("/..")
+    stack: list[str] = []
+    for segment in path.split("/"):
+        if segment == ".":
+            continue
+        if segment == "..":
+            if stack and stack[-1] not in {"", ".."}:
+                stack.pop()
+            elif not leading:
+                stack.append("..")
+            continue
+        stack.append(segment)
+    result = ("/" if leading else "") + "/".join(stack[1:] if leading and stack and stack[0] == "" else stack)
+    if leading and not result.startswith("/"):
+        result = "/" + result
+    if trailing and result and not result.endswith("/"):
+        result += "/"
+    return result or ("/" if leading else "")
+
+
 def canonicalize_article_url(value: str) -> str:
     """Canonicalize safe article URLs without guessing away content identifiers.
 
@@ -106,7 +128,7 @@ def canonicalize_article_url(value: str) -> str:
     if port is not None and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
         netloc = f"{host}:{port}"
 
-    path = parsed.path or "/"
+    path = _remove_dot_segments(parsed.path or "/")
     if _BAD_PERCENT.search(path):
         raise IngestionError("article URL path contains an invalid percent escape")
     path = quote(path, safe="/:@!$&'()*+,;=-._~%")
