@@ -111,7 +111,7 @@ At audit time, the latest branch commit `875693bf25c43596f588ec059c12ab9ff5a9a67
 
 After the initial baseline, Section 2 added four contracts: `source.schema.json`, `source-endpoint.schema.json`, `permission-evidence.schema.json`, and `source-permission-grant.schema.json`. The older `source-permission.schema.json` is now annotated as deprecated for new records while remaining available for legacy fixtures.
 
-The permission evaluator now requires exact source and endpoint matches whenever a scoped grant is evaluated and denies missing global or operation-level evidence references. New fixture tests cover valid records, malformed/missing scope, missing evidence, approval review metadata, and revocation metadata. These tests are authored; they are not reported as passing until CI executes them.
+The permission evaluator now requires exact source and endpoint matches whenever a scoped grant is evaluated and denies missing global or operation-level evidence references. New fixture tests cover valid records, malformed/missing scope, missing evidence, approval review metadata, and revocation metadata. These tests are authored; they are not reported as passing until CI executes them. Workflow run #50 failed twice before allocating a runner (`runner_id: 0`, no steps or logs); the test suite did not start, and the run record does not identify the underlying allocation cause.
 
 Still outstanding: cross-record verification that endpoint and evidence IDs belong to the named source, confirming evidence records are actually verified and not merely referenced, persistence/audit history, human rights review, typed conditions, and enforcement before connector network calls. Those are assigned to Sections 3 and 4.
 
