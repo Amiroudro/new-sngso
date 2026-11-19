@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import http.client
 import ipaddress
 import math
+import random
 import dns.exception
 import dns.resolver
 import socket
@@ -233,6 +234,7 @@ class SafeHTTPSTransport:
         connection_factory: Callable[[str, int, str, float], http.client.HTTPSConnection] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        jitter: Callable[[float], float] = lambda ceiling: random.uniform(0.0, ceiling),
     ) -> None:
         self._resolver = resolver or BoundedDNSResolver(clock=clock)
         self._connection_factory = connection_factory or (
@@ -242,6 +244,7 @@ class SafeHTTPSTransport:
         )
         self._sleep = sleep
         self._clock = clock
+        self._jitter = jitter
 
     def fetch(
         self,
@@ -299,12 +302,12 @@ class SafeHTTPSTransport:
                 except (OSError, TimeoutError, http.client.HTTPException) as exc:
                     if retry >= max_retries or self._clock() >= deadline:
                         raise TransportError("HTTPS request failed") from exc
-                    delay = min(0.25 * (2 ** retry), max(0.0, deadline - self._clock()))
+                    delay = self._bounded_retry_delay(retry, deadline)
                     if delay > 0:
                         self._sleep(delay)
                     continue
                 if response[0] in self._RETRY_STATUSES and retry < max_retries:
-                    delay = min(0.25 * (2 ** retry), max(0.0, deadline - self._clock()))
+                    delay = self._bounded_retry_delay(retry, deadline)
                     if delay > 0:
                         self._sleep(delay)
                     continue
@@ -334,6 +337,16 @@ class SafeHTTPSTransport:
                 attempts=attempts,
                 redirects=redirects,
             )
+
+    def _bounded_retry_delay(self, retry: int, deadline: float) -> float:
+        remaining = deadline - self._clock()
+        if remaining <= 0:
+            return 0.0
+        ceiling = min(0.25 * (2 ** retry), remaining)
+        delay = self._jitter(ceiling)
+        if not _valid_finite_number(delay, 0.0, ceiling):
+            raise TransportError("retry jitter returned an invalid delay")
+        return delay
 
     def _request_once(
         self, host: str, port: int, address: str, path: str,
