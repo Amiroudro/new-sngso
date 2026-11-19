@@ -873,6 +873,54 @@ _MIGRATION_12 = (
     """CREATE TRIGGER glossary_entry_revisions_no_delete
         BEFORE DELETE ON glossary_entry_revisions
         BEGIN SELECT RAISE(ABORT, 'glossary revisions are append-only'); END""",
+    """CREATE TRIGGER learning_objects_mcq_validate_insert
+        BEFORE INSERT ON learning_objects
+        WHEN json_extract(NEW.payload_json, '$.kind') = 'mcq_question'
+        BEGIN
+            SELECT CASE WHEN COALESCE(json_array_length(NEW.payload_json, '$.content.options'), 0) < 2
+                OR json_array_length(NEW.payload_json, '$.content.options') > 6
+            THEN RAISE(ABORT, 'MCQ must contain between two and six options') END;
+            SELECT CASE WHEN (
+                SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.content.options')
+            ) != (
+                SELECT COUNT(DISTINCT json_extract(option.value, '$.id'))
+                FROM json_each(NEW.payload_json, '$.content.options') option
+            ) THEN RAISE(ABORT, 'MCQ option IDs must be unique') END;
+            SELECT CASE WHEN (
+                SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.content.options')
+            ) != (
+                SELECT COUNT(DISTINCT lower(trim(json_extract(option.value, '$.text'))))
+                FROM json_each(NEW.payload_json, '$.content.options') option
+            ) THEN RAISE(ABORT, 'MCQ option text must be unique') END;
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM json_each(NEW.payload_json, '$.content.options') option
+                WHERE json_extract(option.value, '$.id') = json_extract(NEW.payload_json, '$.content.correct_option_id')
+            ) THEN RAISE(ABORT, 'MCQ correct option must reference one of its options') END;
+        END""",
+    """CREATE TRIGGER learning_objects_mcq_validate_update
+        BEFORE UPDATE ON learning_objects
+        WHEN json_extract(NEW.payload_json, '$.kind') = 'mcq_question'
+        BEGIN
+            SELECT CASE WHEN COALESCE(json_array_length(NEW.payload_json, '$.content.options'), 0) < 2
+                OR json_array_length(NEW.payload_json, '$.content.options') > 6
+            THEN RAISE(ABORT, 'MCQ must contain between two and six options') END;
+            SELECT CASE WHEN (
+                SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.content.options')
+            ) != (
+                SELECT COUNT(DISTINCT json_extract(option.value, '$.id'))
+                FROM json_each(NEW.payload_json, '$.content.options') option
+            ) THEN RAISE(ABORT, 'MCQ option IDs must be unique') END;
+            SELECT CASE WHEN (
+                SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.content.options')
+            ) != (
+                SELECT COUNT(DISTINCT lower(trim(json_extract(option.value, '$.text'))))
+                FROM json_each(NEW.payload_json, '$.content.options') option
+            ) THEN RAISE(ABORT, 'MCQ option text must be unique') END;
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM json_each(NEW.payload_json, '$.content.options') option
+                WHERE json_extract(option.value, '$.id') = json_extract(NEW.payload_json, '$.content.correct_option_id')
+            ) THEN RAISE(ABORT, 'MCQ correct option must reference one of its options') END;
+        END""",
     """CREATE TRIGGER learning_objects_glossary_validate_insert
         BEFORE INSERT ON learning_objects
         WHEN json_extract(NEW.payload_json, '$.kind') = 'vocabulary'
