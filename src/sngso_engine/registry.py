@@ -2361,8 +2361,28 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError(f"unknown story decision: {decision_id}")
             decision = json.loads(decision_row["payload_json"])
             story_ids = sorted(set(decision["story_ids"]))
+            application_row = connection.execute(
+                """SELECT application_id, applied_at, actor, rationale,
+                          decision_fingerprint, impact_fingerprint, result_json
+                FROM story_decision_applications WHERE decision_id = ?""",
+                (decision_id,),
+            ).fetchone()
+            application = (
+                {
+                    "application_id": application_row["application_id"],
+                    "applied_at": application_row["applied_at"],
+                    "actor": application_row["actor"],
+                    "rationale": application_row["rationale"],
+                    "decision_fingerprint": application_row["decision_fingerprint"],
+                    "impact_fingerprint": application_row["impact_fingerprint"],
+                    "result": json.loads(application_row["result_json"]),
+                }
+                if application_row is not None else None
+            )
 
             blockers: list[str] = []
+            if application is not None:
+                blockers.append("story decision has already been applied")
             try:
                 self._validate_domain_references(connection, "story_decision", decision)
             except RegistryIntegrityError as exc:
@@ -2512,12 +2532,15 @@ class SQLiteRegistry:
                 "claims": claims,
                 "evidence": evidence,
                 "editions": editions,
+                "application": application,
                 "blockers": sorted(set(blockers)),
             }
             return {
                 "decision_id": decision_id,
                 "operation": decision["operation"],
                 "applicable": not blockers,
+                "already_applied": application is not None,
+                "application": application,
                 "blockers": sorted(set(blockers)),
                 "impact_fingerprint": sha256_fingerprint(fingerprint_payload),
                 "stories": story_summaries,
