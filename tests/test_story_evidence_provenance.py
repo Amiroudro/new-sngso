@@ -505,7 +505,7 @@ def test_story_decision_cannot_reference_unknown_story_or_unlinked_article():
                     "merge",
                     ["story:shared-event", "story:secondary"],
                     "story:shared-event",
-                    [unrelated_article, unrelated_article_b],
+                    [article_a, article_b, unrelated_article, unrelated_article_b],
                 ),
             )
     finally:
