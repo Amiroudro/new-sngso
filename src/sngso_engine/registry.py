@@ -1996,15 +1996,35 @@ class SQLiteRegistry:
                 for story_payload in story_payloads.values()
                 for article_id in story_payload.get("article_ids", [])
             }
-            for article_id in payload["article_ids"]:
+            assignments = payload["article_assignments"]
+            assigned_articles = [item["article_id"] for item in assignments]
+            assigned_stories = {item["assigned_story_id"] for item in assignments}
+            if len(assigned_articles) != len(set(assigned_articles)):
+                raise RegistryIntegrityError("story decision cannot assign an article more than once")
+            for assignment in assignments:
+                article_id = assignment["article_id"]
+                assigned_story_id = assignment["assigned_story_id"]
                 require_record("article", article_id, "story decision")
                 if article_id not in available_articles:
                     raise RegistryIntegrityError(
                         "story decision article must belong to at least one affected story"
                     )
-            if payload["operation"] == "split" and len(payload["article_ids"]) < 2:
+                if assigned_story_id not in story_ids:
+                    raise RegistryIntegrityError(
+                        "story decision article assignment target must be in the decision scope"
+                    )
+            if payload["operation"] == "merge":
+                if assigned_stories != {payload["canonical_story_id"]}:
+                    raise RegistryIntegrityError(
+                        "merge decision must assign every article to the canonical story"
+                    )
+                if set(assigned_articles) != available_articles:
+                    raise RegistryIntegrityError(
+                        "merge decision must account for every article in the affected stories"
+                    )
+            elif len(assigned_stories) < 2:
                 raise RegistryIntegrityError(
-                    "split decision must identify at least two articles for editorial allocation"
+                    "split decision must allocate articles to at least two resulting stories"
                 )
         elif record_type == "edition":
             for story_id in payload["story_ids"]:
@@ -2041,7 +2061,7 @@ class SQLiteRegistry:
                         payload["operation"],
                         payload["canonical_story_id"],
                         _json_text(payload["story_ids"]),
-                        _json_text(payload["article_ids"]),
+                        _json_text([item["article_id"] for item in payload["article_assignments"]]),
                         payload["decided_by"],
                         payload["rationale"],
                         created_at,
