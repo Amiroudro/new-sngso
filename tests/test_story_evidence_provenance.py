@@ -375,14 +375,26 @@ def test_evidence_relationship_cannot_change_while_claim_is_reviewed():
 
 
 
-def _story_decision(operation, story_ids, canonical_story_id, article_ids):
+def _story_decision(operation, story_ids, canonical_story_id, article_ids, *, split_to=None):
+    assignments = []
+    for index, article_id in enumerate(article_ids):
+        if operation == "merge":
+            target = canonical_story_id
+        elif split_to is not None:
+            target = split_to
+        else:
+            target = canonical_story_id if index == 0 else story_ids[-1]
+        assignments.append({
+            "article_id": article_id,
+            "assigned_story_id": target,
+        })
     return {
         "schema_version": "1.0.0",
         "id": f"story-decision:{operation}-001",
         "operation": operation,
         "story_ids": story_ids,
         "canonical_story_id": canonical_story_id,
-        "article_ids": article_ids,
+        "article_assignments": assignments,
         "decided_by": "senior-editor",
         "rationale": "Human review found these reports describe the same underlying event.",
         "decided_at": STAMP,
@@ -503,18 +515,19 @@ def test_story_decision_canonical_story_must_be_in_the_decision_scope():
         registry.close()
 
 
-def test_story_split_decision_must_identify_at_least_two_articles():
+def test_story_split_decision_must_allocate_articles_to_two_resulting_stories():
     registry, _, _, article_a, _, _, article_b = _prepared_registry()
     try:
         _add_second_story(registry, [article_b])
-        with pytest.raises(RegistryIntegrityError, match="at least two articles"):
+        with pytest.raises(RegistryIntegrityError, match="at least two resulting stories"):
             registry.add_domain_record(
                 "story_decision",
                 _story_decision(
                     "split",
                     ["story:shared-event", "story:secondary"],
                     "story:shared-event",
-                    [article_a],
+                    [article_a, article_b],
+                    split_to="story:shared-event",
                 ),
             )
     finally:
