@@ -174,16 +174,7 @@ class BoundedDNSResolver:
             )
         if not addresses:
             raise TransportError("DNS returned no addresses")
-        checked: list[str] = []
-        for value in dict.fromkeys(addresses):
-            try:
-                address = ipaddress.ip_address(value.split("%", 1)[0])
-            except ValueError as exc:
-                raise TransportError("DNS returned an invalid address") from exc
-            if not address.is_global:
-                raise TransportError("DNS resolved to a non-public IP address")
-            checked.append(str(address))
-        return tuple(checked)
+        return _validate_public_addresses(addresses)
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
