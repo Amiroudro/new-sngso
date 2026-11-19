@@ -66,12 +66,28 @@
         "start": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40
+          "maxLength": 40,
+          "anyOf": [
+            {
+              "format": "date"
+            },
+            {
+              "format": "date-time"
+            }
+          ]
         },
         "end": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 40
+          "maxLength": 40,
+          "anyOf": [
+            {
+              "format": "date"
+            },
+            {
+              "format": "date-time"
+            }
+          ]
         },
         "timezone": {
           "type": "string",
@@ -82,7 +98,130 @@
           "type": "string",
           "maxLength": 500
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "precision": {
+                "const": "instant"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "start"
+            ],
+            "properties": {
+              "start": {
+                "format": "date-time"
+              }
+            },
+            "not": {
+              "required": [
+                "end"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "precision": {
+                "const": "date"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "start"
+            ],
+            "properties": {
+              "start": {
+                "format": "date"
+              }
+            },
+            "not": {
+              "required": [
+                "end"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "precision": {
+                "const": "range"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "start",
+              "end"
+            ],
+            "properties": {
+              "start": {
+                "format": "date-time"
+              },
+              "end": {
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "precision": {
+                "const": "approximate"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "start",
+              "note"
+            ],
+            "properties": {
+              "start": {
+                "format": "date"
+              }
+            },
+            "not": {
+              "required": [
+                "end"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "precision": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "start"
+                  ]
+                },
+                {
+                  "required": [
+                    "end"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
     },
     "claim_ids": {
       "type": "array",
