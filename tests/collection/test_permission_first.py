@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 from dataclasses import replace
 import sqlite3
+from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
@@ -202,6 +203,21 @@ def test_approved_discovery_records_provenance_and_locator_only() -> None:
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             registry._connection.execute("DELETE FROM collection_observations")
         assert registry.verify_audit_chain()
+
+
+def test_registry_rejects_unsupported_http_method_at_persistence_boundary():
+    with populated_registry(("discovery",)) as registry:
+        connector = FixtureConnector([{
+            "locator": "https://publisher-a.example.org/news/1",
+        }])
+        result = make_collector(registry, connector, registry).collect(
+            make_request(), "fixture-feed"
+        )
+        assert result.allowed is True
+        tampered = replace(result.observations[0], http_method="POST")
+        with pytest.raises(RegistryIntegrityError, match="GET only"):
+            registry.append_many((tampered,))
+        assert registry.collection_observations() == []
 
 
 def test_metadata_requires_its_own_approval_and_is_bounded() -> None:
