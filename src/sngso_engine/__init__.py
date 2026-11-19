@@ -9,6 +9,7 @@ from .collection import (
     CollectionRequest,
     CollectionResult,
     ConnectorCapabilities,
+    InMemoryDomainRateLimiter,
     InMemoryObservationSink,
     PermissionFirstCollector,
 )
@@ -49,6 +50,7 @@ __all__ = [
     "EditorialRepository",
     "EngineRepository",
     "EvidenceRecord",
+    "InMemoryDomainRateLimiter",
     "InMemoryObservationSink",
     "PermissionDecision",
     "PermissionFirstCollector",
