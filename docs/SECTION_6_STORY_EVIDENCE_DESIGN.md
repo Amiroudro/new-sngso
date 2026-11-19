@@ -30,6 +30,18 @@ The contract distinguishes `supports`, `qualifies`, `contradicts`, `mentions`, a
 
 A contradiction remains visible. A qualifying source remains visible. A mention is not corroboration. Repeated or syndicated reporting must not be counted as independent corroboration merely because it appears under different publisher names.
 
+## Claim assessment guardrails
+
+A claim may remain unassessed while evidence is being gathered. Once assessed, it must reference every evidence record linked to that claim, include a review timestamp and a non-empty review note, and use a status consistent with the evidence relationships:
+
+- supported: at least one supporting item and no contradicting item;
+- partially supported: supporting evidence plus qualifying or unclear evidence;
+- disputed: both supporting and contradicting evidence;
+- contradicted: contradicting evidence without supporting evidence;
+- retracted: a reviewed explanation and linked evidence.
+
+Evidence locators are constrained to the registered source's domain allowlist. Section fragments remain valid locators. This is a workflow consistency rule, not an automated truth score.
+
 ## First implementation slice
 
 - Enforce source/article/observation consistency in claim provenance.
