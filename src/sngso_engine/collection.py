@@ -81,6 +81,20 @@ class ConnectorCapabilities:
 
 
 @dataclass(frozen=True, slots=True)
+class CollectionExecutionContext:
+    """Narrow, orchestrator-issued scope passed to a connector invocation."""
+
+    allowed_domains: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.allowed_domains or any(
+            not isinstance(domain, str) or not domain or domain != domain.strip().lower()
+            for domain in self.allowed_domains
+        ):
+            raise ValueError("execution context requires normalized source domains")
+
+
+@dataclass(frozen=True, slots=True)
 class CollectionObservation:
     id: str
     source_id: str
@@ -121,7 +135,8 @@ class CollectionConnector(Protocol):
     def capabilities(self) -> ConnectorCapabilities: ...
 
     def collect(
-        self, request: CollectionRequest, endpoint: Any
+        self, request: CollectionRequest, endpoint: Any,
+        context: CollectionExecutionContext,
     ) -> Iterable[dict[str, Any]]:
         """Perform only the requested operation against the supplied endpoint."""
         ...
@@ -269,7 +284,8 @@ class PermissionFirstCollector:
 
         # The persistent sink checks this revision again after connector
         # execution, preventing storage if permission changes mid-collection.
-        raw_items = connector.collect(request, endpoint)
+        context = CollectionExecutionContext(tuple(allowed_domains))
+        raw_items = connector.collect(request, endpoint, context)
         validated: list[CollectionObservation] = []
         total_observation_bytes = 0
         for index, raw in enumerate(raw_items):
