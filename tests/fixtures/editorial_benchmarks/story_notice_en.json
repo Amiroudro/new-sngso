@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "id": "benchmark:notice-en-v1",
+  "fixture_type": "synthetic_regression",
+  "language": "en",
+  "kind": "brief_summary",
+  "expected": {
+    "text": "The authority issued a public notice on 19 November. A civic group said the notice was prepared without adequate consultation.",
+    "claim_ids": ["claim:notice", "claim:consultation"],
+    "segments": [
+      {"text": "The authority issued a public notice on 19 November.", "claim_ids": ["claim:notice"], "role": "fact"},
+      {"text": "A civic group said the notice was prepared without adequate consultation.", "claim_ids": ["claim:consultation"], "role": "attributed", "attribution": "A civic group"}
+    ]
+  },
+  "must_preserve": ["A civic group said", "19 November"],
+  "must_not_contain": ["The notice was unlawful", "Every citizen opposed the notice"]
+}
