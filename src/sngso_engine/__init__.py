@@ -25,7 +25,7 @@ from .models import (
     StoryRecord,
 )
 from .permissions import PermissionDecision, evaluate_permission
-from .ports import AuditRepository, EditorialRepository, EngineRepository, SourceGovernanceRepository
+from .ports import (\n    AuditRepository,\n    CollectionObservationRepository,\n    EditorialRepository,\n    EngineRepository,\n    SourceGovernanceRepository,\n)
 from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegistry
 
 __all__ = [
@@ -34,6 +34,7 @@ __all__ = [
     "ClaimRecord",
     "CollectionError",
     "CollectionObservation",
+    "CollectionObservationRepository",
     "CollectionRequest",
     "CollectionResult",
     "ConnectorCapabilities",
