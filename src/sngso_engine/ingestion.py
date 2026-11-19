@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import posixpath
 import re
 import unicodedata
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
@@ -174,8 +173,12 @@ def normalize_observation(observation: dict, source_language: str) -> tuple[dict
     byline = metadata.get("byline")
     summary = metadata.get("summary_metadata")
     if byline is not None:
+        if not isinstance(byline, str):
+            raise IngestionError("byline must be text")
         byline = normalize_text(byline, max_length=500, field="byline") if byline.strip() else None
     if summary is not None:
+        if not isinstance(summary, str):
+            raise IngestionError("summary_metadata must be text")
         summary = normalize_text(summary, max_length=1000, field="summary_metadata") if summary.strip() else None
 
     canonical_uri = canonicalize_article_url(
