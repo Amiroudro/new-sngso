@@ -1016,3 +1016,40 @@ def test_split_decision_cannot_drop_an_unassigned_article() -> None:
         incomplete["expected_story_revisions"][0]["expected_revision"] = 2
         with pytest.raises(RegistryIntegrityError, match="must account for every article"):
             registry.add_domain_record("story_decision", incomplete)
+
+
+def test_concurrent_story_decision_apply_creates_one_application(tmp_path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    database = tmp_path / "concurrent-story-apply.sqlite"
+    first = SQLiteRegistry(database)
+    second = None
+    try:
+        decision_id = _two_story_decision_registry(first, "merge")
+        preview = first.preview_story_decision_application(decision_id)
+        second = SQLiteRegistry(database)
+
+        def apply(registry: SQLiteRegistry) -> dict:
+            return registry.apply_story_decision(
+                decision_id,
+                expected_impact_fingerprint=preview["impact_fingerprint"],
+                actor="editor",
+                rationale="Concurrent retry must not duplicate the application.",
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(apply, [first, second]))
+
+        assert results[0]["application_id"] == results[1]["application_id"]
+        assert sorted(result["already_applied"] for result in results) == [False, True]
+        assert first._connection.execute(
+            "SELECT COUNT(*) FROM story_decision_applications WHERE decision_id = ?",
+            (decision_id,),
+        ).fetchone()[0] == 1
+        assert len(first.domain_record_history("story", "story:sample-event")) == 2
+        assert len(first.domain_record_history("claim", "claim:sample-event-002")) == 2
+        assert first.verify_audit_chain()
+    finally:
+        if second is not None:
+            second.close()
+        first.close()
