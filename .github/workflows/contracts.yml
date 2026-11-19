@@ -36,4 +36,4 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[test]"
       - name: Validate contracts
-        run: python -m pytest tests/contracts -q
+        run: python -m pytest -q
