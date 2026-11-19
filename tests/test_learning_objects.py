@@ -73,7 +73,7 @@ def _summary(identifier="learning:summary-bn", language="bn"):
         "kind": "brief_summary",
         "language": language,
         "status": "draft",
-        "content": {"text": "কর্তৃপক্ষ একটি সরকারি বিজ্ঞপ্তি জারি করেছে।"},
+        "content": {"text": "কর্তৃপক্ষ একটি সরকারি বিজ্ঞপ্তি জারি করেছে।", "segments": [{"text": "কর্তৃপক্ষ একটি সরকারি বিজ্ঞপ্তি জারি করেছে।", "claim_ids": ["claim:one"], "role": "fact"}]},
         "claim_ids": ["claim:one"],
         "created_at": STAMP,
     }
@@ -106,7 +106,7 @@ def test_bangla_and_english_learning_objects_have_independent_review_states():
             reason="Draft the Bangla variant.",
         )
         en_payload = _summary("learning:summary-en", "en")
-        en_payload["content"] = {"text": "The authority issued a public notice."}
+        en_payload["content"] = {"text": "The authority issued a public notice.", "segments": [{"text": "The authority issued a public notice.", "claim_ids": ["claim:one"], "role": "fact"}]}
         en = registry.add_learning_object(
             en_payload, actor="editor:en", reason="Draft the English variant."
         )
@@ -223,7 +223,7 @@ def test_learning_object_revision_rejects_stale_revision_and_preserves_history()
             _summary(), actor="editor:one", reason="Create draft."
         )
         revised_payload = _summary()
-        revised_payload["content"] = {"text": "সংশোধিত বাংলা সারাংশ।"}
+        revised_payload["content"] = {"text": "সংশোধিত বাংলা সারাংশ।", "segments": [{"text": "সংশোধিত বাংলা সারাংশ।", "claim_ids": ["claim:one"], "role": "fact"}]}
         registry.revise_learning_object(
             draft.id, revised_payload, expected_revision=1,
             actor="editor:one", reason="Clarify the wording.",
