@@ -101,4 +101,4 @@ This is **tamper-evident, not tamper-proof**. A person with direct control of th
 
 The repository includes fixture tests for migration idempotency and rollback, cross-source reference rejection, evidence review requirements, grant lifecycle, permission decisions, audit chain integrity, append-only revisions, optimistic concurrency, concurrent writes, permission-first connector gating, operation separation, provenance persistence, and revocation during connector execution.
 
-The full pytest suite has passed in GitHub Actions runs #103, #104, and #105. Run #106 is validating the package-export update.
+The full pytest suite passed in GitHub Actions run #116 with 136 tests, including the collection-observation migration, provenance persistence, and storage-boundary validation.
