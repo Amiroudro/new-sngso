@@ -606,6 +606,8 @@ _MIGRATION_11 = (
         revision INTEGER NOT NULL CHECK (revision >= 1),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        last_actor TEXT NOT NULL CHECK (length(trim(last_actor)) > 0),
+        last_reason TEXT NOT NULL CHECK (length(trim(last_reason)) > 0),
         payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
         UNIQUE (story_id, id)
     )""",
@@ -653,11 +655,15 @@ _MIGRATION_11 = (
             THEN RAISE(ABORT, 'learning object identity is immutable') END;
             SELECT CASE WHEN NEW.revision != OLD.revision + 1
                 THEN RAISE(ABORT, 'learning object revision must increment by one') END;
+            SELECT CASE WHEN trim(NEW.last_actor) = '' OR trim(NEW.last_reason) = ''
+                THEN RAISE(ABORT, 'learning object revision requires actor and reason') END;
+            SELECT CASE WHEN julianday(NEW.updated_at) < julianday(OLD.updated_at)
+                THEN RAISE(ABORT, 'learning object update time cannot move backwards') END;
             SELECT CASE WHEN NOT EXISTS (
-                SELECT 1 FROM learning_object_revisions
-                WHERE learning_object_id = NEW.id AND revision = NEW.revision
-                  AND payload_json = NEW.payload_json
-            ) THEN RAISE(ABORT, 'learning object update requires matching revision history') END;
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'story' AND id = NEW.story_id
+                  AND json_extract(payload_json, '$.status') != 'archived'
+            ) THEN RAISE(ABORT, 'learning object requires an active registered story') END;
             SELECT CASE WHEN json_array_length(NEW.payload_json, '$.claim_ids') IS NULL
                 OR (
                     SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.claim_ids') claim_ref
@@ -674,6 +680,9 @@ _MIGRATION_11 = (
                     OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
                 )
             THEN RAISE(ABORT, 'reviewed learning object requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN NEW.status IN ('approved', 'rejected')
+                AND julianday(json_extract(NEW.payload_json, '$.reviewed_at')) < julianday(NEW.created_at)
+            THEN RAISE(ABORT, 'learning object review cannot predate its creation') END;
             SELECT CASE WHEN NEW.status IN ('draft', 'review_required')
                 AND (
                     json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
@@ -688,12 +697,27 @@ _MIGRATION_11 = (
     """CREATE TRIGGER learning_object_revisions_validate_insert
         BEFORE INSERT ON learning_object_revisions
         BEGIN
-            SELECT CASE WHEN NEW.revision != (
-                SELECT revision + 1 FROM learning_objects WHERE id = NEW.learning_object_id
-            ) AND NEW.revision != (
-                SELECT revision FROM learning_objects WHERE id = NEW.learning_object_id
-            )
-            THEN RAISE(ABORT, 'learning object revision history is out of sequence') END;
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM learning_objects
+                WHERE id = NEW.learning_object_id AND revision = NEW.revision
+                  AND payload_json = NEW.payload_json
+            ) THEN RAISE(ABORT, 'learning object revision must match the current record') END;
+            SELECT CASE WHEN trim(NEW.actor) = '' OR trim(NEW.reason) = ''
+                THEN RAISE(ABORT, 'learning object revision requires actor and reason') END;
+        END""",
+    """CREATE TRIGGER learning_objects_record_insert
+        AFTER INSERT ON learning_objects
+        BEGIN
+            INSERT INTO learning_object_revisions
+            (learning_object_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.id, NEW.revision, NEW.created_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
+    """CREATE TRIGGER learning_objects_record_update
+        AFTER UPDATE ON learning_objects
+        BEGIN
+            INSERT INTO learning_object_revisions
+            (learning_object_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.id, NEW.revision, NEW.updated_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
         END""",
     """CREATE TRIGGER learning_object_revisions_no_update
         BEFORE UPDATE ON learning_object_revisions
@@ -3652,16 +3676,11 @@ class SQLiteRegistry:
                     raise RegistryIntegrityError("learning object claims must belong to its story")
             connection.execute(
                 """INSERT INTO learning_objects
-                (id, story_id, kind, language, status, revision, created_at, updated_at, payload_json)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                (id, story_id, kind, language, status, revision, created_at, updated_at,
+                 last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
                 (record.id, record.story_id, record.kind, record.language, record.status,
-                 payload["created_at"], payload["created_at"], record.payload_json),
-            )
-            connection.execute(
-                """INSERT INTO learning_object_revisions
-                (learning_object_id, revision, created_at, actor, reason, payload_json)
-                VALUES (?, 1, ?, ?, ?, ?)""",
-                (record.id, payload["created_at"], actor.strip(), reason.strip(), record.payload_json),
+                 payload["created_at"], payload["created_at"], actor.strip(), reason.strip(), record.payload_json),
             )
             self._append_audit(
                 connection,
@@ -3728,18 +3747,12 @@ class SQLiteRegistry:
                 ):
                     raise RegistryIntegrityError("learning object claims must belong to its story")
             now = _utc_now()
-            connection.execute(
-                """INSERT INTO learning_object_revisions
-                (learning_object_id, revision, created_at, actor, reason, payload_json)
-                VALUES (?, ?, ?, ?, ?, ?)""",
-                (learning_object_id, expected_revision + 1, now, actor.strip(), reason.strip(), record.payload_json),
-            )
             updated = connection.execute(
                 """UPDATE learning_objects
-                SET status = ?, revision = ?, updated_at = ?, payload_json = ?
+                SET status = ?, revision = ?, updated_at = ?, last_actor = ?, last_reason = ?, payload_json = ?
                 WHERE id = ? AND revision = ?""",
-                (record.status, expected_revision + 1, now, record.payload_json,
-                 learning_object_id, expected_revision),
+                (record.status, expected_revision + 1, now, actor.strip(), reason.strip(),
+                 record.payload_json, learning_object_id, expected_revision),
             )
             if updated.rowcount != 1:
                 raise RegistryIntegrityError("learning object revision conflict")
