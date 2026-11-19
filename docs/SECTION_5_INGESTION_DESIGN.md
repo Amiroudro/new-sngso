@@ -70,3 +70,8 @@ The verified acceptance checks were:
 ## Language declaration matching
 
 Language matching is shared by the ingestion entry point and the SQLite persistence boundary. A primary-language declaration such as `en` permits regional variants such as `en-US` and `en-GB`. A regional declaration such as `en-US` permits only that normalized regional tag, not `en-GB` or the less-specific `en`. Invalid endpoint language declarations fail closed. This prevents one layer from accepting an observation that the next layer rejects.
+
+
+## Verification record
+
+The complete Python 3.12 fixture suite passed in GitHub Actions [run #44607997206](https://github.com/Amiroudro/new-sngso/actions/runs/44607997206): **311 passed in 1.72 seconds**. This run includes the shared endpoint-language policy regression tests. Section 5 is closed only for the metadata-only scope described above; it does not authorize story assignment, full-text collection, translation, or publication.
