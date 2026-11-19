@@ -131,7 +131,7 @@ def test_existing_schema_v2_database_migrates_to_v7(tmp_path, monkeypatch):
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 2)
     with SQLiteRegistry(database) as old_registry:
         assert old_registry.schema_version() == 2
-    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 6)
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 7)
     with SQLiteRegistry(database) as migrated:
         assert migrated.schema_version() == 7
         columns = {
@@ -1105,7 +1105,7 @@ def test_timeline_event_preserves_approximate_date_and_uncertainty_note() -> Non
 @pytest.mark.parametrize(
     ("occurred", "message"),
     [
-        ({"precision": "instant", "start": "2026-11-18T12:00:00"}, "timezone-aware"),
+        ({"precision": "instant", "start": "2026-11-18T12:00:00"}, "timezone offset"),
         ({"precision": "date", "start": "2026-02-30"}, "ISO calendar date"),
         ({"precision": "range", "start": "2026-11-19T00:00:00Z", "end": "2026-11-18T00:00:00Z"}, "cannot precede"),
         ({"precision": "approximate", "start": "2026-11-18"}, "uncertainty note"),
