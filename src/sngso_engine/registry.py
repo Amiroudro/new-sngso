@@ -871,6 +871,16 @@ _MIGRATION_12 = (
                   AND json_extract(glossary.payload_json, '$.lemma') = json_extract(NEW.payload_json, '$.content.term')
                   AND json_extract(glossary.payload_json, '$.term_language') = json_extract(NEW.payload_json, '$.content.term_language')
                   AND json_extract(glossary.payload_json, '$.part_of_speech') = json_extract(NEW.payload_json, '$.content.part_of_speech')
+                  AND (
+                    json_extract(NEW.payload_json, '$.content.pronunciation') IS NULL
+                    OR json_extract(glossary.payload_json, '$.pronunciation') IS NULL
+                    OR json_extract(glossary.payload_json, '$.pronunciation') = json_extract(NEW.payload_json, '$.content.pronunciation')
+                  )
+                  AND EXISTS (
+                    SELECT 1 FROM json_each(glossary.payload_json, '$.senses') sense
+                    WHERE json_extract(sense.value, '$.language') = json_extract(NEW.payload_json, '$.language')
+                      AND json_extract(sense.value, '$.definition') = json_extract(NEW.payload_json, '$.content.meaning')
+                  )
             ) THEN RAISE(ABORT, 'vocabulary learning object must match a registered glossary entry') END;
             SELECT CASE WHEN NEW.status = 'approved' AND (
                 SELECT status FROM glossary_entries
@@ -888,6 +898,16 @@ _MIGRATION_12 = (
                   AND json_extract(glossary.payload_json, '$.lemma') = json_extract(NEW.payload_json, '$.content.term')
                   AND json_extract(glossary.payload_json, '$.term_language') = json_extract(NEW.payload_json, '$.content.term_language')
                   AND json_extract(glossary.payload_json, '$.part_of_speech') = json_extract(NEW.payload_json, '$.content.part_of_speech')
+                  AND (
+                    json_extract(NEW.payload_json, '$.content.pronunciation') IS NULL
+                    OR json_extract(glossary.payload_json, '$.pronunciation') IS NULL
+                    OR json_extract(glossary.payload_json, '$.pronunciation') = json_extract(NEW.payload_json, '$.content.pronunciation')
+                  )
+                  AND EXISTS (
+                    SELECT 1 FROM json_each(glossary.payload_json, '$.senses') sense
+                    WHERE json_extract(sense.value, '$.language') = json_extract(NEW.payload_json, '$.language')
+                      AND json_extract(sense.value, '$.definition') = json_extract(NEW.payload_json, '$.content.meaning')
+                  )
             ) THEN RAISE(ABORT, 'vocabulary learning object must match a registered glossary entry') END;
             SELECT CASE WHEN NEW.status = 'approved' AND (
                 SELECT status FROM glossary_entries
