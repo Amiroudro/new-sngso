@@ -4149,6 +4149,16 @@ class SQLiteRegistry:
             story = json.loads(story_row["payload_json"])
             if story.get("status") == "archived":
                 raise RegistryIntegrityError("cannot create a learning object for an archived story")
+            if record.variant_group_id:
+                variants = connection.execute(
+                    """SELECT story_id, kind, language FROM learning_objects
+                    WHERE variant_group_id = ?""",
+                    (record.variant_group_id,),
+                ).fetchall()
+                if any(item["story_id"] != record.story_id or item["kind"] != record.kind for item in variants):
+                    raise RegistryIntegrityError("learning object variants must share the same story and kind")
+                if any(item["language"] == record.language for item in variants):
+                    raise RegistryIntegrityError("variant group already has an object in this language")
             claim_ids = payload["claim_ids"]
             if claim_ids:
                 placeholders = ",".join("?" for _ in claim_ids)
