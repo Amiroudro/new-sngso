@@ -81,6 +81,7 @@ _MIGRATION_1 = (
         updated_at TEXT NOT NULL,
         payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
         UNIQUE (source_id, id),
+        UNIQUE (id, source_id),
         UNIQUE (source_id, endpoint_uri),
         FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE RESTRICT
     )""",
@@ -92,6 +93,7 @@ _MIGRATION_1 = (
         captured_at TEXT NOT NULL,
         payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
         UNIQUE (source_id, id),
+        UNIQUE (id, source_id),
         FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE RESTRICT
     )""",
     """CREATE TABLE permission_grants (
@@ -103,6 +105,7 @@ _MIGRATION_1 = (
         revision INTEGER NOT NULL CHECK (revision >= 1),
         payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
         UNIQUE (source_id, id),
+        UNIQUE (id, source_id),
         FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE RESTRICT
     )""",
     """CREATE TABLE grant_endpoints (
