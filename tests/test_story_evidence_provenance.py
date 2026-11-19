@@ -277,7 +277,7 @@ def test_human_claim_assessment_requires_review_metadata_and_linked_evidence():
             "evidence",
             _evidence("claim:event-date", source_a, article_a, host_a),
         )
-        with pytest.raises(RegistryIntegrityError, match="reviewed_at and a non-empty review_note"):
+        with pytest.raises(RegistryIntegrityError, match="review timestamp and a non-empty review note"):
             _review_claim(registry, [evidence.id], reviewed_at=None, review_note=None)
     finally:
         registry.close()
