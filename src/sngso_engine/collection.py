@@ -114,7 +114,6 @@ class CollectionRepository(Protocol):
         self, grant_id: str, operation: str, *, endpoint_id: str,
         now: datetime | None = None,
     ) -> PermissionDecision: ...
-    def grant_history(self, grant_id: str) -> list[dict[str, Any]]: ...
 
 
 class CollectionConnector(Protocol):
@@ -247,12 +246,23 @@ class PermissionFirstCollector:
         if not self._rate_limiter.acquire(domain):
             return CollectionResult(False, "rate_limited")
 
-        # Capture the authorized revision before connector execution. The
-        # persistent sink checks it again so revocation during collection
-        # prevents the returned observations from being stored.
-        grant_revision = self._latest_grant_revision(request.grant_id)
+        # Re-evaluate after rate limiting, immediately before connector
+        # invocation. The repository returns the grant revision from the same
+        # transaction as the permission decision.
+        decision = self._repository.evaluate_grant(
+            request.grant_id,
+            request.operation,
+            endpoint_id=request.endpoint_id,
+            now=self._clock(),
+        )
+        if not decision.allowed:
+            return CollectionResult(False, decision.reason)
+        grant_revision = decision.grant_revision
+        if grant_revision is None:
+            return CollectionResult(False, "permission_revision_missing")
 
-        # This is the first point at which connector code is invoked.
+        # The persistent sink checks this revision again after connector
+        # execution, preventing storage if permission changes mid-collection.
         raw_items = connector.collect(request, endpoint)
         validated: list[CollectionObservation] = []
         total_observation_bytes = 0
@@ -280,12 +290,6 @@ class PermissionFirstCollector:
         observations = tuple(validated)
         self._sink.append_many(observations)
         return CollectionResult(True, "approved", observations)
-
-    def _latest_grant_revision(self, grant_id: str) -> int | None:
-        history = self._repository.grant_history(grant_id)
-        if not history:
-            return None
-        return int(history[-1]["revision"])
 
     def _validate_observation(
         self,
