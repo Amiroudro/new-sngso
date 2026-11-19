@@ -37,6 +37,8 @@ Foundation milestone in progress. Versioned domain contracts, contract CI, runti
 - docs/MIGRATION_PLAN.md
 - docs/QUALITY_GATES.md
 - docs/DOMAIN_MODEL.md
+- docs/IMPLEMENTATION_ROADMAP.md
+- docs/BASELINE_AUDIT.md
 - contracts/README.md
 - contracts/v1/
 
