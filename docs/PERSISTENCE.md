@@ -1,6 +1,6 @@
 # Persistence, Revisions, and Audit Trail
 
-Status: Sections 1–4 foundation verified; Section 5 schema and ingestion implementation delivered, with final current-head CI acceptance pending.  
+Status: Sections 1–5 foundation implemented to documented scope; Section 5 fixture suite passed in GitHub Actions run #44607783960 (297 tests).  
 Storage engine: Python `sqlite3` and SQLite.  
 Migration line: schema version 4.
 
