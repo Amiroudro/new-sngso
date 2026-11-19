@@ -109,7 +109,7 @@ def add_observation(
     name: str,
     observation_id: str,
     *,
-    path: str = "/news/one?utm_source=feed",
+    path: str = "/news/one?utm_source=feed&id=7",
     title: str = "নতুন অর্থনৈতিক প্রতিবেদন প্রকাশ",
     published_at: str | None = PUBLISHED,
 ) -> None:
@@ -141,6 +141,12 @@ def test_article_url_canonicalization_removes_only_known_tracking_parameters():
     assert canonicalize_article_url(
         "HTTPS://Publisher-A.Example.org:443/news/one?utm_source=x&id=7&fbclid=abc&tag=a&tag=b"
     ) == "https://publisher-a.example.org/news/one?id=7&tag=a&tag=b"
+
+
+def test_article_url_canonicalization_removes_dot_segments():
+    assert canonicalize_article_url(
+        "https://publisher-a.example.org/news/section/../one"
+    ) == "https://publisher-a.example.org/news/one"
 
 
 def test_article_url_canonicalization_preserves_unknown_query_and_path_case():
@@ -316,6 +322,15 @@ def test_revoked_or_revised_permission_blocks_new_ingestion():
                 registry.get_collection_observation("observation:first"), "bn"
             )[0]["id"],
         ) is None
+
+
+def test_ingestion_rejects_language_not_declared_by_endpoint():
+    with SQLiteRegistry() as registry:
+        add_publisher(registry, "publisher-a")
+        add_observation(registry, "publisher-a", "observation:first")
+        with pytest.raises(IngestionError, match="not supported"):
+            ingest_observation(registry, "observation:first", source_language="en")
+        assert registry.get_ingestion_decision("observation:first") is None
 
 
 def test_discovery_observation_cannot_be_ingested():
