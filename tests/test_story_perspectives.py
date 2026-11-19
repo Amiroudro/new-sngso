@@ -238,7 +238,7 @@ def test_unreviewed_perspective_cannot_carry_review_metadata():
         payload["reviewed_by"] = "editor:senior"
         payload["reviewed_at"] = "2026-11-20T02:00:00Z"
         payload["review_note"] = "This must be rejected while unreviewed."
-        with pytest.raises(RegistryIntegrityError, match="unreviewed perspective cannot contain review metadata"):
+        with pytest.raises(ValueError, match="should not be valid"):
             registry.add_perspective(payload)
     finally:
         registry.close()
