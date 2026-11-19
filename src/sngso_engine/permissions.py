@@ -58,6 +58,8 @@ def evaluate_permission(
         return PermissionDecision(False, "unknown_operation")
 
     permission_id = permission.get("id")
+    if not isinstance(permission_id, str) or not permission_id.strip():
+        return PermissionDecision(False, "invalid_permission_id")
     if permission.get("status") != "approved":
         return PermissionDecision(False, "permission_not_approved", permission_id)
 
