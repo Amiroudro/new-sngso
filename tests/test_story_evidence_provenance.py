@@ -659,6 +659,18 @@ def test_story_decision_preview_is_read_only_and_has_stable_impact_fingerprint()
             "evidence",
             _evidence("claim:event-date", source_a, article_a, host_a),
         )
+        registry.add_domain_record("edition", {
+            "schema_version": "1.0.0",
+            "id": "edition:preview-impact",
+            "edition_key": "2026-11-20",
+            "created_at": STAMP,
+            "status": "published",
+            "content_hash": "sha256:" + "a" * 64,
+            "pipeline_run_id": "pipeline:fixture",
+            "story_ids": ["story:shared-event"],
+            "language_variants": [{"language": "en", "status": "approved", "text": "Historical edition."}],
+            "published_at": STAMP,
+        })
         registry.add_domain_record(
             "story_decision",
             _story_decision(
@@ -680,7 +692,12 @@ def test_story_decision_preview_is_read_only_and_has_stable_impact_fingerprint()
         assert [item["article_id"] for item in first["articles"]] == [article_a, article_b]
         assert first["claims"][0]["assigned_story_id"] == "story:shared-event"
         assert first["evidence"][0]["evidence_id"] == "evidence:source-a"
-        assert first["editions"] == []
+        assert first["editions"] == [{
+            "edition_id": "edition:preview-impact",
+            "status": "published",
+            "content_hash": "sha256:" + "a" * 64,
+            "affected_story_ids": ["story:shared-event"],
+        }]
         assert before == after
         assert registry.verify_audit_chain()
     finally:
