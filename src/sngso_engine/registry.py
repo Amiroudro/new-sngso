@@ -2307,6 +2307,183 @@ class SQLiteRegistry:
             "independence_claim": "not_established_by_publisher_count_or_no_candidate",
         }
 
+    def preview_story_decision_application(self, decision_id: str) -> dict[str, Any]:
+        """Return a deterministic, read-only impact preview for a story decision."""
+        with self._transaction("DEFERRED") as connection:
+            decision_row = connection.execute(
+                "SELECT payload_json FROM story_decisions WHERE id = ?",
+                (decision_id,),
+            ).fetchone()
+            if decision_row is None:
+                raise RegistryIntegrityError(f"unknown story decision: {decision_id}")
+            decision = json.loads(decision_row["payload_json"])
+            story_ids = sorted(set(decision["story_ids"]))
+
+            blockers: list[str] = []
+            try:
+                self._validate_domain_references(connection, "story_decision", decision)
+            except RegistryIntegrityError as exc:
+                blockers.append(str(exc))
+
+            def load_records(record_type: str, ids: list[str]) -> list[dict[str, Any]]:
+                if not ids:
+                    return []
+                placeholders = ",".join("?" for _ in ids)
+                rows = connection.execute(
+                    f"""SELECT id, revision, payload_json FROM domain_records
+                    WHERE record_type = ? AND id IN ({placeholders}) ORDER BY id""",
+                    (record_type, *ids),
+                ).fetchall()
+                return [
+                    {
+                        "id": row["id"],
+                        "revision": row["revision"],
+                        "payload": json.loads(row["payload_json"]),
+                    }
+                    for row in rows
+                ]
+
+            stories = load_records("story", story_ids)
+            article_ids = sorted({
+                item["article_id"] for item in decision["article_assignments"]
+            })
+            articles = load_records("article", article_ids)
+
+            claim_rows = connection.execute(
+                """SELECT id, revision, payload_json FROM domain_records
+                WHERE record_type = 'claim'
+                  AND json_extract(payload_json, '$.story_id') IN (
+                      SELECT value FROM json_each(?)
+                  )
+                ORDER BY id""",
+                (_json_text(story_ids),),
+            ).fetchall()
+            claims = [
+                {
+                    "id": row["id"],
+                    "revision": row["revision"],
+                    "payload": json.loads(row["payload_json"]),
+                }
+                for row in claim_rows
+            ]
+            claim_ids = [item["id"] for item in claims]
+            evidence = load_records("evidence", sorted(
+                row["id"]
+                for row in connection.execute(
+                    """SELECT id FROM domain_records
+                    WHERE record_type = 'evidence'
+                      AND json_extract(payload_json, '$.claim_id') IN (
+                          SELECT value FROM json_each(?)
+                      )""",
+                    (_json_text(claim_ids),),
+                ).fetchall()
+            ))
+
+            edition_rows = connection.execute(
+                """SELECT DISTINCT d.id, d.revision, d.payload_json
+                FROM domain_records d, json_each(d.payload_json, '$.story_ids') story_ref
+                WHERE d.record_type = 'edition'
+                  AND story_ref.value IN (
+                      SELECT value FROM json_each(?)
+                  )
+                ORDER BY d.id""",
+                (_json_text(story_ids),),
+            ).fetchall()
+            editions = [
+                {
+                    "id": row["id"],
+                    "revision": row["revision"],
+                    "payload": json.loads(row["payload_json"]),
+                }
+                for row in edition_rows
+            ]
+
+            if len(stories) != len(story_ids):
+                blockers.append("one or more affected stories are missing")
+            if len(articles) != len(article_ids):
+                blockers.append("one or more assigned articles are missing")
+
+            story_summaries = [
+                {
+                    "story_id": item["id"],
+                    "revision": item["revision"],
+                    "status": item["payload"]["status"],
+                    "canonical_title": item["payload"]["canonical_title"],
+                    "article_ids": sorted(item["payload"].get("article_ids", [])),
+                }
+                for item in stories
+            ]
+            article_summaries = [
+                {
+                    "article_id": item["id"],
+                    "source_id": item["payload"]["source_id"],
+                    "title": item["payload"]["title"],
+                    "assigned_story_id": next(
+                        assignment["assigned_story_id"]
+                        for assignment in decision["article_assignments"]
+                        if assignment["article_id"] == item["id"]
+                    ),
+                }
+                for item in articles
+            ]
+            claim_destination = {
+                item["claim_id"]: item["assigned_story_id"]
+                for item in decision["claim_assignments"]
+            }
+            claim_summaries = [
+                {
+                    "claim_id": item["id"],
+                    "revision": item["revision"],
+                    "current_story_id": item["payload"]["story_id"],
+                    "assigned_story_id": claim_destination.get(item["id"]),
+                    "assessment": item["payload"]["assessment"],
+                    "evidence_ids": sorted(item["payload"].get("evidence_ids", [])),
+                }
+                for item in claims
+            ]
+            evidence_summaries = [
+                {
+                    "evidence_id": item["id"],
+                    "claim_id": item["payload"]["claim_id"],
+                    "source_id": item["payload"]["source_id"],
+                    "relationship": item["payload"]["relationship"],
+                }
+                for item in evidence
+            ]
+            edition_summaries = [
+                {
+                    "edition_id": item["id"],
+                    "status": item["payload"]["status"],
+                    "content_hash": item["payload"]["content_hash"],
+                    "affected_story_ids": sorted(
+                        set(item["payload"]["story_ids"]) & set(story_ids)
+                    ),
+                }
+                for item in editions
+            ]
+
+            fingerprint_payload = {
+                "decision": decision,
+                "stories": stories,
+                "articles": articles,
+                "claims": claims,
+                "evidence": evidence,
+                "editions": editions,
+                "blockers": sorted(set(blockers)),
+            }
+            return {
+                "decision_id": decision_id,
+                "operation": decision["operation"],
+                "applicable": not blockers,
+                "blockers": sorted(set(blockers)),
+                "impact_fingerprint": sha256_fingerprint(fingerprint_payload),
+                "stories": story_summaries,
+                "articles": article_summaries,
+                "claims": claim_summaries,
+                "evidence": evidence_summaries,
+                "editions": edition_summaries,
+            }
+
     def story_decision_history(self, story_id: str) -> list[dict[str, Any]]:
         """Return immutable merge/split decisions involving a story, oldest first."""
         if self.get_domain_record("story", story_id) is None:
