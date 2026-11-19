@@ -122,6 +122,7 @@ class CollectionObservation:
     content_type: str | None
     metadata: dict[str, str]
     permission_reason: str
+    http_method: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,6 +420,7 @@ class PermissionFirstCollector:
             content_type=content_type,
             metadata=clean_metadata,
             permission_reason=permission_reason,
+            http_method="GET",
         )
 
 
