@@ -1170,7 +1170,7 @@ def test_timeline_events_are_append_only_at_sqlite_boundary() -> None:
         event = registry.add_timeline_event(_timeline_event_record())
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             registry._connection.execute(
-                "UPDATE timeline_events SET title = 'rewritten' WHERE id = ?",
+                "UPDATE timeline_events SET payload_json = '{}' WHERE id = ?",
                 (event.id,),
             )
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
