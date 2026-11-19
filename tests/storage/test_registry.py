@@ -525,3 +525,72 @@ def test_domain_record_revisions_are_append_only() -> None:
             registry._connection.execute(
                 "DELETE FROM domain_record_revisions WHERE record_type = 'story'"
             )
+
+
+def test_pending_grant_requires_verified_evidence_before_approval() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_endpoint(endpoint_record())
+        registry.add_permission_evidence(evidence_record(review_status="unreviewed"))
+        pending = grant_record()
+        pending["status"] = "pending"
+        pending.pop("reviewed_at")
+        pending.pop("reviewed_by")
+        registry.add_permission_grant(pending)
+        with pytest.raises(RegistryIntegrityError, match="verified evidence"):
+            registry.transition_permission_grant(
+                pending["id"],
+                "approved",
+                actor="rights-reviewer",
+                reason="Evidence is not verified yet.",
+            )
+        assert registry.get_permission_grant(pending["id"]).status == "pending"
+        assert [item["revision"] for item in registry.grant_history(pending["id"])] == [1]
+
+
+def test_allowed_operation_evidence_must_be_in_grant_evidence_set() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_endpoint(endpoint_record())
+        registry.add_permission_evidence(evidence_record())
+        registry.add_permission_evidence(
+            evidence_record("permission-evidence:publisher-a-002")
+        )
+        record = grant_record()
+        record["operations"]["discovery"]["evidence_ids"] = [
+            "permission-evidence:publisher-a-002"
+        ]
+        with pytest.raises(RegistryIntegrityError, match="also appear in grant evidence_ids"):
+            registry.add_permission_grant(record)
+
+
+def test_audit_hash_chain_detects_database_level_tampering() -> None:
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        assert registry.verify_audit_chain()
+        registry._connection.execute("DROP TRIGGER audit_events_no_update")
+        registry._connection.execute(
+            "UPDATE audit_events SET event_type = 'tampered' WHERE sequence = 1"
+        )
+        assert registry.verify_audit_chain() is False
+
+
+def test_two_registry_instances_serialize_concurrent_writes(tmp_path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    database = tmp_path / "shared.sqlite"
+    first = SQLiteRegistry(database)
+    second = SQLiteRegistry(database)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(
+                    lambda pair: pair[0].add_source(source_record(pair[1])).id,
+                    [(first, "source:parallel-a"), (second, "source:parallel-b")],
+                )
+            )
+        assert set(results) == {"source:parallel-a", "source:parallel-b"}
+        assert first.verify_audit_chain()
+    finally:
+        first.close()
+        second.close()
