@@ -178,6 +178,11 @@ class PermissionFirstCollector:
         if not decision.allowed:
             return CollectionResult(False, decision.reason)
 
+        # Capture the authorized revision before connector execution. The
+        # persistent sink checks it again so revocation during collection
+        # prevents the returned observations from being stored.
+        grant_revision = self._latest_grant_revision(request.grant_id)
+
         # This is the first point at which connector code is invoked.
         raw_items = connector.collect(request, endpoint)
         validated: list[CollectionObservation] = []
@@ -190,7 +195,7 @@ class PermissionFirstCollector:
                     request=request,
                     capabilities=capabilities,
                     permission_reason=decision.reason,
-                    grant_revision=self._latest_grant_revision(request.grant_id),
+                    grant_revision=grant_revision,
                 )
             )
 
