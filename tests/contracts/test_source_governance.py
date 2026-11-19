@@ -90,6 +90,14 @@ def permission_grant() -> dict:
 
 
 @pytest.mark.parametrize(
+    "contract",
+    ["source", "source-endpoint", "permission-evidence", "source-permission-grant"],
+)
+def test_source_governance_schemas_are_valid(contract: str) -> None:
+    Draft202012Validator.check_schema(load_schema(contract))
+
+
+@pytest.mark.parametrize(
     ("contract", "record"),
     [
         ("source", source_record()),
@@ -100,7 +108,6 @@ def permission_grant() -> dict:
 )
 def test_valid_source_governance_records(contract: str, record: dict) -> None:
     validate_payload(contract, record)
-    Draft202012Validator.check_schema(load_schema(contract))
 
 
 def test_grant_shape_is_compatible_with_permission_evaluator() -> None:
@@ -205,3 +212,14 @@ def test_permission_grant_requires_revocation_details() -> None:
     record.pop("reviewed_at")
     record.pop("reviewed_by")
     validate_payload("source-permission-grant", record)
+
+
+@pytest.mark.parametrize("missing_field", ["revoked_at", "revocation_reason"])
+def test_revoked_permission_requires_audit_details(missing_field: str) -> None:
+    record = permission_grant()
+    record["status"] = "revoked"
+    record["revoked_at"] = STAMP
+    record["revocation_reason"] = "Publisher withdrew permission."
+    record.pop(missing_field)
+    with pytest.raises(ContractValidationError):
+        validate_payload("source-permission-grant", record)
