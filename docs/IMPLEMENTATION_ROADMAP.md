@@ -44,7 +44,7 @@ Acceptance:
 - Tests cover source and endpoint scope, missing evidence, expiry, and revocation.
 - Cross-record ownership checks are explicitly deferred to Section 3; no real publisher is marked approved without documented evidence.
 
-**Progress:** four governance contracts, evaluator-level source/endpoint/evidence-reference checks, regression fixtures, and a written review policy have been committed. Tests are authored but await a successful CI run. Cross-record reference validation, evidence-record verification, and actual human review remain incomplete.
+**Progress:** four governance contracts, evaluator-level source/endpoint/evidence-reference checks, regression fixtures, and a written review policy are committed. The full pytest suite passed in GitHub Actions run #89 (attempt 2). Cross-record reference validation and persisted evidence-state checks are implemented in Section 3. Actual human rights review and reviewer authorization remain incomplete. No real publisher is approved.
 
 ## 3. Domain models, persistence, and audit trail
 
@@ -62,11 +62,13 @@ Acceptance:
 - Permission decisions can be reconstructed from stored evidence and policy versions.
 - Failed migrations or transactions do not corrupt existing data.
 
-**Section 3 progress:** typed records and a SQLite registry now cover publisher sources, endpoints, permission evidence, scoped grants, articles, stories, claims, factual evidence, and edition metadata. Migration 1, cross-record checks, grant lifecycle revisions, optimistic editorial revisions, and a hash-linked append-only audit trail are implemented. Fixture tests cover the main integrity and rollback cases, but CI has not executed them successfully yet. Source observations, pipeline runs, external audit anchoring, backups, and production authentication remain outside this section.
+**Section 3 progress:** typed records and a SQLite registry now cover publisher sources, endpoints, permission evidence, scoped grants, articles, stories, claims, factual evidence, and edition metadata. Migration 1, cross-record checks, grant lifecycle revisions, optimistic editorial revisions, and a hash-linked append-only audit trail are implemented. The full pytest suite passed in GitHub Actions run #89 (attempt 2). A subsequent code review identified a failed-COMMIT rollback edge case; a fix and regression test have been committed and require a fresh CI run. Source observations, pipeline runs, external audit anchoring, backups, and production authentication remain outside this section.
 
 ## 4. Permission-first collection framework
 
 **Goal:** make it technically impossible for a connector to collect beyond approved scope.
+
+**Design baseline:** `docs/SECTION_4_COLLECTION_DESIGN.md` defines the authorization sequence, connector boundary, observation provenance, resource limits, fixture-first policy, and test gates. No live network connector is approved or implemented.
 
 Tasks:
 - Define connector protocol and capability declarations.
@@ -183,7 +185,7 @@ Acceptance:
 - Runtime schema validation and a fail-closed operation permission evaluator exist.
 - The evaluator now requires a valid, timezone-aware expiry and rejects non-positive permission windows.
 - Source, endpoint, permission-evidence, and scoped permission-grant contracts now exist. The SQLite registry implements cross-record validation, grant and domain-record revisions, and audit events. Human reviewer authentication and connector enforcement are not implemented.
-- Current CI is fixture-only and targets the full pytest suite, including temporary-database tests. Latest workflow run #82 failed before runner allocation (`runner_id: 0`, no steps or test logs); tests are not verified as passing.
+- Current CI is fixture-only and targets the full pytest suite, including temporary-database tests. Workflow run #89 passed on attempt 2 after the repository became public. The later transaction-rollback fix, its regression test, and Section 4 design document are newer commits and await their own CI result.
 - Pull request #1 remains draft and unmerged. Its merge is not authorized by this plan.
 
 ## Current execution status
@@ -191,9 +193,9 @@ Acceptance:
 | Section | Status | Outstanding gate |
 |---|---|---|
 | 1. Repository audit | Documented, targeted audit | Full static/dependency/runtime audit remains future work |
-| 2. Source governance | Contracts, policy, and evaluator scope checks implemented | Successful automated test run; no real publisher approval implied |
-| 3. Domain models and persistence | Typed records, SQLite registry, cross-record validation, revisions, and audit trail implemented | Successful automated test run and code review |
-| 4. Permission-first collection | Not started | Depends on Section 3 verification |
+| 2. Source governance | Implemented; full pytest suite passed in run #89 attempt 2 | No real publisher approval implied; human review and reviewer authorization remain future controls |
+| 3. Domain models and persistence | Implemented; full pytest suite passed in run #89 attempt 2; commit-failure rollback fix added afterward | Fresh CI run for latest commits and final code review |
+| 4. Permission-first collection | Design baseline documented; implementation not started | Section 3 acceptance and fixture-first implementation |
 | 5. Ingestion and identity | Not started | Depends on Section 4 |
 | 6. Story intelligence and evidence | Not started | Depends on Section 5 |
 | 7. Editorial production | Not started | Depends on Section 6 |
@@ -201,7 +203,7 @@ Acceptance:
 | 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |
 | 10. End-to-end handover | Not started | Depends on all prior sections |
 
-No section is formally complete until its acceptance gates are verified. The current GitHub Actions blocker prevents Sections 2 and 3 from being marked complete, even though their implementation work is committed.
+No section is formally complete until its acceptance gates are verified. Section 2's automated gate passed. Section 3's earlier full suite passed, but its latest rollback fix and regression test must pass CI and receive final review before Section 3 is closed.
 
 ## Execution order
 
