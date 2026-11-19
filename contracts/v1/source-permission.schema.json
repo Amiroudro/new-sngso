@@ -125,5 +125,7 @@
         }
       }
     }
-  }
+  },
+  "deprecated": true,
+  "description": "Legacy permission shape retained for historical compatibility and fixtures. New source-governance records must use source-permission-grant.schema.json."
 }

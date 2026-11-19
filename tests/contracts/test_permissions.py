@@ -45,6 +45,31 @@ def test_missing_or_unapproved_permission_denies(record, operation, reason) -> N
     assert result.reason == reason
 
 
+@pytest.mark.parametrize("malformed", [[], "not-a-record", 42])
+def test_malformed_permission_record_denies(malformed) -> None:
+    result = evaluate_permission(malformed, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (False, "invalid_permission_record")
+
+
+@pytest.mark.parametrize("invalid_id", [None, "", "   ", [], 7])
+def test_missing_or_malformed_permission_id_denies(invalid_id) -> None:
+    record = permission_record()
+    record["id"] = invalid_id
+    result = evaluate_permission(record, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (False, "invalid_permission_id")
+    assert result.permission_id is None
+
+
+def test_unhashable_operation_input_denies_without_exception() -> None:
+    result = evaluate_permission(permission_record(), ["discovery"], now=NOW)
+    assert (result.allowed, result.reason) == (False, "unknown_operation")
+
+
+def test_malformed_evaluation_time_denies_without_exception() -> None:
+    result = evaluate_permission(permission_record(), "discovery", now="not-a-datetime")
+    assert (result.allowed, result.reason) == (False, "invalid_evaluation_time")
+
+
 def test_future_permission_denies() -> None:
     record = permission_record()
     record["effective_from"] = "2026-11-20T00:00:00Z"
@@ -57,6 +82,28 @@ def test_expired_permission_denies_at_exact_end_instant() -> None:
     record["effective_until"] = "2026-11-19T00:00:00Z"
     result = evaluate_permission(record, "discovery", now=NOW)
     assert (result.allowed, result.reason) == (False, "permission_expired")
+
+
+@pytest.mark.parametrize("invalid_end", [None, "", "not-a-date"])
+def test_missing_or_invalid_expiry_denies(invalid_end) -> None:
+    record = permission_record()
+    record["effective_until"] = invalid_end
+    result = evaluate_permission(record, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (
+        False,
+        "invalid_or_missing_effective_until",
+    )
+
+
+def test_expiry_must_be_after_effective_start() -> None:
+    record = permission_record()
+    record["effective_from"] = "2026-11-19T00:00:00Z"
+    record["effective_until"] = "2026-11-19T00:00:00Z"
+    result = evaluate_permission(record, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (
+        False,
+        "invalid_permission_window",
+    )
 
 
 def test_naive_evaluation_time_denies() -> None:
@@ -84,3 +131,25 @@ def test_approved_global_status_does_not_override_denied_operation() -> None:
     record["operations"]["discovery"] = {"allowed": True, "status": "revoked"}
     result = evaluate_permission(record, "discovery", now=NOW)
     assert (result.allowed, result.reason) == (False, "operation_not_approved")
+
+
+def test_unhandled_operation_conditions_require_review() -> None:
+    record = permission_record()
+    record["operations"]["discovery"]["conditions"] = [
+        "Only after confirming the publisher's written scope"
+    ]
+    result = evaluate_permission(record, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (
+        False,
+        "operation_conditions_require_review",
+    )
+
+
+def test_malformed_operation_conditions_deny() -> None:
+    record = permission_record()
+    record["operations"]["discovery"]["conditions"] = "not-a-condition-list"
+    result = evaluate_permission(record, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (
+        False,
+        "invalid_operation_conditions",
+    )

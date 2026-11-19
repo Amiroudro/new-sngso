@@ -45,11 +45,31 @@ Fail closed for missing or expired permissions, missing provenance, invalid sche
 
 Each stage report includes status, counts, warnings, errors, duration, and input/output identifiers.
 
+## Current implementation status (2026-11-20)
+
+The repository is at the foundation milestone. The following is the verified scope of the current code and workflow, not a claim that the full engine is operational.
+
+| Area | Current state | Not yet delivered |
+|---|---|---|
+| Versioned contracts | JSON Schema Draft 2020-12 contracts exist for the core domain records | Full publication-policy validation and broader cross-entity integration coverage |
+| Runtime validation | Python loader validates schema definitions and payloads; SQLite registry validates records and cross-record references inside transactions | Broader API/connector boundary enforcement and integration tests after CI can execute |
+| Source governance contracts | Separate source, endpoint, permission-evidence, and scoped grant schemas; SQLite validates source/endpoint/evidence ownership and approved-grant evidence state | Human reviewer authentication/authorization and connector network enforcement |
+| Permission evaluator | Operation-specific, time-bounded, fail-closed evaluator; scoped grants require exact source/endpoint matches and evidence references; malformed records, identifiers, operation values, evaluation times, and unhandled conditions are denied | Human reviewer authentication, typed condition evaluator, and collector enforcement |
+| Content fingerprints | Deterministic JSON serialization and SHA-256 fingerprint helper exist | Frozen run manifests and end-to-end artifact reproducibility |
+| Automated tests | Full pytest suite covers contracts, source governance, SQLite persistence, permission-first collection, observation provenance, rate limits, output bounds, and source-domain locator scope | Full GitHub Actions suite passed on run #158 with 175 tests; broader integration/regression and adversarial transport tests remain |
+| GitHub Actions | Python 3.12 workflow installs the package and runs the full pytest suite, including storage, collection, and standalone HTTPS transport tests; run #158 passed with 175 tests | Lint, formatting, static typing, dependency/security scans, and publication integration tests |
+| Persistence | SQLite migrations v1–v2, typed records, cross-record checks, grant/domain revisions, append-only audit events, and permission-bound collection observations are implemented | Pipeline-run storage, backup/restore drills, external audit anchoring, and production authorization |
+| Collection | Fixture-only permission-first orchestrator supports discovery and metadata, persists provenance, rechecks grants before invocation and storage, rate-limits by domain, bounds output, and constrains locator hosts to registered source domains. A separate HTTPS transport prototype pins connections to validated public DNS IPs, verifies TLS hostnames, bounds streamed responses and retries, and rejects unsafe redirects/compression | Final adversarial review, transport-to-connector integration, and any live connector; none is enabled |
+
+The current workflow is intentionally fixture-only and does not contact publisher websites. The HTTPS transport prototype is not registered with the orchestrator and no live network connector exists. It uses dnspython with a shared deadline for A and AAAA lookups and rejects any non-public answer. No real publisher is approved. Its path filters include `src/**` and `tests/**`, so runtime and storage changes trigger the full test suite.
+
 ## CI requirements
 
-Every pull request should run environment checks, formatting, lint, static type checks when configured, unit and contract tests, fixture-based integration tests, migration tests, secret scanning, dependency checks, and deterministic artifact tests.
+Every pull request should eventually run environment checks, formatting, lint, static type checks when configured, unit and contract tests, fixture-based integration tests, migration tests, secret scanning, dependency checks, and deterministic artifact tests.
 
 CI must not depend on publisher websites being online. Live-source checks belong in a separate controlled operational workflow.
+
+The current workflow is a smaller foundation gate, not the complete CI policy described above. Do not mark the broader CI requirements complete until the corresponding tools and checks exist and have passed.
 
 ## Release criteria
 

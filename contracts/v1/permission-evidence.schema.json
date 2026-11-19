@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/permission-evidence.schema.json",
+  "title": "PermissionEvidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "source_id", "evidence_type", "evidence_uri", "captured_at", "content_fingerprint", "scope_description", "review_status"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "id": {"$ref": "common.schema.json#/$defs/id"},
+    "source_id": {"$ref": "common.schema.json#/$defs/id"},
+    "evidence_type": {"enum": ["written_grant", "publisher_license", "api_terms", "terms_of_use", "public_domain_assessment", "statutory_basis", "other"]},
+    "evidence_uri": {"$ref": "common.schema.json#/$defs/uri"},
+    "captured_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+    "content_fingerprint": {"$ref": "common.schema.json#/$defs/hash"},
+    "scope_description": {"type": "string", "minLength": 1, "maxLength": 3000},
+    "review_status": {"enum": ["unreviewed", "verified", "rejected", "needs_legal_review"]},
+    "reviewed_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+    "reviewed_by": {"type": "string", "minLength": 1, "maxLength": 160},
+    "review_note": {"type": "string", "maxLength": 4000}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"review_status": {"enum": ["verified", "rejected", "needs_legal_review"]}}, "required": ["review_status"]},
+      "then": {"required": ["reviewed_at", "reviewed_by"]}
+    }
+  ]
+}

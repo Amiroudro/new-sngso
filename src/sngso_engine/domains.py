@@ -1,0 +1,93 @@
+"""Canonical DNS identity and source-domain scope helpers.
+
+These functions are shared by orchestration and persistence so both trust
+boundaries apply identical host normalization and allowlist rules.
+"""
+from __future__ import annotations
+
+import ipaddress
+from typing import Any
+from urllib.parse import urlsplit
+
+
+def canonical_dns_name(value: Any) -> str | None:
+    """Return a lowercase IDNA ASCII DNS name, or None for invalid input."""
+    if not isinstance(value, str) or not value or value != value.strip():
+        return None
+    raw_name = value[:-1] if value.endswith(".") else value
+    if not raw_name or raw_name.endswith("."):
+        return None
+    try:
+        canonical = raw_name.encode("idna").decode("ascii").lower()
+    except UnicodeError:
+        return None
+    if not canonical or len(canonical) > 253:
+        return None
+    try:
+        ipaddress.ip_address(canonical)
+    except ValueError:
+        pass
+    else:
+        return None
+    labels = canonical.split(".")
+    if any(
+        not label
+        or len(label) > 63
+        or label.startswith("-")
+        or label.endswith("-")
+        or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789-" for char in label)
+        for label in labels
+    ):
+        return None
+    return canonical
+
+
+def valid_domain_allowlist(domains: Any) -> bool:
+    """Require a non-empty list of unique, already-canonical DNS names."""
+    if not isinstance(domains, list) or not domains:
+        return False
+    normalized = [canonical_dns_name(domain) for domain in domains]
+    return (
+        all(value is not None for value in normalized)
+        and all(domain == canonical for domain, canonical in zip(domains, normalized))
+        and len(set(normalized)) == len(normalized)
+    )
+
+
+def host_in_domain_allowlist(host: str, domains: Any) -> bool:
+    """Check exact host or subdomain membership using canonical DNS names."""
+    if not isinstance(domains, (list, tuple)) or not domains:
+        return False
+    normalized_host = canonical_dns_name(host)
+    if not normalized_host:
+        return False
+    normalized_domains = [canonical_dns_name(domain) for domain in domains]
+    if any(domain is None for domain in normalized_domains):
+        return False
+    return any(
+        normalized_host == domain or normalized_host.endswith("." + domain)
+        for domain in normalized_domains
+    )
+
+
+def valid_http_uri(value: Any, *, max_length: int = 2048) -> bool:
+    """Accept an absolute HTTP(S) URI without ambiguous or credential-bearing parts."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > max_length
+        or any(ord(char) <= 32 or ord(char) == 127 or char == chr(92) for char in value)
+    ):
+        return False
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return False
+        if parsed.username is not None or parsed.password is not None or parsed.fragment:
+            return False
+        if canonical_dns_name(parsed.hostname) is None:
+            return False
+        parsed.port
+    except ValueError:
+        return False
+    return True

@@ -51,13 +51,13 @@ Scheduling, retries, rate limits, health checks, audit logs, metrics, alert cond
 
 ## Core domain entities
 
-Publisher; SourcePermission; SourceObservation; Article; Story; StoryArticle; Claim; Evidence; Event; Perspective; LearningObject; Edition; PipelineRun; EditorialDecision.
+Source; SourceEndpoint; PermissionEvidence; SourcePermissionGrant; SourceObservation; Article; Story; StoryArticle; Claim; Evidence; Event; Perspective; LearningObject; Edition; PipelineRun; EditorialDecision.
 
 Use stable IDs and explicit relationships. A URL is not the sole identity of an article, and a headline is not the identity of a story.
 
 ## Storage
 
-Use SQLite for local development and early low-volume operation, accessed only through repository interfaces and migrations. Adopt PostgreSQL only if measured concurrency or volume requires it.
+Use SQLite for local development and early low-volume operation through the transactional `SQLiteRegistry` and versioned migration 1. It persists source governance plus article, story, claim, factual evidence, and edition records, with cross-record validation and append-only revision/audit tables. Adopt PostgreSQL only if measured concurrency or volume requires it. See `docs/PERSISTENCE.md` for guarantees and limitations.
 
 Published editions are immutable JSON artifacts with a manifest and content hashes. Store raw or full-text material only where permission allows and retention policy requires it.
 

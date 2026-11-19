@@ -3,7 +3,24 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
+
+from .models import (
+    ArticleRecord,
+    ClaimRecord,
+    EditionRecord,
+    EvidenceRecord,
+    PermissionEvidenceRecord,
+    PermissionGrantRecord,
+    SourceEndpointRecord,
+    SourceRecord,
+    StoryRecord,
+)
+from .permissions import PermissionDecision
+
+
+DomainRecordType = Literal["article", "story", "claim", "evidence", "edition"]
+DomainRecord = ArticleRecord | StoryRecord | ClaimRecord | EvidenceRecord | EditionRecord
 
 
 class SourcePermissionRepository(Protocol):
@@ -28,3 +45,80 @@ class EditionRepository(Protocol):
     def publish_immutable(self, edition: dict[str, Any]) -> None:
         """Persist a new immutable edition snapshot."""
         ...
+
+
+class SourceGovernanceRepository(Protocol):
+    """Port for publisher identity, endpoint, evidence, and grant storage."""
+
+    def add_source(self, payload: dict[str, Any]) -> SourceRecord: ...
+    def add_endpoint(self, payload: dict[str, Any]) -> SourceEndpointRecord: ...
+    def add_permission_evidence(self, payload: dict[str, Any]) -> PermissionEvidenceRecord: ...
+    def add_permission_grant(self, payload: dict[str, Any]) -> PermissionGrantRecord: ...
+    def get_source(self, source_id: str) -> SourceRecord | None: ...
+    def get_endpoint(self, endpoint_id: str) -> SourceEndpointRecord | None: ...
+    def get_permission_evidence(self, evidence_id: str) -> PermissionEvidenceRecord | None: ...
+    def get_permission_grant(self, grant_id: str) -> PermissionGrantRecord | None: ...
+    def evaluate_grant(
+        self,
+        grant_id: str,
+        operation: str,
+        *,
+        endpoint_id: str,
+        now: datetime | None = None,
+    ) -> PermissionDecision: ...
+    def transition_permission_grant(
+        self,
+        grant_id: str,
+        new_status: str,
+        *,
+        actor: str,
+        reason: str,
+        at: str | None = None,
+    ) -> PermissionGrantRecord: ...
+
+
+class EditorialRepository(Protocol):
+    """Port for versioned article, story, claim, evidence, and edition records."""
+
+    def add_domain_record(
+        self, record_type: DomainRecordType, payload: dict[str, Any]
+    ) -> DomainRecord: ...
+    def get_domain_record(
+        self, record_type: DomainRecordType, record_id: str
+    ) -> DomainRecord | None: ...
+    def revise_domain_record(
+        self,
+        record_type: DomainRecordType,
+        record_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+    ) -> DomainRecord: ...
+
+
+class AuditRepository(Protocol):
+    """Port for append-only decision and revision history."""
+
+    def audit_events(self, *, entity_id: str | None = None) -> list[dict[str, Any]]: ...
+    def verify_audit_chain(self) -> bool: ...
+
+
+class CollectionObservationRepository(Protocol):
+    """Append-only sink for permission-checked collection observations."""
+
+    def append_many(self, observations: tuple[Any, ...]) -> None: ...
+    def collection_observations(
+        self, *, source_id: str | None = None
+    ) -> list[dict[str, Any]]: ...
+
+
+class EngineRepository(
+    SourceGovernanceRepository,
+    EditorialRepository,
+    AuditRepository,
+    CollectionObservationRepository,
+    Protocol,
+):
+    """Combined repository port implemented by the SQLite adapter."""
