@@ -685,6 +685,8 @@ class SQLiteRegistry:
         now: datetime | None = None,
     ) -> PermissionDecision:
         """Resolve and verify stored scope/evidence before evaluating a grant."""
+        if not isinstance(grant_id, str) or not grant_id.strip():
+            return PermissionDecision(False, "invalid_permission_id")
         with self._transaction() as connection:
             row = connection.execute(
                 "SELECT payload_json FROM permission_grants WHERE id = ?", (grant_id,)
@@ -705,6 +707,8 @@ class SQLiteRegistry:
                 ).fetchone()
                 if not isinstance(operation, str) or operation not in OPERATIONS:
                     decision = PermissionDecision(False, "unknown_operation", grant_id)
+                elif not isinstance(endpoint_id, str) or not endpoint_id.strip():
+                    decision = PermissionDecision(False, "endpoint_scope_mismatch", grant_id)
                 elif source is None:
                     decision = PermissionDecision(False, "source_record_missing", grant_id)
                 elif source["status"] != "active":
