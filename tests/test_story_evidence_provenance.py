@@ -464,6 +464,7 @@ def test_story_decision_cannot_reference_unknown_story_or_unlinked_article():
                     [article_a],
                 ),
             )
+        _add_second_story(registry, [article_b])
         unrelated_article = _article(
             registry,
             "source:publisher-a",
