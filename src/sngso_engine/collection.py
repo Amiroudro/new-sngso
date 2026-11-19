@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import math
 from threading import Lock
 from time import monotonic
 from typing import Any, Callable, Iterable, Protocol
@@ -61,6 +62,7 @@ class CollectionRequest:
         if (
             isinstance(self.timeout_seconds, bool)
             or not isinstance(self.timeout_seconds, (int, float))
+            or not math.isfinite(self.timeout_seconds)
             or not 0.1 <= self.timeout_seconds <= 30
         ):
             raise ValueError("timeout_seconds must be between 0.1 and 30")
@@ -168,8 +170,16 @@ class InMemoryDomainRateLimiter:
         window_seconds: float = 60.0,
         clock: Callable[[], float] = monotonic,
     ) -> None:
-        if max_requests < 1 or window_seconds <= 0:
-            raise ValueError("rate-limit settings must be positive")
+        if (
+            isinstance(max_requests, bool)
+            or not isinstance(max_requests, int)
+            or max_requests < 1
+            or isinstance(window_seconds, bool)
+            or not isinstance(window_seconds, (int, float))
+            or not math.isfinite(window_seconds)
+            or window_seconds <= 0
+        ):
+            raise ValueError("rate-limit settings must be finite positive values")
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._clock = clock
