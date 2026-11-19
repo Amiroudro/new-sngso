@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any, Iterator
+from urllib.parse import urlsplit
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .contracts import validate_payload
@@ -908,8 +909,52 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("collection operation is not implemented")
             if not isinstance(payload["grant_revision"], int) or isinstance(payload["grant_revision"], bool):
                 raise RegistryIntegrityError("collection observation requires a grant revision")
+            for field in ("id", "source_id", "endpoint_id", "grant_id", "connector_name", "connector_version"):
+                if not isinstance(payload[field], str) or not payload[field].strip():
+                    raise RegistryIntegrityError(f"collection {field} is required")
             if not isinstance(payload["metadata"], dict):
                 raise RegistryIntegrityError("collection metadata must be an object")
+            metadata_keys = {"title", "byline", "published_at", "summary_metadata"}
+            if set(payload["metadata"]) - metadata_keys:
+                raise RegistryIntegrityError("collection metadata contains unsupported fields")
+            if any(
+                not isinstance(value, str) or len(value) > 1000
+                for value in payload["metadata"].values()
+            ):
+                raise RegistryIntegrityError("collection metadata values must be bounded strings")
+            if payload["operation"] == "discovery" and payload["metadata"]:
+                raise RegistryIntegrityError("discovery observations cannot retain article metadata")
+            for uri_field in ("locator", "final_locator"):
+                uri = payload[uri_field]
+                if uri is None and uri_field == "final_locator":
+                    continue
+                if not isinstance(uri, str) or len(uri) > 2048:
+                    raise RegistryIntegrityError(f"collection {uri_field} is invalid")
+                try:
+                    parsed_uri = urlsplit(uri)
+                except ValueError as exc:
+                    raise RegistryIntegrityError(f"collection {uri_field} is invalid") from exc
+                if parsed_uri.scheme not in {"http", "https"} or not parsed_uri.hostname:
+                    raise RegistryIntegrityError(f"collection {uri_field} must be an absolute HTTP(S) URI")
+            fingerprint = payload["content_fingerprint"]
+            if fingerprint is not None and (
+                not isinstance(fingerprint, str)
+                or not fingerprint.startswith("sha256:")
+                or len(fingerprint) != 71
+            ):
+                raise RegistryIntegrityError("collection fingerprint must be a SHA-256 fingerprint")
+            status = payload["response_status"]
+            if status is not None and (
+                isinstance(status, bool) or not isinstance(status, int) or not 100 <= status <= 599
+            ):
+                raise RegistryIntegrityError("collection response status is invalid")
+            content_type = payload["content_type"]
+            if content_type is not None and (
+                not isinstance(content_type, str) or len(content_type) > 160
+            ):
+                raise RegistryIntegrityError("collection content type is invalid")
+            if payload["permission_reason"] != "approved":
+                raise RegistryIntegrityError("collection observation lacks an approved permission decision")
             _aware_datetime(payload["observed_at"], "observed_at")
 
         with self._transaction() as connection:
