@@ -183,7 +183,7 @@ Acceptance:
 - Runtime schema validation and a fail-closed operation permission evaluator exist.
 - The evaluator now requires a valid, timezone-aware expiry and rejects non-positive permission windows.
 - Source, endpoint, permission-evidence, and scoped permission-grant contracts now exist. The SQLite registry implements cross-record validation, grant and domain-record revisions, and audit events. Human reviewer authentication and connector enforcement are not implemented.
-- Current CI is fixture-only and now targets the full pytest suite, including temporary-database tests. GitHub runner allocation has blocked successful execution; tests are not verified as passing.
+- Current CI is fixture-only and targets the full pytest suite, including temporary-database tests. Latest workflow run #82 failed before runner allocation (`runner_id: 0`, no steps or test logs); tests are not verified as passing.
 - Pull request #1 remains draft and unmerged. Its merge is not authorized by this plan.
 
 ## Execution order
