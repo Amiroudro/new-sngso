@@ -97,7 +97,8 @@ Implemented and CI-verified:
 - source/endpoint active-state checks and connector capability checks;
 - discovery and metadata as separate permission-gated operations;
 - rejection of unimplemented operations, including full-text storage, translation, images, and republication;
-- bounded item count and strict operation-specific output fields;
+- bounded item count, a fixed-window per-domain request limiter, an observation-byte budget, and strict operation-specific output fields;
+- bounded timeout/retry budget values carried in the request contract for future network adapters (no live adapter currently exists);
 - append-only SQLite observation storage with source/endpoint/grant foreign keys;
 - a storage-time recheck of grant status, revision, evidence state, and effective permission;
 - rejection of observations when a grant changes during connector execution;
@@ -108,9 +109,9 @@ GitHub Actions run #107 passed with 132 tests.
 
 ## 10. Remaining Section 4 gates
 
-- Enforce wall-clock deadlines, response-byte limits, per-domain rate limits, and bounded retry policy in the transport boundary before any live connector exists.
+- Implement and test wall-clock deadlines, actual network response-byte limits, and bounded retry behavior inside a reviewed transport boundary before any live connector exists. The current timeout/retry fields are bounded declarations, not a claim that fixture connectors enforce network timeouts or retries.
 - Add stronger URI and redirect-scope validation for a future network adapter.
-- Add tests for inactive sources/endpoints, expired grants, invalid metadata, oversized responses, and sink transaction rollback.
+- Add tests for inactive sources/endpoints, expired grants, invalid metadata, oversized result batches, and sink transaction rollback. The current rate-limit and result-byte-budget tests cover the orchestrator boundary, not raw HTTP response bodies.
 - Review the collection module and observation storage together before marking this section complete.
 
 No live connector, publisher approval, article-body storage, or production collection has been enabled.
