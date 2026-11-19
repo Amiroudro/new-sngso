@@ -770,6 +770,12 @@ def test_story_decision_application_ledger_is_unique_and_append_only():
                 "{}",
             ),
         )
+        preview = registry.preview_story_decision_application("story-decision:merge-001")
+        assert preview["already_applied"] is True
+        assert preview["applicable"] is False
+        assert preview["application"]["application_id"] == "story-application:fixture"
+        assert "story decision has already been applied" in preview["blockers"]
+
         with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
             registry._connection.execute(
                 """INSERT INTO story_decision_applications
@@ -792,7 +798,7 @@ def test_story_decision_application_ledger_is_unique_and_append_only():
                 "UPDATE story_decision_applications SET rationale = 'rewritten' "
                 "WHERE application_id = 'story-application:fixture'"
             )
-        with pytest.raises(Exception, match="applications are append-only"):
+        with pytest.raises(sqlite3.IntegrityError, match="applications are append-only"):
             registry._connection.execute(
                 "DELETE FROM story_decision_applications "
                 "WHERE application_id = 'story-application:fixture'"
