@@ -2,7 +2,7 @@
 
 Status: Sections 1–5 foundation implemented to documented scope; Section 5 fixture suite passed in GitHub Actions run #44607783960 (297 tests).  
 Storage engine: Python `sqlite3` and SQLite.  
-Migration line: schema version 5. Migration 5 adds the append-only story decision ledger in its own table.
+Migration line: schema version 6. Migration 5 adds the append-only story decision ledger; migration 6 adds a unique, append-only application ledger referencing each decision at most once. The application table is persistence groundwork only: no API currently writes to it and no story/claim membership changes are performed.
 
 ## Design choices
 
