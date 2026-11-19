@@ -464,14 +464,20 @@ def test_story_decision_cannot_reference_unknown_story_or_unlinked_article():
                     [article_a],
                 ),
             )
+        unrelated_article = _article(
+            registry,
+            "source:publisher-a",
+            "publisher-a.example.org",
+            "publisher-a-unlinked",
+        )
         with pytest.raises(RegistryIntegrityError, match="must belong to at least one affected story"):
             registry.add_domain_record(
                 "story_decision",
                 _story_decision(
                     "merge",
-                    ["story:shared-event", "story:other"],
+                    ["story:shared-event", "story:secondary"],
                     "story:shared-event",
-                    [article_b],
+                    [unrelated_article],
                 ),
             )
     finally:
