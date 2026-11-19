@@ -6,6 +6,7 @@ import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
+from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
@@ -28,7 +29,7 @@ from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as 
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 
 class RegistryIntegrityError(ValueError):
@@ -206,6 +207,43 @@ _MIGRATION_1 = (
 )
 
 
+
+
+_MIGRATION_2 = (
+    """CREATE TABLE collection_observations (
+        observation_id TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL,
+        endpoint_id TEXT NOT NULL,
+        grant_id TEXT NOT NULL,
+        grant_revision INTEGER NOT NULL CHECK (grant_revision >= 1),
+        operation TEXT NOT NULL CHECK (operation IN ('discovery', 'metadata')),
+        connector_name TEXT NOT NULL,
+        connector_version TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        locator TEXT NOT NULL,
+        final_locator TEXT,
+        content_fingerprint TEXT,
+        response_status INTEGER CHECK (response_status IS NULL OR response_status BETWEEN 100 AND 599),
+        content_type TEXT,
+        metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
+        permission_reason TEXT NOT NULL,
+        FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE RESTRICT,
+        FOREIGN KEY (endpoint_id, source_id)
+            REFERENCES source_endpoints(id, source_id) ON DELETE RESTRICT,
+        FOREIGN KEY (grant_id, source_id)
+            REFERENCES permission_grants(id, source_id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_collection_observations_source_time ON collection_observations(source_id, observed_at)",
+    "CREATE INDEX idx_collection_observations_endpoint_time ON collection_observations(endpoint_id, observed_at)",
+    """CREATE TRIGGER collection_observations_no_update
+        BEFORE UPDATE ON collection_observations
+        BEGIN SELECT RAISE(ABORT, 'collection observations are append-only'); END""",
+    """CREATE TRIGGER collection_observations_no_delete
+        BEFORE DELETE ON collection_observations
+        BEGIN SELECT RAISE(ABORT, 'collection observations are append-only'); END""",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -280,8 +318,20 @@ class SQLiteRegistry:
                         (1, _utc_now()),
                     )
                     connection.execute("PRAGMA user_version = 1")
+                    version = 1
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 1 failed; transaction rolled back") from exc
+            if version == 1:
+                try:
+                    for statement in _MIGRATION_2:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (2, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 2")
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 2 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
