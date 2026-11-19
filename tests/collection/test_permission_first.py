@@ -214,10 +214,12 @@ def test_registry_rejects_unsupported_http_method_at_persistence_boundary():
             make_request(), "fixture-feed"
         )
         assert result.allowed is True
+        stored_before = registry.collection_observations()
+        assert len(stored_before) == 1
         tampered = replace(result.observations[0], http_method="POST")
         with pytest.raises(RegistryIntegrityError, match="GET only"):
             registry.append_many((tampered,))
-        assert registry.collection_observations() == []
+        assert registry.collection_observations() == stored_before
 
 
 def test_metadata_requires_its_own_approval_and_is_bounded() -> None:
