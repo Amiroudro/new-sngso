@@ -1,5 +1,6 @@
 """Controlled glossary persistence and vocabulary-reference tests."""
 
+import json
 import sqlite3
 
 import pytest
@@ -267,3 +268,27 @@ def test_glossary_contract_requires_at_least_one_language_specific_sense():
     payload["senses"] = []
     with pytest.raises(ValueError):
         validate_payload("glossary-entry", payload)
+
+
+def test_sqlite_boundary_rejects_vocabulary_without_matching_glossary_sense():
+    registry = _prepared()
+    try:
+        registry.add_glossary_entry(
+            _glossary(), actor="editor", reason="Create canonical headword."
+        )
+        payload = _vocabulary("learning:vocab-direct")
+        payload["content"]["meaning"] = "দায়িত্ব"
+        with pytest.raises(sqlite3.IntegrityError, match="must match a registered glossary entry"):
+            registry._connection.execute(
+                """INSERT INTO learning_objects
+                (id, story_id, kind, language, status, revision, created_at, updated_at,
+                 last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (
+                    payload["id"], payload["story_id"], payload["kind"], payload["language"],
+                    payload["status"], payload["created_at"], payload["created_at"],
+                    "editor", "Direct SQL guard test.", json.dumps(payload),
+                ),
+            )
+    finally:
+        registry.close()
