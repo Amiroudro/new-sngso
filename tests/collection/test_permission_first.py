@@ -366,3 +366,24 @@ def test_persistence_boundary_rejects_unapproved_content_fields() -> None:
             registry.append_many((forged,))
 
         assert registry.collection_observations() == []
+
+def test_permission_is_rechecked_after_rate_limit_before_connector_call() -> None:
+    with populated_registry() as registry:
+        class RevokingLimiter:
+            def acquire(self, domain):
+                registry.transition_permission_grant(
+                    "permission:publisher-a-grant",
+                    "revoked",
+                    actor="rights-reviewer",
+                    reason="Permission withdrawn before connector invocation.",
+                )
+                return True
+
+        connector = FixtureConnector([{"locator": "https://publisher-a.example.org/news/1"}])
+        sink = InMemoryObservationSink()
+        collector = make_collector(registry, connector, sink, RevokingLimiter())
+        result = collector.collect(make_request(), "fixture-feed")
+
+        assert (result.allowed, result.reason) == (False, "permission_not_approved")
+        assert connector.calls == 0
+        assert sink.all() == ()
