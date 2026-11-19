@@ -735,3 +735,66 @@ def test_story_decision_preview_blocks_stale_story_revision():
         assert preview["impact_fingerprint"].startswith("sha256:")
     finally:
         registry.close()
+
+
+def test_story_decision_application_ledger_is_unique_and_append_only():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        registry.add_domain_record(
+            "story_decision",
+            _story_decision(
+                "merge",
+                ["story:shared-event", "story:secondary"],
+                "story:shared-event",
+                [article_a, article_b],
+            ),
+        )
+        assert registry.schema_version() == 6
+
+        registry._connection.execute(
+            """INSERT INTO story_decision_applications
+            (application_id, decision_id, applied_at, actor, rationale,
+             decision_fingerprint, impact_fingerprint, result_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "story-application:fixture",
+                "story-decision:merge-001",
+                STAMP,
+                "senior-editor",
+                "Fixture verifies the append-only application ledger.",
+                "sha256:" + "a" * 64,
+                "sha256:" + "b" * 64,
+                "{}",
+            ),
+        )
+        with pytest.raises(Exception, match="UNIQUE constraint failed"):
+            registry._connection.execute(
+                """INSERT INTO story_decision_applications
+                (application_id, decision_id, applied_at, actor, rationale,
+                 decision_fingerprint, impact_fingerprint, result_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    "story-application:duplicate",
+                    "story-decision:merge-001",
+                    STAMP,
+                    "senior-editor",
+                    "A second application must not be recorded.",
+                    "sha256:" + "a" * 64,
+                    "sha256:" + "b" * 64,
+                    "{}",
+                ),
+            )
+        with pytest.raises(Exception, match="applications are append-only"):
+            registry._connection.execute(
+                "UPDATE story_decision_applications SET rationale = 'rewritten' "
+                "WHERE application_id = 'story-application:fixture'"
+            )
+        with pytest.raises(Exception, match="applications are append-only"):
+            registry._connection.execute(
+                "DELETE FROM story_decision_applications "
+                "WHERE application_id = 'story-application:fixture'"
+            )
+        assert registry.verify_audit_chain()
+    finally:
+        registry.close()
