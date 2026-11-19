@@ -128,7 +128,7 @@ GitHub Actions run #123 passed with 137 tests.
 | DNS answers, HTTPS URLs, redirects, TLS hostname verification, headers, transfer coding, content type, response size and retry budgets are constrained | Offline transport tests |
 | CI does not depend on publisher availability | Fixture-only GitHub Actions suite |
 
-GitHub Actions run [#44604289595](https://github.com/Amiroudro/new-sngso/actions/runs/44604289595) passed with **264 tests** before the subsequent provenance migration work. The final run for the current Section 4 head is recorded in the repository PR and CI history.
+GitHub Actions run [#44604489528](https://github.com/Amiroudro/new-sngso/actions/runs/44604489528) passed with **264 tests** on the current PR head, including schema migration 3 and HTTP-method provenance. The suite is fixture-only and does not contact publisher endpoints.
 
 ### Explicit operational limits
 
