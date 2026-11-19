@@ -274,6 +274,24 @@ def test_bounded_dns_resolver_checks_both_address_families_and_public_ip_scope()
     assert all(call[2] <= 2.0 and call[3] is False for call in instance.calls)
 
 
+def test_bounded_dns_resolver_rejects_scoped_public_ipv6_answer():
+    class Record:
+        address = "2606:4700:4700::1111%eth0"
+
+    class Resolver:
+        def resolve(self, host, record_type, *, lifetime, search):
+            if record_type == "A":
+                raise transport.dns.resolver.NoAnswer
+            return [Record()]
+
+    resolver = transport.BoundedDNSResolver(
+        resolver_factory=Resolver,
+        clock=lambda: 1.0,
+    )
+    with pytest.raises(transport.TransportError, match="scoped IP"):
+        resolver.resolve("news.example.org", 443, timeout_seconds=2.0)
+
+
 def test_bounded_dns_resolver_rejects_private_answer():
     class Record:
         address = "10.1.2.3"
