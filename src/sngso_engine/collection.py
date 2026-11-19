@@ -215,6 +215,10 @@ class PermissionFirstCollector:
             return CollectionResult(False, "source_record_missing")
         if source.status != "active":
             return CollectionResult(False, "source_not_active")
+        source_payload = source.to_payload()
+        allowed_domains = source_payload.get("domains", [])
+        if not _valid_domain_allowlist(allowed_domains):
+            return CollectionResult(False, "source_domain_allowlist_invalid")
 
         endpoint = self._repository.get_endpoint(request.endpoint_id)
         if endpoint is None or endpoint.source_id != request.source_id:
@@ -233,6 +237,8 @@ class PermissionFirstCollector:
         domain = urlsplit(endpoint.endpoint_uri).hostname
         if not domain:
             return CollectionResult(False, "invalid_endpoint_uri")
+        if not _host_in_domain_allowlist(domain, allowed_domains):
+            return CollectionResult(False, "endpoint_domain_outside_source_scope")
 
         evaluated_at = self._clock()
         decision = self._repository.evaluate_grant(
@@ -284,6 +290,7 @@ class PermissionFirstCollector:
                     capabilities=capabilities,
                     permission_reason=decision.reason,
                     grant_revision=grant_revision,
+                    allowed_domains=allowed_domains,
                 )
             )
 
@@ -299,6 +306,7 @@ class PermissionFirstCollector:
         capabilities: ConnectorCapabilities,
         permission_reason: str,
         grant_revision: int | None,
+        allowed_domains: list[str],
     ) -> CollectionObservation:
         if not isinstance(raw, dict):
             raise CollectionError("connector observations must be objects")
@@ -313,9 +321,15 @@ class PermissionFirstCollector:
         locator = raw.get("locator")
         if not _is_http_uri(locator):
             raise CollectionError("observation locator must be an absolute HTTP(S) URI")
+        if not _host_in_domain_allowlist(urlsplit(locator).hostname or "", allowed_domains):
+            raise CollectionError("observation locator is outside the registered source domains")
         final_locator = raw.get("final_locator")
         if final_locator is not None and not _is_http_uri(final_locator):
             raise CollectionError("final_locator must be an absolute HTTP(S) URI")
+        if final_locator is not None and not _host_in_domain_allowlist(
+            urlsplit(final_locator).hostname or "", allowed_domains
+        ):
+            raise CollectionError("final_locator is outside the registered source domains")
 
         fingerprint = raw.get("content_fingerprint")
         if fingerprint is not None and (
@@ -369,6 +383,33 @@ class PermissionFirstCollector:
             metadata=clean_metadata,
             permission_reason=permission_reason,
         )
+
+
+
+def _valid_domain_allowlist(domains: Any) -> bool:
+    if not isinstance(domains, list) or not domains:
+        return False
+    return all(
+        isinstance(domain, str)
+        and domain == domain.strip().lower()
+        and bool(domain)
+        and len(domain) <= 253
+        and "/" not in domain
+        and ":" not in domain
+        and " " not in domain
+        for domain in domains
+    )
+
+
+def _host_in_domain_allowlist(host: str, domains: list[str]) -> bool:
+    normalized_host = host.rstrip(".").lower()
+    if not normalized_host:
+        return False
+    return any(
+        normalized_host == domain
+        or normalized_host.endswith("." + domain)
+        for domain in domains
+    )
 
 
 def _is_http_uri(value: Any) -> bool:
