@@ -47,7 +47,7 @@ A connector declares:
 
 The orchestrator passes only the requested operation and its explicit budget. The connector interface must not expose an unrestricted shared HTTP client or direct access to the database.
 
-A future network adapter requires a separate review for redirects, DNS rebinding, private/link-local IP blocking, TLS, response size, content type, decompression limits, timeouts, retry policy, per-domain rate limits, and user-agent identification. Redirect destinations must not silently expand the approved endpoint scope.
+The standalone HTTPS transport prototype now pins the socket connection to a DNS-resolved public IP while retaining the original hostname for TLS certificate verification. It rejects non-HTTPS URLs, credentials, non-standard ports, malformed hosts, non-public DNS answers, out-of-scope redirect destinations, compressed responses, and oversized response bodies. It streams under a request deadline, caps redirects and retries, and uses a fixed user-agent. It is not registered with the fixture orchestrator and no live publisher connector is enabled. DNS lookup itself still uses the operating-system resolver and is not yet independently deadline-bounded; a production adapter requires a resolver with an enforceable timeout, plus final TLS/redirect/IP review and integration tests.
 
 ## 5. Observation and provenance
 
@@ -110,8 +110,8 @@ GitHub Actions run #123 passed with 137 tests.
 
 ## 10. Remaining Section 4 gates
 
-- Implement and test wall-clock deadlines, actual network response-byte limits, and bounded retry behavior inside a reviewed transport boundary before any live connector exists. The current timeout/retry fields are bounded declarations, not a claim that fixture connectors enforce network timeouts or retries.
-- Add stronger URI and redirect-scope validation for a future network adapter, including DNS resolution and private/link-local IP protections. The fixture boundary now rejects locators and final locators outside the source's registered domain allowlist.
+- A standalone HTTPS transport prototype now enforces socket/read deadlines, streamed response-byte ceilings, bounded transient retries, redirect limits, TLS hostname verification with IP-pinned connections, and public-IP DNS checks. The fixture orchestrator still uses fixtures only; the transport is not wired into a live connector. DNS resolver calls are not yet deadline-bounded.
+- Complete adversarial transport tests, enforce a deadline-bounded DNS resolver, validate content types and response headers, and review redirect/DNS/TLS behavior before any adapter is connected. The fixture and SQLite boundaries reject locators outside the registered source domains.
 - Expand adversarial tests for inactive sources/endpoints, expired grants, invalid metadata, oversized result batches, malformed domain allowlists, and sink transaction rollback. The current rate-limit and result-byte-budget tests cover the orchestrator boundary, not raw HTTP response bodies.
 - CI run #128 passed after adding regression tests for out-of-scope locator hosts, out-of-scope final locators, permitted subdomains, and endpoint-host scope. CI run #133 passed after adding a storage-boundary regression test that bypasses the orchestrator and attempts to persist an out-of-scope locator. An intermediate run #132 exposed a misplaced validation reference; the validation was moved into the transaction where source domains are loaded. CI run #136 passed with further tests for inactive sources/endpoints, expired grants, disallowed metadata fields, and atomic observation-batch rollback.
 - Review the collection module and observation storage together before marking this section complete.
