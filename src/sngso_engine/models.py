@@ -188,3 +188,21 @@ class EditionRecord(_JsonRecord):
             status=payload["status"],
             content_hash=payload["content_hash"],
         )
+
+
+
+@dataclass(frozen=True, slots=True)
+class StoryDecisionRecord(_JsonRecord):
+    """Append-only human decision linking or separating story identities."""
+
+    operation: str
+    canonical_story_id: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "StoryDecisionRecord":
+        return cls(
+            id=payload["id"],
+            payload_json=canonical_json_bytes(payload).decode("utf-8"),
+            operation=payload["operation"],
+            canonical_story_id=payload["canonical_story_id"],
+        )
