@@ -98,9 +98,11 @@ Acceptance:
 - Normalization does not erase original values needed for audit.
 - Duplicate decisions are explainable and reversible.
 
-**Section 5 complete:** a metadata-only ingestion service now normalizes URL, text, language and timezone-aware timestamps; validates endpoint language and rechecks current permission at persistence; derives publisher-specific article IDs from source plus canonical URL; creates or reuses articles atomically; refreshes metadata only from newer observations with immutable revisions; and records cross-publisher duplicate candidates without merging articles. Duplicate resolutions are append-only and reversible. The SQLite registry now exposes an ingestion repository port, migration 4 and strict database/reference checks. Fixture tests cover normalization, source-observation binding, idempotency, two-connection races, atomic rollback, metadata refresh ordering, duplicate candidates/resolution and permission revocation. GitHub Actions run [#44607783960](https://github.com/Amiroudro/new-sngso/actions/runs/44607783960) passed with **297 tests** on code head 5ae0a5f9ca624f14d9350b6d039ef7abe86690b7. Later changes on the current PR head are documentation-only.
+**Section 5 complete:** a metadata-only ingestion service now normalizes URL, text, language and timezone-aware timestamps; validates endpoint language and rechecks current permission at persistence; derives publisher-specific article IDs from source plus canonical URL; creates or reuses articles atomically; refreshes metadata only from newer observations with immutable revisions; and records cross-publisher duplicate candidates without merging articles. Duplicate resolutions are append-only and reversible. The SQLite registry now exposes an ingestion repository port, migration 4 and strict database/reference checks. Fixture tests cover normalization, source-observation binding, idempotency, two-connection races, atomic rollback, metadata refresh ordering, duplicate candidates/resolution and permission revocation. GitHub Actions run [#44607997206](https://github.com/Amiroudro/new-sngso/actions/runs/44607997206) passed with **311 tests** on code head `006b10040fbcf3d5b9d3983b1e5cc21210f67a2b`. This includes regional-language declaration regression tests.
 
 ## 6. Story intelligence, claims, and evidence
+
+**Status: in progress.** Initial work strengthens cross-record provenance validation before adding story clustering or editorial intelligence.
 
 **Goal:** build traceable understanding rather than headline aggregation.
 
