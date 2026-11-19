@@ -1802,6 +1802,26 @@ class SQLiteRegistry:
                         raise RegistryIntegrityError(
                             "claim provenance article and observation are not linked by ingestion"
                         )
+            existing_evidence = connection.execute(
+                """SELECT payload_json FROM domain_records
+                WHERE record_type = 'evidence'
+                  AND json_extract(payload_json, '$.claim_id') = ?""",
+                (payload["id"],),
+            ).fetchall()
+            for row in existing_evidence:
+                evidence_payload = json.loads(row["payload_json"])
+                evidence_source = evidence_payload["source_id"]
+                evidence_article = evidence_payload.get("article_id")
+                evidence_observation = evidence_payload.get("observation_id")
+                if not any(
+                    item.get("source_id") == evidence_source
+                    and (evidence_article is None or item.get("article_id") == evidence_article)
+                    and (evidence_observation is None or item.get("observation_id") == evidence_observation)
+                    for item in payload.get("provenance", [])
+                ):
+                    raise RegistryIntegrityError(
+                        "claim revision would orphan existing evidence provenance"
+                    )
         elif record_type == "evidence":
             claim = require_record("claim", payload["claim_id"], "evidence")
             source_id = payload["source_id"]
@@ -1967,7 +1987,7 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("record creation/observation time cannot be rewritten")
             immutable_identity_fields = {
                 "article": ("source_id", "canonical_uri"),
-                "evidence": ("source_id", "claim_id"),
+                "evidence": ("source_id", "claim_id", "article_id", "observation_id", "locator"),
             }.get(record_type, ())
             if any(payload.get(field) != previous_payload.get(field) for field in immutable_identity_fields):
                 raise RegistryIntegrityError("domain record identity links cannot be rewritten")
