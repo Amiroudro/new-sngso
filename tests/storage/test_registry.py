@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 11
+        assert registry.schema_version() == 12
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 11
+        assert reopened.schema_version() == 12
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -1347,3 +1347,22 @@ def test_existing_schema_v10_database_migrates_to_v11(tmp_path, monkeypatch) -> 
         ).fetchone() is not None
         migrated.migrate()
         assert migrated.schema_version() == 11
+
+
+def test_existing_schema_v11_database_migrates_to_v12(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "registry-v11.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 11)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 11
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'glossary_entries'"
+        ).fetchone() is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 12)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 12
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'glossary_entries'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 12
