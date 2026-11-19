@@ -1,0 +1,51 @@
+# Section 6: Story intelligence, claims, and evidence
+
+Status: in progress. The first implementation slice hardens the evidence-to-claim provenance boundary. It does not yet implement automated story clustering, event chronology, claim extraction, or corroboration scoring.
+
+## Core distinctions
+
+- A **story** is an evolving editorial grouping of articles about a real-world subject.
+- An **article** remains a publisher-specific report. It can be linked to more than one story.
+- A **claim** is one atomic proposition attributed to a story and supported by one or more explicit provenance entries.
+- **Evidence** is a reviewed relationship between one source locator and one claim. It is not itself a declaration that the claim is true.
+- A **duplicate candidate** from Section 5 is a review hint. It is not proof that two reports are independent or that they are duplicates.
+
+## Provenance invariants
+
+1. Every claim must reference an existing story.
+2. Every claim provenance source must exist.
+3. If claim provenance names an article, that article must exist, belong to the named source, and be linked to the claim's story.
+4. If claim provenance names a collection observation, that observation must exist and belong to the named source.
+5. If a provenance entry names both an article and observation, the ingestion ledger must show that the observation produced that article.
+6. Evidence must reference an existing claim and source.
+7. If evidence names an article or observation, each must exist and belong to the evidence source. If both are named, the ingestion ledger must bind them.
+8. Evidence source/article/observation must match one single provenance entry on the referenced claim. It is not enough for those identifiers to appear in different provenance entries.
+9. A story revision cannot remove an article that is still cited by an existing claim. Reassignment or correction must be explicit and auditable.
+
+These checks run at the SQLite persistence boundary, not only in a service layer. They apply to both new records and revisions because the registry revalidates cross-record references in the same write transaction.
+
+## Evidence relationships
+
+The contract distinguishes `supports`, `qualifies`, `contradicts`, `mentions`, and `unclear`. These labels describe the assessed relationship between a source and a proposition. They must not be collapsed into a single positive/negative truth score. Confidence, where recorded, is an assessment attribute and not a calibrated probability unless a separately validated method establishes that interpretation.
+
+A contradiction remains visible. A qualifying source remains visible. A mention is not corroboration. Repeated or syndicated reporting must not be counted as independent corroboration merely because it appears under different publisher names.
+
+## First implementation slice
+
+- Enforce source/article/observation consistency in claim provenance.
+- Require evidence to match a specific claim provenance entry.
+- Prevent story revisions from orphaning claims that cite removed articles.
+- Add regression fixtures for mismatched publishers, unrelated articles, missing observations, and attempted story unlinking.
+
+## Explicit non-goals in this slice
+
+- No automatic article-to-story assignment or story merge.
+- No claim extraction from article bodies.
+- No AI-generated truth score or corroboration score.
+- No timeline event extraction.
+- No new publisher access, full-text collection, or translation.
+- No automatic reclassification of evidence.
+
+## Acceptance path
+
+Section 6 will remain open until the full fixture suite verifies the provenance invariants, story/article relationship revisions, append-only decision history, and audit integrity. Later slices will add explicit story merge/split decisions, event chronology, and human-reviewed claim/evidence assessment workflows.
