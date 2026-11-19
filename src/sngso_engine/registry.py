@@ -1332,6 +1332,7 @@ class SQLiteRegistry:
             not isinstance(duplicate_fingerprint, str)
             or not duplicate_fingerprint.startswith("sha256:")
             or len(duplicate_fingerprint) != 71
+            or any(char not in "0123456789abcdef" for char in duplicate_fingerprint[7:])
         ):
             raise RegistryIntegrityError("ingestion duplicate fingerprint must be SHA-256")
         with self._transaction() as connection:
@@ -1465,8 +1466,10 @@ class SQLiteRegistry:
                 candidate = connection.execute(
                     """SELECT d.article_id FROM ingestion_current c
                     JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                    JOIN domain_records a ON a.record_type = 'article' AND a.id = d.article_id
                     WHERE d.fingerprint = ? AND d.source_id != ?
                       AND d.outcome IN ('created', 'reused', 'distinct')
+                      AND json_extract(a.payload_json, '$.record_status') = 'active'
                     ORDER BY d.decided_at, d.decision_id LIMIT 1""",
                     (duplicate_fingerprint, article_payload["source_id"]),
                 ).fetchone()
@@ -1523,14 +1526,16 @@ class SQLiteRegistry:
         reason: str,
     ) -> dict[str, Any]:
         """Append a human resolution; never merges or deletes either article."""
-        if outcome not in {"confirmed_duplicate", "distinct"}:
+        if not isinstance(outcome, str) or outcome not in {"confirmed_duplicate", "distinct"}:
             raise ValueError("outcome must be confirmed_duplicate or distinct")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+            raise ValueError("expected_revision must be a positive integer")
         if not isinstance(actor, str) or not actor.strip():
             raise ValueError("actor is required")
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 800:
             raise ValueError("a bounded resolution reason is required")
-        if len(actor) > 200:
-            raise ValueError("actor must not exceed 200 characters")
+        if len(actor) > 200 or len(actor) + 2 + len(reason) > 1000:
+            raise ValueError("actor and reason exceed the 1000-character audit limit")
         with self._transaction() as connection:
             current = connection.execute(
                 """SELECT d.* FROM ingestion_current c
