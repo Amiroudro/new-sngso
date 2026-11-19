@@ -6,6 +6,7 @@ import sqlite3
 
 import pytest
 
+from sngso_engine import collection as collection_module
 from sngso_engine.collection import (
     CollectionError,
     CollectionRequest,
@@ -674,3 +675,30 @@ def test_permission_revoked_after_transport_response_blocks_storage() -> None:
 
         assert len(transport.calls) == 1
         assert registry.collection_observations() == []
+
+
+
+def test_domain_scope_and_rate_limit_identity_use_canonical_dns_names():
+    assert collection_module._canonical_dns_name("News.Publisher-A.Example.Org.") == (
+        "news.publisher-a.example.org"
+    )
+    assert collection_module._host_in_domain_allowlist(
+        "News.Publisher-A.Example.Org.",
+        ["publisher-a.example.org"],
+    )
+
+
+@pytest.mark.parametrize("domains", [
+    ["publisher-a.example.org."],
+    ["publisher-a.example.org", "publisher-a.example.org"],
+    ["127.0.0.1"],
+    ["publisher-a..example.org"],
+    ["-publisher-a.example.org"],
+])
+def test_registered_domain_allowlist_rejects_noncanonical_or_unsafe_domains(domains):
+    assert collection_module._valid_domain_allowlist(domains) is False
+
+
+def test_registered_domain_allowlist_requires_canonical_ascii_domains():
+    assert collection_module._valid_domain_allowlist(["publisher-a.example.org"]) is True
+    assert collection_module._valid_domain_allowlist(["xn--bcher-kva.example"]) is True
