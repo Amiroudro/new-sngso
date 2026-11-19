@@ -19,15 +19,9 @@ The preview is advisory, not a lock. Apply must repeat all checks inside its tra
 
 ## Decision preconditions
 
-Before implementation, extend the decision contract so the immutable decision captures the state against which the editor made it:
+The decision contract now captures expected revisions for every affected story and explicit claim-to-resulting-story assignments with expected claim revisions. Registry validation requires the complete set of claims currently linked to affected stories, including claims with no article-specific provenance, and rejects destinations that conflict with the article assignments in claim provenance. This is a verified precondition layer, not an application workflow.
 
-- expected revision for every affected story;
-- explicit claim-to-resulting-story assignments, not just article assignments;
-- the complete set of claims considered, including claims with no article-specific provenance;
-- explicit handling for claims whose provenance spans more than one destination;
-- an explicit policy for editions that already contain an affected story.
-
-The current schema does not yet store these fields. Do not infer claim allocation from article allocation. A claim is a distinct editorial proposition and must not be moved automatically merely because one of its cited articles moves.
+The application implementation must still define explicit handling for claims whose provenance spans more than one destination and a policy for editions that already contain an affected story. Do not infer claim allocation from article allocation. A claim is a distinct editorial proposition and must not be moved automatically merely because one of its cited articles moves.
 
 ## Validation rules
 
@@ -109,4 +103,4 @@ The impact fingerprint must cover every record and revision used by the preview,
 
 ## Implementation gate
 
-Do not implement the mutation path until the contract captures story revision preconditions and explicit claim assignments. The first coding slice should add those contract fields and exhaustive validation tests. The second should implement read-only preview. Only then should the atomic transaction be introduced. Keep live collection, publisher access, Android integration, and publication automation out of this scope.
+The first coding slice is now implemented: decision records capture story and claim revision preconditions, explicit article and claim allocations, and registry-level completeness/provenance validation. The latest focused regression tests are awaiting CI. The next coding slice should implement read-only preview with a deterministic impact fingerprint. Only after preview behavior and edition-impact policy are tested should the atomic transaction be introduced. Keep live collection, publisher access, Android integration, and publication automation out of this scope.
