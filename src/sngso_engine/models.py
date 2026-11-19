@@ -33,7 +33,6 @@ class SourceRecord(_JsonRecord):
             payload_json=canonical_json_bytes(payload).decode("utf-8"),
             publisher_name=payload["publisher_name"],
             status=payload["status"],
-            revision=revision,
         )
 
 
@@ -292,4 +291,5 @@ class LearningObjectRecord(_JsonRecord):
             kind=payload["kind"],
             language=payload["language"],
             status=payload["status"],
+            revision=revision,
         )
