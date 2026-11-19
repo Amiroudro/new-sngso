@@ -1,6 +1,6 @@
 # Engine Implementation Programme
 
-Status: Sections 1–5 implemented to their documented scope; Sections 6–10 remain planned  
+Status: Sections 1–5 implemented to their documented scope; Section 6 integrity layer in progress  
 Baseline branch: `fix/engine-ci-source-triggers`  
 Scope: the new `new-sngso` engine repository only
 
@@ -115,6 +115,8 @@ Acceptance:
 - Every material claim has traceable evidence or is explicitly marked unverified.
 - Contradictions remain visible until reviewed.
 - Story merges/splits are auditable.
+
+**First integrity layer implemented:** claim provenance now checks source, article, story membership, and optional collection-observation references. Evidence checks source, article/story membership, optional observation-to-article identity, and registered source-domain scope for HTTP locators. Assessed claims must link evidence belonging to that claim, with consistency rules for supported, partially supported, disputed, contradicted, and retracted states. The initial test additions are awaiting CI. Timeline-event persistence, explicit story merge/split relationships, and independent-source grouping remain open.
 
 ## 7. Editorial production and bilingual quality
 
