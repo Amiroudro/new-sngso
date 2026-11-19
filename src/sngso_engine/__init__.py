@@ -27,6 +27,7 @@ from .ingestion import (
 from .models import (
     ArticleRecord,
     ClaimRecord,
+    ClaimRelationRecord,
     EditionRecord,
     EvidenceRecord,
     PermissionEvidenceRecord,
@@ -52,6 +53,7 @@ __all__ = [
     "ArticleRecord",
     "AuditRepository",
     "ClaimRecord",
+    "ClaimRelationRecord",
     "CollectionError",
     "CollectionExecutionContext",
     "CollectionObservation",
