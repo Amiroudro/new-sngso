@@ -5,6 +5,8 @@
 - `v1/` contains the first versioned JSON Schema contracts.
 - Every schema uses JSON Schema Draft 2020-12.
 - Shared primitives live in `v1/common.schema.json`.
+- Source governance uses `source.schema.json`, `source-endpoint.schema.json`, `permission-evidence.schema.json`, and `source-permission-grant.schema.json`.
+- `source-permission.schema.json` is a deprecated legacy shape retained for existing fixtures; new grants must use `source-permission-grant`.
 - Every entity payload declares `schema_version: "1.0.0"`.
 
 ## Compatibility policy
@@ -27,6 +29,15 @@ python -m pytest tests/contracts -q
 ```
 
 CI validates schema meta-structure, common-reference resolution through real instances, representative valid records, and selected invalid records.
+
+## Source governance contract rules
+
+- A source record identifies a publisher; it does not grant permission.
+- An endpoint is a separately identified feed, API, sitemap, or page and is not automatically authorized by the publisher record.
+- A permission grant must name one or more endpoint IDs, a non-empty evidence ID set, an explicit operation decision for every supported operation, and a bounded effective interval.
+- An operation marked allowed requires approved status and operation-level evidence IDs.
+- Verified permission evidence requires reviewer identity and review timestamp. The registry/persistence layer must later verify that referenced source, endpoint, and evidence records exist and belong together; JSON Schema alone cannot enforce those cross-record relationships.
+- The runtime evaluator additionally checks the exact source and endpoint IDs for scoped grants. Connector enforcement before network access remains a later implementation gate.
 
 ## Important distinction
 
