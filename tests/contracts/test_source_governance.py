@@ -175,6 +175,19 @@ def test_grant_rejects_missing_permission_evidence() -> None:
     assert (result.allowed, result.reason) == (False, "permission_evidence_missing")
 
 
+@pytest.mark.parametrize("invalid_evidence", [None, "", [], 7])
+def test_grant_rejects_malformed_permission_evidence_references(invalid_evidence) -> None:
+    record = permission_grant()
+    record["evidence_ids"] = [invalid_evidence]
+    result = evaluate_permission(
+        record,
+        "discovery",
+        source_id="source:publisher-a",
+        endpoint_id="endpoint:publisher-a-rss",
+    )
+    assert (result.allowed, result.reason) == (False, "permission_evidence_missing")
+
+
 def test_grant_rejects_missing_operation_evidence() -> None:
     record = permission_grant()
     record["operations"]["discovery"].pop("evidence_ids")
