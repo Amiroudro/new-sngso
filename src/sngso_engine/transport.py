@@ -208,8 +208,9 @@ class SafeHTTPSTransport:
                         self._sleep(delay)
                     continue
                 if response[0] in self._RETRY_STATUSES and retry < max_retries:
-                    delay = min(0.25 * (2 ** retry), max(0.5, deadline - self._clock()))
-                    self._sleep(delay)
+                    delay = min(0.25 * (2 ** retry), max(0.0, deadline - self._clock()))
+                    if delay > 0:
+                        self._sleep(delay)
                     continue
                 break
             if response is None:
