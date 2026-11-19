@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/source-endpoint.schema.json",
+  "title": "SourceEndpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "source_id", "endpoint_uri", "endpoint_type", "status", "created_at", "updated_at"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "id": {"$ref": "common.schema.json#/$defs/id"},
+    "source_id": {"$ref": "common.schema.json#/$defs/id"},
+    "endpoint_uri": {"$ref": "common.schema.json#/$defs/uri"},
+    "endpoint_type": {"enum": ["rss", "atom", "sitemap", "api", "webpage", "other"]},
+    "status": {"enum": ["active", "disabled", "under_review", "retired"]},
+    "supported_languages": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/languageTag"}},
+    "discovered_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+    "created_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+    "updated_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+    "notes": {"type": "string", "maxLength": 2000}
+  }
+}
