@@ -78,6 +78,8 @@ def test_https_transport_pins_resolved_ip_and_preserves_host_header():
     "https://unrelated.example.net/feed.xml",
     "https://user:pass@news.example.org/feed.xml",
     "https://news.example.org:8443/feed.xml",
+    "https://news.example.org:0/feed.xml",
+    "https://news.example.org:/feed.xml",
     "https://127.0.0.1/feed.xml",
 ])
 def test_transport_rejects_unsafe_url_before_dns(url):
@@ -355,6 +357,26 @@ def test_transport_revalidates_all_injected_resolver_addresses(addresses):
         or pytest.fail("private or malformed DNS answer must never connect"),
     )
     with pytest.raises(transport.TransportError):
+        client.fetch(
+            "https://news.example.org/feed.xml",
+            allowed_domains=("example.org",),
+        )
+    assert connected == []
+
+
+
+@pytest.mark.parametrize("address", [
+    "93.184.216.34%eth0",
+    "2001:4860:4860::8888%eth0",
+])
+def test_transport_rejects_scoped_dns_addresses(address):
+    connected = []
+    client = transport.SafeHTTPSTransport(
+        resolver=lambda host, port: (address,),
+        connection_factory=lambda *args: connected.append(args)
+        or pytest.fail("scoped DNS address must never connect"),
+    )
+    with pytest.raises(transport.TransportError, match="scoped IP"):
         client.fetch(
             "https://news.example.org/feed.xml",
             allowed_domains=("example.org",),
