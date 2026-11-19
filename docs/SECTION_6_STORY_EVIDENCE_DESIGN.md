@@ -160,3 +160,8 @@ A curated claim relationship records how two atomic propositions relate within o
 Both endpoints must be distinct claims in the same active story. The relationship record stores the editor's rationale and creator identity. An accepted or rejected relationship requires reviewer identity, a timezone-aware review timestamp, and a review note. This review evaluates whether the relationship label is editorially appropriate; it does not decide which claim is true. Reviewer identity is recorded but not authenticated by this local registry.
 
 Relationships are append-only. Corrections create a superseding record, and the full history remains available through `claim_relation_history(story_id)`; `story_claim_relations(story_id)` returns current records. SQLite independently checks active-story membership, both claim endpoints, distinct endpoints, review metadata, and correction-chain integrity. The registry does not discover contradictions automatically or score their severity.
+
+
+## Timeline editorial review gate
+
+Timeline assertions now have an optional review state for backward-compatible v1 payloads. When supplied, the state is `unreviewed`, `review_required`, `approved`, or `rejected`. Approved/rejected assertions require reviewer identity, a timezone-aware review timestamp, and a non-empty review note. Unreviewed/review-required assertions cannot carry review metadata. Review cannot predate event creation. The registry validates these rules and schema migration 10 adds a SQLite insert trigger that repeats the metadata and time-order checks. Reviewer identity is an attribution field, not proof of authentication. Event corrections remain append-only.
