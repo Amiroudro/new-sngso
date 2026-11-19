@@ -1741,10 +1741,28 @@ class SQLiteRegistry:
                         "article permission reference is missing or belongs to another source"
                     )
         elif record_type == "story":
-            for article_id in payload.get("article_ids", []):
+            article_ids = set(payload.get("article_ids", []))
+            for article_id in article_ids:
                 require_record("article", article_id, "story")
+            existing_claims = connection.execute(
+                """SELECT payload_json FROM domain_records
+                WHERE record_type = 'claim'
+                  AND json_extract(payload_json, '$.story_id') = ?""",
+                (payload["id"],),
+            ).fetchall()
+            for row in existing_claims:
+                claim_payload = json.loads(row["payload_json"])
+                if any(
+                    item.get("article_id") is not None
+                    and item["article_id"] not in article_ids
+                    for item in claim_payload.get("provenance", [])
+                ):
+                    raise RegistryIntegrityError(
+                        "story revision would orphan existing claim provenance"
+                    )
         elif record_type == "claim":
-            require_record("story", payload["story_id"], "claim")
+            story_payload = require_record("story", payload["story_id"], "claim")
+            story_article_ids = set(story_payload.get("article_ids", []))
             for provenance in payload["provenance"]:
                 source_id = provenance["source_id"]
                 source = connection.execute(
@@ -1759,6 +1777,10 @@ class SQLiteRegistry:
                     if article["source_id"] != source_id:
                         raise RegistryIntegrityError(
                             "claim provenance article and source do not match"
+                        )
+                    if article_id not in story_article_ids:
+                        raise RegistryIntegrityError(
+                            "claim provenance article is not linked to its story"
                         )
                 if observation_id:
                     observation = connection.execute(
