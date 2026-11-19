@@ -600,7 +600,7 @@ _MIGRATION_11 = (
         kind TEXT NOT NULL CHECK (kind IN (
             'headline_summary', 'brief_summary', 'detailed_summary',
             'vocabulary', 'comprehension_question', 'analysis_question',
-            'revision_card'
+            'mcq_question', 'revision_card'
         )),
         language TEXT NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('draft', 'review_required', 'approved', 'rejected')),
