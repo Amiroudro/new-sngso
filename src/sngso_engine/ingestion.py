@@ -174,9 +174,9 @@ def normalize_observation(observation: dict, source_language: str) -> tuple[dict
     byline = metadata.get("byline")
     summary = metadata.get("summary_metadata")
     if byline is not None:
-        byline = normalize_text(byline, max_length=500, field="byline")
+        byline = normalize_text(byline, max_length=500, field="byline") if byline.strip() else None
     if summary is not None:
-        summary = normalize_text(summary, max_length=1000, field="summary_metadata")
+        summary = normalize_text(summary, max_length=1000, field="summary_metadata") if summary.strip() else None
 
     canonical_uri = canonicalize_article_url(
         observation.get("final_locator") or observation.get("locator")
