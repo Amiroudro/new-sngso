@@ -68,6 +68,23 @@ def normalize_timestamp(value: str, *, field: str = "timestamp") -> str:
     return utc.isoformat(timespec=timespec).replace("+00:00", "Z")
 
 
+def language_is_supported(language: str, supported_languages: list[str]) -> bool:
+    """Match language declarations consistently across ingestion and storage.
+
+    A primary-language declaration such as en accepts regional variants.
+    A regional declaration such as en-US accepts only that normalized tag.
+    """
+    normalized = normalize_language_tag(language)
+    if not isinstance(supported_languages, list):
+        raise IngestionError("endpoint language declaration must be a list")
+    declared = [normalize_language_tag(item) for item in supported_languages]
+    return any(
+        item == normalized
+        or ("-" not in item and item == normalized.split("-", 1)[0])
+        for item in declared
+    )
+
+
 def _decode_unreserved_percent_escapes(path: str) -> str:
     unreserved = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
 
@@ -269,10 +286,10 @@ def ingest_observation(
     normalized_language = normalize_language_tag(source_language)
     supported = endpoint.to_payload().get("supported_languages", [])
     try:
-        supported_primary = {normalize_language_tag(item).split("-", 1)[0] for item in supported}
+        language_supported = language_is_supported(normalized_language, supported)
     except IngestionError as exc:
         raise IngestionError("endpoint language declaration is invalid") from exc
-    if normalized_language.split("-", 1)[0] not in supported_primary:
+    if not language_supported:
         raise IngestionError("source_language is not supported by the registered endpoint")
     article_payload, duplicate_fingerprint = normalize_observation(observation, normalized_language)
     return registry.ingest_article_observation(
