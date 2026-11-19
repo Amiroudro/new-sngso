@@ -150,6 +150,12 @@ def test_article_url_canonicalization_removes_dot_segments():
     ) == "https://publisher-a.example.org/news/one"
 
 
+def test_encoded_unreserved_dot_segments_are_normalized():
+    assert canonicalize_article_url(
+        "https://publisher-a.example.org/news/%2e%2e/world"
+    ) == "https://publisher-a.example.org/world"
+
+
 def test_article_url_canonicalization_preserves_unknown_query_and_path_case():
     assert canonicalize_article_url(
         "https://publisher-a.example.org/News/One?ref=homepage"
@@ -161,6 +167,7 @@ def test_article_url_canonicalization_preserves_unknown_query_and_path_case():
     "https://user:pass@publisher-a.example.org/news",
     "https://publisher-a.example.org/news#section",
     "https://publisher-a.example.org/news%",
+    "https://publisher-a.example.org:0443/news",
     "https://publisher-a.example.org/news?x=1#",
     "https://127.0.0.1/news",
     "https://publisher-a.example.org/" + "?x=1&" * 130,
@@ -354,6 +361,21 @@ def test_stale_duplicate_resolution_is_rejected():
             registry.resolve_ingestion_duplicate(
                 "observation:b", outcome="distinct", expected_revision=9,
                 actor="editor", reason="Stale review.",
+            )
+
+
+def test_article_canonical_identity_cannot_be_rewritten():
+    with SQLiteRegistry() as registry:
+        add_publisher(registry, "publisher-a")
+        add_observation(registry, "publisher-a", "observation:first")
+        decision = ingest_observation(registry, "observation:first", source_language="bn")
+        article = registry.get_domain_record("article", decision["article_id"])
+        payload = article.to_payload()
+        payload["canonical_uri"] = "https://publisher-a.example.org/changed"
+        with pytest.raises(RegistryIntegrityError, match="identity links cannot be rewritten"):
+            registry.revise_domain_record(
+                "article", article.id, payload, expected_revision=1,
+                actor="editor", reason="Attempted identity mutation.",
             )
 
 
