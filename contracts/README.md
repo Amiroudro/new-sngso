@@ -8,6 +8,7 @@
 - Source governance uses `source.schema.json`, `source-endpoint.schema.json`, `permission-evidence.schema.json`, and `source-permission-grant.schema.json`.
 - `source-permission.schema.json` is a deprecated legacy shape retained for existing fixtures; new grants must use `source-permission-grant`.
 - Every entity payload declares `schema_version: "1.0.0"`.
+- `timeline-event.schema.json` defines claim-backed event assertions with explicit temporal precision and correction links.
 
 ## Compatibility policy
 
