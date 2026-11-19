@@ -1,6 +1,6 @@
 # Section 6: Story intelligence, claims, and evidence
 
-Status: in progress. The first implementation slice hardens the evidence-to-claim provenance boundary. It does not yet implement automated story clustering, event chronology, claim extraction, or corroboration scoring.
+Status: in progress. The first provenance-integrity slice is implemented and verified. GitHub Actions run #44608678246 passed with 319 tests on code head ea2263497c108ebbbbad8a0cd84b1a1f79719fed. Automated story clustering, event chronology, claim extraction, and corroboration scoring remain unimplemented.
 
 ## Core distinctions
 
@@ -49,3 +49,8 @@ A contradiction remains visible. A qualifying source remains visible. A mention 
 ## Acceptance path
 
 Section 6 will remain open until the full fixture suite verifies the provenance invariants, story/article relationship revisions, append-only decision history, and audit integrity. Later slices will add explicit story merge/split decisions, event chronology, and human-reviewed claim/evidence assessment workflows.
+
+
+## First-slice verification
+
+GitHub Actions [run #44608678246](https://github.com/Amiroudro/new-sngso/actions/runs/44608678246) executed the full Python 3.12 fixture suite: **319 passed in 1.53 seconds**. The verified slice covers source/article/observation provenance matching, evidence-to-claim binding, prevention of story revisions that orphan claim provenance, prevention of claim revisions that orphan evidence, and immutable evidence identity links. This is a verified foundation, not completion of all Section 6 work.
