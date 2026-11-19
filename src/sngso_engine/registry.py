@@ -57,6 +57,23 @@ def _aware_datetime(value: str, field: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+
+def _host_in_domains(host: str, domains: Any) -> bool:
+    if not isinstance(host, str) or not isinstance(domains, list):
+        return False
+    normalized_host = host.rstrip(".").lower()
+    if not normalized_host:
+        return False
+    return any(
+        isinstance(domain, str)
+        and (
+            normalized_host == domain.rstrip(".").lower()
+            or normalized_host.endswith("." + domain.rstrip(".").lower())
+        )
+        for domain in domains
+    )
+
+
 def _json_text(value: Any) -> str:
     return canonical_json_bytes(value).decode("utf-8")
 
@@ -943,6 +960,10 @@ class SQLiteRegistry:
                     raise RegistryIntegrityError(f"collection {uri_field} is invalid") from exc
                 if parsed_uri.scheme not in {"http", "https"} or not parsed_uri.hostname:
                     raise RegistryIntegrityError(f"collection {uri_field} must be an absolute HTTP(S) URI")
+                if not _host_in_domains(parsed_uri.hostname, allowed_domains):
+                    raise RegistryIntegrityError(
+                        f"collection {uri_field} is outside the registered source domains"
+                    )
             fingerprint = payload["content_fingerprint"]
             if fingerprint is not None and (
                 not isinstance(fingerprint, str)
@@ -967,10 +988,11 @@ class SQLiteRegistry:
         with self._transaction() as connection:
             for payload in payloads:
                 source = connection.execute(
-                    "SELECT status FROM sources WHERE id = ?", (payload["source_id"],)
+                    "SELECT status, payload_json FROM sources WHERE id = ?",
+                    (payload["source_id"],),
                 ).fetchone()
                 endpoint = connection.execute(
-                    """SELECT status FROM source_endpoints
+                    """SELECT status, endpoint_uri FROM source_endpoints
                     WHERE id = ? AND source_id = ?""",
                     (payload["endpoint_id"], payload["source_id"]),
                 ).fetchone()
@@ -983,6 +1005,10 @@ class SQLiteRegistry:
                     raise RegistryIntegrityError("collection source is missing or inactive")
                 if endpoint is None or endpoint["status"] != "active":
                     raise RegistryIntegrityError("collection endpoint is missing or inactive")
+                allowed_domains = json.loads(source["payload_json"]).get("domains", [])
+                endpoint_host = urlsplit(endpoint["endpoint_uri"]).hostname or ""
+                if not _host_in_domains(endpoint_host, allowed_domains):
+                    raise RegistryIntegrityError("collection endpoint is outside the registered source domains")
                 if grant is None:
                     raise RegistryIntegrityError("collection grant is missing or belongs to another source")
                 if grant["revision"] != payload["grant_revision"]:
