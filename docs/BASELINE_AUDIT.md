@@ -52,7 +52,7 @@ These are findings about the inspected repository paths, not a claim that every 
 
 `src/sngso_engine/contracts.py` loads versioned schema files, checks schema meta-structure, resolves the shared common schema, applies format checking, and raises a structured validation error for invalid payloads.
 
-The loader accepts a schema filename stem and prevents path separators. Repository adapters do not yet provide a verified persistence-boundary integration.
+The loader accepts a schema filename stem and prevents path separators. The SQLite registry invokes schema validation and cross-record checks inside write transactions; API and connector boundaries are not yet implemented.
 
 ### Permission evaluation
 
@@ -62,7 +62,7 @@ The evaluator checks record shape, permission ID, global and operation approval,
 
 The current branch also requires `effective_until` and rejects an expiry that is equal to or earlier than `effective_from`. This is stricter than the previous implementation and is covered by newly authored tests.
 
-**Boundary:** this is an evaluator for a permission record already selected for a source. It is not a source registry, evidence workflow, contract validator integration, or connector enforcement layer.
+**Boundary:** the evaluator is now called by the SQLite registry after source, endpoint, grant, and evidence lookup. It is still not enforced before connector network requests because connectors do not yet exist.
 
 ## 5. Tests and CI
 
@@ -113,7 +113,7 @@ After the initial baseline, Section 2 added four contracts: `source.schema.json`
 
 The permission evaluator now requires exact source and endpoint matches whenever a scoped grant is evaluated and denies missing global or operation-level evidence references. New fixture tests cover valid records, malformed/missing scope, missing evidence, approval review metadata, and revocation metadata. These tests are authored; they are not reported as passing until CI executes them. Workflow run #50 failed twice before allocating a runner (`runner_id: 0`, no steps or logs); the test suite did not start, and the run record does not identify the underlying allocation cause.
 
-Still outstanding: cross-record verification that endpoint and evidence IDs belong to the named source, confirming evidence records are actually verified and not merely referenced, persistence/audit history, human rights review, typed conditions, and enforcement before connector network calls. Those are assigned to Sections 3 and 4.
+Section 3 has since implemented cross-record ownership checks, verified-evidence requirements for approved grants, persistence, grant revisions, and an audit trail. Still outstanding are human reviewer authentication/authorization, typed conditions, and enforcement before connector network calls. Those remain in Sections 4 and 9.
 
 
 ## 10. Section 3 progress update
