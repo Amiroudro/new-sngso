@@ -91,10 +91,11 @@ def _parse_url(url: str, allowed_domains: tuple[str, ...]) -> tuple[object, str,
     if not isinstance(url, str) or len(url) > 4096:
         raise TransportError("URL is missing or too long")
     if any(
-        char.isspace() or ord(char) < 0x20 or ord(char) == 0x7F or char == chr(92)
+        char.isspace() or ord(char) < 0x20 or ord(char) == 0x7F
+        or ord(char) > 0x7E or char == chr(92)
         for char in url
     ):
-        raise TransportError("URL contains whitespace, control characters, or backslashes")
+        raise TransportError("URL must use visible ASCII or percent-encoded characters")
     if "#" in url:
         raise TransportError("URL fragments are not allowed")
     try:
@@ -125,6 +126,8 @@ def _validate_public_addresses(values: object) -> tuple[str, ...]:
     """Fail closed for every resolver implementation, including injected adapters."""
     if not isinstance(values, (tuple, list)) or not values:
         raise TransportError("DNS returned no addresses")
+    if len(values) > 16:
+        raise TransportError("DNS returned too many addresses")
     checked: list[str] = []
     for value in dict.fromkeys(str(item) for item in values):
         if "%" in value:
@@ -133,8 +136,14 @@ def _validate_public_addresses(values: object) -> tuple[str, ...]:
             address = ipaddress.ip_address(value)
         except ValueError as exc:
             raise TransportError("DNS returned an invalid address") from exc
-        if not address.is_global:
-            raise TransportError("DNS resolved to a non-public IP address")
+        if (
+            not address.is_global
+            or (
+                isinstance(address, ipaddress.IPv6Address)
+                and (address.ipv4_mapped is not None or address.teredo is not None or address.sixtofour is not None)
+            )
+        ):
+            raise TransportError("DNS resolved to a non-public or transition IP address")
         checked.append(str(address))
     return tuple(checked)
 
@@ -367,8 +376,8 @@ class SafeHTTPSTransport:
             content_lengths = [
                 value for key, value in raw_headers if key.lower() == "content-length"
             ]
-            if len(set(content_lengths)) > 1:
-                raise TransportError("conflicting Content-Length headers")
+            if len(content_lengths) > 1:
+                raise TransportError("duplicate Content-Length headers")
             if content_lengths and any(not value.isdecimal() for value in content_lengths):
                 raise TransportError("invalid Content-Length header")
             if "transfer-encoding" in headers and content_lengths:
