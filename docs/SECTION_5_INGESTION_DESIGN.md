@@ -63,3 +63,8 @@ Section 5 can close only when CI proves:
 - explainable duplicate candidates with reversible, append-only human resolutions;
 - permission revocation/revision blocks ingestion;
 - atomic persistence, schema migration, and audit-chain integrity.
+
+
+## Language declaration matching
+
+Language matching is shared by the ingestion entry point and the SQLite persistence boundary. A primary-language declaration such as `en` permits regional variants such as `en-US` and `en-GB`. A regional declaration such as `en-US` permits only that normalized regional tag, not `en-GB` or the less-specific `en`. Invalid endpoint language declarations fail closed. This prevents one layer from accepting an observation that the next layer rejects.
