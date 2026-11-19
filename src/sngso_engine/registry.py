@@ -611,8 +611,12 @@ class SQLiteRegistry:
         at: str | None = None,
     ) -> PermissionGrantRecord:
         """Append a grant revision for approval, denial, suspension, or revocation."""
-        if not actor.strip() or not reason.strip():
-            raise ValueError("actor and reason are required")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        if not isinstance(new_status, str):
+            raise ValueError("new_status must be a string")
         allowed_transitions = {
             "pending": {"approved", "denied", "suspended", "revoked"},
             "approved": {"suspended", "revoked"},
@@ -620,7 +624,7 @@ class SQLiteRegistry:
             "denied": set(),
             "revoked": set(),
         }
-        stamp = at or _utc_now()
+        stamp = _utc_now() if at is None else at
         _aware_datetime(stamp, "transition timestamp")
         with self._transaction() as connection:
             row = connection.execute(
