@@ -22,7 +22,7 @@ def load_schema(name: str) -> dict:
 
 @pytest.mark.parametrize(
     "name",
-    ["source-permission", "source-observation", "article", "story", "claim", "evidence", "timeline-event", "perspective", "claim-relation", "learning-object", "pipeline-run", "editorial-decision", "edition"],
+    ["source-permission", "source-observation", "article", "story", "claim", "evidence", "timeline-event", "perspective", "claim-relation", "learning-object", "glossary-entry", "pipeline-run", "editorial-decision", "edition"],
 )
 def test_schema_is_valid_draft_2020_12(name: str) -> None:
     schema = load_schema(name)
@@ -199,6 +199,22 @@ def test_minimal_valid_contract_instances(name: str, instance: dict) -> None:
                 "created_by": "editor",
                 "created_at": "2026-11-19T00:00:00Z",
                 "review_status": "unreviewed",
+            },
+        ),
+        (
+            "glossary-entry",
+            {
+                "schema_version": "1.0.0",
+                "id": "glossary:sample-001",
+                "lemma": "accountability",
+                "term_language": "en",
+                "part_of_speech": "noun",
+                "senses": [
+                    {"language": "bn", "definition": "দায়বদ্ধতা"},
+                    {"language": "en", "definition": "The state of being answerable."}
+                ],
+                "status": "draft",
+                "created_at": "2026-11-19T00:00:00Z"
             },
         ),
         (
