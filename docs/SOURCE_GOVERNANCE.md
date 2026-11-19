@@ -101,7 +101,7 @@ Before any network request or retention action, a future connector must:
 6. deny before the network or storage action if any check fails;
 7. write an immutable decision/audit event with the policy version and reason.
 
-The current evaluator performs operation, time, source, endpoint, and evidence-reference-presence checks. It does not yet load referenced evidence records, verify cross-record ownership, write audit events, or guard connector network calls. Those are later engineering tasks, not implemented capabilities.
+The SQLite registry now resolves source and endpoint status, verifies that the grant and evidence records belong to the same source, checks evidence review states, evaluates operation and time scope, and writes an auditable decision event with the policy version and grant revision. It still does not guard connector calls because the permission-first collection service is Section 4 work. Human reviewer authentication and typed condition evaluation are also not implemented.
 
 ## 9. Data minimization and retention
 
