@@ -87,3 +87,18 @@ GitHub Actions [run #44609756106](https://github.com/Amiroudro/new-sngso/actions
 - Adding or revising evidence on a reviewed claim is blocked until an editor explicitly resets the claim to unassessed. The new or corrected evidence is then recorded, the complete evidence list is revised, and the claim is reviewed again.
 
 These are conservative workflow consistency rules, not a machine-generated truth score. A human reviewer records the assessment, timestamp, actor, and rationale; the system checks that the selected status is consistent with the evidence relationships recorded in the registry.
+
+
+## Append-only story relationship decision ledger
+
+The registry now accepts a dedicated `story_decision` record for human-reviewed `merge` and `split` decisions. Each decision records:
+
+- the operation (`merge` or `split`);
+- the complete set of affected story IDs;
+- the canonical story selected for the decision;
+- the set of articles considered by the decision;
+- the deciding editor, rationale, and timezone-aware decision timestamp.
+
+The SQLite boundary verifies that every affected story and article exists, the canonical story belongs to the decision scope, and every listed article is already linked to at least one affected story. A split decision must identify at least two articles. Decision records are immutable and included in the normal append-only audit chain. `story_decision_history(story_id)` retrieves the decisions involving a given story.
+
+**Deliberate boundary:** this first ledger records and preserves the editorial decision; it does not silently rewrite story membership, reassign claims, or archive a story. Applying a merge or split to live story membership requires a separate atomic workflow that can reconcile claims and provenance. That workflow remains future work. This avoids pretending that recording a decision is the same as safely executing it.
