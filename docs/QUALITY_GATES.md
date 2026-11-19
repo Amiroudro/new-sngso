@@ -53,13 +53,13 @@ The repository is at the foundation milestone. The following is the verified sco
 |---|---|---|
 | Versioned contracts | JSON Schema Draft 2020-12 contracts exist for the core domain records | Cross-record relational integrity checks and full publication-policy validation |
 | Runtime validation | Python loader validates schema definitions and payloads with format checking and local common-schema references | Persistence-boundary integration because repository adapters are not implemented |
-| Permission evaluator | Operation-specific, time-bounded, fail-closed evaluator exists; any non-empty or malformed operation conditions are denied pending a condition evaluator | Source registry, permission evidence workflow, typed condition evaluator, and collector enforcement |
+| Permission evaluator | Operation-specific, time-bounded, fail-closed evaluator rejects malformed top-level inputs and any non-empty or malformed operation conditions | Source registry, permission evidence workflow, typed condition evaluator, and collector enforcement |
 | Content fingerprints | Deterministic JSON serialization and SHA-256 fingerprint helper exist | Frozen run manifests and end-to-end artifact reproducibility |
-| Automated tests | Contract fixtures, schema checks, permission evaluator tests (including unhandled-condition denial), and canonical serialization tests are authored | A verified green CI run and broader integration/regression suites |
+| Automated tests | Contract fixtures, schema checks, permission evaluator tests for malformed inputs and unhandled-condition denial, and canonical serialization tests are authored | A verified green CI run and broader integration/regression suites |
 | GitHub Actions | Python 3.12 workflow installs the package and runs `pytest tests/contracts` | Lint, formatting, static typing, dependency/security scans, migration tests, and publication integration tests |
 | Collection and publication | Not implemented | Connectors, storage adapters, story/evidence pipeline, editorial review, edition assembly, and publisher/export adapters |
 
-The current workflow is intentionally fixture-only and does not contact publisher websites. Its path filters must include both `src/**` and `tests/**`, so changes to the runtime evaluator or its tests cannot bypass the contract check.
+The current workflow is intentionally fixture-only and does not contact publisher websites. Its path filters include `src/**` and `tests/**`, so changes to the runtime evaluator or its tests trigger the contract check.
 
 ## CI requirements
 
