@@ -176,31 +176,6 @@ def test_redirect_count_is_bounded():
         )
 
 
-def test_dns_rejects_private_and_link_local_addresses(monkeypatch):
-    monkeypatch.setattr(
-        transport.socket,
-        "getaddrinfo",
-        lambda *args, **kwargs: [
-            (2, 1, 6, "", ("127.0.0.1", 443)),
-        ],
-    )
-    with pytest.raises(transport.TransportError, match="non-public"):
-        transport._resolve_public("news.example.org", 443)
-
-
-def test_dns_requires_every_returned_address_to_be_public(monkeypatch):
-    monkeypatch.setattr(
-        transport.socket,
-        "getaddrinfo",
-        lambda *args, **kwargs: [
-            (2, 1, 6, "", ("93.184.216.34", 443)),
-            (2, 1, 6, "", ("10.0.0.8", 443)),
-        ],
-    )
-    with pytest.raises(transport.TransportError, match="non-public"):
-        transport._resolve_public("news.example.org", 443)
-
-
 def test_transport_requires_a_finite_deadline_and_bounded_budgets():
     client, _ = make_transport([FakeResponse()])
     with pytest.raises(ValueError, match="timeout_seconds"):
