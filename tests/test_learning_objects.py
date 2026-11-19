@@ -464,3 +464,63 @@ def test_quality_report_requires_supported_claims_for_question_answers():
         assert any(item["check"] == "answer_support" for item in report["blockers"])
     finally:
         registry.close()
+
+
+def _mcq(identifier="learning:mcq"):
+    return {
+        "schema_version": "1.0.0",
+        "id": identifier,
+        "story_id": "story:one",
+        "kind": "mcq_question",
+        "language": "en",
+        "status": "draft",
+        "content": {
+            "question": "Which statement best describes public accountability?",
+            "explanation": "The linked claim provides the factual basis for the answer.",
+            "answer_claim_ids": ["claim:one"],
+            "options": [
+                {"id": "A", "text": "Being answerable for decisions and actions"},
+                {"id": "B", "text": "Avoiding public disclosure"},
+                {"id": "C", "text": "Removing institutional oversight"},
+                {"id": "D", "text": "Delegating all responsibility"},
+            ],
+            "correct_option_id": "A",
+            "difficulty": "moderate",
+        },
+        "claim_ids": ["claim:one"],
+        "created_at": STAMP,
+    }
+
+
+def test_mcq_learning_object_stores_one_keyed_correct_option_and_claim_links():
+    registry = _prepared()
+    try:
+        payload = _mcq()
+        validate_payload("learning-object", payload)
+        record = registry.add_learning_object(
+            payload, actor="question-editor", reason="Create a source-linked MCQ draft."
+        )
+        assert record.kind == "mcq_question"
+        assert record.to_payload()["content"]["correct_option_id"] == "A"
+    finally:
+        registry.close()
+
+
+def test_mcq_learning_object_rejects_duplicate_option_ids_and_unknown_answer_key():
+    registry = _prepared()
+    try:
+        duplicate = _mcq("learning:mcq-duplicate")
+        duplicate["content"]["options"][1]["id"] = "A"
+        with pytest.raises(RegistryIntegrityError, match="option IDs must be unique"):
+            registry.add_learning_object(
+                duplicate, actor="editor", reason="Reject duplicate option IDs."
+            )
+
+        unknown_key = _mcq("learning:mcq-unknown-key")
+        unknown_key["content"]["correct_option_id"] = "E"
+        with pytest.raises(RegistryIntegrityError, match="correct option must reference"):
+            registry.add_learning_object(
+                unknown_key, actor="editor", reason="Reject unknown answer key."
+            )
+    finally:
+        registry.close()
