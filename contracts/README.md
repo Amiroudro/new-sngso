@@ -25,7 +25,7 @@ Run locally:
 
 ```bash
 python -m pip install -e ".[test]"
-python -m pytest tests/contracts -q
+python -m pytest -q
 ```
 
 CI validates schema meta-structure, common-reference resolution through real instances, representative valid records, and selected invalid records.
