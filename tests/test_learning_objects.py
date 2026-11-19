@@ -101,17 +101,31 @@ def test_learning_object_is_persisted_with_initial_revision_and_audit():
 def test_bangla_and_english_learning_objects_have_independent_review_states():
     registry = _prepared()
     try:
+        bn_payload = _summary("learning:summary-bn", "bn")
+        bn_payload["variant_group_id"] = "variant:brief-001"
         bn = registry.add_learning_object(
-            _summary("learning:summary-bn", "bn"),
-            actor="editor:bn",
-            reason="Draft the Bangla variant.",
+            bn_payload, actor="editor:bn", reason="Draft the Bangla variant."
         )
         en_payload = _summary("learning:summary-en", "en")
+        en_payload["variant_group_id"] = "variant:brief-001"
         en_payload["content"] = {"text": "The authority issued a public notice.", "segments": [{"text": "The authority issued a public notice.", "claim_ids": ["claim:one"], "role": "fact"}]}
         en = registry.add_learning_object(
             en_payload, actor="editor:en", reason="Draft the English variant."
         )
-        assert bn.status == en.status == "draft"
+        approved_bn = bn.to_payload()
+        approved_bn.update({
+            "status": "approved",
+            "reviewed_at": "2026-11-19T01:00:00Z",
+            "reviewed_by": "reviewer:bn",
+            "review_note": "The Bangla variant was reviewed independently.",
+        })
+        bn = registry.revise_learning_object(
+            bn.id, approved_bn, expected_revision=1,
+            actor="reviewer:bn", reason="Approve the Bangla version.",
+        )
+        assert bn.status == "approved"
+        assert en.status == "draft"
+        assert bn.variant_group_id == en.variant_group_id == "variant:brief-001"
         assert {item.id for item in registry.story_learning_objects("story:one")} == {
             "learning:summary-bn", "learning:summary-en"
         }
@@ -550,5 +564,26 @@ def test_sqlite_boundary_rejects_mcq_with_duplicate_option_ids():
                     "editor", "Direct SQL MCQ guard.", json.dumps(payload),
                 ),
             )
+    finally:
+        registry.close()
+
+
+def test_variant_group_rejects_duplicate_language_and_mismatched_kind():
+    registry = _prepared()
+    try:
+        bn = _summary("learning:variant-bn", "bn")
+        bn["variant_group_id"] = "variant:shared"
+        registry.add_learning_object(bn, actor="editor", reason="Create first variant.")
+
+        duplicate = _summary("learning:variant-bn-duplicate", "bn")
+        duplicate["variant_group_id"] = "variant:shared"
+        with pytest.raises(RegistryIntegrityError, match="already has an object in this language"):
+            registry.add_learning_object(duplicate, actor="editor", reason="Reject duplicate language.")
+
+        wrong_kind = _summary("learning:variant-detailed", "en")
+        wrong_kind["kind"] = "detailed_summary"
+        wrong_kind["variant_group_id"] = "variant:shared"
+        with pytest.raises(RegistryIntegrityError, match="share the same story and kind"):
+            registry.add_learning_object(wrong_kind, actor="editor", reason="Reject kind mismatch.")
     finally:
         registry.close()
