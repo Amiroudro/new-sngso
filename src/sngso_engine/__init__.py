@@ -15,6 +15,15 @@ from .collection import (
     PermissionFirstCollector,
 )
 from .contracts import ContractValidationError, load_schema, validate_payload
+from .ingestion import (
+    IngestionError,
+    canonicalize_article_url,
+    ingest_observation,
+    normalize_language_tag,
+    normalize_observation,
+    normalize_text,
+    normalize_timestamp,
+)
 from .models import (
     ArticleRecord,
     ClaimRecord,
@@ -32,6 +41,7 @@ from .ports import (
     CollectionObservationRepository,
     EditorialRepository,
     EngineRepository,
+    IngestionRepository,
     SourceGovernanceRepository,
 )
 from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegistry
@@ -54,6 +64,8 @@ __all__ = [
     "EvidenceRecord",
     "InMemoryDomainRateLimiter",
     "InMemoryObservationSink",
+    "IngestionError",
+    "IngestionRepository",
     "PermissionDecision",
     "PermissionFirstCollector",
     "PermissionEvidenceRecord",
@@ -66,6 +78,12 @@ __all__ = [
     "SourceRecord",
     "StoryRecord",
     "canonical_json_bytes",
+    "canonicalize_article_url",
+    "ingest_observation",
+    "normalize_language_tag",
+    "normalize_observation",
+    "normalize_text",
+    "normalize_timestamp",
     "evaluate_permission",
     "load_schema",
     "sha256_fingerprint",

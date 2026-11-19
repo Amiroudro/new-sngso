@@ -1,6 +1,6 @@
 # Engine Implementation Programme
 
-Status: Sections 1–4 implemented to their documented scope; Sections 5–10 remain planned  
+Status: Sections 1–5 implemented to their documented scope; Sections 6–10 remain planned  
 Baseline branch: `fix/engine-ci-source-triggers`  
 Scope: the new `new-sngso` engine repository only
 
@@ -97,6 +97,8 @@ Acceptance:
 - Repeated identical inputs are idempotent.
 - Normalization does not erase original values needed for audit.
 - Duplicate decisions are explainable and reversible.
+
+**Section 5 complete:** a metadata-only ingestion service now normalizes URL, text, language and timezone-aware timestamps; validates endpoint language and rechecks current permission at persistence; derives publisher-specific article IDs from source plus canonical URL; creates or reuses articles atomically; refreshes metadata only from newer observations with immutable revisions; and records cross-publisher duplicate candidates without merging articles. Duplicate resolutions are append-only and reversible. The SQLite registry now exposes an ingestion repository port, migration 4 and strict database/reference checks. Fixture tests cover normalization, source-observation binding, idempotency, two-connection races, atomic rollback, metadata refresh ordering, duplicate candidates/resolution and permission revocation. GitHub Actions run [#44607997206](https://github.com/Amiroudro/new-sngso/actions/runs/44607997206) passed with **311 tests** on code head `006b10040fbcf3d5b9d3983b1e5cc21210f67a2b`. This includes regional-language declaration regression tests.
 
 ## 6. Story intelligence, claims, and evidence
 
@@ -197,14 +199,14 @@ Acceptance:
 | 2. Source governance | **Complete:** contracts, fail-closed evaluator, fixtures, review policy, and passing full test suite | No real publisher approval implied; human review and reviewer authorization remain future controls |
 | 3. Domain models and persistence | **Complete:** typed models, SQLite registry, cross-record validation, revisions, audit chain, commit-failure rollback, targeted review, and passing full test suite in run #91 | Source-observation persistence, backups, external audit anchoring, and production authentication remain future work |
 | 4. Permission-first collection | **Complete for the fixture-first framework:** permission-first orchestration, independent storage rechecks, cross-connection revocation tests, atomic batch persistence, full observation provenance including HTTP method, bounded pinned-IP HTTPS transport prototype, strict URL/DNS/header/redirect/body controls, and passing current-head CI | Live publisher adapters remain gated on source-specific rights review, trusted connector review, shared rate limiting, and deployment-level network-egress controls |
-| 5. Ingestion and identity | Not started | Depends on Section 4 |
-| 6. Story intelligence and evidence | Not started | Depends on Section 5 |
+| 5. Ingestion and identity | **Complete:** canonical URL/text/timestamp/language normalization; metadata-only permission-rechecked ingestion; exact observation provenance; deterministic article identity; ordered immutable metadata revisions; idempotency; cross-publisher duplicate candidates; reversible duplicate resolutions; migration 4; 297 passing tests | Story assignment and event clustering belong to Section 6; no live publisher integration is enabled |
+| 6. Story intelligence and evidence | **Next** | Depends on the completed Section 5 article identity layer |
 | 7. Editorial production | Not started | Depends on Section 6 |
 | 8. Edition assembly | Not started | Depends on Section 7 |
 | 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |
 | 10. End-to-end handover | Not started | Depends on all prior sections |
 
-No section is formally complete until its acceptance gates are verified. Sections 2, 3 and 4 have passed their documented acceptance gates and are closed for this implementation stage. Production limitations and source-specific approval requirements remain explicit gates, not hidden assumptions.
+No section is formally complete until its acceptance gates are verified. Sections 2–5 have passed their documented acceptance gates and are closed for this implementation stage. Production limitations and source-specific approval requirements remain explicit gates, not hidden assumptions.
 
 ## Execution order
 

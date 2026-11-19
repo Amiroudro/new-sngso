@@ -31,7 +31,7 @@ from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as 
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 
 class RegistryIntegrityError(ValueError):
@@ -258,6 +258,82 @@ _MIGRATION_3 = (
 )
 
 
+_MIGRATION_4 = (
+    """CREATE TABLE ingestion_decisions (
+        decision_id TEXT PRIMARY KEY,
+        observation_id TEXT NOT NULL,
+        decision_revision INTEGER NOT NULL CHECK (decision_revision >= 1),
+        source_id TEXT NOT NULL,
+        article_id TEXT NOT NULL,
+        outcome TEXT NOT NULL CHECK (outcome IN (
+            'created', 'reused', 'possible_duplicate', 'confirmed_duplicate', 'distinct'
+        )),
+        duplicate_of_article_id TEXT,
+        fingerprint TEXT CHECK (fingerprint IS NULL OR (length(fingerprint) = 71 AND substr(fingerprint, 1, 7) = 'sha256:' AND substr(fingerprint, 8) NOT GLOB '*[^0-9a-f]*')),
+        canonical_uri TEXT NOT NULL,
+        reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 1000),
+        decided_at TEXT NOT NULL,
+        UNIQUE (observation_id, decision_revision),
+        UNIQUE (observation_id, decision_id),
+        FOREIGN KEY (observation_id) REFERENCES collection_observations(observation_id) ON DELETE RESTRICT,
+        FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE RESTRICT
+    )""",
+    """CREATE TABLE ingestion_current (
+        observation_id TEXT PRIMARY KEY,
+        decision_id TEXT NOT NULL UNIQUE,
+        FOREIGN KEY (observation_id) REFERENCES collection_observations(observation_id) ON DELETE RESTRICT,
+        FOREIGN KEY (observation_id, decision_id)
+            REFERENCES ingestion_decisions(observation_id, decision_id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX idx_ingestion_fingerprint ON ingestion_decisions(fingerprint, source_id, decided_at)",
+    "CREATE INDEX idx_article_source_uri ON domain_records(json_extract(payload_json, '$.source_id'), json_extract(payload_json, '$.canonical_uri')) WHERE record_type = 'article'",
+    """CREATE TRIGGER ingestion_decisions_validate_article
+        BEFORE INSERT ON ingestion_decisions
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'article' AND id = NEW.article_id
+                  AND json_extract(payload_json, '$.source_id') = NEW.source_id
+                  AND json_extract(payload_json, '$.canonical_uri') = NEW.canonical_uri
+            ) THEN RAISE(ABORT, 'ingestion decision article/source/URI mismatch') END;
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM collection_observations
+                WHERE observation_id = NEW.observation_id AND source_id = NEW.source_id
+            ) THEN RAISE(ABORT, 'ingestion decision observation/source mismatch') END;
+            SELECT CASE WHEN NEW.duplicate_of_article_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'article' AND id = NEW.duplicate_of_article_id
+                  AND json_extract(payload_json, '$.source_id') != NEW.source_id
+            ) THEN RAISE(ABORT, 'ingestion duplicate target must be a different source article') END;
+        END""",
+    """CREATE TRIGGER ingestion_decisions_no_update
+        BEFORE UPDATE ON ingestion_decisions
+        BEGIN SELECT RAISE(ABORT, 'ingestion decisions are append-only'); END""",
+    """CREATE TRIGGER ingestion_decisions_no_delete
+        BEFORE DELETE ON ingestion_decisions
+        BEGIN SELECT RAISE(ABORT, 'ingestion decisions are append-only'); END""",
+    """CREATE TRIGGER ingestion_current_validate
+        BEFORE INSERT ON ingestion_current
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM ingestion_decisions
+                WHERE observation_id = NEW.observation_id AND decision_id = NEW.decision_id
+            ) THEN RAISE(ABORT, 'current ingestion decision does not match observation') END;
+        END""",
+    """CREATE TRIGGER ingestion_current_validate_update
+        BEFORE UPDATE ON ingestion_current
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM ingestion_decisions
+                WHERE observation_id = NEW.observation_id AND decision_id = NEW.decision_id
+            ) THEN RAISE(ABORT, 'current ingestion decision does not match observation') END;
+        END""",
+    """CREATE TRIGGER ingestion_current_no_delete
+        BEFORE DELETE ON ingestion_current
+        BEGIN SELECT RAISE(ABORT, 'current ingestion state cannot be deleted'); END""",
+)
+
+
 
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
@@ -357,8 +433,20 @@ class SQLiteRegistry:
                         (3, _utc_now()),
                     )
                     connection.execute("PRAGMA user_version = 3")
+                    version = 3
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 3 failed; transaction rolled back") from exc
+            if version == 3:
+                try:
+                    for statement in _MIGRATION_4:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (4, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 4")
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 4 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -1094,6 +1182,433 @@ class SQLiteRegistry:
                     policy_version=POLICY_VERSION,
                 )
 
+    def get_collection_observation(self, observation_id: str) -> dict[str, Any] | None:
+        """Return one stored collection observation with its original metadata."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM collection_observations WHERE observation_id = ?",
+                (observation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row["observation_id"],
+            "source_id": row["source_id"],
+            "endpoint_id": row["endpoint_id"],
+            "grant_id": row["grant_id"],
+            "grant_revision": row["grant_revision"],
+            "operation": row["operation"],
+            "connector_name": row["connector_name"],
+            "connector_version": row["connector_version"],
+            "observed_at": row["observed_at"],
+            "locator": row["locator"],
+            "final_locator": row["final_locator"],
+            "content_fingerprint": row["content_fingerprint"],
+            "response_status": row["response_status"],
+            "content_type": row["content_type"],
+            "metadata": json.loads(row["metadata_json"]),
+            "permission_reason": row["permission_reason"],
+            "http_method": row["http_method"],
+        }
+
+    @staticmethod
+    def _ingestion_decision_payload(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "decision_id": row["decision_id"],
+            "observation_id": row["observation_id"],
+            "decision_revision": row["decision_revision"],
+            "source_id": row["source_id"],
+            "article_id": row["article_id"],
+            "outcome": row["outcome"],
+            "duplicate_of_article_id": row["duplicate_of_article_id"],
+            "fingerprint": row["fingerprint"],
+            "canonical_uri": row["canonical_uri"],
+            "reason": row["reason"],
+            "decided_at": row["decided_at"],
+        }
+
+    def get_ingestion_decision(self, observation_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                """SELECT d.* FROM ingestion_current c
+                JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                WHERE c.observation_id = ?""",
+                (observation_id,),
+            ).fetchone()
+        return self._ingestion_decision_payload(row) if row else None
+
+    def ingestion_decision_history(self, observation_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT * FROM ingestion_decisions
+                WHERE observation_id = ? ORDER BY decision_revision""",
+                (observation_id,),
+            ).fetchall()
+        return [self._ingestion_decision_payload(row) for row in rows]
+
+    def _check_ingestion_permission(
+        self, connection: sqlite3.Connection, observation: sqlite3.Row
+    ) -> None:
+        if observation["operation"] != "metadata" or observation["http_method"] != "GET":
+            raise RegistryIntegrityError("only GET metadata observations can be ingested")
+        if observation["permission_reason"] != "approved":
+            raise RegistryIntegrityError("observation lacks an approved permission decision")
+        source = connection.execute(
+            "SELECT status FROM sources WHERE id = ?", (observation["source_id"],)
+        ).fetchone()
+        endpoint = connection.execute(
+            """SELECT status, payload_json FROM source_endpoints
+            WHERE id = ? AND source_id = ?""",
+            (observation["endpoint_id"], observation["source_id"]),
+        ).fetchone()
+        grant = connection.execute(
+            """SELECT revision, payload_json FROM permission_grants
+            WHERE id = ? AND source_id = ?""",
+            (observation["grant_id"], observation["source_id"]),
+        ).fetchone()
+        if source is None or source["status"] != "active":
+            raise RegistryIntegrityError("ingestion source is missing or inactive")
+        if endpoint is None or endpoint["status"] != "active":
+            raise RegistryIntegrityError("ingestion endpoint is missing or inactive")
+        if grant is None or grant["revision"] != observation["grant_revision"]:
+            raise RegistryIntegrityError("permission grant changed since the observation")
+        source_row = connection.execute(
+            "SELECT payload_json FROM sources WHERE id = ?", (observation["source_id"],)
+        ).fetchone()
+        source_domains = json.loads(source_row["payload_json"]).get("domains", [])
+        if not valid_domain_allowlist(source_domains):
+            raise RegistryIntegrityError("ingestion source domain allowlist is invalid")
+        for locator in (observation["locator"], observation["final_locator"]):
+            if locator is None:
+                continue
+            if not valid_http_uri(locator, max_length=2048):
+                raise RegistryIntegrityError("ingestion observation locator is malformed")
+            host = urlsplit(locator).hostname or ""
+            if not _host_in_domains(host, source_domains):
+                raise RegistryIntegrityError("ingestion observation locator is outside source scope")
+        grant_payload = json.loads(grant["payload_json"])
+        if grant_payload.get("status") != "approved":
+            raise RegistryIntegrityError("permission grant is no longer approved")
+        evidence_ids = grant_payload.get("evidence_ids", [])
+        evidence_statuses: dict[str, str] = {}
+        for evidence_id in evidence_ids:
+            evidence = connection.execute(
+                """SELECT review_status FROM permission_evidence
+                WHERE id = ? AND source_id = ?""",
+                (evidence_id, observation["source_id"]),
+            ).fetchone()
+            if evidence is not None:
+                evidence_statuses[evidence_id] = evidence["review_status"]
+        if len(evidence_statuses) != len(set(evidence_ids)) or any(
+            status != "verified" for status in evidence_statuses.values()
+        ):
+            raise RegistryIntegrityError("ingestion permission evidence is no longer verified")
+        metadata_operation = grant_payload.get("operations", {}).get("metadata", {})
+        operation_evidence = metadata_operation.get("evidence_ids", [])
+        if metadata_operation.get("allowed") is not True or any(
+            evidence_statuses.get(item) != "verified" for item in operation_evidence
+        ):
+            raise RegistryIntegrityError("metadata permission evidence is no longer verified")
+        decision = evaluate_permission_record(
+            grant_payload,
+            "metadata",
+            source_id=observation["source_id"],
+            endpoint_id=observation["endpoint_id"],
+            now=datetime.now(timezone.utc),
+        )
+        if not decision.allowed:
+            raise RegistryIntegrityError("metadata permission is no longer valid")
+
+    def ingest_article_observation(
+        self,
+        observation_id: str,
+        article_payload: dict[str, Any],
+        *,
+        duplicate_fingerprint: str | None,
+    ) -> dict[str, Any]:
+        """Atomically create/reuse an article and record an explainable identity decision."""
+        validate_payload("article", article_payload)
+        if duplicate_fingerprint is not None and (
+            not isinstance(duplicate_fingerprint, str)
+            or not duplicate_fingerprint.startswith("sha256:")
+            or len(duplicate_fingerprint) != 71
+            or any(char not in "0123456789abcdef" for char in duplicate_fingerprint[7:])
+        ):
+            raise RegistryIntegrityError("ingestion duplicate fingerprint must be SHA-256")
+        with self._transaction() as connection:
+            existing_decision = connection.execute(
+                """SELECT d.* FROM ingestion_current c
+                JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                WHERE c.observation_id = ?""",
+                (observation_id,),
+            ).fetchone()
+            if existing_decision is not None:
+                return self._ingestion_decision_payload(existing_decision)
+
+            observation = connection.execute(
+                "SELECT * FROM collection_observations WHERE observation_id = ?",
+                (observation_id,),
+            ).fetchone()
+            if observation is None:
+                raise RegistryIntegrityError("collection observation does not exist")
+            if (
+                article_payload.get("source_id") != observation["source_id"]
+                or article_payload.get("permission_id") != observation["grant_id"]
+            ):
+                raise RegistryIntegrityError("article source/permission does not match its observation")
+            from .ingestion import language_is_supported, normalize_observation
+            expected_payload, expected_fingerprint = normalize_observation(
+                self.get_collection_observation(observation_id),
+                article_payload.get("source_language", ""),
+            )
+            if article_payload != expected_payload or duplicate_fingerprint != expected_fingerprint:
+                raise RegistryIntegrityError(
+                    "article payload and duplicate fingerprint do not match normalized source observation"
+                )
+            self._check_ingestion_permission(connection, observation)
+            endpoint_payload = json.loads(connection.execute(
+                "SELECT payload_json FROM source_endpoints WHERE id = ?",
+                (observation["endpoint_id"],),
+            ).fetchone()["payload_json"])
+            declared_languages = endpoint_payload.get("supported_languages", [])
+            article_language = article_payload.get("source_language", "")
+            try:
+                language_supported = language_is_supported(article_language, declared_languages)
+            except ValueError as exc:
+                raise RegistryIntegrityError("endpoint language declaration is invalid") from exc
+            if not language_supported:
+                raise RegistryIntegrityError("article language is outside the endpoint language declaration")
+
+            existing_article = connection.execute(
+                """SELECT id, revision, payload_json FROM domain_records
+                WHERE record_type = 'article'
+                  AND json_extract(payload_json, '$.source_id') = ?
+                  AND json_extract(payload_json, '$.canonical_uri') = ?
+                ORDER BY created_at, id LIMIT 1""",
+                (article_payload["source_id"], article_payload["canonical_uri"]),
+            ).fetchone()
+
+            if existing_article is not None:
+                article_id = existing_article["id"]
+                outcome = "reused"
+                existing_payload = json.loads(existing_article["payload_json"])
+                incoming_time = _aware_datetime(article_payload["updated_at"], "updated_at")
+                existing_time = _aware_datetime(
+                    existing_payload.get("updated_at", existing_payload["discovered_at"]),
+                    "updated_at",
+                )
+                if incoming_time > existing_time:
+                    refreshed = dict(existing_payload)
+                    for field in (
+                        "title", "source_language", "updated_at", "provenance",
+                        "byline", "published_at", "summary_metadata", "content_fingerprint",
+                    ):
+                        if field in article_payload:
+                            refreshed[field] = article_payload[field]
+                    validate_payload("article", refreshed)
+                    next_revision = existing_article["revision"] + 1
+                    refreshed_json = _json_text(refreshed)
+                    connection.execute(
+                        """UPDATE domain_records
+                        SET revision = ?, updated_at = ?, payload_json = ?
+                        WHERE record_type = 'article' AND id = ? AND revision = ?""",
+                        (
+                            next_revision, article_payload["updated_at"], refreshed_json,
+                            article_id, existing_article["revision"],
+                        ),
+                    )
+                    connection.execute(
+                        """INSERT INTO domain_record_revisions
+                        (record_type, record_id, revision, created_at, actor, reason, payload_json)
+                        VALUES ('article', ?, ?, ?, 'ingestion', 'metadata refreshed from newer observation', ?)""",
+                        (article_id, next_revision, _utc_now(), refreshed_json),
+                    )
+                    self._append_audit(
+                        connection,
+                        event_type="article.revised",
+                        entity_type="article",
+                        entity_id=article_id,
+                        payload={
+                            "revision": next_revision,
+                            "actor": "ingestion",
+                            "reason": "metadata refreshed from newer observation",
+                            "observation_id": observation_id,
+                        },
+                    )
+                    reason = "same_source_article_reused_and_metadata_refreshed"
+                else:
+                    reason = "same_source_canonical_uri_already_exists_newer_or_equal_metadata_retained"
+            else:
+                self._validate_domain_references(connection, "article", article_payload)
+                article_json = _json_text(article_payload)
+                created_at = article_payload["discovered_at"]
+                connection.execute(
+                    """INSERT INTO domain_records
+                    (record_type, id, revision, created_at, updated_at, payload_json)
+                    VALUES ('article', ?, 1, ?, ?, ?)""",
+                    (article_payload["id"], created_at, _utc_now(), article_json),
+                )
+                connection.execute(
+                    """INSERT INTO domain_record_revisions
+                    (record_type, record_id, revision, created_at, actor, reason, payload_json)
+                    VALUES ('article', ?, 1, ?, 'ingestion', 'article ingested from observation', ?)""",
+                    (article_payload["id"], _utc_now(), article_json),
+                )
+                article_id = article_payload["id"]
+                outcome = "created"
+                reason = "new_source_article_identity"
+
+            duplicate_of = None
+            if outcome == "created" and duplicate_fingerprint is not None:
+                candidate = connection.execute(
+                    """SELECT d.article_id FROM ingestion_current c
+                    JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                    JOIN domain_records a ON a.record_type = 'article' AND a.id = d.article_id
+                    WHERE d.fingerprint = ? AND d.source_id != ?
+                      AND d.outcome IN ('created', 'reused', 'distinct')
+                      AND json_extract(a.payload_json, '$.record_status') = 'active'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM ingestion_current c2
+                          JOIN ingestion_decisions d2 ON d2.decision_id = c2.decision_id
+                          WHERE d2.article_id = d.article_id
+                            AND (
+                                d2.decided_at > d.decided_at
+                                OR (d2.decided_at = d.decided_at AND d2.decision_id > d.decision_id)
+                            )
+                      )
+                    ORDER BY d.decided_at, d.decision_id LIMIT 1""",
+                    (duplicate_fingerprint, article_payload["source_id"]),
+                ).fetchone()
+                if candidate is not None and candidate["article_id"] != article_id:
+                    outcome = "possible_duplicate"
+                    duplicate_of = candidate["article_id"]
+                    reason = "matching_normalized_title_language_and_publication_time"
+
+            decision_id = f"ingestion-decision:{uuid.uuid4().hex}"
+            decided_at = _utc_now()
+            connection.execute(
+                """INSERT INTO ingestion_decisions
+                (decision_id, observation_id, decision_revision, source_id, article_id,
+                 outcome, duplicate_of_article_id, fingerprint, canonical_uri, reason, decided_at)
+                VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    decision_id, observation_id, article_payload["source_id"], article_id,
+                    outcome, duplicate_of, duplicate_fingerprint,
+                    article_payload["canonical_uri"], reason, decided_at,
+                ),
+            )
+            connection.execute(
+                "INSERT INTO ingestion_current(observation_id, decision_id) VALUES (?, ?)",
+                (observation_id, decision_id),
+            )
+            self._append_audit(
+                connection,
+                event_type="ingestion.decided",
+                entity_type="ingestion_decision",
+                entity_id=decision_id,
+                payload={
+                    "observation_id": observation_id,
+                    "article_id": article_id,
+                    "outcome": outcome,
+                    "duplicate_of_article_id": duplicate_of,
+                    "fingerprint": duplicate_fingerprint,
+                    "reason": reason,
+                    "decision_revision": 1,
+                },
+            )
+            row = connection.execute(
+                "SELECT * FROM ingestion_decisions WHERE decision_id = ?",
+                (decision_id,),
+            ).fetchone()
+            return self._ingestion_decision_payload(row)
+
+    def resolve_ingestion_duplicate(
+        self,
+        observation_id: str,
+        *,
+        outcome: str,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Append a human resolution; never merges or deletes either article."""
+        if not isinstance(outcome, str) or outcome not in {"confirmed_duplicate", "distinct"}:
+            raise ValueError("outcome must be confirmed_duplicate or distinct")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+            raise ValueError("expected_revision must be a positive integer")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 800:
+            raise ValueError("a bounded resolution reason is required")
+        if len(actor) > 200 or len(actor) + 2 + len(reason) > 1000:
+            raise ValueError("actor and reason exceed the 1000-character audit limit")
+        with self._transaction() as connection:
+            current = connection.execute(
+                """SELECT d.* FROM ingestion_current c
+                JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                WHERE c.observation_id = ?""",
+                (observation_id,),
+            ).fetchone()
+            if current is None:
+                raise RegistryIntegrityError("ingestion decision does not exist")
+            if current["decision_revision"] != expected_revision:
+                raise RegistryIntegrityError("ingestion decision revision conflict")
+            if current["outcome"] not in {"possible_duplicate", "confirmed_duplicate", "distinct"}:
+                raise RegistryIntegrityError("ingestion decision is not a duplicate candidate")
+            duplicate_of = current["duplicate_of_article_id"]
+            if duplicate_of is None:
+                prior_candidate = connection.execute(
+                    """SELECT duplicate_of_article_id FROM ingestion_decisions
+                    WHERE observation_id = ? AND duplicate_of_article_id IS NOT NULL
+                    ORDER BY decision_revision DESC LIMIT 1""",
+                    (observation_id,),
+                ).fetchone()
+                duplicate_of = prior_candidate["duplicate_of_article_id"] if prior_candidate else None
+            if outcome == "confirmed_duplicate" and duplicate_of is None:
+                raise RegistryIntegrityError("no duplicate candidate is available to confirm")
+            decision_id = f"ingestion-decision:{uuid.uuid4().hex}"
+            decided_at = _utc_now()
+            next_revision = expected_revision + 1
+            connection.execute(
+                """INSERT INTO ingestion_decisions
+                (decision_id, observation_id, decision_revision, source_id, article_id,
+                 outcome, duplicate_of_article_id, fingerprint, canonical_uri, reason, decided_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    decision_id, observation_id, next_revision, current["source_id"],
+                    current["article_id"], outcome,
+                    duplicate_of if outcome == "confirmed_duplicate" else None,
+                    current["fingerprint"], current["canonical_uri"],
+                    f"{actor}: {reason}", decided_at,
+                ),
+            )
+            connection.execute(
+                """UPDATE ingestion_current SET decision_id = ?
+                WHERE observation_id = ? AND decision_id = ?""",
+                (decision_id, observation_id, current["decision_id"]),
+            )
+            self._append_audit(
+                connection,
+                event_type="ingestion.duplicate_resolved",
+                entity_type="ingestion_decision",
+                entity_id=decision_id,
+                payload={
+                    "observation_id": observation_id,
+                    "article_id": current["article_id"],
+                    "previous_decision_id": current["decision_id"],
+                    "outcome": outcome,
+                    "duplicate_of_article_id": duplicate_of if outcome == "confirmed_duplicate" else None,
+                    "actor": actor,
+                    "reason": reason,
+                    "decision_revision": next_revision,
+                },
+            )
+            row = connection.execute(
+                "SELECT * FROM ingestion_decisions WHERE decision_id = ?",
+                (decision_id,),
+            ).fetchone()
+            return self._ingestion_decision_payload(row)
+
     def collection_observations(
         self, *, source_id: str | None = None
     ) -> list[dict[str, Any]]:
@@ -1375,7 +1890,7 @@ class SQLiteRegistry:
             if payload[immutable_time_field] != previous_payload[immutable_time_field]:
                 raise RegistryIntegrityError("record creation/observation time cannot be rewritten")
             immutable_identity_fields = {
-                "article": ("source_id",),
+                "article": ("source_id", "canonical_uri"),
                 "evidence": ("source_id", "claim_id"),
             }.get(record_type, ())
             if any(payload.get(field) != previous_payload.get(field) for field in immutable_identity_fields):
