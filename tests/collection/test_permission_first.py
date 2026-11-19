@@ -119,7 +119,7 @@ class FixtureConnector:
             operations=frozenset(operations),
         )
 
-    def collect(self, request, endpoint):
+    def collect(self, request, endpoint, context):
         self.calls += 1
         return iter(self.items)
 
@@ -300,7 +300,7 @@ def test_invalid_request_budget_is_rejected() -> None:
 def test_revocation_during_connector_execution_prevents_observation_storage() -> None:
     with populated_registry() as registry:
         class RevokingConnector(FixtureConnector):
-            def collect(self, request, endpoint):
+            def collect(self, request, endpoint, context):
                 self.calls += 1
                 registry.transition_permission_grant(
                     request.grant_id,
@@ -555,3 +555,124 @@ def test_observation_batch_is_atomic_when_later_insert_fails() -> None:
             registry.append_many((first, first))
         assert registry.collection_observations() == []
         assert registry.verify_audit_chain()
+
+
+
+class FakeTransport:
+    def __init__(self, *, error=None):
+        self.calls = []
+        self.error = error
+
+    def fetch(self, url, *, allowed_domains, timeout_seconds, max_bytes, max_retries):
+        self.calls.append({
+            "url": url,
+            "allowed_domains": allowed_domains,
+            "timeout_seconds": timeout_seconds,
+            "max_bytes": max_bytes,
+            "max_retries": max_retries,
+        })
+        if self.error is not None:
+            raise self.error
+        class Response:
+            status = 200
+            headers = {"content-type": "application/rss+xml"}
+            final_url = url
+        return Response()
+
+
+class TransportBackedConnector(FixtureConnector):
+    def __init__(self, transport, *, after_fetch=None):
+        super().__init__([])
+        self.transport = transport
+        self.after_fetch = after_fetch
+        self.capabilities = ConnectorCapabilities(
+            name="transport-fixture",
+            version="1.0.0",
+            endpoint_types=frozenset({"rss"}),
+            operations=frozenset({"discovery", "metadata"}),
+        )
+
+    def collect(self, request, endpoint, context):
+        self.calls += 1
+        response = self.transport.fetch(
+            endpoint.endpoint_uri,
+            allowed_domains=context.allowed_domains,
+            timeout_seconds=request.timeout_seconds,
+            max_bytes=request.max_observation_bytes,
+            max_retries=request.max_retries,
+        )
+        if self.after_fetch is not None:
+            self.after_fetch()
+        return iter([{
+            "locator": endpoint.endpoint_uri,
+            "final_locator": response.final_url,
+            "response_status": response.status,
+            "content_type": response.headers["content-type"],
+        }])
+
+
+def test_denied_permission_never_reaches_transport() -> None:
+    with populated_registry(("discovery",)) as registry:
+        transport = FakeTransport()
+        connector = TransportBackedConnector(transport)
+        result = make_collector(
+            registry, connector, registry
+        ).collect(make_request("metadata"), "fixture-feed")
+
+        assert (result.allowed, result.reason) == (False, "operation_not_approved")
+        assert connector.calls == 0
+        assert transport.calls == []
+        assert registry.collection_observations() == []
+
+
+def test_authorized_connector_receives_exact_registered_domain_scope() -> None:
+    with populated_registry(("discovery",)) as registry:
+        transport = FakeTransport()
+        connector = TransportBackedConnector(transport)
+        result = make_collector(
+            registry, connector, registry
+        ).collect(make_request(), "fixture-feed")
+
+        assert result.allowed is True
+        assert len(transport.calls) == 1
+        assert transport.calls[0]["url"] == "https://publisher-a.example.org/feed.xml"
+        assert transport.calls[0]["allowed_domains"] == ("publisher-a.example.org",)
+        assert len(registry.collection_observations()) == 1
+
+
+def test_transport_failure_creates_no_partial_observation() -> None:
+    with populated_registry() as registry:
+        transport = FakeTransport(error=RuntimeError("simulated network failure"))
+        connector = TransportBackedConnector(transport)
+
+        with pytest.raises(RuntimeError, match="simulated network failure"):
+            make_collector(
+                registry, connector, registry
+            ).collect(make_request(), "fixture-feed")
+
+        assert connector.calls == 1
+        assert len(transport.calls) == 1
+        assert registry.collection_observations() == []
+        assert registry.verify_audit_chain()
+
+
+def test_permission_revoked_after_transport_response_blocks_storage() -> None:
+    with populated_registry() as registry:
+        transport = FakeTransport()
+
+        def revoke():
+            registry.transition_permission_grant(
+                "permission:publisher-a-grant",
+                "revoked",
+                actor="rights-reviewer",
+                reason="Permission withdrawn after transport returned.",
+            )
+
+        connector = TransportBackedConnector(transport, after_fetch=revoke)
+        with pytest.raises(RegistryIntegrityError, match="grant changed during collection"):
+            make_collector(
+                registry, connector, registry
+            ).collect(make_request(), "fixture-feed")
+
+        assert len(transport.calls) == 1
+        assert registry.collection_observations() == []
