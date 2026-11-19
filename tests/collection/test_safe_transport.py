@@ -231,3 +231,70 @@ def test_transport_rejects_malformed_registered_domain():
             "https://news.example.org/feed.xml",
             allowed_domains=("example.org/path",),
         )
+
+
+def test_bounded_dns_resolver_checks_both_address_families_and_public_ip_scope():
+    class Record:
+        def __init__(self, address):
+            self.address = address
+
+    class Resolver:
+        def __init__(self):
+            self.calls = []
+        def resolve(self, host, record_type, *, lifetime, search):
+            self.calls.append((host, record_type, lifetime, search))
+            if record_type == "A":
+                return [Record("93.184.216.34")]
+            raise transport.dns.resolver.NoAnswer
+
+    instance = Resolver()
+    resolver = transport.BoundedDNSResolver(
+        resolver_factory=lambda: instance,
+        clock=lambda: 10.0,
+        max_timeout_seconds=2.0,
+    )
+    assert resolver.resolve("news.example.org", 443, timeout_seconds=5.0) == (
+        "93.184.216.34",
+    )
+    assert [call[1] for call in instance.calls] == ["A", "AAAA"]
+    assert all(call[2] <= 2.0 and call[3] is False for call in instance.calls)
+
+
+def test_bounded_dns_resolver_rejects_private_answer():
+    class Record:
+        address = "10.1.2.3"
+
+    class Resolver:
+        def resolve(self, host, record_type, *, lifetime, search):
+            if record_type == "A":
+                return [Record()]
+            raise transport.dns.resolver.NoAnswer
+
+    resolver = transport.BoundedDNSResolver(
+        resolver_factory=Resolver,
+        clock=lambda: 1.0,
+    )
+    with pytest.raises(transport.TransportError, match="non-public"):
+        resolver.resolve("news.example.org", 443, timeout_seconds=3.0)
+
+
+def test_bounded_dns_resolver_uses_one_deadline_for_a_and_aaaa():
+    class Record:
+        address = "93.184.216.34"
+
+    now = [0.0]
+
+    class Resolver:
+        def resolve(self, host, record_type, *, lifetime, search):
+            if record_type == "A":
+                now[0] = 1.1
+                return [Record()]
+            raise transport.dns.resolver.NoAnswer
+
+    resolver = transport.BoundedDNSResolver(
+        resolver_factory=Resolver,
+        clock=lambda: now[0],
+        max_timeout_seconds=1.0,
+    )
+    with pytest.raises(transport.TransportError, match="deadline exceeded"):
+        resolver.resolve("news.example.org", 443, timeout_seconds=1.0)
