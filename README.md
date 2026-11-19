@@ -28,7 +28,7 @@ Transform lawfully accessible, attributable reporting into accurate, explainable
 
 ## Project status
 
-Foundation milestone in progress. Versioned domain contracts, contract CI, runtime schema validation, deterministic content hashing, and a fail-closed permission evaluator are implemented. Collection, persistence adapters, editorial production, and publication are not implemented yet. No production pipeline or publisher permission is implied.
+Foundation milestone in progress. Versioned domain contracts, runtime schema validation, deterministic content hashing, a fail-closed permission evaluator, and a SQLite registry with cross-record checks and an append-only audit trail are implemented. Collection, editorial production, and publication are not implemented yet. No production pipeline or publisher permission is implied.
 
 ## Documents
 
@@ -50,7 +50,7 @@ Requires Python 3.12+.
 
 ```bash
 python -m pip install -e ".[test]"
-python -m pytest tests/contracts -q
+python -m pytest -q
 ```
 
 ## Preservation rule
