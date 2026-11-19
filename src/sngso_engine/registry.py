@@ -627,6 +627,27 @@ _MIGRATION_11 = (
     """CREATE UNIQUE INDEX idx_learning_objects_variant_language
         ON learning_objects(story_id, kind, variant_group_id, language)
         WHERE variant_group_id IS NOT NULL""",
+    """CREATE TRIGGER learning_objects_variant_group_validate_insert
+        BEFORE INSERT ON learning_objects
+        WHEN NEW.variant_group_id IS NOT NULL
+        BEGIN
+            SELECT CASE WHEN EXISTS (
+                SELECT 1 FROM learning_objects existing
+                WHERE existing.variant_group_id = NEW.variant_group_id
+                  AND (existing.story_id != NEW.story_id OR existing.kind != NEW.kind)
+            ) THEN RAISE(ABORT, 'learning object variants must share the same story and kind') END;
+        END""",
+    """CREATE TRIGGER learning_objects_variant_group_validate_update
+        BEFORE UPDATE ON learning_objects
+        WHEN NEW.variant_group_id IS NOT NULL
+        BEGIN
+            SELECT CASE WHEN EXISTS (
+                SELECT 1 FROM learning_objects existing
+                WHERE existing.variant_group_id = NEW.variant_group_id
+                  AND existing.id != NEW.id
+                  AND (existing.story_id != NEW.story_id OR existing.kind != NEW.kind)
+            ) THEN RAISE(ABORT, 'learning object variants must share the same story and kind') END;
+        END""",
     """CREATE TRIGGER learning_objects_validate_insert
         BEFORE INSERT ON learning_objects
         BEGIN
