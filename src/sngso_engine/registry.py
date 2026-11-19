@@ -861,6 +861,13 @@ class SQLiteRegistry:
                     ),
                 },
             )
+        if grant_revision is not None:
+            decision = PermissionDecision(
+                decision.allowed,
+                decision.reason,
+                decision.permission_id,
+                grant_revision,
+            )
         return decision
 
     def grant_history(self, grant_id: str) -> list[dict[str, Any]]:
