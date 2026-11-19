@@ -10,7 +10,9 @@
     "operation",
     "story_ids",
     "canonical_story_id",
+    "expected_story_revisions",
     "article_assignments",
+    "claim_assignments",
     "decided_by",
     "rationale",
     "decided_at"
@@ -26,6 +28,19 @@
       "items": { "$ref": "common.schema.json#/$defs/id" }
     },
     "canonical_story_id": { "$ref": "common.schema.json#/$defs/id" },
+    "expected_story_revisions": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["story_id", "expected_revision"],
+        "properties": {
+          "story_id": { "$ref": "common.schema.json#/$defs/id" },
+          "expected_revision": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
     "article_assignments": {
       "type": "array",
       "minItems": 2,
@@ -36,6 +51,19 @@
         "properties": {
           "article_id": { "$ref": "common.schema.json#/$defs/id" },
           "assigned_story_id": { "$ref": "common.schema.json#/$defs/id" }
+        }
+      }
+    },
+    "claim_assignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim_id", "assigned_story_id", "expected_revision"],
+        "properties": {
+          "claim_id": { "$ref": "common.schema.json#/$defs/id" },
+          "assigned_story_id": { "$ref": "common.schema.json#/$defs/id" },
+          "expected_revision": { "type": "integer", "minimum": 1 }
         }
       }
     },
