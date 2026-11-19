@@ -728,6 +728,27 @@ _MIGRATION_11 = (
 )
 
 
+def _validate_learning_object_traceability(payload: dict[str, Any]) -> None:
+    """Require every summary segment to map exactly to the object's claim set."""
+    if payload.get("kind") not in {"headline_summary", "brief_summary", "detailed_summary"}:
+        return
+    content = payload.get("content", {})
+    segments = content.get("segments", [])
+    if not segments:
+        raise RegistryIntegrityError("summary requires claim-mapped segments")
+    if content.get("text") != " ".join(segment["text"] for segment in segments):
+        raise RegistryIntegrityError("summary text must exactly match its claim-mapped segments")
+    object_claims = set(payload.get("claim_ids", []))
+    segment_claims: set[str] = set()
+    for segment in segments:
+        claims = set(segment["claim_ids"])
+        if not claims.issubset(object_claims):
+            raise RegistryIntegrityError("summary segment references a claim outside the learning object")
+        segment_claims.update(claims)
+    if segment_claims != object_claims:
+        raise RegistryIntegrityError("summary claim links must exactly match its segment claim links")
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -3654,6 +3675,7 @@ class SQLiteRegistry:
     ) -> LearningObjectRecord:
         """Create a language-specific learning object in a non-approved state."""
         validate_payload("learning-object", payload)
+        _validate_learning_object_traceability(payload)
         if not isinstance(actor, str) or not actor.strip():
             raise ValueError("actor is required")
         if not isinstance(reason, str) or not reason.strip():
@@ -3721,6 +3743,7 @@ class SQLiteRegistry:
     ) -> LearningObjectRecord:
         """Revise an editorial object with optimistic concurrency and immutable history."""
         validate_payload("learning-object", payload)
+        _validate_learning_object_traceability(payload)
         if payload.get("id") != learning_object_id:
             raise RegistryIntegrityError("learning object identity cannot change during revision")
         if not isinstance(actor, str) or not actor.strip():
