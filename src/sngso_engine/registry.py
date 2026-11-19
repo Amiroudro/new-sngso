@@ -31,7 +31,7 @@ from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as 
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 class RegistryIntegrityError(ValueError):
@@ -251,6 +251,14 @@ _MIGRATION_2 = (
 )
 
 
+_MIGRATION_3 = (
+    """ALTER TABLE collection_observations
+       ADD COLUMN http_method TEXT NOT NULL DEFAULT 'GET'
+       CHECK (http_method = 'GET')""",
+)
+
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -339,6 +347,17 @@ class SQLiteRegistry:
                     connection.execute("PRAGMA user_version = 2")
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 2 failed; transaction rolled back") from exc
+            if version == 2:
+                try:
+                    for statement in _MIGRATION_3:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (3, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 3")
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 3 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -915,7 +934,7 @@ class SQLiteRegistry:
             "id", "source_id", "endpoint_id", "grant_id", "grant_revision",
             "operation", "connector_name", "connector_version", "observed_at",
             "locator", "final_locator", "content_fingerprint", "response_status",
-            "content_type", "metadata", "permission_reason",
+            "content_type", "metadata", "permission_reason", "http_method",
         }
         for payload in payloads:
             if set(payload) != required:
@@ -964,6 +983,8 @@ class SQLiteRegistry:
                 not isinstance(content_type, str) or len(content_type) > 160
             ):
                 raise RegistryIntegrityError("collection content type is invalid")
+            if payload["http_method"] != "GET":
+                raise RegistryIntegrityError("collection observations currently support GET only")
             if payload["permission_reason"] != "approved":
                 raise RegistryIntegrityError("collection observation lacks an approved permission decision")
             _aware_datetime(payload["observed_at"], "observed_at")
@@ -1042,8 +1063,8 @@ class SQLiteRegistry:
                     (observation_id, source_id, endpoint_id, grant_id, grant_revision,
                      operation, connector_name, connector_version, observed_at, locator,
                      final_locator, content_fingerprint, response_status, content_type,
-                     metadata_json, permission_reason)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     metadata_json, permission_reason, http_method)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         payload["id"], payload["source_id"], payload["endpoint_id"],
                         payload["grant_id"], payload["grant_revision"], payload["operation"],
@@ -1051,6 +1072,7 @@ class SQLiteRegistry:
                         payload["observed_at"], payload["locator"], payload["final_locator"],
                         payload["content_fingerprint"], payload["response_status"],
                         payload["content_type"], metadata_json, payload["permission_reason"],
+                        payload["http_method"],
                     ),
                 )
                 self._append_audit(
@@ -1064,6 +1086,7 @@ class SQLiteRegistry:
                         "grant_id": payload["grant_id"],
                         "grant_revision": payload["grant_revision"],
                         "operation": payload["operation"],
+                        "http_method": payload["http_method"],
                         "locator": payload["locator"],
                         "content_fingerprint": payload["content_fingerprint"],
                     },
@@ -1099,6 +1122,7 @@ class SQLiteRegistry:
                 "content_type": row["content_type"],
                 "metadata": json.loads(row["metadata_json"]),
                 "permission_reason": row["permission_reason"],
+                "http_method": row["http_method"],
             }
             for row in rows
         ]
