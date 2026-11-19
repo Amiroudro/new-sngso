@@ -466,3 +466,92 @@ def test_registry_rejects_out_of_scope_locator_even_when_collector_is_bypassed()
         with pytest.raises(RegistryIntegrityError, match="outside the registered source domains"):
             registry.append_many((forged,))
         assert registry.collection_observations() == []
+
+
+def test_inactive_source_is_rejected_before_connector_invocation() -> None:
+    with populated_registry() as registry:
+        row = registry._connection.execute(
+            "SELECT payload_json FROM sources WHERE id = ?",
+            ("source:publisher-a",),
+        ).fetchone()
+        import json
+        payload = json.loads(row["payload_json"])
+        payload["status"] = "paused"
+        registry._connection.execute(
+            "UPDATE sources SET status = ?, payload_json = ? WHERE id = ?",
+            ("paused", json.dumps(payload), "source:publisher-a"),
+        )
+        connector = FixtureConnector([{"locator": "https://publisher-a.example.org/story/1"}])
+        result = make_collector(registry, connector, InMemoryObservationSink()).collect(
+            make_request(), "fixture-feed"
+        )
+        assert (result.allowed, result.reason) == (False, "source_not_active")
+        assert connector.calls == 0
+
+
+def test_inactive_endpoint_is_rejected_before_connector_invocation() -> None:
+    with populated_registry() as registry:
+        row = registry._connection.execute(
+            "SELECT payload_json FROM source_endpoints WHERE id = ?",
+            ("endpoint:publisher-a-rss",),
+        ).fetchone()
+        import json
+        payload = json.loads(row["payload_json"])
+        payload["status"] = "paused"
+        registry._connection.execute(
+            "UPDATE source_endpoints SET status = ?, payload_json = ? WHERE id = ?",
+            ("paused", json.dumps(payload), "endpoint:publisher-a-rss"),
+        )
+        connector = FixtureConnector([{"locator": "https://publisher-a.example.org/story/1"}])
+        result = make_collector(registry, connector, InMemoryObservationSink()).collect(
+            make_request(), "fixture-feed"
+        )
+        assert (result.allowed, result.reason) == (False, "endpoint_not_active")
+        assert connector.calls == 0
+
+
+def test_expired_grant_is_rejected_before_connector_invocation() -> None:
+    expired = grant_payload()
+    expired["effective_until"] = "2026-11-19T23:59:59Z"
+    registry = SQLiteRegistry()
+    registry.add_source(source_payload())
+    registry.add_endpoint(endpoint_payload())
+    registry.add_permission_evidence(evidence_payload())
+    registry.add_permission_grant(expired)
+    try:
+        connector = FixtureConnector([{"locator": "https://publisher-a.example.org/story/1"}])
+        result = make_collector(registry, connector, InMemoryObservationSink()).collect(
+            make_request(), "fixture-feed"
+        )
+        assert (result.allowed, result.reason) == (False, "permission_expired")
+        assert connector.calls == 0
+    finally:
+        registry.close()
+
+
+def test_metadata_rejects_unapproved_fields() -> None:
+    with populated_registry(("metadata",)) as registry:
+        connector = FixtureConnector([{
+            "locator": "https://publisher-a.example.org/story/1",
+            "metadata": {"full_text": "This must never be retained here."},
+        }])
+        with pytest.raises(CollectionError, match="metadata contains unsupported fields"):
+            make_collector(registry, connector, InMemoryObservationSink()).collect(
+                make_request("metadata"), "fixture-feed"
+            )
+
+
+def test_observation_batch_is_atomic_when_later_insert_fails() -> None:
+    with populated_registry() as registry:
+        connector = FixtureConnector([
+            {"locator": "https://publisher-a.example.org/story/1"},
+            {"locator": "https://publisher-a.example.org/story/2"},
+        ])
+        result = make_collector(registry, connector, InMemoryObservationSink()).collect(
+            make_request(), "fixture-feed"
+        )
+        first, second = result.observations
+        with pytest.raises(sqlite3.IntegrityError):
+            registry.append_many((first, first))
+        assert registry.collection_observations() == []
+        assert registry.verify_audit_chain()
