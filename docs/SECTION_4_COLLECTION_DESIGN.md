@@ -94,7 +94,7 @@ The current implementation is in `src/sngso_engine/collection.py` and the SQLite
 
 Implemented and CI-verified:
 - exact source, endpoint, grant, and operation resolution before connector invocation;
-- validation that the registered endpoint host and every returned locator/final locator remain within the source's registered domain allowlist (exact domains and their subdomains);
+- validation that the registered endpoint host and every returned locator/final locator remain within the source's registered domain allowlist (exact domains and their subdomains), enforced both by the orchestrator and again by the SQLite persistence boundary;
 - source/endpoint active-state checks and connector capability checks;
 - discovery and metadata as separate permission-gated operations;
 - rejection of unimplemented operations, including full-text storage, translation, images, and republication;
@@ -113,7 +113,7 @@ GitHub Actions run #123 passed with 137 tests.
 - Implement and test wall-clock deadlines, actual network response-byte limits, and bounded retry behavior inside a reviewed transport boundary before any live connector exists. The current timeout/retry fields are bounded declarations, not a claim that fixture connectors enforce network timeouts or retries.
 - Add stronger URI and redirect-scope validation for a future network adapter, including DNS resolution and private/link-local IP protections. The fixture boundary now rejects locators and final locators outside the source's registered domain allowlist.
 - Expand adversarial tests for inactive sources/endpoints, expired grants, invalid metadata, oversized result batches, malformed domain allowlists, and sink transaction rollback. The current rate-limit and result-byte-budget tests cover the orchestrator boundary, not raw HTTP response bodies.
-- CI run #128 passed after adding regression tests for out-of-scope locator hosts, out-of-scope final locators, permitted subdomains, and endpoint-host scope.
+- CI run #128 passed after adding regression tests for out-of-scope locator hosts, out-of-scope final locators, permitted subdomains, and endpoint-host scope. CI run #133 passed after adding a storage-boundary regression test that bypasses the orchestrator and attempts to persist an out-of-scope locator. An intermediate run #132 exposed a misplaced validation reference; the validation was moved into the transaction where source domains are loaded, and run #133 passed.
 - Review the collection module and observation storage together before marking this section complete.
 
 No live connector, publisher approval, article-body storage, or production collection has been enabled.
