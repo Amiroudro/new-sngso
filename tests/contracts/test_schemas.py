@@ -275,3 +275,32 @@ def test_article_contract_rejects_unknown_fields() -> None:
         format_checker=FORMAT_CHECKER,
     )
     assert list(validator.iter_errors(instance))
+
+
+@pytest.mark.parametrize(
+    "occurred",
+    [
+        {"precision": "instant"},
+        {"precision": "date", "start": "2026-11-18T12:00:00Z"},
+        {"precision": "range", "start": "2026-11-18T12:00:00Z"},
+        {"precision": "approximate", "start": "2026-11-18"},
+        {"precision": "unknown", "start": "2026-11-18"},
+    ],
+)
+def test_timeline_event_schema_enforces_temporal_precision(occurred: dict) -> None:
+    instance = {
+        "schema_version": "1.0.0",
+        "id": "event:invalid-temporal-precision",
+        "story_id": "story:sample-001",
+        "title": "A dated development",
+        "event_type": "occurrence",
+        "occurred": occurred,
+        "claim_ids": ["claim:sample-001"],
+        "created_at": "2026-11-19T00:00:00Z",
+        "created_by": "editor",
+        "rationale": "Contract fixture.",
+    }
+    validator = Draft202012Validator(
+        load_schema("timeline-event"), registry=REGISTRY, format_checker=FORMAT_CHECKER
+    )
+    assert list(validator.iter_errors(instance))
