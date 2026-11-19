@@ -3409,6 +3409,85 @@ class SQLiteRegistry:
             if not item["is_superseded"]
         ]
 
+    def story_editorial_snapshot(self, story_id: str) -> dict[str, Any]:
+        """Build a deterministic, read-only editorial dossier from one SQLite snapshot."""
+        with self._transaction("DEFERRED") as connection:
+            story_row = connection.execute(
+                """SELECT revision, updated_at, payload_json FROM domain_records
+                WHERE record_type = 'story' AND id = ?""",
+                (story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise RegistryIntegrityError(f"unknown story: {story_id}")
+            story_payload = json.loads(story_row["payload_json"])
+            article_ids = sorted(story_payload.get("article_ids", []))
+            articles = []
+            if article_ids:
+                placeholders = ",".join("?" for _ in article_ids)
+                rows = connection.execute(
+                    f"""SELECT id, revision, updated_at, payload_json FROM domain_records
+                    WHERE record_type = 'article' AND id IN ({placeholders}) ORDER BY id""",
+                    tuple(article_ids),
+                ).fetchall()
+                if len(rows) != len(article_ids):
+                    raise RegistryIntegrityError("story editorial snapshot found a missing article")
+                articles = [
+                    {"id": row["id"], "revision": row["revision"],
+                     "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
+                    for row in rows
+                ]
+            claim_rows = connection.execute(
+                """SELECT id, revision, updated_at, payload_json FROM domain_records
+                WHERE record_type = 'claim' AND json_extract(payload_json, '$.story_id') = ?
+                ORDER BY id""",
+                (story_id,),
+            ).fetchall()
+            claims = [
+                {"id": row["id"], "revision": row["revision"],
+                 "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
+                for row in claim_rows
+            ]
+            claim_ids = [row["id"] for row in claim_rows]
+            evidence = []
+            if claim_ids:
+                placeholders = ",".join("?" for _ in claim_ids)
+                evidence_rows = connection.execute(
+                    f"""SELECT id, revision, updated_at, payload_json FROM domain_records
+                    WHERE record_type = 'evidence'
+                      AND json_extract(payload_json, '$.claim_id') IN ({placeholders})
+                    ORDER BY id""",
+                    tuple(claim_ids),
+                ).fetchall()
+                evidence = [
+                    {"id": row["id"], "revision": row["revision"],
+                     "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
+                    for row in evidence_rows
+                ]
+            timeline_history = self.timeline_event_history(story_id)
+            perspective_history = self.perspective_history(story_id)
+            claim_relation_history = self.claim_relation_history(story_id)
+            decisions = self.story_decision_history(story_id)
+            reporting_independence = self.story_reporting_independence(story_id)
+            snapshot = {
+                "story_id": story_id,
+                "story_revision": story_row["revision"],
+                "story_updated_at": story_row["updated_at"],
+                "story": story_payload,
+                "articles": articles,
+                "claims": claims,
+                "evidence": evidence,
+                "timeline_history": timeline_history,
+                "timeline": [item for item in timeline_history if not item["is_superseded"]],
+                "perspective_history": perspective_history,
+                "perspectives": [item for item in perspective_history if not item["is_superseded"]],
+                "claim_relation_history": claim_relation_history,
+                "claim_relations": [item for item in claim_relation_history if not item["is_superseded"]],
+                "story_decisions": decisions,
+                "reporting_independence": reporting_independence,
+            }
+            snapshot["fingerprint"] = sha256_fingerprint(snapshot)
+            return snapshot
+
     def get_domain_record(self, record_type: str, record_id: str):
         if record_type == "story_decision":
             with self._lock:
