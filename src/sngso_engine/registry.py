@@ -996,12 +996,15 @@ class SQLiteRegistry:
             raise ValueError("actor is required")
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("reason is required")
+        payload = dict(payload)
+        if record_type == "story" and "revision" in payload:
+            payload["revision"] = expected_revision + 1
         validate_payload(record_type, payload)
         record = model.from_payload(payload)
         updated_at = _utc_now()
         with self._transaction() as connection:
             row = connection.execute(
-                """SELECT revision, status FROM domain_records
+                """SELECT revision, payload_json FROM domain_records
                 WHERE record_type = ? AND id = ?""",
                 (record_type, record_id),
             ).fetchone()
@@ -1011,6 +1014,21 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("domain record revision conflict")
             if record_type == "edition":
                 raise RegistryIntegrityError("edition snapshots are immutable")
+            previous_payload = json.loads(row["payload_json"])
+            immutable_time_field = {
+                "article": "discovered_at",
+                "story": "created_at",
+                "claim": "created_at",
+                "evidence": "assessed_at",
+            }[record_type]
+            if payload[immutable_time_field] != previous_payload[immutable_time_field]:
+                raise RegistryIntegrityError("record creation/observation time cannot be rewritten")
+            immutable_identity_fields = {
+                "article": ("source_id",),
+                "evidence": ("source_id", "claim_id"),
+            }.get(record_type, ())
+            if any(payload.get(field) != previous_payload.get(field) for field in immutable_identity_fields):
+                raise RegistryIntegrityError("domain record identity links cannot be rewritten")
             self._validate_domain_references(connection, record_type, payload)
             next_revision = expected_revision + 1
             updated = connection.execute(
