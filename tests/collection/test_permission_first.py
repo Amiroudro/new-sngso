@@ -606,8 +606,6 @@ class TransportBackedConnector(FixtureConnector):
         return iter([{
             "locator": endpoint.endpoint_uri,
             "final_locator": response.final_url,
-            "response_status": response.status,
-            "content_type": response.headers["content-type"],
         }])
 
 
