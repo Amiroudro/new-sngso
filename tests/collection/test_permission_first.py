@@ -9,6 +9,7 @@ from sngso_engine.collection import (
     CollectionError,
     CollectionRequest,
     ConnectorCapabilities,
+    InMemoryDomainRateLimiter,
     InMemoryObservationSink,
     PermissionFirstCollector,
 )
@@ -142,12 +143,13 @@ def make_request(operation="discovery", **overrides):
     return CollectionRequest(**values)
 
 
-def make_collector(registry, connector, sink):
+def make_collector(registry, connector, sink, rate_limiter=None):
     return PermissionFirstCollector(
         registry,
         {"fixture-feed": connector},
         sink,
         clock=lambda: NOW,
+        rate_limiter=rate_limiter,
     )
 
 
@@ -315,3 +317,37 @@ def test_revocation_during_connector_execution_prevents_observation_storage() ->
 
         assert connector.calls == 1
         assert registry.collection_observations() == []
+
+def test_per_domain_rate_limit_stops_connector_before_second_call() -> None:
+    with populated_registry() as registry:
+        connector = FixtureConnector([{"locator": "https://publisher-a.example.org/news/1"}])
+        sink = InMemoryObservationSink()
+        limiter = InMemoryDomainRateLimiter(max_requests=1, window_seconds=60, clock=lambda: 100.0)
+        collector = make_collector(registry, connector, sink, limiter)
+
+        first = collector.collect(make_request(), "fixture-feed")
+        second = collector.collect(make_request(), "fixture-feed")
+
+        assert first.allowed is True
+        assert (second.allowed, second.reason) == (False, "rate_limited")
+        assert connector.calls == 1
+
+
+def test_observation_byte_budget_is_enforced_before_persistence() -> None:
+    with populated_registry() as registry:
+        long_locator = "https://publisher-a.example.org/" + "x" * 1500
+        connector = FixtureConnector([{"locator": long_locator}])
+        sink = InMemoryObservationSink()
+
+        with pytest.raises(CollectionError, match="max_observation_bytes"):
+            make_collector(registry, connector, sink).collect(
+                make_request(max_observation_bytes=1024), "fixture-feed"
+            )
+        assert sink.all() == ()
+
+
+def test_timeout_and_retry_budgets_have_hard_bounds() -> None:
+    with pytest.raises(ValueError, match="timeout_seconds"):
+        make_request(timeout_seconds=60)
+    with pytest.raises(ValueError, match="max_retries"):
+        make_request(max_retries=3)
