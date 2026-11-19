@@ -342,6 +342,10 @@ class SafeHTTPSTransport:
             )
             if header_bytes > 16384:
                 raise TransportError("response headers exceed configured byte limit")
+            for singleton in ("content-type", "content-encoding", "transfer-encoding", "location"):
+                values = [value for key, value in raw_headers if key.lower() == singleton]
+                if len(values) > 1:
+                    raise TransportError(f"duplicate {singleton} response headers")
             headers = {key.lower(): value for key, value in raw_headers}
             content_lengths = [
                 value for key, value in raw_headers if key.lower() == "content-length"
