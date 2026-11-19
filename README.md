@@ -40,6 +40,7 @@ Foundation milestone in progress. Versioned domain contracts, contract CI, runti
 - docs/IMPLEMENTATION_ROADMAP.md
 - docs/BASELINE_AUDIT.md
 - docs/SOURCE_GOVERNANCE.md
+- docs/PERSISTENCE.md
 - contracts/README.md
 - contracts/v1/
 
