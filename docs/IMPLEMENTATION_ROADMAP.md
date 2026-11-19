@@ -62,7 +62,7 @@ Acceptance:
 - Permission decisions can be reconstructed from stored evidence and policy versions.
 - Failed migrations or transactions do not corrupt existing data.
 
-**Section 3 progress:** typed records and a SQLite registry now cover publisher sources, endpoints, permission evidence, scoped grants, articles, stories, claims, factual evidence, and edition metadata. Migration 1, cross-record checks, grant lifecycle revisions, optimistic editorial revisions, and a hash-linked append-only audit trail are implemented. The full pytest suite passed in GitHub Actions run #89 (attempt 2). A subsequent code review identified a failed-COMMIT rollback edge case; a fix and regression test have been committed and require a fresh CI run. Source observations, pipeline runs, external audit anchoring, backups, and production authentication remain outside this section.
+**Section 3 progress:** typed records and a SQLite registry now cover publisher sources, endpoints, permission evidence, scoped grants, articles, stories, claims, factual evidence, and edition metadata. Migration 1, cross-record checks, grant lifecycle revisions, optimistic editorial revisions, and a hash-linked append-only audit trail are implemented. The full pytest suite passed in GitHub Actions run #89 (attempt 2). A targeted code review identified a failed-COMMIT rollback edge case; the transaction now rolls back if COMMIT itself fails, and a regression test proves the connection remains usable. The updated full suite passed in GitHub Actions run #91. Source observations, pipeline runs, external audit anchoring, backups, and production authentication remain outside this section.
 
 ## 4. Permission-first collection framework
 
@@ -193,8 +193,8 @@ Acceptance:
 | Section | Status | Outstanding gate |
 |---|---|---|
 | 1. Repository audit | Documented, targeted audit | Full static/dependency/runtime audit remains future work |
-| 2. Source governance | Implemented; full pytest suite passed in run #89 attempt 2 | No real publisher approval implied; human review and reviewer authorization remain future controls |
-| 3. Domain models and persistence | Implemented; full pytest suite passed in run #89 attempt 2; commit-failure rollback fix added afterward | Fresh CI run for latest commits and final code review |
+| 2. Source governance | **Complete:** contracts, fail-closed evaluator, fixtures, review policy, and passing full test suite | No real publisher approval implied; human review and reviewer authorization remain future controls |
+| 3. Domain models and persistence | **Complete:** typed models, SQLite registry, cross-record validation, revisions, audit chain, commit-failure rollback, targeted review, and passing full test suite in run #91 | Source-observation persistence, backups, external audit anchoring, and production authentication remain future work |
 | 4. Permission-first collection | Design baseline documented; implementation not started | Section 3 acceptance and fixture-first implementation |
 | 5. Ingestion and identity | Not started | Depends on Section 4 |
 | 6. Story intelligence and evidence | Not started | Depends on Section 5 |
@@ -203,7 +203,7 @@ Acceptance:
 | 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |
 | 10. End-to-end handover | Not started | Depends on all prior sections |
 
-No section is formally complete until its acceptance gates are verified. Section 2's automated gate passed. Section 3's earlier full suite passed, but its latest rollback fix and regression test must pass CI and receive final review before Section 3 is closed.
+No section is formally complete until its acceptance gates are verified. Sections 2 and 3 have passed their current acceptance gates and are closed for this implementation stage. Their documented production limitations remain open risks, not hidden assumptions.
 
 ## Execution order
 
