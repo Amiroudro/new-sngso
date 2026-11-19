@@ -112,6 +112,7 @@ def add_observation(
     path: str = "/news/one?utm_source=feed&id=7",
     title: str = "নতুন অর্থনৈতিক প্রতিবেদন প্রকাশ",
     published_at: str | None = PUBLISHED,
+    observed_at: str = STAMP,
 ) -> None:
     metadata = {"title": title}
     if published_at is not None:
@@ -125,7 +126,7 @@ def add_observation(
         operation="metadata",
         connector_name="fixture-rss",
         connector_version="1.0.0",
-        observed_at=STAMP,
+        observed_at=observed_at,
         locator=f"https://{name}.example.org{path}",
         final_locator=None,
         content_fingerprint=None,
@@ -224,6 +225,52 @@ def test_repeated_observation_ingestion_is_idempotent_and_preserves_originals():
         assert article is not None
         assert article.source_language == "bn-BD"
         assert registry.verify_audit_chain()
+
+
+def test_newer_observation_refreshes_article_metadata_with_revision_history():
+    with SQLiteRegistry() as registry:
+        add_publisher(registry, "publisher-a")
+        add_observation(registry, "publisher-a", "observation:first")
+        add_observation(
+            registry, "publisher-a", "observation:newer",
+            title="নতুন সংশোধিত শিরোনাম",
+            observed_at="2026-11-20T02:00:00Z",
+        )
+        first = ingest_observation(registry, "observation:first", source_language="bn")
+        second = ingest_observation(registry, "observation:newer", source_language="bn")
+        article = registry.get_domain_record("article", first["article_id"])
+        assert second["outcome"] == "reused"
+        assert second["article_id"] == first["article_id"]
+        assert article.to_payload()["title"] == "নতুন সংশোধিত শিরোনাম"
+        assert article.to_payload()["provenance"]["observation_id"] == "observation:newer"
+        revisions = registry._connection.execute(
+            """SELECT revision FROM domain_record_revisions
+            WHERE record_type = 'article' AND record_id = ?
+            ORDER BY revision""",
+            (first["article_id"],),
+        ).fetchall()
+        assert [row["revision"] for row in revisions] == [1, 2]
+
+
+def test_older_observation_does_not_overwrite_newer_article_metadata():
+    with SQLiteRegistry() as registry:
+        add_publisher(registry, "publisher-a")
+        add_observation(
+            registry, "publisher-a", "observation:newer",
+            title="সর্বশেষ শিরোনাম",
+            observed_at="2026-11-20T02:00:00Z",
+        )
+        add_observation(
+            registry, "publisher-a", "observation:older",
+            title="পুরোনো শিরোনাম",
+            observed_at="2026-11-20T01:00:00Z",
+        )
+        first = ingest_observation(registry, "observation:newer", source_language="bn")
+        second = ingest_observation(registry, "observation:older", source_language="bn")
+        article = registry.get_domain_record("article", first["article_id"])
+        assert second["outcome"] == "reused"
+        assert article.to_payload()["title"] == "সর্বশেষ শিরোনাম"
+        assert article.to_payload()["provenance"]["observation_id"] == "observation:newer"
 
 
 def test_tracking_parameter_variation_reuses_same_source_article():
