@@ -68,14 +68,13 @@ def evaluate_permission(
     # New scoped grants must be evaluated against the exact source and endpoint.
     # Legacy records without these fields remain readable during migration, but
     # a record that declares a scope cannot be evaluated without matching input.
-    if "source_id" in permission:
+    if "source_id" in permission or "endpoint_ids" in permission:
         recorded_source_id = permission.get("source_id")
         if not isinstance(recorded_source_id, str) or not recorded_source_id:
             return PermissionDecision(False, "invalid_source_scope", permission_id)
         if source_id != recorded_source_id:
             return PermissionDecision(False, "source_scope_mismatch", permission_id)
 
-    if "endpoint_ids" in permission:
         endpoint_ids = permission.get("endpoint_ids")
         if (
             not isinstance(endpoint_ids, list)
