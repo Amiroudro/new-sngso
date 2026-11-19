@@ -1,0 +1,300 @@
+"""Persistence, language variants, and editorial review tests for learning objects."""
+
+import json
+import sqlite3
+
+import pytest
+
+from sngso_engine import RegistryIntegrityError, SQLiteRegistry, validate_payload
+
+STAMP = "2026-11-20T00:00:00Z"
+
+
+def _prepared():
+    registry = SQLiteRegistry()
+    host = "publisher.example.org"
+    source_id = "source:publisher"
+    article_id = "article:one"
+    registry.add_source({
+        "schema_version": "1.0.0",
+        "id": source_id,
+        "publisher_name": "Publisher",
+        "publisher_type": "newspaper",
+        "canonical_homepage": f"https://{host}/",
+        "domains": [host],
+        "status": "active",
+        "created_at": STAMP,
+        "updated_at": STAMP,
+    })
+    registry.add_domain_record("article", {
+        "schema_version": "1.0.0",
+        "id": article_id,
+        "source_id": source_id,
+        "canonical_uri": f"https://{host}/one",
+        "title": "Report",
+        "source_language": "en",
+        "discovered_at": STAMP,
+        "record_status": "active",
+    })
+    registry.add_domain_record("story", {
+        "schema_version": "1.0.0",
+        "id": "story:one",
+        "canonical_title": "A developing story",
+        "status": "developing",
+        "created_at": STAMP,
+        "updated_at": STAMP,
+        "article_ids": [article_id],
+    })
+    registry.add_domain_record("claim", {
+        "schema_version": "1.0.0",
+        "id": "claim:one",
+        "story_id": "story:one",
+        "text": "The authority issued a public notice.",
+        "language": "en",
+        "assessment": "unassessed",
+        "provenance": [{
+            "source_id": source_id,
+            "article_id": article_id,
+            "observed_at": STAMP,
+            "method": "human_review",
+            "method_version": "1.0",
+            "locator": {"uri": f"https://{host}/one"},
+        }],
+        "created_at": STAMP,
+    })
+    return registry
+
+
+def _summary(identifier="learning:summary-bn", language="bn"):
+    return {
+        "schema_version": "1.0.0",
+        "id": identifier,
+        "story_id": "story:one",
+        "kind": "brief_summary",
+        "language": language,
+        "status": "draft",
+        "content": {"text": "কর্তৃপক্ষ একটি সরকারি বিজ্ঞপ্তি জারি করেছে।"},
+        "claim_ids": ["claim:one"],
+        "created_at": STAMP,
+    }
+
+
+def test_learning_object_is_persisted_with_initial_revision_and_audit():
+    registry = _prepared()
+    try:
+        record = registry.add_learning_object(
+            _summary(), actor="editor:one", reason="Create the first Bangla summary draft."
+        )
+        assert record.revision == 1
+        assert record.status == "draft"
+        assert registry.get_learning_object(record.id) == record
+        history = registry.learning_object_history(record.id)
+        assert len(history) == 1
+        assert history[0]["actor"] == "editor:one"
+        assert history[0]["reason"] == "Create the first Bangla summary draft."
+        assert registry.verify_audit_chain()
+    finally:
+        registry.close()
+
+
+def test_bangla_and_english_learning_objects_have_independent_review_states():
+    registry = _prepared()
+    try:
+        bn = registry.add_learning_object(
+            _summary("learning:summary-bn", "bn"),
+            actor="editor:bn",
+            reason="Draft the Bangla variant.",
+        )
+        en_payload = _summary("learning:summary-en", "en")
+        en_payload["content"] = {"text": "The authority issued a public notice."}
+        en = registry.add_learning_object(
+            en_payload, actor="editor:en", reason="Draft the English variant."
+        )
+        assert bn.status == en.status == "draft"
+        assert {item.id for item in registry.story_learning_objects("story:one")} == {
+            "learning:summary-bn", "learning:summary-en"
+        }
+    finally:
+        registry.close()
+
+
+def test_vocabulary_and_question_content_require_kind_specific_fields():
+    vocabulary = _summary("learning:vocab")
+    vocabulary.update({
+        "kind": "vocabulary",
+        "content": {
+            "term": "accountability",
+            "meaning": "দায়বদ্ধতা",
+            "context": "The report discusses public accountability.",
+            "example": "Public accountability requires transparent decisions.",
+        },
+    })
+    validate_payload("learning-object", vocabulary)
+
+    question = _summary("learning:question")
+    question.update({
+        "kind": "comprehension_question",
+        "content": {
+            "question": "What did the authority issue?",
+            "answer": "A public notice.",
+            "explanation": "The linked claim records the notice.",
+        },
+    })
+    validate_payload("learning-object", question)
+
+    invalid = {**vocabulary, "id": "learning:vocab-invalid", "content": {"term": "accountability"}}
+    with pytest.raises(ValueError):
+        validate_payload("learning-object", invalid)
+
+
+def test_learning_object_requires_claims_from_the_same_story():
+    registry = _prepared()
+    try:
+        registry.add_domain_record("story", {
+            "schema_version": "1.0.0",
+            "id": "story:other",
+            "canonical_title": "Another story",
+            "status": "developing",
+            "created_at": STAMP,
+            "updated_at": STAMP,
+            "article_ids": ["article:one"],
+        })
+        registry.add_domain_record("claim", {
+            "schema_version": "1.0.0",
+            "id": "claim:other",
+            "story_id": "story:other",
+            "text": "A separate proposition.",
+            "language": "en",
+            "assessment": "unassessed",
+            "provenance": [{
+                "source_id": "source:publisher",
+                "article_id": "article:one",
+                "observed_at": STAMP,
+                "method": "human_review",
+                "method_version": "1.0",
+                "locator": {"uri": "https://publisher.example.org/one"},
+            }],
+            "created_at": STAMP,
+        })
+        payload = _summary("learning:cross-story")
+        payload["claim_ids"] = ["claim:other"]
+        with pytest.raises(RegistryIntegrityError, match="claims must belong to its story"):
+            registry.add_learning_object(
+                payload, actor="editor", reason="This must be rejected."
+            )
+    finally:
+        registry.close()
+
+
+def test_learning_object_approval_requires_review_and_revision_history():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary(), actor="editor:one", reason="Create draft."
+        )
+        approved = _summary()
+        approved.update({
+            "status": "approved",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "reviewed_by": "reviewer:senior",
+            "review_note": "The summary is accurate and supported by the linked claim.",
+        })
+        revised = registry.revise_learning_object(
+            draft.id,
+            approved,
+            expected_revision=1,
+            actor="reviewer:senior",
+            reason="Approve after factual and language review.",
+        )
+        assert revised.revision == 2
+        assert revised.status == "approved"
+        history = registry.learning_object_history(draft.id)
+        assert [item["revision"] for item in history] == [1, 2]
+        assert history[1]["record"]["reviewed_by"] == "reviewer:senior"
+        assert registry.verify_audit_chain()
+    finally:
+        registry.close()
+
+
+def test_learning_object_revision_rejects_stale_revision_and_preserves_history():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary(), actor="editor:one", reason="Create draft."
+        )
+        revised_payload = _summary()
+        revised_payload["content"] = {"text": "সংশোধিত বাংলা সারাংশ।"}
+        registry.revise_learning_object(
+            draft.id, revised_payload, expected_revision=1,
+            actor="editor:one", reason="Clarify the wording.",
+        )
+        with pytest.raises(RegistryIntegrityError, match="revision conflict"):
+            registry.revise_learning_object(
+                draft.id, revised_payload, expected_revision=1,
+                actor="editor:two", reason="Stale edit.",
+            )
+        assert len(registry.learning_object_history(draft.id)) == 2
+        assert registry.get_learning_object(draft.id).revision == 2
+    finally:
+        registry.close()
+
+
+def test_learning_object_review_cannot_predate_creation():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary(), actor="editor:one", reason="Create draft."
+        )
+        payload = _summary()
+        payload.update({
+            "status": "rejected",
+            "reviewed_at": "2026-11-19T23:00:00Z",
+            "reviewed_by": "reviewer",
+            "review_note": "Review predates creation.",
+        })
+        with pytest.raises(RegistryIntegrityError, match="review cannot predate its creation"):
+            registry.revise_learning_object(
+                draft.id, payload, expected_revision=1,
+                actor="reviewer", reason="Reject the draft.",
+            )
+    finally:
+        registry.close()
+
+
+def test_learning_object_revision_history_is_append_only():
+    registry = _prepared()
+    try:
+        record = registry.add_learning_object(
+            _summary(), actor="editor:one", reason="Create draft."
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="learning object revisions are append-only"):
+            registry._connection.execute(
+                "UPDATE learning_object_revisions SET reason = 'rewritten' WHERE learning_object_id = ?",
+                (record.id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="learning object revisions are append-only"):
+            registry._connection.execute(
+                "DELETE FROM learning_object_revisions WHERE learning_object_id = ?",
+                (record.id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="learning objects cannot be deleted"):
+            registry._connection.execute(
+                "DELETE FROM learning_objects WHERE id = ?", (record.id,)
+            )
+    finally:
+        registry.close()
+
+
+def test_sqlite_rejects_learning_object_update_without_next_revision():
+    registry = _prepared()
+    try:
+        record = registry.add_learning_object(
+            _summary(), actor="editor:one", reason="Create draft."
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="revision must increment by one"):
+            registry._connection.execute(
+                "UPDATE learning_objects SET status = 'review_required' WHERE id = ?",
+                (record.id,),
+            )
+    finally:
+        registry.close()
