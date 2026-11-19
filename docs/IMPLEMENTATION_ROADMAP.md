@@ -1,6 +1,6 @@
 # Engine Implementation Programme
 
-Status: Sections 1–5 implemented to their documented scope; Section 6 in progress; Sections 7–10 planned  
+Status: Sections 1–6 implemented to their documented local/fixture-first scope; Sections 7–10 planned  
 Baseline branch: `fix/engine-ci-source-triggers`  
 Scope: the new `new-sngso` engine repository only
 
@@ -203,7 +203,7 @@ Acceptance:
 | 3. Domain models and persistence | **Complete:** typed models, SQLite registry, cross-record validation, revisions, audit chain, commit-failure rollback, targeted review, and passing full test suite in run #91 | Source-observation persistence, backups, external audit anchoring, and production authentication remain future work |
 | 4. Permission-first collection | **Complete for the fixture-first framework:** permission-first orchestration, independent storage rechecks, cross-connection revocation tests, atomic batch persistence, full observation provenance including HTTP method, bounded pinned-IP HTTPS transport prototype, strict URL/DNS/header/redirect/body controls, and passing current-head CI | Live publisher adapters remain gated on source-specific rights review, trusted connector review, shared rate limiting, and deployment-level network-egress controls |
 | 5. Ingestion and identity | **Complete:** canonical URL/text/timestamp/language normalization; metadata-only permission-rechecked ingestion; exact observation provenance; deterministic article identity; ordered immutable metadata revisions; idempotency; cross-publisher duplicate candidates; reversible duplicate resolutions; migration 4; 311-test verification | No live publisher integration is enabled |
-| 6. Story intelligence and evidence | **In progress:** provenance and claim assessment; immutable merge/split decisions with atomic application; claim-backed timeline with correction history; attributed publisher/stakeholder perspectives with append-only corrections and review metadata; curated claim-to-claim contradiction/qualification/reframing links with correction history; timeline review gates; consistent read-only editorial dossier with deterministic fingerprint; schema migrations through v10 | Complete Section 6 acceptance and end-to-end editorial quality gates remain |
+| 6. Story intelligence and evidence | **Complete for local registry/fixture scope:** provenance and claim assessment; immutable merge/split decisions with atomic application; claim-backed timeline with correction and review history; attributed perspectives with review gates; curated claim-to-claim contradiction/qualification/reframing links; deterministic read-only editorial dossier; schema migrations through v10; 404 passing tests | Reviewer authentication, production editorial interface, automated extraction/discovery, live publisher adapters, and edition integration remain separate gates |
 | 7. Editorial production | Not started | Depends on Section 6 |
 | 8. Edition assembly | Not started | Depends on Section 7 |
 | 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |
