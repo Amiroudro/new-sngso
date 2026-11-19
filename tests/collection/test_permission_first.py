@@ -756,3 +756,22 @@ def test_registry_rejects_noncanonical_source_domains_at_creation():
         with pytest.raises(ContractValidationError, match="domains/0"):
             registry.add_source(payload)
         assert registry.get_source("source:publisher-a") is None
+
+
+@pytest.mark.parametrize("timeout_seconds", [float("nan"), float("inf"), float("-inf")])
+def test_collection_request_rejects_non_finite_timeout(timeout_seconds):
+    with pytest.raises(ValueError, match="timeout_seconds"):
+        make_request(timeout_seconds=timeout_seconds)
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"max_requests": True},
+    {"max_requests": 1.5},
+    {"window_seconds": float("nan")},
+    {"window_seconds": float("inf")},
+    {"window_seconds": float("-inf")},
+    {"window_seconds": True},
+])
+def test_rate_limiter_rejects_non_finite_or_invalid_configuration(kwargs):
+    with pytest.raises(ValueError, match="rate-limit settings"):
+        InMemoryDomainRateLimiter(**kwargs)
