@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "id": "benchmark:notice-bn-v1",
+  "fixture_type": "synthetic_regression",
+  "language": "bn",
+  "kind": "brief_summary",
+  "expected": {
+    "text": "কর্তৃপক্ষ ১৯ নভেম্বর একটি সরকারি বিজ্ঞপ্তি জারি করেছে। একটি নাগরিক সংগঠনের দাবি, বিজ্ঞপ্তি তৈরির আগে পর্যাপ্ত পরামর্শ করা হয়নি।",
+    "claim_ids": ["claim:notice", "claim:consultation"],
+    "segments": [
+      {"text": "কর্তৃপক্ষ ১৯ নভেম্বর একটি সরকারি বিজ্ঞপ্তি জারি করেছে।", "claim_ids": ["claim:notice"], "role": "fact"},
+      {"text": "একটি নাগরিক সংগঠনের দাবি, বিজ্ঞপ্তি তৈরির আগে পর্যাপ্ত পরামর্শ করা হয়নি।", "claim_ids": ["claim:consultation"], "role": "attributed", "attribution": "একটি নাগরিক সংগঠন"}
+    ]
+  },
+  "must_preserve": ["একটি নাগরিক সংগঠনের দাবি", "১৯ নভেম্বর"],
+  "must_not_contain": ["বিজ্ঞপ্তিটি বেআইনি", "সব নাগরিক বিজ্ঞপ্তির বিরোধিতা করেছেন"]
+}
