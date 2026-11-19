@@ -447,3 +447,22 @@ def test_endpoint_host_outside_registered_source_domains_is_rejected() -> None:
             False, "endpoint_domain_outside_source_scope"
         )
         assert connector.calls == 0
+
+
+
+def test_registry_rejects_out_of_scope_locator_even_when_collector_is_bypassed() -> None:
+    with populated_registry() as registry:
+        connector = FixtureConnector([{
+            "locator": "https://publisher-a.example.org/story/1"
+        }])
+        result = make_collector(registry, connector, InMemoryObservationSink()).collect(
+            make_request(), "fixture-feed"
+        )
+        forged = replace(
+            result.observations[0],
+            locator="https://unrelated.example.net/story/1",
+        )
+
+        with pytest.raises(RegistryIntegrityError, match="outside the registered source domains"):
+            registry.append_many((forged,))
+        assert registry.collection_observations() == []
