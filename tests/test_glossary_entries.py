@@ -200,6 +200,9 @@ def test_approved_vocabulary_requires_approved_glossary_entry():
         draft = registry.add_learning_object(
             _vocabulary(), actor="editor", reason="Create vocabulary draft."
         )
+        draft_report = registry.learning_object_quality_report(draft.id)
+        assert draft_report["meets_registry_quality_gates"] is False
+        assert any(item["check"] == "controlled_glossary" for item in draft_report["blockers"])
         approved_object = _vocabulary()
         approved_object.update({
             "status": "approved",
@@ -229,6 +232,9 @@ def test_approved_vocabulary_requires_approved_glossary_entry():
             actor="reviewer", reason="Approve vocabulary against approved glossary.",
         )
         assert result.status == "approved"
+        report = registry.learning_object_quality_report(result.id)
+        assert report["meets_registry_quality_gates"] is True
+        assert report["blockers"] == []
     finally:
         registry.close()
 
