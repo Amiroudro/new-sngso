@@ -192,11 +192,13 @@ def test_approved_discovery_records_provenance_and_locator_only() -> None:
         assert observation.grant_id == "permission:publisher-a-grant"
         assert observation.grant_revision == 1
         assert observation.operation == "discovery"
+        assert observation.http_method == "GET"
         assert observation.metadata == {}
         stored = registry.collection_observations()
         assert len(stored) == 1
         assert stored[0]["id"] == observation.id
         assert stored[0]["grant_revision"] == 1
+        assert stored[0]["http_method"] == "GET"
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             registry._connection.execute("DELETE FROM collection_observations")
         assert registry.verify_audit_chain()
