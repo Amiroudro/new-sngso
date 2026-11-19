@@ -1803,7 +1803,7 @@ class SQLiteRegistry:
                             "claim provenance article and observation are not linked by ingestion"
                         )
             existing_evidence = connection.execute(
-                """SELECT payload_json FROM domain_records
+                """SELECT id, payload_json FROM domain_records
                 WHERE record_type = 'evidence'
                   AND json_extract(payload_json, '$.claim_id') = ?""",
                 (payload["id"],),
@@ -1832,10 +1832,24 @@ class SQLiteRegistry:
                 linked_evidence.append(evidence)
             assessment = payload["assessment"]
             relationships = {item["relationship"] for item in linked_evidence}
-            if assessment != "unassessed" and not linked_evidence:
-                raise RegistryIntegrityError(
-                    "an assessed claim must reference at least one evidence record"
-                )
+            if assessment != "unassessed":
+                if not linked_evidence:
+                    raise RegistryIntegrityError(
+                        "an assessed claim must reference at least one evidence record"
+                    )
+                expected_evidence_ids = {row["id"] for row in existing_evidence}
+                if set(payload.get("evidence_ids", [])) != expected_evidence_ids:
+                    raise RegistryIntegrityError(
+                        "reviewed claim must reference every evidence record linked to it"
+                    )
+                reviewed_at = payload.get("reviewed_at")
+                review_note = payload.get("review_note")
+                if not isinstance(reviewed_at, str) or not isinstance(review_note, str) or not review_note.strip():
+                    raise RegistryIntegrityError(
+                        "reviewed claim assessment requires reviewed_at and a non-empty review_note"
+                    )
+                if _aware_datetime(reviewed_at, "reviewed_at") < _aware_datetime(payload["created_at"], "created_at"):
+                    raise RegistryIntegrityError("claim review cannot predate claim creation")
             if assessment == "supported" and (
                 "supports" not in relationships or "contradicts" in relationships
             ):
@@ -1866,6 +1880,10 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("retracted claim requires a non-empty review note")
         elif record_type == "evidence":
             claim = require_record("claim", payload["claim_id"], "evidence")
+            if claim.get("assessment") != "unassessed":
+                raise RegistryIntegrityError(
+                    "claim must be reset to unassessed before adding new evidence"
+                )
             source_id = payload["source_id"]
             source = connection.execute(
                 "SELECT payload_json FROM sources WHERE id = ?", (source_id,)
