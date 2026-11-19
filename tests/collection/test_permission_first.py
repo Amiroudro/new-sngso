@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import sqlite3
 
 import pytest
 
@@ -11,7 +12,7 @@ from sngso_engine.collection import (
     InMemoryObservationSink,
     PermissionFirstCollector,
 )
-from sngso_engine.registry import SQLiteRegistry
+from sngso_engine.registry import RegistryIntegrityError, SQLiteRegistry
 
 
 STAMP = "2026-11-19T00:00:00Z"
@@ -168,7 +169,7 @@ def test_approved_discovery_records_provenance_and_locator_only() -> None:
         connector = FixtureConnector(
             [{"locator": "https://publisher-a.example.org/news/1", "content_fingerprint": "sha256:" + "b" * 64}]
         )
-        sink = InMemoryObservationSink()
+        sink = registry
         result = make_collector(registry, connector, sink).collect(
             make_request(), "fixture-feed"
         )
@@ -183,7 +184,13 @@ def test_approved_discovery_records_provenance_and_locator_only() -> None:
         assert observation.grant_revision == 1
         assert observation.operation == "discovery"
         assert observation.metadata == {}
-        assert sink.all() == result.observations
+        stored = registry.collection_observations()
+        assert len(stored) == 1
+        assert stored[0]["id"] == observation.id
+        assert stored[0]["grant_revision"] == 1
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute("DELETE FROM collection_observations")
+        assert registry.verify_audit_chain()
 
 
 def test_metadata_requires_its_own_approval_and_is_bounded() -> None:
@@ -196,7 +203,7 @@ def test_metadata_requires_its_own_approval_and_is_bounded() -> None:
                 "content_type": "application/rss+xml",
             }]
         )
-        sink = InMemoryObservationSink()
+        sink = registry
         result = make_collector(registry, connector, sink).collect(
             make_request("metadata"), "fixture-feed"
         )
@@ -206,6 +213,7 @@ def test_metadata_requires_its_own_approval_and_is_bounded() -> None:
             "title": "A verified headline",
             "byline": "Staff Reporter",
         }
+        assert registry.collection_observations()[0]["metadata"]["title"] == "A verified headline"
 
 
 def test_full_text_collection_is_not_implemented_even_if_grant_allows_it() -> None:
@@ -285,3 +293,25 @@ def test_connector_output_is_bounded_by_max_items() -> None:
 def test_invalid_request_budget_is_rejected() -> None:
     with pytest.raises(ValueError, match="max_items"):
         make_request(max_items=101)
+
+def test_revocation_during_connector_execution_prevents_observation_storage() -> None:
+    with populated_registry() as registry:
+        class RevokingConnector(FixtureConnector):
+            def collect(self, request, endpoint):
+                self.calls += 1
+                registry.transition_permission_grant(
+                    request.grant_id,
+                    "revoked",
+                    actor="rights-reviewer",
+                    reason="Permission withdrawn during fixture collection.",
+                )
+                return iter([{"locator": "https://publisher-a.example.org/news/1"}])
+
+        connector = RevokingConnector([{"locator": "https://publisher-a.example.org/news/1"}])
+        collector = make_collector(registry, connector, registry)
+
+        with pytest.raises(RegistryIntegrityError, match="grant changed during collection"):
+            collector.collect(make_request(), "fixture-feed")
+
+        assert connector.calls == 1
+        assert registry.collection_observations() == []
