@@ -33,7 +33,7 @@ from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as 
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 6
+_SCHEMA_VERSION = 7
 
 
 class RegistryIntegrityError(ValueError):
