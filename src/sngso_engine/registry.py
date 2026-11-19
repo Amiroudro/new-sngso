@@ -1470,6 +1470,15 @@ class SQLiteRegistry:
                     WHERE d.fingerprint = ? AND d.source_id != ?
                       AND d.outcome IN ('created', 'reused', 'distinct')
                       AND json_extract(a.payload_json, '$.record_status') = 'active'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM ingestion_current c2
+                          JOIN ingestion_decisions d2 ON d2.decision_id = c2.decision_id
+                          WHERE d2.article_id = d.article_id
+                            AND (
+                                d2.decided_at > d.decided_at
+                                OR (d2.decided_at = d.decided_at AND d2.decision_id > d.decision_id)
+                            )
+                      )
                     ORDER BY d.decided_at, d.decision_id LIMIT 1""",
                     (duplicate_fingerprint, article_payload["source_id"]),
                 ).fetchone()
