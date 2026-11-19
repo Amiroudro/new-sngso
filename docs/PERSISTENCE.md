@@ -2,7 +2,7 @@
 
 Status: implemented foundation; fixture test suite verified by GitHub Actions.  
 Storage engine: Python `sqlite3` and SQLite.  
-Migration line: schema version 2.
+Migration line: schema version 3.
 
 ## Design choices
 
@@ -38,6 +38,10 @@ Migration 1 creates:
 Migration 2 adds:
 
 - `collection_observations`: immutable discovery/metadata observations linked by composite foreign keys to the exact source, endpoint, and permission grant. The row captures the grant revision, connector identity, observation time, locator, metadata, and decision reason.
+
+Migration 3 adds:
+
+- `http_method` on `collection_observations`, constrained to `GET` for the currently implemented collection transport. Existing observations migrate with `GET` as their method. Future method support requires a separately reviewed schema and permission policy change.
 
 The applied schema version is stored in SQLite's `user_version` and in `schema_migrations`. Migrations run in an exclusive transaction. A failed migration rolls back; a database with a newer unknown schema version is rejected rather than downgraded.
 
