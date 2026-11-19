@@ -85,6 +85,7 @@ def test_https_transport_pins_resolved_ip_and_preserves_host_header():
     "https://news.example.org:0443/feed.xml",
     "https://news.example.org/feed.xml#",
     "https://news.example.org/bad path",
+    "https://news.example.org/café",
     "https://news.example.org/bad" + chr(92) + "path",
 ])
 def test_transport_rejects_unsafe_url_before_dns(url):
@@ -140,6 +141,19 @@ def test_declared_content_length_over_limit_is_rejected_before_body_read():
             "https://news.example.org/feed.xml",
             allowed_domains=("example.org",),
             max_bytes=100,
+        )
+
+
+@pytest.mark.parametrize("headers", [
+    [("Content-Length", "10"), ("content-length", "10")],
+    [("Content-Length", "10"), ("Content-Length", "11")],
+])
+def test_duplicate_content_length_headers_are_rejected(headers):
+    client, _ = make_transport([FakeResponse(headers=headers, body=b"")])
+    with pytest.raises(transport.TransportError, match="duplicate Content-Length"):
+        client.fetch(
+            "https://news.example.org/feed.xml",
+            allowed_domains=("example.org",),
         )
 
 
@@ -305,6 +319,50 @@ def test_bounded_dns_resolver_rejects_scoped_public_ipv6_answer():
         clock=lambda: 1.0,
     )
     with pytest.raises(transport.TransportError, match="scoped IP"):
+        resolver.resolve("news.example.org", 443, timeout_seconds=2.0)
+
+
+@pytest.mark.parametrize("address", [
+    "2606:4700:4700::1111%eth0",
+    "::ffff:93.184.216.34",
+    "2002:5db8::1",
+    "2001:0000:4136:e378:8000:63bf:3fff:fdd2",
+])
+def test_bounded_dns_resolver_rejects_scoped_or_transition_ipv6(address):
+    class Record:
+        def __init__(self, value):
+            self.address = value
+
+    class Resolver:
+        def resolve(self, host, record_type, *, lifetime, search):
+            if record_type == "A":
+                raise transport.dns.resolver.NoAnswer
+            return [Record(address)]
+
+    resolver = transport.BoundedDNSResolver(
+        resolver_factory=Resolver,
+        clock=lambda: 1.0,
+    )
+    with pytest.raises(transport.TransportError):
+        resolver.resolve("news.example.org", 443, timeout_seconds=2.0)
+
+
+def test_dns_answer_count_is_bounded():
+    class Record:
+        def __init__(self, value):
+            self.address = value
+
+    class Resolver:
+        def resolve(self, host, record_type, *, lifetime, search):
+            if record_type == "A":
+                return [Record("93.184.216.34") for _ in range(17)]
+            raise transport.dns.resolver.NoAnswer
+
+    resolver = transport.BoundedDNSResolver(
+        resolver_factory=Resolver,
+        clock=lambda: 1.0,
+    )
+    with pytest.raises(transport.TransportError, match="too many addresses"):
         resolver.resolve("news.example.org", 443, timeout_seconds=2.0)
 
 
