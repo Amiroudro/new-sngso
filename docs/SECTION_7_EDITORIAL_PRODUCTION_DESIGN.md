@@ -52,3 +52,8 @@ Revisions use optimistic concurrency with an expected revision. Story, kind, lan
 - Bilingual terminology/glossary governance and separate language-quality review.
 - Human-reviewed editorial benchmark fixtures for omission, distortion, attribution, and language quality.
 - Daily briefing assembly and immutable edition publication belong to Sections 8 and 10.
+
+
+## First-slice verification
+
+GitHub Actions [run #44622141470](https://github.com/Amiroudro/new-sngso/actions/runs/44622141470) passed the full Python 3.12 suite: **414 passed in 2.94 seconds**. The run includes contract checks, schema v10-to-v11 migration, same-story claim enforcement, language-variant independence, kind-specific content requirements, review metadata, optimistic concurrency, immutable revision history, and inclusion in the story editorial snapshot.
