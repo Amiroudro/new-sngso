@@ -3830,6 +3830,24 @@ class SQLiteRegistry:
                  "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
                 for row in learning_object_rows
             ]
+            glossary_ids = sorted({
+                item["record"].get("content", {}).get("glossary_entry_id")
+                for item in learning_objects
+                if item["record"].get("content", {}).get("glossary_entry_id")
+            })
+            glossary_entries = []
+            if glossary_ids:
+                placeholders = ",".join("?" for _ in glossary_ids)
+                glossary_rows = connection.execute(
+                    f"""SELECT id, revision, updated_at, payload_json FROM glossary_entries
+                    WHERE id IN ({placeholders}) ORDER BY id""",
+                    tuple(glossary_ids),
+                ).fetchall()
+                glossary_entries = [
+                    {"id": row["id"], "revision": row["revision"],
+                     "updated_at": row["updated_at"], "record": json.loads(row["payload_json"])}
+                    for row in glossary_rows
+                ]
             reporting_independence = self.story_reporting_independence(story_id)
             snapshot = {
                 "story_id": story_id,
@@ -3847,6 +3865,7 @@ class SQLiteRegistry:
                 "claim_relations": [item for item in claim_relation_history if not item["is_superseded"]],
                 "story_decisions": decisions,
                 "learning_objects": learning_objects,
+                "glossary_entries": glossary_entries,
                 "reporting_independence": reporting_independence,
             }
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
