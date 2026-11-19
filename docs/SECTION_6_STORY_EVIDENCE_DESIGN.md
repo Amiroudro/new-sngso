@@ -117,3 +117,22 @@ The explicit article-allocation extension, story/claim revision preconditions, c
 The decision contract now captures `expected_story_revisions` for every affected story and `claim_assignments` for every claim currently linked to those stories. Each claim assignment includes the claim's expected revision and its intended resulting story. Registry validation rejects stale story or claim revisions, duplicate or incomplete claim assignments, destinations outside the decision scope, and assignments that separate a claim from its article-specific provenance. For merges, every claim must target the canonical story. These fields preserve the editorial state the decision was based on; they do not execute the decision.
 
 GitHub Actions [run #44611964846](https://github.com/Amiroudro/new-sngso/actions/runs/44611964846) passed **341 tests** after the four focused regression tests for stale story revisions, stale claim revisions, missing claim assignments, and split/provenance mismatch were added.
+
+
+## Claim-backed event chronology
+
+Timeline events are editorial assertions about when a development occurred, not free-standing facts generated from article publication dates. Every event must link to one or more existing claims, and every linked claim must belong to the same story. The linked claim retains the source/article/observation provenance and evidence relationships.
+
+The v1 event contract distinguishes five temporal precisions:
+
+- `instant`: a timezone-aware timestamp;
+- `date`: a calendar date without an invented time of day;
+- `range`: timezone-aware start and end timestamps;
+- `approximate`: a calendar date accompanied by an explicit uncertainty note;
+- `unknown`: no start or end value.
+
+An optional IANA timezone records the relevant local zone. The engine validates timestamps, calendar dates, interval ordering, and timezone names. Unknown and approximate times remain explicit; the engine never fills missing values with midnight or publication time.
+
+Timeline event records are append-only. A correction creates a new event record with `supersedes_event_id`; it does not rewrite the earlier assertion. The database allows only one direct successor for a given event. `timeline_event_history(story_id)` returns the full correction history, while `story_timeline(story_id)` returns current non-superseded assertions in chronological order, with unknown times last.
+
+The registry rejects events for unknown or archived stories, missing claims, claims belonging to another story, and corrections that point outside the same story. This is a curated timeline foundation, not automatic event extraction, date inference, conflict resolution, or a claim that every event is independently verified.

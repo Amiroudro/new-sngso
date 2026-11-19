@@ -1177,3 +1177,48 @@ def test_timeline_events_are_append_only_at_sqlite_boundary() -> None:
             registry._connection.execute(
                 "DELETE FROM timeline_events WHERE id = ?", (event.id,)
             )
+
+
+def test_existing_schema_v6_database_migrates_to_v7(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "registry-v6.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 6)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 6
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'timeline_events'"
+        ).fetchone() is None
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 7)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 7
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'timeline_events'"
+        ).fetchone() is not None
+
+
+def test_timeline_event_rejects_invalid_iana_timezone() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        event = _timeline_event_record()
+        event["occurred"] = {
+            "precision": "instant",
+            "start": "2026-11-18T12:00:00Z",
+            "timezone": "Not/A_Real_Zone",
+        }
+        with pytest.raises(RegistryIntegrityError, match="valid IANA timezone"):
+            registry.add_timeline_event(event)
+
+
+def test_timeline_event_cannot_have_two_direct_corrections() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        original = _timeline_event_record()
+        registry.add_timeline_event(original)
+        for suffix in ("first", "second"):
+            correction = _timeline_event_record(f"timeline-event:{suffix}")
+            correction["supersedes_event_id"] = original["id"]
+            correction["rationale"] = f"Correction {suffix}."
+            if suffix == "first":
+                registry.add_timeline_event(correction)
+            else:
+                with pytest.raises(sqlite3.IntegrityError):
+                    registry.add_timeline_event(correction)
