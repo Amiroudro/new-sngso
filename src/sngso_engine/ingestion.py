@@ -68,6 +68,16 @@ def normalize_timestamp(value: str, *, field: str = "timestamp") -> str:
     return utc.isoformat(timespec=timespec).replace("+00:00", "Z")
 
 
+def _decode_unreserved_percent_escapes(path: str) -> str:
+    unreserved = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
+
+    def replace(match: re.Match[str]) -> str:
+        decoded = chr(int(match.group(0)[1:], 16))
+        return decoded if decoded in unreserved else match.group(0).upper()
+
+    return _PERCENT_ESCAPE.sub(replace, path)
+
+
 def _remove_dot_segments(path: str) -> str:
     leading = path.startswith("/")
     trailing = path.endswith("/") or path.endswith("/.") or path.endswith("/..")
@@ -129,7 +139,7 @@ def canonicalize_article_url(value: str) -> str:
     if port is not None and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
         netloc = f"{host}:{port}"
 
-    path = _remove_dot_segments(parsed.path or "/")
+    path = _remove_dot_segments(_decode_unreserved_percent_escapes(parsed.path or "/"))
     if _BAD_PERCENT.search(path):
         raise IngestionError("article URL path contains an invalid percent escape")
     path = quote(path, safe="/:@!$&'()*+,;=-._~%")
