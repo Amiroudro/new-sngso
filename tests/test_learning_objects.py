@@ -138,6 +138,7 @@ def test_vocabulary_and_question_content_require_kind_specific_fields():
             "question": "What did the authority issue?",
             "answer": "A public notice.",
             "explanation": "The linked claim records the notice.",
+            "answer_claim_ids": ["claim:one"],
         },
     })
     validate_payload("learning-object", question)
@@ -331,3 +332,38 @@ def test_summary_requires_segments_and_attributed_segments_require_attribution()
     missing_attribution["content"]["segments"][0]["role"] = "attributed"
     with pytest.raises(ValueError):
         validate_payload("learning-object", missing_attribution)
+
+
+def test_question_answer_claim_links_must_be_in_the_learning_object_claim_set():
+    registry = _prepared()
+    try:
+        question = _summary("learning:unlinked-answer")
+        question.update({
+            "kind": "comprehension_question",
+            "content": {
+                "question": "What did the authority issue?",
+                "answer": "A public notice.",
+                "explanation": "The answer is supported by a claim.",
+                "answer_claim_ids": ["claim:outside"],
+            },
+        })
+        with pytest.raises(RegistryIntegrityError, match="answer claim links must be a non-empty subset"):
+            registry.add_learning_object(
+                question, actor="editor", reason="Reject unsupported answer link."
+            )
+    finally:
+        registry.close()
+
+
+def test_question_schema_requires_answer_claim_links():
+    question = _summary("learning:question-without-answer-links")
+    question.update({
+        "kind": "analysis_question",
+        "content": {
+            "question": "Why did the authority act?",
+            "answer": "The evidence indicates a policy concern.",
+            "explanation": "The linked claim supports this interpretation.",
+        },
+    })
+    with pytest.raises(ValueError):
+        validate_payload("learning-object", question)
