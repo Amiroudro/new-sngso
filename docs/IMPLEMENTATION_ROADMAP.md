@@ -102,7 +102,7 @@ Acceptance:
 
 ## 6. Story intelligence, claims, and evidence
 
-**Status: in progress.** Initial work strengthens cross-record provenance validation before adding story clustering or editorial intelligence.
+**Status: in progress.** The first provenance-integrity slice is implemented and verified by GitHub Actions [run #44608678246](https://github.com/Amiroudro/new-sngso/actions/runs/44608678246): **319 tests passed** on code head `ea2263497c108ebbbbad8a0cd84b1a1f79719fed`. Remaining work includes explicit story merge/split history, event chronology, and reviewed claim/evidence workflows.
 
 **Goal:** build traceable understanding rather than headline aggregation.
 
