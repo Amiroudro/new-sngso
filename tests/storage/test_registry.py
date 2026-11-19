@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 7
+        assert registry.schema_version() == 8
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 7
+        assert reopened.schema_version() == 8
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -134,7 +134,7 @@ def test_existing_schema_v2_database_migrates_to_v7(tmp_path, monkeypatch):
         assert old_registry.schema_version() == 2
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 7)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 7
+        assert migrated.schema_version() == 8
         columns = {
             row["name"]
             for row in migrated._connection.execute(
@@ -1190,7 +1190,7 @@ def test_existing_schema_v6_database_migrates_to_v7(tmp_path, monkeypatch) -> No
         ).fetchone() is None
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 7)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 7
+        assert migrated.schema_version() == 8
         assert migrated._connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'timeline_events'"
         ).fetchone() is not None
