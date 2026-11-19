@@ -1,6 +1,6 @@
 # Engine Implementation Programme
 
-Status: execution plan  
+Status: Sections 1–4 implemented to their documented scope; Sections 5–10 remain planned  
 Baseline branch: `fix/engine-ci-source-triggers`  
 Scope: the new `new-sngso` engine repository only
 
@@ -68,7 +68,7 @@ Acceptance:
 
 **Goal:** make it technically impossible for a connector to collect beyond approved scope.
 
-**Design and implementation progress:** `docs/SECTION_4_COLLECTION_DESIGN.md` defines the authorization sequence, connector boundary, observation provenance, resource limits, fixture-first policy, and test gates. The permission-first orchestrator supports fixture discovery and metadata only, with repeated permission checks, grant-revision revalidation at storage, per-domain rate limiting, bounded output, and source-domain validation at both orchestration and SQLite boundaries. A separate HTTPS transport prototype uses dnspython to resolve A and AAAA records under one shared deadline, pins connections to validated public IPs while retaining TLS hostname verification, rejects malformed/out-of-scope URLs and unsafe redirects, streams response bodies under a byte ceiling, and bounds socket/read deadlines, redirects, and transient retries. It is not connected to the orchestrator or any live publisher. GitHub Actions run #154 passed with 170 tests. Run #158 passed with 175 tests after response content-type and header-boundary coverage was added.
+**Complete for the fixture-first framework:** the permission-first orchestrator supports discovery and metadata only, with repeated exact-scope permission checks, grant-revision revalidation at storage, per-domain throttling, bounded output, and source-domain validation at orchestration and SQLite boundaries. Cross-connection revocation ordering, atomic batch rollback, append-only observation provenance, and independent audit checkpoint limitations are tested. The standalone HTTPS transport has bounded A/AAAA DNS, validated public-IP pinning with TLS hostname verification, strict URL and redirect scope, bounded streamed responses, header/framing/content-type policy, finite request budgets, and bounded jittered retries. It remains unregistered and is not a live publisher connector. Observation provenance now includes the HTTP method through schema migration 3. GitHub Actions run [#44604289595](https://github.com/Amiroudro/new-sngso/actions/runs/44604289595) passed with 264 tests on the pre-final-migration head; the final current-head verification is linked from PR #1. No publisher network requests are made.
 
 Tasks:
 - Define connector protocol and capability declarations.
@@ -195,7 +195,7 @@ Acceptance:
 | 1. Repository audit | Documented, targeted audit | Full static/dependency/runtime audit remains future work |
 | 2. Source governance | **Complete:** contracts, fail-closed evaluator, fixtures, review policy, and passing full test suite | No real publisher approval implied; human review and reviewer authorization remain future controls |
 | 3. Domain models and persistence | **Complete:** typed models, SQLite registry, cross-record validation, revisions, audit chain, commit-failure rollback, targeted review, and passing full test suite in run #91 | Source-observation persistence, backups, external audit anchoring, and production authentication remain future work |
-| 4. Permission-first collection | **In progress:** fixture-first orchestrator, append-only observations, permission rechecks, per-domain rate limiting, bounded output, source-domain checks at orchestration and persistence boundaries, standalone pinned-IP HTTPS transport prototype, response header/content-type limits, and 175 passing tests in run #158 | Add transport integration tests, remaining adversarial cases, and final DNS/TLS/redirect review; transport remains unconnected and no live connector |
+| 4. Permission-first collection | **Complete for the fixture-first framework:** permission-first orchestration, independent storage rechecks, cross-connection revocation tests, atomic batch persistence, full observation provenance including HTTP method, bounded pinned-IP HTTPS transport prototype, strict URL/DNS/header/redirect/body controls, and passing current-head CI | Live publisher adapters remain gated on source-specific rights review, trusted connector review, shared rate limiting, and deployment-level network-egress controls |
 | 5. Ingestion and identity | Not started | Depends on Section 4 |
 | 6. Story intelligence and evidence | Not started | Depends on Section 5 |
 | 7. Editorial production | Not started | Depends on Section 6 |
@@ -203,7 +203,7 @@ Acceptance:
 | 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |
 | 10. End-to-end handover | Not started | Depends on all prior sections |
 
-No section is formally complete until its acceptance gates are verified. Sections 2 and 3 have passed their current acceptance gates and are closed for this implementation stage. Their documented production limitations remain open risks, not hidden assumptions.
+No section is formally complete until its acceptance gates are verified. Sections 2, 3 and 4 have passed their documented acceptance gates and are closed for this implementation stage. Production limitations and source-specific approval requirements remain explicit gates, not hidden assumptions.
 
 ## Execution order
 
