@@ -442,3 +442,39 @@ def test_pinned_connection_dials_ip_but_uses_original_host_for_tls(monkeypatch):
         "server_hostname": "news.example.org",
     }
     assert connection.sock == "wrapped-tls-socket"
+
+
+
+def test_remaining_deadline_is_applied_before_response_headers():
+    state = {"now": 0.0, "timeouts": []}
+
+    class TimedSocket:
+        def settimeout(self, value):
+            state["timeouts"].append(value)
+
+    class DelayedRequestConnection(FakeConnection):
+        def __init__(self):
+            super().__init__(FakeResponse(body=b"feed"))
+            self.sock = TimedSocket()
+
+        def request(self, method, path, headers):
+            state["now"] = 3.0
+
+        def getresponse(self):
+            assert state["timeouts"][-1] == pytest.approx(2.0)
+            return self.response
+
+    connection = DelayedRequestConnection()
+    client = transport.SafeHTTPSTransport(
+        clock=lambda: state["now"],
+        connection_factory=lambda *args: connection,
+    )
+
+    status, headers, body = client._request_once(
+        "news.example.org", 443, "93.184.216.34", "/feed.xml",
+        5.0, 100, 5.0,
+    )
+
+    assert status == 200
+    assert body == b"feed"
+    assert state["timeouts"][0] == pytest.approx(2.0)
