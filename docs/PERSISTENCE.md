@@ -2,7 +2,7 @@
 
 Status: Sections 1–5 foundation implemented to documented scope; Section 5 fixture suite passed in GitHub Actions run #44607783960 (297 tests).  
 Storage engine: Python `sqlite3` and SQLite.  
-Migration line: schema version 4.
+Migration line: schema version 5.
 
 ## Design choices
 
