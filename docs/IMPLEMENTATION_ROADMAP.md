@@ -66,7 +66,7 @@ Acceptance:
 
 ## 4. Permission-first collection framework
 
-**Goal:** make it technically impossible for a connector to collect beyond approved scope.
+**Goal:** ensure trusted connectors are invoked only after exact-scope permission approval, and independently validate every persisted observation against the same scope. This in-process Python framework is not a sandbox for arbitrary connector code.
 
 **Complete for the fixture-first framework:** the permission-first orchestrator supports discovery and metadata only, with repeated exact-scope permission checks, grant-revision revalidation at storage, per-domain throttling, bounded output, and source-domain validation at orchestration and SQLite boundaries. Cross-connection revocation ordering, atomic batch rollback, append-only observation provenance, and independent audit checkpoint limitations are tested. The standalone HTTPS transport has bounded A/AAAA DNS, validated public-IP pinning with TLS hostname verification, strict URL and redirect scope, bounded streamed responses, header/framing/content-type policy, finite request budgets, and bounded jittered retries. It remains unregistered and is not a live publisher connector. Observation provenance now includes the HTTP method through schema migration 3. GitHub Actions run [#44604489528](https://github.com/Amiroudro/new-sngso/actions/runs/44604489528) passed with 264 tests on the current PR head, including schema migration 3 and HTTP-method provenance. No publisher network requests are made.
 
@@ -78,8 +78,9 @@ Tasks:
 - Add live connectors only after source-specific permission and terms review.
 
 Acceptance:
-- Denied operations cause no network request.
-- Connector output retains source, endpoint, timestamp, method, locator, and fingerprint provenance.
+- A denied operation causes zero connector and transport invocations.
+- Reviewed built-in connectors use the vetted transport, which enforces the registered domain scope. Arbitrary third-party connector code is not sandboxed and is not supported.
+- Connector output retains source, endpoint, timestamp, HTTP method, locator, and fingerprint provenance.
 - CI uses fixtures and never depends on publisher availability.
 
 ## 5. Ingestion, normalization, and identity
