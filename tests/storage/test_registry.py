@@ -4,6 +4,8 @@ import sqlite3
 
 import pytest
 
+from sngso_engine import registry as registry_module
+
 from sngso_engine.registry import (
     POLICY_VERSION,
     RegistryIntegrityError,
@@ -122,6 +124,23 @@ def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     with SQLiteRegistry(database) as reopened:
         assert reopened.schema_version() == 2
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
+
+
+def test_existing_schema_v2_database_migrates_to_v3(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v2.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 2)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 2
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 3)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 3
+        columns = {
+            row["name"]
+            for row in migrated._connection.execute(
+                "PRAGMA table_info(collection_observations)"
+            ).fetchall()
+        }
+        assert "http_method" in columns
 
 
 def test_typed_registry_records_round_trip(tmp_path) -> None:
