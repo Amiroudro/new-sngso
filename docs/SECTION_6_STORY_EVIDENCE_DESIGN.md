@@ -146,3 +146,17 @@ Perspectives are stored separately from claims and timeline events. A perspectiv
 A perspective is not evidence that its contents are true, and publisher count is not a measure of independent corroboration. Claim links are optional context links and must point only to claims in the same story. The SQLite boundary repeats the source/article/story and claim/story checks.
 
 Perspective records are append-only. A correction creates a new record with `supersedes_perspective_id`, an editor identity, and a rationale. Prior wording remains available in `perspective_history(story_id)`; `story_perspectives(story_id)` returns only current, non-superseded perspectives. A unique successor constraint prevents branching correction histories. An approved or rejected perspective must include reviewer identity, a timezone-aware review timestamp, and a non-empty review note; unreviewed states cannot carry review metadata. These checks run in the contract, registry, and SQLite insert trigger. The recorded reviewer identity is an attribution field, not an authentication system, which remains a production gate. This workflow records attributed viewpoints; it does not resolve contradictions or assign truth scores.
+
+
+## Explicit claim-to-claim relationships
+
+A curated claim relationship records how two atomic propositions relate within one story. Supported relationship labels are:
+
+- `contradicts`: the propositions conflict as currently worded; this relation is symmetric and stored in a canonical endpoint order.
+- `qualifies`: the related claim adds a qualification to the focal claim.
+- `narrows`: the related claim narrows the scope of the focal claim.
+- `reframes`: the related claim supplies a materially different framing or context.
+
+Both endpoints must be distinct claims in the same active story. The relationship record stores the editor's rationale and creator identity. An accepted or rejected relationship requires reviewer identity, a timezone-aware review timestamp, and a review note. This review evaluates whether the relationship label is editorially appropriate; it does not decide which claim is true. Reviewer identity is recorded but not authenticated by this local registry.
+
+Relationships are append-only. Corrections create a superseding record, and the full history remains available through `claim_relation_history(story_id)`; `story_claim_relations(story_id)` returns current records. SQLite independently checks active-story membership, both claim endpoints, distinct endpoints, review metadata, and correction-chain integrity. The registry does not discover contradictions automatically or score their severity.
