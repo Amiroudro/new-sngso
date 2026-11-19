@@ -284,6 +284,21 @@ def test_discovery_connector_cannot_return_metadata_or_full_text() -> None:
         assert sink.all() == ()
 
 
+def test_connector_fields_are_rejected_before_json_serialization():
+    with populated_registry() as registry:
+        connector = FixtureConnector([{
+            "locator": "https://publisher-a.example.org/news/1",
+            "unapproved_payload": object(),
+        }])
+        sink = InMemoryObservationSink()
+
+        with pytest.raises(CollectionError, match="outside the requested operation"):
+            make_collector(registry, connector, sink).collect(
+                make_request(), "fixture-feed"
+            )
+        assert sink.all() == ()
+
+
 def test_connector_output_is_bounded_by_max_items() -> None:
     with populated_registry() as registry:
         connector = FixtureConnector([
