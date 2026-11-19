@@ -13,6 +13,7 @@ from threading import Lock
 from time import monotonic
 from typing import Any, Callable, Iterable, Protocol
 from urllib.parse import urlsplit
+import ipaddress
 import json
 import uuid
 
@@ -412,6 +413,12 @@ def _canonical_dns_name(value: Any) -> str | None:
     except UnicodeError:
         return None
     if not canonical or len(canonical) > 253:
+        return None
+    try:
+        ipaddress.ip_address(canonical)
+    except ValueError:
+        pass
+    else:
         return None
     labels = canonical.split(".")
     if any(
