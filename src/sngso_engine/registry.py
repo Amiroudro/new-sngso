@@ -3986,6 +3986,14 @@ class SQLiteRegistry:
             glossary["part_of_speech"] != content["part_of_speech"],
         )):
             raise RegistryIntegrityError("vocabulary fields must match the referenced glossary entry")
+        if not any(
+            sense["language"] == payload["language"]
+            and sense["definition"] == content["meaning"]
+            for sense in glossary["senses"]
+        ):
+            raise RegistryIntegrityError("vocabulary meaning must match a glossary sense in the learning object's language")
+        if content.get("pronunciation") and glossary.get("pronunciation") and content["pronunciation"] != glossary["pronunciation"]:
+            raise RegistryIntegrityError("vocabulary pronunciation must match the referenced glossary entry")
         if payload["status"] == "approved" and row["status"] != "approved":
             raise RegistryIntegrityError("approved vocabulary requires an approved glossary entry")
 
