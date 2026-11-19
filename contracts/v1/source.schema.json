@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/source.schema.json",
+  "title": "Source",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "publisher_name", "publisher_type", "canonical_homepage", "domains", "status", "created_at", "updated_at"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "id": {"$ref": "common.schema.json#/$defs/id"},
+    "publisher_name": {"type": "string", "minLength": 1, "maxLength": 240},
+    "publisher_type": {"enum": ["newspaper", "broadcaster", "news_agency", "public_institution", "research_organization", "international_organization", "other"]},
+    "canonical_homepage": {"$ref": "common.schema.json#/$defs/uri"},
+    "domains": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "maxLength": 253, "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"}
+    },
+    "country_code": {"type": "string", "pattern": "^[A-Z]{2}$"},
+    "languages": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/languageTag"}},
+    "status": {"enum": ["active", "paused", "under_review", "retired"]},
+    "created_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+    "updated_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+    "notes": {"type": "string", "maxLength": 4000}
+  }
+}
