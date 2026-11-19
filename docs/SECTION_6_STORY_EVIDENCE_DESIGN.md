@@ -1,6 +1,6 @@
 # Section 6: Story intelligence, claims, and evidence
 
-Status: in progress. The first provenance and claim-assessment integrity slice is implemented and verified. GitHub Actions run #44609248199 passed with 327 tests on code head ccfed66a8de1c783fa3ca9f5c291e06693c554e8. Later changes on the current PR head are documentation-only. Automated story clustering, event chronology, claim extraction, and corroboration scoring remain unimplemented.
+Status: in progress. Provenance, claim-assessment, and conservative reporting-independence foundations are implemented and verified. GitHub Actions run #44609756106 passed with 330 tests on code head 1025c41cfbdc775f6d365e7ef4e3900afe1ddd57. Later changes on the current PR head are documentation-only. Timeline persistence, explicit story merge/split records, automated story clustering, claim extraction, and corroboration scoring remain unimplemented.
 
 ## Core distinctions
 
@@ -49,6 +49,12 @@ Evidence locators are constrained to the registered source's domain allowlist. S
 - Prevent story revisions from orphaning claims that cite removed articles.
 - Add regression fixtures for mismatched publishers, unrelated articles, missing observations, and attempted story unlinking.
 
+## Conservative reporting-independence view
+
+The registry exposes a read-only story reporting-independence view. It reports publisher count separately from article duplicate-review states, unresolved candidates, confirmed duplicate groups within the story, confirmed duplicates pointing outside the story, explicitly reviewed-distinct articles, and articles with no recorded duplicate candidate.
+
+The view deliberately does **not** emit an independent-source count. A publisher count is not an origin count, and no detected duplicate candidate is not proof of independence. Possible duplicates remain unresolved. Confirmed duplicate relationships are grouped. A human distinct decision is retained as a review outcome, not converted into a universal truth score.
+
 ## Explicit non-goals in this slice
 
 - No automatic article-to-story assignment or story merge.
@@ -65,7 +71,7 @@ Section 6 will remain open until the full fixture suite verifies the provenance 
 
 ## First-slice verification
 
-GitHub Actions [run #44609248199](https://github.com/Amiroudro/new-sngso/actions/runs/44609248199) executed the full Python 3.12 fixture suite: **327 passed in 1.15 seconds**. The verified slice covers source/article/observation provenance matching, evidence-to-claim binding, prevention of story revisions that orphan claim provenance, prevention of claim revisions that orphan evidence, immutable evidence identity links, evidence locator domain scope, reviewed claim evidence requirements, assessment/relationship consistency, and retraction review notes. This is a verified foundation, not completion of all Section 6 work.
+GitHub Actions [run #44609756106](https://github.com/Amiroudro/new-sngso/actions/runs/44609756106) executed the full Python 3.12 fixture suite: **330 passed in 1.27 seconds**. The verified slice covers source/article/observation provenance matching, evidence-to-claim binding, prevention of story revisions that orphan claim provenance, prevention of claim revisions that orphan evidence, immutable evidence identity links, evidence locator domain scope, reviewed claim evidence requirements, assessment/relationship consistency, retraction review notes, and conservative duplicate grouping for story reporting. This is a verified foundation, not completion of all Section 6 work.
 
 
 ## Human claim assessment workflow
