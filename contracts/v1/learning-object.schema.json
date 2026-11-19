@@ -33,7 +33,8 @@
         "vocabulary",
         "comprehension_question",
         "analysis_question",
-        "revision_card"
+        "revision_card",
+        "mcq_question"
       ]
     },
     "language": {
@@ -222,6 +223,44 @@
         },
         "glossary_entry_id": {
           "$ref": "common.schema.json#/$defs/id"
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "text"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            }
+          }
+        },
+        "correct_option_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "difficulty": {
+          "enum": [
+            "easy",
+            "moderate",
+            "hard"
+          ]
         }
       }
     },
@@ -393,6 +432,31 @@
               ]
             }
           ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "mcq_question"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "content": {
+            "required": [
+              "question",
+              "explanation",
+              "answer_claim_ids",
+              "options",
+              "correct_option_id"
+            ]
+          }
         }
       }
     }
