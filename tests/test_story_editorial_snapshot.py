@@ -111,6 +111,17 @@ def _prepared():
         "created_at": STAMP,
         "review_status": "unreviewed",
     })
+    registry.add_learning_object({
+        "schema_version": "1.0.0",
+        "id": "learning:summary-bn",
+        "story_id": "story:one",
+        "kind": "brief_summary",
+        "language": "bn",
+        "status": "draft",
+        "content": {"text": "কর্তৃপক্ষ একটি বিজ্ঞপ্তি জারি করেছে।"},
+        "claim_ids": ["claim:a"],
+        "created_at": STAMP,
+    }, actor="editor", reason="Fixture learning object.")
     return registry
 
 
@@ -129,6 +140,7 @@ def test_editorial_snapshot_collects_story_evidence_and_views_consistently():
         assert len(first["timeline"]) == 1
         assert len(first["perspectives"]) == 1
         assert len(first["claim_relations"]) == 1
+        assert len(first["learning_objects"]) == 1
         assert first["story_decisions"] == []
         assert first["fingerprint"].startswith("sha256:")
         assert first["fingerprint"] == second["fingerprint"]
