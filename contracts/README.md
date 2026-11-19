@@ -8,7 +8,7 @@
 - Source governance uses `source.schema.json`, `source-endpoint.schema.json`, `permission-evidence.schema.json`, and `source-permission-grant.schema.json`.
 - `source-permission.schema.json` is a deprecated legacy shape retained for existing fixtures; new grants must use `source-permission-grant`.
 - Every entity payload declares `schema_version: "1.0.0"`.
-- `timeline-event.schema.json` defines claim-backed event assertions with explicit temporal precision and correction links.\n- `perspective.schema.json` defines attributed publisher framing and stakeholder/expert/editorial viewpoints; publisher framing requires a registered source and article at the registry boundary, and corrections use append-only supersession.
+- `timeline-event.schema.json` defines claim-backed event assertions with explicit temporal precision and correction links.\n- `perspective.schema.json` defines attributed publisher framing and stakeholder/expert/editorial viewpoints; publisher framing requires a registered source and article at the registry boundary, and corrections use append-only supersession.\n- `claim-relation.schema.json` defines curated claim-to-claim contradiction, qualification, narrowing, and reframing links. Both claims must belong to the same story; reviewed links require reviewer metadata.
 
 ## Compatibility policy
 
