@@ -45,11 +45,29 @@ Fail closed for missing or expired permissions, missing provenance, invalid sche
 
 Each stage report includes status, counts, warnings, errors, duration, and input/output identifiers.
 
+## Current implementation status (2026-11-20)
+
+The repository is at the foundation milestone. The following is the verified scope of the current code and workflow, not a claim that the full engine is operational.
+
+| Area | Current state | Not yet delivered |
+|---|---|---|
+| Versioned contracts | JSON Schema Draft 2020-12 contracts exist for the core domain records | Cross-record relational integrity checks and full publication-policy validation |
+| Runtime validation | Python loader validates schema definitions and payloads with format checking and local common-schema references | Persistence-boundary integration because repository adapters are not implemented |
+| Permission evaluator | Operation-specific, time-bounded, fail-closed evaluator exists | Source registry, permission evidence workflow, and collector enforcement |
+| Content fingerprints | Deterministic JSON serialization and SHA-256 fingerprint helper exist | Frozen run manifests and end-to-end artifact reproducibility |
+| Automated tests | Contract fixtures, schema checks, permission evaluator tests, and canonical serialization tests are authored | A verified green CI run and broader integration/regression suites |
+| GitHub Actions | Python 3.12 workflow installs the package and runs `pytest tests/contracts` | Lint, formatting, static typing, dependency/security scans, migration tests, and publication integration tests |
+| Collection and publication | Not implemented | Connectors, storage adapters, story/evidence pipeline, editorial review, edition assembly, and publisher/export adapters |
+
+The current workflow is intentionally fixture-only and does not contact publisher websites. Its path filters must include both `src/**` and `tests/**`, so changes to the runtime evaluator or its tests cannot bypass the contract check.
+
 ## CI requirements
 
-Every pull request should run environment checks, formatting, lint, static type checks when configured, unit and contract tests, fixture-based integration tests, migration tests, secret scanning, dependency checks, and deterministic artifact tests.
+Every pull request should eventually run environment checks, formatting, lint, static type checks when configured, unit and contract tests, fixture-based integration tests, migration tests, secret scanning, dependency checks, and deterministic artifact tests.
 
 CI must not depend on publisher websites being online. Live-source checks belong in a separate controlled operational workflow.
+
+The current workflow is a smaller foundation gate, not the complete CI policy described above. Do not mark the broader CI requirements complete until the corresponding tools and checks exist and have passed.
 
 ## Release criteria
 
