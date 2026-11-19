@@ -14,10 +14,15 @@ from typing import Any, Iterator
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .contracts import validate_payload
 from .models import (
+    ArticleRecord,
+    ClaimRecord,
+    EditionRecord,
+    EvidenceRecord,
     PermissionEvidenceRecord,
     PermissionGrantRecord,
     SourceEndpointRecord,
     SourceRecord,
+    StoryRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 
@@ -140,6 +145,27 @@ _MIGRATION_1 = (
         PRIMARY KEY (grant_id, revision),
         FOREIGN KEY (grant_id) REFERENCES permission_grants(id) ON DELETE RESTRICT
     )""",
+    """CREATE TABLE domain_records (
+        record_type TEXT NOT NULL CHECK (record_type IN ('article', 'story', 'claim', 'evidence', 'edition')),
+        id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (record_type, id)
+    )""",
+    """CREATE TABLE domain_record_revisions (
+        record_type TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (record_type, record_id, revision),
+        FOREIGN KEY (record_type, record_id)
+            REFERENCES domain_records(record_type, id) ON DELETE RESTRICT
+    )""",
     """CREATE TABLE audit_events (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         event_id TEXT NOT NULL UNIQUE,
@@ -168,6 +194,12 @@ _MIGRATION_1 = (
     """CREATE TRIGGER grant_revisions_no_delete
         BEFORE DELETE ON permission_grant_revisions
         BEGIN SELECT RAISE(ABORT, 'grant revisions are append-only'); END""",
+    """CREATE TRIGGER domain_revisions_no_update
+        BEFORE UPDATE ON domain_record_revisions
+        BEGIN SELECT RAISE(ABORT, 'domain record revisions are append-only'); END""",
+    """CREATE TRIGGER domain_revisions_no_delete
+        BEFORE DELETE ON domain_record_revisions
+        BEGIN SELECT RAISE(ABORT, 'domain record revisions are append-only'); END""",
 )
 
 
@@ -803,6 +835,242 @@ class SQLiteRegistry:
                 return False
             previous_hash = event["event_hash"]
         return True
+
+    _DOMAIN_MODELS = {
+        "article": ArticleRecord,
+        "story": StoryRecord,
+        "claim": ClaimRecord,
+        "evidence": EvidenceRecord,
+        "edition": EditionRecord,
+    }
+
+    def _validate_domain_references(
+        self, connection: sqlite3.Connection, record_type: str, payload: dict[str, Any]
+    ) -> None:
+        def require_record(kind: str, record_id: str, label: str) -> dict[str, Any]:
+            row = connection.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = ? AND id = ?",
+                (kind, record_id),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError(f"{label} references an unknown {kind}: {record_id}")
+            return json.loads(row["payload_json"])
+
+        if record_type == "article":
+            source = connection.execute(
+                "SELECT 1 FROM sources WHERE id = ?", (payload["source_id"],)
+            ).fetchone()
+            if source is None:
+                raise RegistryIntegrityError("article references an unknown source")
+            permission_id = payload.get("permission_id")
+            if permission_id:
+                grant = connection.execute(
+                    "SELECT source_id FROM permission_grants WHERE id = ?", (permission_id,)
+                ).fetchone()
+                if grant is None or grant["source_id"] != payload["source_id"]:
+                    raise RegistryIntegrityError(
+                        "article permission reference is missing or belongs to another source"
+                    )
+        elif record_type == "story":
+            for article_id in payload.get("article_ids", []):
+                require_record("article", article_id, "story")
+        elif record_type == "claim":
+            require_record("story", payload["story_id"], "claim")
+            for provenance in payload["provenance"]:
+                source = connection.execute(
+                    "SELECT 1 FROM sources WHERE id = ?", (provenance["source_id"],)
+                ).fetchone()
+                if source is None:
+                    raise RegistryIntegrityError("claim provenance references an unknown source")
+                article_id = provenance.get("article_id")
+                if article_id:
+                    article = require_record("article", article_id, "claim provenance")
+                    if article["source_id"] != provenance["source_id"]:
+                        raise RegistryIntegrityError(
+                            "claim provenance article and source do not match"
+                        )
+        elif record_type == "evidence":
+            require_record("claim", payload["claim_id"], "evidence")
+            source = connection.execute(
+                "SELECT 1 FROM sources WHERE id = ?", (payload["source_id"],)
+            ).fetchone()
+            if source is None:
+                raise RegistryIntegrityError("evidence references an unknown source")
+            article_id = payload.get("article_id")
+            if article_id:
+                article = require_record("article", article_id, "evidence")
+                if article["source_id"] != payload["source_id"]:
+                    raise RegistryIntegrityError(
+                        "evidence article and source do not match"
+                    )
+        elif record_type == "edition":
+            for story_id in payload["story_ids"]:
+                require_record("story", story_id, "edition")
+
+    @staticmethod
+    def _domain_record_timestamp(record_type: str, payload: dict[str, Any]) -> str:
+        field = {
+            "article": "discovered_at",
+            "story": "created_at",
+            "claim": "created_at",
+            "evidence": "assessed_at",
+            "edition": "created_at",
+        }[record_type]
+        _aware_datetime(payload[field], field)
+        return payload[field]
+
+    def add_domain_record(self, record_type: str, payload: dict[str, Any]):
+        """Persist a validated article/story/claim/evidence/edition record."""
+        model = self._DOMAIN_MODELS.get(record_type)
+        if model is None:
+            raise ValueError(f"unsupported domain record type: {record_type}")
+        validate_payload(record_type, payload)
+        record = model.from_payload(payload)
+        created_at = self._domain_record_timestamp(record_type, payload)
+        updated_at = payload.get("updated_at", created_at)
+        _aware_datetime(updated_at, "updated_at")
+        if _aware_datetime(updated_at, "updated_at") < _aware_datetime(created_at, "created_at"):
+            raise RegistryIntegrityError("updated_at cannot be earlier than record creation")
+        with self._transaction() as connection:
+            self._validate_domain_references(connection, record_type, payload)
+            connection.execute(
+                """INSERT INTO domain_records
+                (record_type, id, revision, created_at, updated_at, payload_json)
+                VALUES (?, ?, 1, ?, ?, ?)""",
+                (record_type, record.id, created_at, updated_at, record.payload_json),
+            )
+            connection.execute(
+                """INSERT INTO domain_record_revisions
+                (record_type, record_id, revision, created_at, actor, reason, payload_json)
+                VALUES (?, ?, 1, ?, ?, ?, ?)""",
+                (
+                    record_type,
+                    record.id,
+                    _utc_now(),
+                    "system",
+                    "record created",
+                    record.payload_json,
+                ),
+            )
+            self._append_audit(
+                connection,
+                event_type=f"{record_type}.created",
+                entity_type=record_type,
+                entity_id=record.id,
+                payload={"revision": 1, "record": payload},
+            )
+        return record
+
+    def get_domain_record(self, record_type: str, record_id: str):
+        model = self._DOMAIN_MODELS.get(record_type)
+        if model is None:
+            raise ValueError(f"unsupported domain record type: {record_type}")
+        with self._lock:
+            row = self._connection.execute(
+                """SELECT payload_json FROM domain_records
+                WHERE record_type = ? AND id = ?""",
+                (record_type, record_id),
+            ).fetchone()
+        return model.from_payload(json.loads(row["payload_json"])) if row else None
+
+    def revise_domain_record(
+        self,
+        record_type: str,
+        record_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+    ):
+        """Append a domain-record revision using optimistic concurrency control."""
+        model = self._DOMAIN_MODELS.get(record_type)
+        if model is None:
+            raise ValueError(f"unsupported domain record type: {record_type}")
+        if payload.get("id") != record_id:
+            raise RegistryIntegrityError("record identity cannot change during revision")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        validate_payload(record_type, payload)
+        record = model.from_payload(payload)
+        updated_at = payload.get("updated_at", _utc_now())
+        _aware_datetime(updated_at, "updated_at")
+        with self._transaction() as connection:
+            row = connection.execute(
+                """SELECT revision, status FROM domain_records
+                WHERE record_type = ? AND id = ?""",
+                (record_type, record_id),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot revise an unknown domain record")
+            if row["revision"] != expected_revision:
+                raise RegistryIntegrityError("domain record revision conflict")
+            if record_type == "edition":
+                raise RegistryIntegrityError("edition snapshots are immutable")
+            self._validate_domain_references(connection, record_type, payload)
+            next_revision = expected_revision + 1
+            updated = connection.execute(
+                """UPDATE domain_records SET revision = ?, updated_at = ?, payload_json = ?
+                WHERE record_type = ? AND id = ? AND revision = ?""",
+                (
+                    next_revision,
+                    updated_at,
+                    record.payload_json,
+                    record_type,
+                    record_id,
+                    expected_revision,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise RegistryIntegrityError("domain record revision conflict")
+            connection.execute(
+                """INSERT INTO domain_record_revisions
+                (record_type, record_id, revision, created_at, actor, reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    record_type,
+                    record_id,
+                    next_revision,
+                    _utc_now(),
+                    actor,
+                    reason,
+                    record.payload_json,
+                ),
+            )
+            self._append_audit(
+                connection,
+                event_type=f"{record_type}.revised",
+                entity_type=record_type,
+                entity_id=record_id,
+                payload={
+                    "revision": next_revision,
+                    "actor": actor,
+                    "reason": reason,
+                    "record": payload,
+                },
+            )
+        return record
+
+    def domain_record_history(self, record_type: str, record_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, created_at, actor, reason, payload_json
+                FROM domain_record_revisions
+                WHERE record_type = ? AND record_id = ? ORDER BY revision""",
+                (record_type, record_id),
+            ).fetchall()
+        return [
+            {
+                "revision": row["revision"],
+                "created_at": row["created_at"],
+                "actor": row["actor"],
+                "reason": row["reason"],
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
 
     def schema_version(self) -> int:
         with self._lock:
