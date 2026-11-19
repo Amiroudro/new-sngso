@@ -1255,7 +1255,7 @@ class SQLiteRegistry:
             "SELECT status FROM sources WHERE id = ?", (observation["source_id"],)
         ).fetchone()
         endpoint = connection.execute(
-            """SELECT status FROM source_endpoints
+            """SELECT status, payload_json FROM source_endpoints
             WHERE id = ? AND source_id = ?""",
             (observation["endpoint_id"], observation["source_id"]),
         ).fetchone()
@@ -1366,6 +1366,21 @@ class SQLiteRegistry:
             if article_payload.get("id") != expected_article_id:
                 raise RegistryIntegrityError("article ID does not match deterministic source/URL identity")
             self._check_ingestion_permission(connection, observation)
+            endpoint_payload = json.loads(connection.execute(
+                "SELECT payload_json FROM source_endpoints WHERE id = ?",
+                (observation["endpoint_id"],),
+            ).fetchone()["payload_json"])
+            declared_languages = endpoint_payload.get("supported_languages", [])
+            article_language = article_payload.get("source_language", "")
+            if not any(
+                isinstance(item, str)
+                and (
+                    item.casefold() == article_language.casefold()
+                    or ("-" not in item and article_language.casefold().startswith(item.casefold() + "-"))
+                )
+                for item in declared_languages
+            ):
+                raise RegistryIntegrityError("article language is outside the endpoint language declaration")
 
             existing_article = connection.execute(
                 """SELECT id, payload_json FROM domain_records
@@ -1467,8 +1482,10 @@ class SQLiteRegistry:
             raise ValueError("outcome must be confirmed_duplicate or distinct")
         if not isinstance(actor, str) or not actor.strip():
             raise ValueError("actor is required")
-        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 800:
             raise ValueError("a bounded resolution reason is required")
+        if len(actor) > 200:
+            raise ValueError("actor must not exceed 200 characters")
         with self._transaction() as connection:
             current = connection.execute(
                 """SELECT d.* FROM ingestion_current c
