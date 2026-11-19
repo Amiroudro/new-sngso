@@ -122,6 +122,35 @@ def _prepared():
         "claim_ids": ["claim:a"],
         "created_at": STAMP,
     }, actor="editor", reason="Fixture learning object.")
+    registry.add_glossary_entry({
+        "schema_version": "1.0.0",
+        "id": "glossary:accountability",
+        "lemma": "accountability",
+        "term_language": "en",
+        "part_of_speech": "noun",
+        "senses": [{"language": "bn", "definition": "দায়বদ্ধতা"}],
+        "status": "draft",
+        "created_at": STAMP,
+    }, actor="lexicon-editor", reason="Fixture glossary entry.")
+    registry.add_learning_object({
+        "schema_version": "1.0.0",
+        "id": "learning:vocabulary-bn",
+        "story_id": "story:one",
+        "kind": "vocabulary",
+        "language": "bn",
+        "status": "draft",
+        "content": {
+            "term": "accountability",
+            "glossary_entry_id": "glossary:accountability",
+            "term_language": "en",
+            "part_of_speech": "noun",
+            "meaning": "দায়বদ্ধতা",
+            "context": "The report discusses accountability.",
+            "example": "Public accountability strengthens trust."
+        },
+        "claim_ids": ["claim:a"],
+        "created_at": STAMP,
+    }, actor="editor", reason="Fixture vocabulary object.")
     return registry
 
 
@@ -140,7 +169,8 @@ def test_editorial_snapshot_collects_story_evidence_and_views_consistently():
         assert len(first["timeline"]) == 1
         assert len(first["perspectives"]) == 1
         assert len(first["claim_relations"]) == 1
-        assert len(first["learning_objects"]) == 1
+        assert len(first["learning_objects"]) == 2
+        assert len(first["glossary_entries"]) == 1
         assert first["story_decisions"] == []
         assert first["fingerprint"].startswith("sha256:")
         assert first["fingerprint"] == second["fingerprint"]
