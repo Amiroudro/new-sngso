@@ -100,3 +100,98 @@ class PermissionGrantRecord(_JsonRecord):
             effective_from=payload["effective_from"],
             effective_until=payload["effective_until"],
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ArticleRecord(_JsonRecord):
+    """Normalized bibliographic record linked to a registered publisher."""
+
+    source_id: str
+    canonical_uri: str
+    title: str
+    source_language: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "ArticleRecord":
+        return cls(
+            id=payload["id"],
+            payload_json=canonical_json_bytes(payload).decode("utf-8"),
+            source_id=payload["source_id"],
+            canonical_uri=payload["canonical_uri"],
+            title=payload["title"],
+            source_language=payload["source_language"],
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class StoryRecord(_JsonRecord):
+    """Evolving story identity with explicit article membership."""
+
+    canonical_title: str
+    status: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "StoryRecord":
+        return cls(
+            id=payload["id"],
+            payload_json=canonical_json_bytes(payload).decode("utf-8"),
+            canonical_title=payload["canonical_title"],
+            status=payload["status"],
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimRecord(_JsonRecord):
+    """Atomic attributable proposition linked to a story."""
+
+    story_id: str
+    text: str
+    assessment: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "ClaimRecord":
+        return cls(
+            id=payload["id"],
+            payload_json=canonical_json_bytes(payload).decode("utf-8"),
+            story_id=payload["story_id"],
+            text=payload["text"],
+            assessment=payload["assessment"],
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceRecord(_JsonRecord):
+    """Factual evidence relationship for a claim, distinct from rights evidence."""
+
+    claim_id: str
+    source_id: str
+    relationship: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "EvidenceRecord":
+        return cls(
+            id=payload["id"],
+            payload_json=canonical_json_bytes(payload).decode("utf-8"),
+            claim_id=payload["claim_id"],
+            source_id=payload["source_id"],
+            relationship=payload["relationship"],
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class EditionRecord(_JsonRecord):
+    """Immutable publication snapshot metadata."""
+
+    edition_key: str
+    status: str
+    content_hash: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "EditionRecord":
+        return cls(
+            id=payload["id"],
+            payload_json=canonical_json_bytes(payload).decode("utf-8"),
+            edition_key=payload["edition_key"],
+            status=payload["status"],
+            content_hash=payload["content_hash"],
+        )
