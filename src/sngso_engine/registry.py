@@ -31,12 +31,13 @@ from .models import (
     PerspectiveRecord,
     ClaimRelationRecord,
     LearningObjectRecord,
+    GlossaryEntryRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 11
+_SCHEMA_VERSION = 12
 
 
 class RegistryIntegrityError(ValueError):
@@ -759,6 +760,144 @@ def _validate_learning_object_answer_links(payload: dict[str, Any]) -> None:
         raise RegistryIntegrityError("question answer claim links must be a non-empty subset of the object's claims")
 
 
+_MIGRATION_12 = (
+    """CREATE TABLE glossary_entries (
+        id TEXT PRIMARY KEY,
+        lemma TEXT NOT NULL,
+        lemma_key TEXT NOT NULL,
+        term_language TEXT NOT NULL,
+        part_of_speech TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('draft', 'review_required', 'approved', 'rejected')),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_actor TEXT NOT NULL CHECK (length(trim(last_actor)) > 0),
+        last_reason TEXT NOT NULL CHECK (length(trim(last_reason)) > 0),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        UNIQUE (term_language, part_of_speech, lemma_key)
+    )""",
+    """CREATE TABLE glossary_entry_revisions (
+        glossary_entry_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (glossary_entry_id, revision),
+        FOREIGN KEY (glossary_entry_id) REFERENCES glossary_entries(id) ON DELETE RESTRICT
+    )""",
+    """CREATE TRIGGER glossary_entries_validate_insert
+        BEFORE INSERT ON glossary_entries
+        BEGIN
+            SELECT CASE WHEN NEW.status NOT IN ('draft', 'review_required')
+                THEN RAISE(ABORT, 'new glossary entry must start in draft or review-required state') END;
+            SELECT CASE WHEN json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+            THEN RAISE(ABORT, 'new glossary entry cannot contain review metadata') END;
+        END""",
+    """CREATE TRIGGER glossary_entries_validate_update
+        BEFORE UPDATE ON glossary_entries
+        BEGIN
+            SELECT CASE WHEN NEW.id != OLD.id OR NEW.lemma != OLD.lemma
+                OR NEW.lemma_key != OLD.lemma_key OR NEW.term_language != OLD.term_language
+                OR NEW.part_of_speech != OLD.part_of_speech OR NEW.created_at != OLD.created_at
+            THEN RAISE(ABORT, 'glossary entry identity is immutable') END;
+            SELECT CASE WHEN NEW.revision != OLD.revision + 1
+                THEN RAISE(ABORT, 'glossary entry revision must increment by one') END;
+            SELECT CASE WHEN trim(NEW.last_actor) = '' OR trim(NEW.last_reason) = ''
+                THEN RAISE(ABORT, 'glossary entry revision requires actor and reason') END;
+            SELECT CASE WHEN julianday(NEW.updated_at) < julianday(OLD.updated_at)
+                THEN RAISE(ABORT, 'glossary entry update time cannot move backwards') END;
+            SELECT CASE WHEN NEW.status IN ('approved', 'rejected')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NULL
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.reviewed_by'), '')) = ''
+                    OR trim(COALESCE(json_extract(NEW.payload_json, '$.review_note'), '')) = ''
+                )
+            THEN RAISE(ABORT, 'reviewed glossary entry requires reviewer, timestamp, and note') END;
+            SELECT CASE WHEN NEW.status IN ('approved', 'rejected')
+                AND julianday(json_extract(NEW.payload_json, '$.reviewed_at')) < julianday(NEW.created_at)
+            THEN RAISE(ABORT, 'glossary entry review cannot predate its creation') END;
+            SELECT CASE WHEN NEW.status IN ('draft', 'review_required')
+                AND (
+                    json_type(NEW.payload_json, '$.reviewed_at') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.reviewed_by') IS NOT NULL
+                    OR json_type(NEW.payload_json, '$.review_note') IS NOT NULL
+                )
+            THEN RAISE(ABORT, 'unreviewed glossary entry cannot contain review metadata') END;
+        END""",
+    """CREATE TRIGGER glossary_entries_no_delete
+        BEFORE DELETE ON glossary_entries
+        BEGIN SELECT RAISE(ABORT, 'glossary entries cannot be deleted'); END""",
+    """CREATE TRIGGER glossary_entries_record_insert
+        AFTER INSERT ON glossary_entries
+        BEGIN
+            INSERT INTO glossary_entry_revisions
+            (glossary_entry_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.id, NEW.revision, NEW.created_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
+    """CREATE TRIGGER glossary_entries_record_update
+        AFTER UPDATE ON glossary_entries
+        BEGIN
+            INSERT INTO glossary_entry_revisions
+            (glossary_entry_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.id, NEW.revision, NEW.updated_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
+    """CREATE TRIGGER glossary_entry_revisions_validate_insert
+        BEFORE INSERT ON glossary_entry_revisions
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM glossary_entries
+                WHERE id = NEW.glossary_entry_id AND revision = NEW.revision
+                  AND payload_json = NEW.payload_json
+            ) THEN RAISE(ABORT, 'glossary revision must match the current entry') END;
+            SELECT CASE WHEN trim(NEW.actor) = '' OR trim(NEW.reason) = ''
+                THEN RAISE(ABORT, 'glossary revision requires actor and reason') END;
+        END""",
+    """CREATE TRIGGER glossary_entry_revisions_no_update
+        BEFORE UPDATE ON glossary_entry_revisions
+        BEGIN SELECT RAISE(ABORT, 'glossary revisions are append-only'); END""",
+    """CREATE TRIGGER glossary_entry_revisions_no_delete
+        BEFORE DELETE ON glossary_entry_revisions
+        BEGIN SELECT RAISE(ABORT, 'glossary revisions are append-only'); END""",
+    """CREATE TRIGGER learning_objects_glossary_validate_insert
+        BEFORE INSERT ON learning_objects
+        WHEN json_extract(NEW.payload_json, '$.kind') = 'vocabulary'
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM glossary_entries glossary
+                WHERE glossary.id = json_extract(NEW.payload_json, '$.content.glossary_entry_id')
+                  AND json_extract(glossary.payload_json, '$.lemma') = json_extract(NEW.payload_json, '$.content.term')
+                  AND json_extract(glossary.payload_json, '$.term_language') = json_extract(NEW.payload_json, '$.content.term_language')
+                  AND json_extract(glossary.payload_json, '$.part_of_speech') = json_extract(NEW.payload_json, '$.content.part_of_speech')
+            ) THEN RAISE(ABORT, 'vocabulary learning object must match a registered glossary entry') END;
+            SELECT CASE WHEN NEW.status = 'approved' AND (
+                SELECT status FROM glossary_entries
+                WHERE id = json_extract(NEW.payload_json, '$.content.glossary_entry_id')
+            ) != 'approved'
+            THEN RAISE(ABORT, 'approved vocabulary requires an approved glossary entry') END;
+        END""",
+    """CREATE TRIGGER learning_objects_glossary_validate_update
+        BEFORE UPDATE ON learning_objects
+        WHEN json_extract(NEW.payload_json, '$.kind') = 'vocabulary'
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM glossary_entries glossary
+                WHERE glossary.id = json_extract(NEW.payload_json, '$.content.glossary_entry_id')
+                  AND json_extract(glossary.payload_json, '$.lemma') = json_extract(NEW.payload_json, '$.content.term')
+                  AND json_extract(glossary.payload_json, '$.term_language') = json_extract(NEW.payload_json, '$.content.term_language')
+                  AND json_extract(glossary.payload_json, '$.part_of_speech') = json_extract(NEW.payload_json, '$.content.part_of_speech')
+            ) THEN RAISE(ABORT, 'vocabulary learning object must match a registered glossary entry') END;
+            SELECT CASE WHEN NEW.status = 'approved' AND (
+                SELECT status FROM glossary_entries
+                WHERE id = json_extract(NEW.payload_json, '$.content.glossary_entry_id')
+            ) != 'approved'
+            THEN RAISE(ABORT, 'approved vocabulary requires an approved glossary entry') END;
+        END""",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -962,6 +1101,19 @@ class SQLiteRegistry:
                     version = 11
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 11 failed; transaction rolled back") from exc
+
+            if version == 11 and _SCHEMA_VERSION >= 12:
+                try:
+                    for statement in _MIGRATION_12:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (12, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 12")
+                    version = 12
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 12 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
