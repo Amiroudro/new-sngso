@@ -76,7 +76,7 @@ def valid_http_uri(value: Any, *, max_length: int = 2048) -> bool:
         not isinstance(value, str)
         or not value
         or len(value) > max_length
-        or any(ord(char) <= 32 or ord(char) == 127 or char == "\\\\" for char in value)
+        or any(ord(char) <= 32 or ord(char) == 127 or char == chr(92) for char in value)
     ):
         return False
     try:
