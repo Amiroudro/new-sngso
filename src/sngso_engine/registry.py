@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any, Iterator
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .contracts import validate_payload
@@ -1744,34 +1744,143 @@ class SQLiteRegistry:
             for article_id in payload.get("article_ids", []):
                 require_record("article", article_id, "story")
         elif record_type == "claim":
-            require_record("story", payload["story_id"], "claim")
+            story = require_record("story", payload["story_id"], "claim")
             for provenance in payload["provenance"]:
                 source = connection.execute(
-                    "SELECT 1 FROM sources WHERE id = ?", (provenance["source_id"],)
+                    "SELECT payload_json FROM sources WHERE id = ?", (provenance["source_id"],)
                 ).fetchone()
                 if source is None:
                     raise RegistryIntegrityError("claim provenance references an unknown source")
                 article_id = provenance.get("article_id")
+                article = None
                 if article_id:
                     article = require_record("article", article_id, "claim provenance")
                     if article["source_id"] != provenance["source_id"]:
                         raise RegistryIntegrityError(
                             "claim provenance article and source do not match"
                         )
+                    if article_id not in story.get("article_ids", []):
+                        raise RegistryIntegrityError(
+                            "claim provenance article is not a member of its story"
+                        )
+                observation_id = provenance.get("observation_id")
+                if observation_id:
+                    observation = connection.execute(
+                        "SELECT * FROM collection_observations WHERE observation_id = ?",
+                        (observation_id,),
+                    ).fetchone()
+                    if observation is None or observation["source_id"] != provenance["source_id"]:
+                        raise RegistryIntegrityError(
+                            "claim provenance observation is missing or belongs to another source"
+                        )
+                    if article is not None:
+                        from .ingestion import canonicalize_article_url
+                        observed_uri = canonicalize_article_url(
+                            observation["final_locator"] or observation["locator"]
+                        )
+                        if observed_uri != article["canonical_uri"]:
+                            raise RegistryIntegrityError(
+                                "claim provenance observation and article do not match"
+                            )
+
+            linked_evidence = []
+            for evidence_id in payload.get("evidence_ids", []):
+                evidence = require_record("evidence", evidence_id, "claim evidence")
+                if evidence["claim_id"] != payload["id"]:
+                    raise RegistryIntegrityError(
+                        "claim evidence reference belongs to another claim"
+                    )
+                linked_evidence.append(evidence)
+
+            assessment = payload["assessment"]
+            relationships = {item["relationship"] for item in linked_evidence}
+            if assessment != "unassessed" and not linked_evidence:
+                raise RegistryIntegrityError(
+                    "an assessed claim must reference at least one evidence record"
+                )
+            if assessment == "supported" and (
+                "supports" not in relationships or "contradicts" in relationships
+            ):
+                raise RegistryIntegrityError(
+                    "supported claim requires supporting evidence and no unresolved contradiction"
+                )
+            if assessment == "partially_supported" and not (
+                "supports" in relationships
+                and ({"qualifies", "unclear"} & relationships)
+            ):
+                raise RegistryIntegrityError(
+                    "partially supported claim requires support and qualifying/unclear evidence"
+                )
+            if assessment == "disputed" and not (
+                "supports" in relationships and "contradicts" in relationships
+            ):
+                raise RegistryIntegrityError(
+                    "disputed claim requires both supporting and contradicting evidence"
+                )
+            if assessment == "contradicted" and (
+                "contradicts" not in relationships or "supports" in relationships
+            ):
+                raise RegistryIntegrityError(
+                    "contradicted claim requires contradicting evidence without supporting evidence"
+                )
+            if assessment == "retracted" and not (
+                isinstance(payload.get("review_note"), str) and payload["review_note"].strip()
+            ):
+                raise RegistryIntegrityError("retracted claim requires a non-empty review note")
         elif record_type == "evidence":
-            require_record("claim", payload["claim_id"], "evidence")
+            claim = require_record("claim", payload["claim_id"], "evidence")
             source = connection.execute(
-                "SELECT 1 FROM sources WHERE id = ?", (payload["source_id"],)
+                "SELECT payload_json FROM sources WHERE id = ?", (payload["source_id"],)
             ).fetchone()
             if source is None:
                 raise RegistryIntegrityError("evidence references an unknown source")
+            source_domains = json.loads(source["payload_json"]).get("domains", [])
+            if not valid_domain_allowlist(source_domains):
+                raise RegistryIntegrityError("evidence source domain allowlist is invalid")
+
             article_id = payload.get("article_id")
+            article = None
             if article_id:
                 article = require_record("article", article_id, "evidence")
                 if article["source_id"] != payload["source_id"]:
+                    raise RegistryIntegrityError("evidence article and source do not match")
+                story = require_record("story", claim["story_id"], "evidence article")
+                if article_id not in story.get("article_ids", []):
                     raise RegistryIntegrityError(
-                        "evidence article and source do not match"
+                        "evidence article is not a member of the claim's story"
                     )
+
+            observation_id = payload.get("observation_id")
+            if observation_id:
+                observation = connection.execute(
+                    "SELECT * FROM collection_observations WHERE observation_id = ?",
+                    (observation_id,),
+                ).fetchone()
+                if observation is None or observation["source_id"] != payload["source_id"]:
+                    raise RegistryIntegrityError(
+                        "evidence observation is missing or belongs to another source"
+                    )
+                if article is not None:
+                    from .ingestion import canonicalize_article_url
+                    observed_uri = canonicalize_article_url(
+                        observation["final_locator"] or observation["locator"]
+                    )
+                    if observed_uri != article["canonical_uri"]:
+                        raise RegistryIntegrityError(
+                            "evidence observation and article do not match"
+                        )
+
+            locator_uri = payload["locator"]["uri"]
+            parsed_locator = urlsplit(locator_uri)
+            if parsed_locator.scheme.lower() not in {"http", "https"} or not parsed_locator.hostname:
+                raise RegistryIntegrityError("evidence locator must be an absolute HTTP(S) URL")
+            if parsed_locator.username is not None or parsed_locator.password is not None:
+                raise RegistryIntegrityError("evidence locator cannot contain credentials")
+            safe_locator = urlunsplit(parsed_locator._replace(fragment=""))
+            if not valid_http_uri(safe_locator, max_length=2048):
+                raise RegistryIntegrityError("evidence locator is malformed")
+            if not _host_in_domains(parsed_locator.hostname, source_domains):
+                raise RegistryIntegrityError("evidence locator is outside its registered source domains")
         elif record_type == "edition":
             for story_id in payload["story_ids"]:
                 require_record("story", story_id, "edition")
