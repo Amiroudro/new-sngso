@@ -16,7 +16,7 @@ Initial kinds:
 - `analysis_question`: an interpretation question with an evidence-grounded explanation.
 - `revision_card`: a concise exam-preparation learning unit.
 
-Each artifact carries its story ID, language tag, claim IDs, structured content, lifecycle status, creation time, and revision number. Claim references must belong to the same story. The contract validates kind-specific minimum content: summaries/cards need text; vocabulary needs term, meaning, context, and example; questions need question, answer, and explanation. Summary kinds also require sentence-level segments. Each segment has a role (fact, attributed, or analysis) and one or more claim links; attributed segments name their attribution. The registry requires the rendered text to equal the ordered segment text and the union of segment claim IDs to equal the object's claim list.
+Each artifact carries its story ID, language tag, claim IDs, structured content, lifecycle status, creation time, and revision number. Claim references must belong to the same story. The contract validates kind-specific minimum content: summaries/cards need text; vocabulary needs term, term language, part of speech, meaning, source context, and example; optional pronunciation, synonyms, antonyms, collocations, and exam context remain structured fields; questions need question, answer, explanation, and explicit answer-claim IDs. Summary kinds also require sentence-level segments. Each segment has a role (fact, attributed, or analysis) and one or more claim links; attributed segments name their attribution. The registry requires the rendered text to equal the ordered segment text and the union of segment claim IDs to equal the object's claim list.
 
 ## Lifecycle and review
 
@@ -48,7 +48,7 @@ Revisions use optimistic concurrency with an expected revision. Story, kind, lan
 
 - Deterministic summary templates and claim-to-sentence traceability.
 - Structured vocabulary fields for pronunciation, part of speech, synonyms, antonyms, collocations, and exam context.
-- Question answerability and distractor-quality benchmarks.
+- Question answerability and distractor-quality benchmarks beyond explicit answer-claim linkage.
 - Bilingual terminology/glossary governance and separate language-quality review.
 - Human-reviewed editorial benchmark fixtures for omission, distortion, attribution, and language quality.
 - Daily briefing assembly and immutable edition publication belong to Sections 8 and 10.
@@ -57,3 +57,6 @@ Revisions use optimistic concurrency with an expected revision. Story, kind, lan
 ## First-slice verification
 
 GitHub Actions [run #44622649658](https://github.com/Amiroudro/new-sngso/actions/runs/44622649658) passed the full Python 3.12 suite: **416 passed in 2.15 seconds** on code head `2c604922b88f0ec0695a065a2dabdeab78e17305`. The run includes contract checks, schema v10-to-v11 migration, same-story claim enforcement, language-variant independence, kind-specific content requirements, sentence-to-claim traceability, review metadata, optimistic concurrency, immutable revision history, and inclusion in the story editorial snapshot.
+
+
+Question objects must identify `answer_claim_ids`, a non-empty subset of the object's claim IDs. This separates the claims that ground the answer from other claims that may only provide context for the question. Vocabulary objects distinguish the learning-object language from the headword's `term_language`, so an English term can have a Bangla explanation without mislabelling the language of the headword. Part of speech is required; pronunciation, synonyms, antonyms, collocations, and exam context have dedicated optional fields.
