@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ipaddress
 from typing import Any
+from urllib.parse import urlsplit
 
 
 def canonical_dns_name(value: Any) -> str | None:
@@ -67,3 +68,26 @@ def host_in_domain_allowlist(host: str, domains: Any) -> bool:
         normalized_host == domain or normalized_host.endswith("." + domain)
         for domain in normalized_domains
     )
+
+
+def valid_http_uri(value: Any, *, max_length: int = 2048) -> bool:
+    """Accept an absolute HTTP(S) URI without ambiguous or credential-bearing parts."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > max_length
+        or any(ord(char) <= 32 or ord(char) == 127 or char == "\\\\" for char in value)
+    ):
+        return False
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return False
+        if parsed.username is not None or parsed.password is not None or parsed.fragment:
+            return False
+        if canonical_dns_name(parsed.hostname) is None:
+            return False
+        parsed.port
+    except ValueError:
+        return False
+    return True
