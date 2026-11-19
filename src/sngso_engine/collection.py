@@ -20,6 +20,7 @@ from .domains import (
     canonical_dns_name as _canonical_dns_name,
     host_in_domain_allowlist as _host_in_domain_allowlist,
     valid_domain_allowlist as _valid_domain_allowlist,
+    valid_http_uri as _valid_http_uri,
 )
 from .permissions import OPERATIONS, PermissionDecision
 
@@ -413,10 +414,4 @@ class PermissionFirstCollector:
 
 
 def _is_http_uri(value: Any) -> bool:
-    if not isinstance(value, str) or len(value) > 2048:
-        return False
-    try:
-        parsed = urlsplit(value)
-        return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
-    except ValueError:
-        return False
+    return _valid_http_uri(value, max_length=2048)
