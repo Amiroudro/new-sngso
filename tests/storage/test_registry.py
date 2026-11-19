@@ -606,3 +606,30 @@ def test_two_registry_instances_serialize_concurrent_writes(tmp_path) -> None:
     finally:
         first.close()
         second.close()
+
+def test_failed_commit_rolls_back_and_leaves_connection_usable() -> None:
+    with SQLiteRegistry() as registry:
+        with pytest.raises(sqlite3.IntegrityError):
+            with registry._transaction() as connection:
+                connection.execute("PRAGMA defer_foreign_keys = ON")
+                connection.execute(
+                    """INSERT INTO source_endpoints
+                    (id, source_id, endpoint_uri, status, created_at, updated_at, payload_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        "endpoint:orphan",
+                        "source:missing",
+                        "https://missing.example.org/feed.xml",
+                        "active",
+                        STAMP,
+                        STAMP,
+                        "{}",
+                    ),
+                )
+
+        assert registry._connection.in_transaction is False
+        assert registry.get_endpoint("endpoint:orphan") is None
+
+        # The same connection remains usable after the failed COMMIT.
+        registry.add_source(source_record())
+        assert registry.get_source("source:publisher-a") is not None
