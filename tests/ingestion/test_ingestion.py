@@ -182,6 +182,9 @@ def test_normalization_keeps_observation_values_unchanged():
         "operation": "metadata",
         "source_id": "source:publisher-a",
         "grant_id": "permission:publisher-a-metadata",
+        "id": "observation:fixture",
+        "connector_name": "fixture-rss",
+        "connector_version": "1.0.0",
         "observed_at": STAMP,
         "locator": "https://publisher-a.example.org/news/one?utm_source=feed",
         "final_locator": None,
@@ -395,6 +398,20 @@ def test_duplicate_candidate_requires_publication_timestamp():
         assert second["fingerprint"] is None
 
 
+def test_registry_rejects_tampered_article_provenance():
+    with SQLiteRegistry() as registry:
+        add_publisher(registry, "publisher-a")
+        add_observation(registry, "publisher-a", "observation:first")
+        observation = registry.get_collection_observation("observation:first")
+        payload, fingerprint = normalize_observation(observation, "bn")
+        payload["provenance"]["observation_id"] = "observation:other"
+        with pytest.raises(RegistryIntegrityError, match="do not match normalized source observation"):
+            registry.ingest_article_observation(
+                "observation:first", payload, duplicate_fingerprint=fingerprint
+            )
+        assert registry.get_ingestion_decision("observation:first") is None
+
+
 def test_registry_rejects_article_identity_not_bound_to_observation():
     with SQLiteRegistry() as registry:
         add_publisher(registry, "publisher-a")
@@ -402,7 +419,7 @@ def test_registry_rejects_article_identity_not_bound_to_observation():
         observation = registry.get_collection_observation("observation:first")
         payload, fingerprint = normalize_observation(observation, "bn")
         payload["canonical_uri"] = "https://publisher-a.example.org/another-page"
-        with pytest.raises(RegistryIntegrityError, match="does not match its source observation"):
+        with pytest.raises(RegistryIntegrityError, match="do not match normalized source observation"):
             registry.ingest_article_observation(
                 "observation:first", payload, duplicate_fingerprint=fingerprint
             )
