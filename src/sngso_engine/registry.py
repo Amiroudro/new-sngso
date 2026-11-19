@@ -1746,32 +1746,86 @@ class SQLiteRegistry:
         elif record_type == "claim":
             require_record("story", payload["story_id"], "claim")
             for provenance in payload["provenance"]:
+                source_id = provenance["source_id"]
                 source = connection.execute(
-                    "SELECT 1 FROM sources WHERE id = ?", (provenance["source_id"],)
+                    "SELECT 1 FROM sources WHERE id = ?", (source_id,)
                 ).fetchone()
                 if source is None:
                     raise RegistryIntegrityError("claim provenance references an unknown source")
                 article_id = provenance.get("article_id")
+                observation_id = provenance.get("observation_id")
                 if article_id:
                     article = require_record("article", article_id, "claim provenance")
-                    if article["source_id"] != provenance["source_id"]:
+                    if article["source_id"] != source_id:
                         raise RegistryIntegrityError(
                             "claim provenance article and source do not match"
                         )
+                if observation_id:
+                    observation = connection.execute(
+                        "SELECT source_id FROM collection_observations WHERE observation_id = ?",
+                        (observation_id,),
+                    ).fetchone()
+                    if observation is None or observation["source_id"] != source_id:
+                        raise RegistryIntegrityError(
+                            "claim provenance observation is missing or belongs to another source"
+                        )
+                if article_id and observation_id:
+                    linked = connection.execute(
+                        """SELECT 1 FROM ingestion_current c
+                        JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                        WHERE c.observation_id = ? AND d.article_id = ?""",
+                        (observation_id, article_id),
+                    ).fetchone()
+                    if linked is None:
+                        raise RegistryIntegrityError(
+                            "claim provenance article and observation are not linked by ingestion"
+                        )
         elif record_type == "evidence":
-            require_record("claim", payload["claim_id"], "evidence")
+            claim = require_record("claim", payload["claim_id"], "evidence")
+            source_id = payload["source_id"]
             source = connection.execute(
-                "SELECT 1 FROM sources WHERE id = ?", (payload["source_id"],)
+                "SELECT 1 FROM sources WHERE id = ?", (source_id,)
             ).fetchone()
             if source is None:
                 raise RegistryIntegrityError("evidence references an unknown source")
             article_id = payload.get("article_id")
+            observation_id = payload.get("observation_id")
             if article_id:
                 article = require_record("article", article_id, "evidence")
-                if article["source_id"] != payload["source_id"]:
+                if article["source_id"] != source_id:
                     raise RegistryIntegrityError(
                         "evidence article and source do not match"
                     )
+            if observation_id:
+                observation = connection.execute(
+                    "SELECT source_id FROM collection_observations WHERE observation_id = ?",
+                    (observation_id,),
+                ).fetchone()
+                if observation is None or observation["source_id"] != source_id:
+                    raise RegistryIntegrityError(
+                        "evidence observation is missing or belongs to another source"
+                    )
+            if article_id and observation_id:
+                linked = connection.execute(
+                    """SELECT 1 FROM ingestion_current c
+                    JOIN ingestion_decisions d ON d.decision_id = c.decision_id
+                    WHERE c.observation_id = ? AND d.article_id = ?""",
+                    (observation_id, article_id),
+                ).fetchone()
+                if linked is None:
+                    raise RegistryIntegrityError(
+                        "evidence article and observation are not linked by ingestion"
+                    )
+            provenance_matches = any(
+                item.get("source_id") == source_id
+                and (article_id is None or item.get("article_id") == article_id)
+                and (observation_id is None or item.get("observation_id") == observation_id)
+                for item in claim.get("provenance", [])
+            )
+            if not provenance_matches:
+                raise RegistryIntegrityError(
+                    "evidence source/article/observation is not present in claim provenance"
+                )
         elif record_type == "edition":
             for story_id in payload["story_ids"]:
                 require_record("story", story_id, "edition")
