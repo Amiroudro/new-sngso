@@ -102,3 +102,8 @@ The registry now accepts a dedicated `story_decision` record for human-reviewed 
 The SQLite boundary verifies that every affected story and article exists, the canonical story belongs to the decision scope, and every listed article is already linked to at least one affected story. A split decision must identify at least two articles. Decision records are immutable and included in the normal append-only audit chain. `story_decision_history(story_id)` retrieves the decisions involving a given story.
 
 **Deliberate boundary:** this first ledger records and preserves the editorial decision; it does not silently rewrite story membership, reassign claims, or archive a story. Applying a merge or split to live story membership requires a separate atomic workflow that can reconcile claims and provenance. That workflow remains future work. This avoids pretending that recording a decision is the same as safely executing it.
+
+
+## Story decision ledger verification
+
+SQLite schema migration 5 creates a dedicated `story_decisions` table rather than weakening the existing `domain_records` type constraint. Database triggers reject updates and deletes. Decision creation is validated against existing story and article records and appended to the audit hash chain. GitHub Actions [run #44610479213](https://github.com/Amiroudro/new-sngso/actions/runs/44610479213) passed the full Python 3.12 suite: **336 passed in 1.81 seconds**. The ledger records editorial decisions but does not itself apply story membership changes.
