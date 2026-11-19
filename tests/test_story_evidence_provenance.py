@@ -194,3 +194,57 @@ def test_story_revision_cannot_orphan_existing_claim_provenance():
             )
     finally:
         registry.close()
+
+
+
+def test_claim_revision_cannot_remove_provenance_used_by_existing_evidence():
+    registry, source_a, host_a, article_a, *_ = _prepared_registry()
+    try:
+        registry.add_domain_record(
+            "evidence",
+            _evidence("claim:event-date", source_a, article_a, host_a),
+        )
+        claim = registry.get_domain_record("claim", "claim:event-date")
+        payload = claim.to_payload()
+        payload["provenance"] = [{
+            "source_id": source_a,
+            "observed_at": STAMP,
+            "method": "human_review",
+            "method_version": "1.0",
+        }]
+        with pytest.raises(RegistryIntegrityError, match="would orphan existing evidence provenance"):
+            registry.revise_domain_record(
+                "claim",
+                claim.id,
+                payload,
+                expected_revision=1,
+                actor="editor",
+                reason="Attempted to remove the article supporting existing evidence.",
+            )
+    finally:
+        registry.close()
+
+
+def test_evidence_source_article_and_locator_identity_cannot_be_rewritten():
+    registry, source_a, host_a, article_a, *_ = _prepared_registry()
+    try:
+        registry.add_domain_record(
+            "evidence",
+            _evidence("claim:event-date", source_a, article_a, host_a),
+        )
+        evidence = registry.get_domain_record("evidence", "evidence:source-a")
+        payload = evidence.to_payload()
+        other_article = _article(registry, source_a, host_a, "publisher-a-two")
+        payload["article_id"] = other_article
+        payload["locator"] = {"uri": f"https://{host_a}/news/publisher-a-two"}
+        with pytest.raises(RegistryIntegrityError, match="identity links cannot be rewritten"):
+            registry.revise_domain_record(
+                "evidence",
+                evidence.id,
+                payload,
+                expected_revision=1,
+                actor="editor",
+                reason="Attempted to reassign evidence to another article.",
+            )
+    finally:
+        registry.close()
