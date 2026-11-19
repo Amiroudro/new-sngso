@@ -473,7 +473,7 @@ def test_story_decision_cannot_reference_unknown_story_or_unlinked_article():
                     "merge",
                     ["story:shared-event", "story:missing"],
                     "story:shared-event",
-                    [article_a],
+                    [article_a, article_b],
                 ),
             )
         _add_second_story(registry, [article_b])
@@ -547,7 +547,13 @@ def test_story_decision_history_rejects_unknown_story():
 def test_story_merge_decision_must_account_for_every_article_in_scope():
     registry, _, _, article_a, _, _, article_b = _prepared_registry()
     try:
-        _add_second_story(registry, [article_b])
+        article_c = _article(
+            registry,
+            "source:publisher-a",
+            "publisher-a.example.org",
+            "publisher-a-three",
+        )
+        _add_second_story(registry, [article_b, article_c])
         with pytest.raises(RegistryIntegrityError, match="account for every article"):
             registry.add_domain_record(
                 "story_decision",
@@ -555,7 +561,7 @@ def test_story_merge_decision_must_account_for_every_article_in_scope():
                     "merge",
                     ["story:shared-event", "story:secondary"],
                     "story:shared-event",
-                    [article_a],
+                    [article_a, article_b],
                 ),
             )
     finally:
