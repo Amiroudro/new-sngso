@@ -372,3 +372,152 @@ def test_evidence_relationship_cannot_change_while_claim_is_reviewed():
             )
     finally:
         registry.close()
+
+
+
+def _story_decision(operation, story_ids, canonical_story_id, article_ids):
+    return {
+        "schema_version": "1.0.0",
+        "id": f"story-decision:{operation}-001",
+        "operation": operation,
+        "story_ids": story_ids,
+        "canonical_story_id": canonical_story_id,
+        "article_ids": article_ids,
+        "decided_by": "senior-editor",
+        "rationale": "Human review found these reports describe the same underlying event.",
+        "decided_at": STAMP,
+    }
+
+
+def _add_second_story(registry, article_ids):
+    registry.add_domain_record("story", {
+        "schema_version": "1.0.0",
+        "id": "story:secondary",
+        "canonical_title": "সম্পর্কিত ঘটনার বিবরণ",
+        "status": "developing",
+        "created_at": STAMP,
+        "updated_at": STAMP,
+        "article_ids": article_ids,
+    })
+
+
+def test_story_merge_decision_is_append_only_and_visible_in_each_story_history():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        decision = registry.add_domain_record(
+            "story_decision",
+            _story_decision(
+                "merge",
+                ["story:shared-event", "story:secondary"],
+                "story:shared-event",
+                [article_a, article_b],
+            ),
+        )
+        assert decision.operation == "merge"
+        assert registry.story_decision_history("story:shared-event") == [decision.to_payload()]
+        assert registry.story_decision_history("story:secondary") == [decision.to_payload()]
+        assert registry.verify_audit_chain()
+        with pytest.raises(RegistryIntegrityError, match="decision records are immutable"):
+            registry.revise_domain_record(
+                "story_decision",
+                decision.id,
+                decision.to_payload(),
+                expected_revision=1,
+                actor="senior-editor",
+                reason="Attempted to rewrite a recorded merge decision.",
+            )
+    finally:
+        registry.close()
+
+
+def test_story_split_decision_requires_multiple_articles_and_is_audited():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        decision = registry.add_domain_record(
+            "story_decision",
+            _story_decision(
+                "split",
+                ["story:shared-event", "story:secondary"],
+                "story:shared-event",
+                [article_a, article_b],
+            ),
+        )
+        assert decision.operation == "split"
+        assert registry.story_decision_history("story:shared-event") == [decision.to_payload()]
+        assert registry.verify_audit_chain()
+    finally:
+        registry.close()
+
+
+def test_story_decision_cannot_reference_unknown_story_or_unlinked_article():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        with pytest.raises(RegistryIntegrityError, match="unknown story"):
+            registry.add_domain_record(
+                "story_decision",
+                _story_decision(
+                    "merge",
+                    ["story:shared-event", "story:missing"],
+                    "story:shared-event",
+                    [article_a],
+                ),
+            )
+        with pytest.raises(RegistryIntegrityError, match="must belong to at least one affected story"):
+            registry.add_domain_record(
+                "story_decision",
+                _story_decision(
+                    "merge",
+                    ["story:shared-event", "story:other"],
+                    "story:shared-event",
+                    [article_b],
+                ),
+            )
+    finally:
+        registry.close()
+
+
+def test_story_decision_canonical_story_must_be_in_the_decision_scope():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        with pytest.raises(RegistryIntegrityError, match="canonical story must be one"):
+            registry.add_domain_record(
+                "story_decision",
+                _story_decision(
+                    "merge",
+                    ["story:shared-event", "story:secondary"],
+                    "story:unrelated",
+                    [article_a, article_b],
+                ),
+            )
+    finally:
+        registry.close()
+
+
+def test_story_split_decision_must_identify_at_least_two_articles():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        with pytest.raises(RegistryIntegrityError, match="at least two articles"):
+            registry.add_domain_record(
+                "story_decision",
+                _story_decision(
+                    "split",
+                    ["story:shared-event", "story:secondary"],
+                    "story:shared-event",
+                    [article_a],
+                ),
+            )
+    finally:
+        registry.close()
+
+
+def test_story_decision_history_rejects_unknown_story():
+    registry = SQLiteRegistry()
+    try:
+        with pytest.raises(RegistryIntegrityError, match="unknown story"):
+            registry.story_decision_history("story:missing")
+    finally:
+        registry.close()
