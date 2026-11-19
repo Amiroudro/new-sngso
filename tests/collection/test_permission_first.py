@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from dataclasses import replace
 import sqlite3
 
@@ -714,3 +715,31 @@ def test_registered_domain_allowlist_requires_canonical_ascii_domains():
 def test_connector_execution_context_rejects_noncanonical_domain_scope(domains):
     with pytest.raises(ValueError, match="canonical DNS"):
         CollectionExecutionContext(domains)
+
+
+
+def test_sqlite_storage_rejects_noncanonical_source_domain_allowlist():
+    with populated_registry() as registry:
+        connector = FixtureConnector([
+            {"locator": "https://publisher-a.example.org/news/1"}
+        ])
+        sink = InMemoryObservationSink()
+        result = make_collector(registry, connector, sink).collect(
+            make_request(), "fixture-feed"
+        )
+        assert result.allowed is True
+
+        row = registry._connection.execute(
+            "SELECT payload_json FROM sources WHERE id = ?",
+            ("source:publisher-a",),
+        ).fetchone()
+        source = json.loads(row["payload_json"])
+        source["domains"] = ["publisher-a.example.org."]
+        registry._connection.execute(
+            "UPDATE sources SET payload_json = ? WHERE id = ?",
+            (json.dumps(source), "source:publisher-a"),
+        )
+
+        with pytest.raises(RegistryIntegrityError, match="domain allowlist is invalid"):
+            registry.append_many(result.observations)
+        assert registry.collection_observations() == []
