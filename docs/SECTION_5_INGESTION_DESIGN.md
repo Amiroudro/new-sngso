@@ -1,6 +1,6 @@
 # Section 5: Ingestion, normalization, and identity
 
-Status: implementation in progress; fixture tests are being added and must pass before closure.
+Status: implementation delivered; final current-head CI acceptance pending.
 
 ## Boundary
 
