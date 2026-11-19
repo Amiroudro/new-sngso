@@ -4,7 +4,7 @@ Status: initial learning-object persistence is implemented on the Section 6 bran
 
 ## Core output model
 
-A learning object is a story-linked editorial artifact in exactly one language. Bangla and English are separate records with independent revision and review states; neither language is silently treated as a translation of the other.
+A learning object is a story-linked editorial artifact in exactly one language. Bangla and English are separate records with independent revision and review states; an optional variant group links their editorial relationship without treating either as an automatic translation of the other.
 
 Initial kinds:
 
@@ -16,7 +16,7 @@ Initial kinds:
 - `analysis_question`: an interpretation question with an evidence-grounded explanation.\n- `mcq_question`: a multiple-choice item with 2–6 uniquely identified options, one correct-option key, an explanation, and answer-claim links.
 - `revision_card`: a concise exam-preparation learning unit.
 
-Each artifact carries its story ID, language tag, claim IDs, structured content, lifecycle status, creation time, and revision number. Claim references must belong to the same story. The contract validates kind-specific minimum content: summaries/cards need text; vocabulary needs term, term language, part of speech, meaning, source context, and example; optional pronunciation, synonyms, antonyms, collocations, and exam context remain structured fields; questions need question, answer, explanation, and explicit answer-claim IDs. Summary kinds also require sentence-level segments. Each segment has a role (fact, attributed, or analysis) and one or more claim links; attributed segments name their attribution. The registry requires the rendered text to equal the ordered segment text and the union of segment claim IDs to equal the object's claim list.
+Each artifact carries its story ID, language tag, claim IDs, structured content, lifecycle status, creation time, and revision number. Optional `variant_group_id` groups related language versions of the same story artifact; group members must share story and kind, and only one object per language may occupy a group. Claim references must belong to the same story. The contract validates kind-specific minimum content: summaries/cards need text; vocabulary needs term, term language, part of speech, meaning, source context, and example; optional pronunciation, synonyms, antonyms, collocations, and exam context remain structured fields; questions need question, answer, explanation, and explicit answer-claim IDs. Summary kinds also require sentence-level segments. Each segment has a role (fact, attributed, or analysis) and one or more claim links; attributed segments name their attribution. The registry requires the rendered text to equal the ordered segment text and the union of segment claim IDs to equal the object's claim list.
 
 ## Lifecycle and review
 
