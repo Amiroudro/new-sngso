@@ -167,3 +167,14 @@ A final DNS-name normalization edge case was closed: one optional terminal root 
 ### HTTP transfer-coding policy
 
 The transport now accepts only no Transfer-Encoding header or the standard chunked transfer coding. Other transfer codings (including gzip transfer coding) are rejected rather than passed to downstream parsers. This complements the existing rejection of non-identity Content-Encoding and ambiguous Transfer-Encoding plus Content-Length combinations. GitHub Actions run #203 passed with **205 tests**. The test suite remains fully offline.
+
+
+### Concurrent storage, audit anchoring, and final input-boundary review
+
+The SQLite permission race now has deterministic cross-connection tests for both transaction orderings. When revocation commits first, a waiting observation write sees the newer grant revision and is rejected. When observation storage already holds the write transaction, it commits first and the revocation follows. The tests verify the final persisted state and audit-chain consistency in both cases.
+
+The registry exposes an audit checkpoint containing the current event sequence and chain-tip hash. Operators can store this pair outside the database to detect later tail deletion. The documentation explicitly states that a local hash-chain verifier cannot detect deletion of the final events by a privileged database operator when no external checkpoint exists.
+
+The HTTPS transport rejects boolean and non-finite timeout values, invalid retry/redirect/byte-budget types, and scoped IPv6 resolver answers. URL parsing also rejects whitespace, control characters, backslashes, empty fragments, and non-canonical explicit port spellings such as `:0443`. Oversized Content-Length digit strings are rejected before integer conversion. Connector output is checked against the operation-specific field and type limits before JSON byte accounting, so unapproved payload fields are rejected before serialization.
+
+GitHub Actions run [#44603235352](https://github.com/Amiroudro/new-sngso/actions/runs/44603235352) passed with **249 tests**. The suite is offline and fixture-based. The standalone HTTPS transport remains unregistered, and no publisher network requests or live collection have been enabled.
