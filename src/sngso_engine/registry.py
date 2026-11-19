@@ -550,7 +550,7 @@ class SQLiteRegistry:
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 6 failed; transaction rolled back") from exc
 
-            if version == 6:
+            if version == 6 and _SCHEMA_VERSION >= 7:
                 try:
                     for statement in _MIGRATION_7:
                         connection.execute(statement)
