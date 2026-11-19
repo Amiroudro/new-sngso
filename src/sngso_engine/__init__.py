@@ -41,6 +41,7 @@ from .ports import (
     CollectionObservationRepository,
     EditorialRepository,
     EngineRepository,
+    IngestionRepository,
     SourceGovernanceRepository,
 )
 from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegistry
@@ -64,6 +65,7 @@ __all__ = [
     "InMemoryDomainRateLimiter",
     "InMemoryObservationSink",
     "IngestionError",
+    "IngestionRepository",
     "PermissionDecision",
     "PermissionFirstCollector",
     "PermissionEvidenceRecord",
