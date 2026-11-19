@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 from jsonschema import Draft202012Validator
 
-from sngso_engine.contracts import ContractValidationError, validate_payload
+from sngso_engine.contracts import ContractValidationError, load_schema, validate_payload
 from sngso_engine.permissions import OPERATIONS, evaluate_permission
 
 
@@ -100,9 +100,7 @@ def permission_grant() -> dict:
 )
 def test_valid_source_governance_records(contract: str, record: dict) -> None:
     validate_payload(contract, record)
-    Draft202012Validator.check_schema(
-        __import__("sngso_engine.contracts", fromlist=["load_schema"]).load_schema(contract)
-    )
+    Draft202012Validator.check_schema(load_schema(contract))
 
 
 def test_grant_shape_is_compatible_with_permission_evaluator() -> None:
@@ -164,7 +162,7 @@ def test_grant_rejects_missing_operation_evidence() -> None:
         (lambda value: value.pop("domains"), "source"),
         (lambda value: value.update({"domains": ["https://news.example.org"]}), "source"),
         (lambda value: value.update({"endpoint_uri": "not a uri"}), "source-endpoint"),
-        (lambda value: value.update({"review_status": "verified"}), "permission-evidence"),
+        (lambda value: value.pop("reviewed_by"), "permission-evidence"),
         (lambda value: value.pop("endpoint_ids"), "source-permission-grant"),
         (lambda value: value.pop("evidence_ids"), "source-permission-grant"),
         (lambda value: value.pop("effective_until"), "source-permission-grant"),
