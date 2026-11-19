@@ -281,6 +281,13 @@ def test_audit_chain_records_policy_version_and_is_append_only() -> None:
         assert registry.verify_audit_chain()
         assert len(decision_events) == 1
         assert decision_events[0]["policy_version"] == POLICY_VERSION
+        decision_payload = decision_events[0]["payload"]
+        assert decision_payload["grant_revision"] == 1
+        assert decision_payload["permission_record_hash"].startswith("sha256:")
+        assert decision_payload["evidence_statuses"] == {
+            "permission-evidence:publisher-a-001": "verified"
+        }
+        assert decision_payload["allowed"] is True
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             registry._connection.execute(
                 "UPDATE audit_events SET event_type = 'tampered' WHERE sequence = 1"
