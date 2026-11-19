@@ -2,7 +2,7 @@
 
 ## Status
 
-Design only. The current `story_decision` ledger stores an immutable editorial intent and per-article destination assignments. It does **not** change live story membership. This document defines the safety requirements for a later application slice; no application API or membership mutation is introduced here.
+Design plus persistence groundwork. The current `story_decision` ledger stores immutable editorial intent and per-article destination assignments. Migration 6 adds `story_decision_applications`, an append-only table with a unique decision reference, editor/rationale, decision and impact fingerprints, and a JSON result snapshot. The table is deliberately not yet exposed through a write API. No story or claim membership changes are performed.
 
 ## Why application must be a separate operation
 
@@ -58,7 +58,7 @@ Edition snapshots are immutable. The application must never rewrite or delete an
 
 ## Persistence and audit
 
-Add an append-only `story_decision_applications` table with:
+Migration 6 now creates the append-only `story_decision_applications` table with:
 
 - unique application ID;
 - unique foreign-key-like reference to one story decision (one successful application maximum);
@@ -103,4 +103,4 @@ The impact fingerprint must cover every record and revision used by the preview,
 
 ## Implementation gate
 
-The first coding slice is implemented and verified: decision records capture story and claim revision preconditions, explicit article and claim allocations, and registry-level completeness/provenance validation. The second slice implements read-only preview with a deterministic impact fingerprint and an edition-impact report. GitHub Actions [run #44612277463](https://github.com/Amiroudro/new-sngso/actions/runs/44612277463) passed **343 tests** including read-only and stale-decision preview checks. The follow-up test adds an explicit historical-edition assertion and is awaiting its own CI run. Only after preview behavior and edition-impact policy are fully tested should the atomic transaction be introduced. Keep live collection, publisher access, Android integration, and publication automation out of this scope.
+The first coding slice is implemented and verified: decision records capture story and claim revision preconditions, explicit article and claim allocations, and registry-level completeness/provenance validation. The second slice implements read-only preview with a deterministic impact fingerprint and an edition-impact report. The third slice adds the application ledger schema, including database-enforced uniqueness and append-only triggers. The atomic apply transaction and its regression suite are still required before any live story or claim mutation is allowed. GitHub Actions [run #44612277463](https://github.com/Amiroudro/new-sngso/actions/runs/44612277463) passed **343 tests** including read-only and stale-decision preview checks. The follow-up test adds an explicit historical-edition assertion and is awaiting its own CI run. Only after preview behavior and edition-impact policy are fully tested should the atomic transaction be introduced. Keep live collection, publisher access, Android integration, and publication automation out of this scope.
