@@ -253,7 +253,15 @@ class SQLiteRegistry:
                 self._connection.rollback()
                 raise
             else:
-                self._connection.commit()
+                try:
+                    self._connection.commit()
+                except Exception:
+                    # A deferred constraint or I/O error can fail at COMMIT,
+                    # after the context body has returned successfully. Roll
+                    # back explicitly so this connection is not left inside
+                    # a failed, partially open transaction.
+                    self._connection.rollback()
+                    raise
 
     def migrate(self) -> None:
         """Apply ordered migrations atomically; reject unknown future versions."""
