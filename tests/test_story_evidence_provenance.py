@@ -541,3 +541,22 @@ def test_story_decision_history_rejects_unknown_story():
             registry.story_decision_history("story:missing")
     finally:
         registry.close()
+
+
+
+def test_story_merge_decision_must_account_for_every_article_in_scope():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        with pytest.raises(RegistryIntegrityError, match="account for every article"):
+            registry.add_domain_record(
+                "story_decision",
+                _story_decision(
+                    "merge",
+                    ["story:shared-event", "story:secondary"],
+                    "story:shared-event",
+                    [article_a],
+                ),
+            )
+    finally:
+        registry.close()
