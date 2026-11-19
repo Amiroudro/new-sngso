@@ -2024,7 +2024,38 @@ class SQLiteRegistry:
         return payload[field]
 
     def add_domain_record(self, record_type: str, payload: dict[str, Any]):
-        """Persist a validated article/story/claim/evidence/edition record."""
+        """Persist a validated domain record."""
+        if record_type == "story_decision":
+            validate_payload(record_type, payload)
+            record = StoryDecisionRecord.from_payload(payload)
+            created_at = self._domain_record_timestamp(record_type, payload)
+            with self._transaction() as connection:
+                self._validate_domain_references(connection, record_type, payload)
+                connection.execute(
+                    """INSERT INTO story_decisions
+                    (id, operation, canonical_story_id, story_ids_json, article_ids_json,
+                     decided_by, rationale, decided_at, payload_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        payload["id"],
+                        payload["operation"],
+                        payload["canonical_story_id"],
+                        _json_text(payload["story_ids"]),
+                        _json_text(payload["article_ids"]),
+                        payload["decided_by"],
+                        payload["rationale"],
+                        created_at,
+                        record.payload_json,
+                    ),
+                )
+                self._append_audit(
+                    connection,
+                    event_type="story_decision.created",
+                    entity_type="story_decision",
+                    entity_id=record.id,
+                    payload={"revision": 1, "record": payload},
+                )
+            return record
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
             raise ValueError(f"unsupported domain record type: {record_type}")
@@ -2188,9 +2219,8 @@ class SQLiteRegistry:
             raise RegistryIntegrityError(f"unknown story: {story_id}")
         with self._lock:
             rows = self._connection.execute(
-                """SELECT payload_json FROM domain_records
-                WHERE record_type = 'story_decision'
-                ORDER BY created_at, id"""
+                """SELECT payload_json FROM story_decisions
+                ORDER BY decided_at, id"""
             ).fetchall()
         return [
             payload
@@ -2199,6 +2229,13 @@ class SQLiteRegistry:
         ]
 
     def get_domain_record(self, record_type: str, record_id: str):
+        if record_type == "story_decision":
+            with self._lock:
+                row = self._connection.execute(
+                    "SELECT payload_json FROM story_decisions WHERE id = ?",
+                    (record_id,),
+                ).fetchone()
+            return StoryDecisionRecord.from_payload(json.loads(row["payload_json"])) if row else None
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
             raise ValueError(f"unsupported domain record type: {record_type}")
@@ -2221,6 +2258,8 @@ class SQLiteRegistry:
         reason: str,
     ):
         """Append a domain-record revision using optimistic concurrency control."""
+        if record_type == "story_decision":
+            raise RegistryIntegrityError("story decision records are immutable")
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
             raise ValueError(f"unsupported domain record type: {record_type}")
@@ -2249,10 +2288,8 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("cannot revise an unknown domain record")
             if row["revision"] != expected_revision:
                 raise RegistryIntegrityError("domain record revision conflict")
-            if record_type in {"edition", "story_decision"}:
-                raise RegistryIntegrityError(
-                    "edition snapshots and story decision records are immutable"
-                )
+            if record_type == "edition":
+                raise RegistryIntegrityError("edition snapshots are immutable")
             previous_payload = json.loads(row["payload_json"])
             immutable_time_field = {
                 "article": "discovered_at",
