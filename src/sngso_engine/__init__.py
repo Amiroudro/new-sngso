@@ -5,6 +5,7 @@ __version__ = "0.1.0"
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .collection import (
     CollectionError,
+    CollectionExecutionContext,
     CollectionObservation,
     CollectionRequest,
     CollectionResult,
@@ -40,6 +41,7 @@ __all__ = [
     "AuditRepository",
     "ClaimRecord",
     "CollectionError",
+    "CollectionExecutionContext",
     "CollectionObservation",
     "CollectionObservationRepository",
     "CollectionRequest",
