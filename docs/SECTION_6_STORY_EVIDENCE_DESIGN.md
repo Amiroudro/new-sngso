@@ -106,4 +106,7 @@ The SQLite boundary verifies that every affected story and article exists, the c
 
 ## Story decision ledger verification
 
-SQLite schema migration 5 creates a dedicated `story_decisions` table rather than weakening the existing `domain_records` type constraint. Database triggers reject updates and deletes. Decision creation is validated against existing story and article records and appended to the audit hash chain. GitHub Actions [run #44610479213](https://github.com/Amiroudro/new-sngso/actions/runs/44610479213) passed the full Python 3.12 suite: **336 passed in 1.81 seconds**. The ledger records editorial decisions but does not itself apply story membership changes.
+SQLite schema migration 5 creates a dedicated `story_decisions` table rather than weakening the existing `domain_records` type constraint. Database triggers reject updates and deletes. Decision creation is validated against existing story and article records and appended to the audit hash chain. Each article has an explicit `assigned_story_id`; merges must allocate every article in the affected stories to the canonical story, while splits must allocate articles to at least two resulting stories. GitHub Actions [run #44610479213](https://github.com/Amiroudro/new-sngso/actions/runs/44610479213) passed the full Python 3.12 suite: **336 passed in 1.81 seconds**. The ledger records editorial decisions but does not itself apply story membership changes.
+
+
+The explicit article-allocation extension and its additional regression tests were committed after the 336-test passing run. They are awaiting a new CI result; the earlier run does not verify this extension.
