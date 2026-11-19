@@ -149,3 +149,8 @@ GitHub Actions run #175 passed with **188 tests**. The latest run for commit f9c
 ### Request-deadline enforcement review
 
 The remaining request deadline is now reapplied to the connected socket immediately before response headers are read, not only during connection setup and body streaming. This prevents time spent sending the request from leaving response-header reads with a stale, overly generous socket timeout. A deterministic fake-clock regression test advances time during request transmission and verifies that the reduced remaining budget is applied before getresponse(). GitHub Actions run #179 passed with **190 tests**. The change remains fixture-only and does not perform live network requests.
+
+
+### Canonical source-domain identity
+
+The orchestrator now canonicalizes DNS names to lowercase IDNA ASCII before scope comparison and before using the hostname as the per-domain rate-limit key. This closes a rate-limit identity bypass through case changes, trailing dots, or Unicode/punycode variants. Registered source allowlists must contain unique canonical DNS names; malformed labels and IP-literal entries are rejected. The immutable connector execution context independently enforces the same canonical, unique-domain requirement. GitHub Actions run #183 passed with **197 tests**, and run #184 passed with **200 tests** after adding execution-context rejection cases. No live collection was performed.
