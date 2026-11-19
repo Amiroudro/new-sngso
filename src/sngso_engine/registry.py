@@ -700,11 +700,13 @@ class SQLiteRegistry:
                 source = connection.execute(
                     "SELECT status FROM sources WHERE id = ?", (source_id,)
                 ).fetchone()
-                endpoint = connection.execute(
-                    """SELECT status FROM source_endpoints
-                    WHERE id = ? AND source_id = ?""",
-                    (endpoint_id, source_id),
-                ).fetchone()
+                endpoint = None
+                if isinstance(endpoint_id, str) and endpoint_id.strip():
+                    endpoint = connection.execute(
+                        """SELECT status FROM source_endpoints
+                        WHERE id = ? AND source_id = ?""",
+                        (endpoint_id, source_id),
+                    ).fetchone()
                 if not isinstance(operation, str) or operation not in OPERATIONS:
                     decision = PermissionDecision(False, "unknown_operation", grant_id)
                 elif not isinstance(endpoint_id, str) or not endpoint_id.strip():
