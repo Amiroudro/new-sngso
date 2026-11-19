@@ -84,6 +84,28 @@ def test_expired_permission_denies_at_exact_end_instant() -> None:
     assert (result.allowed, result.reason) == (False, "permission_expired")
 
 
+@pytest.mark.parametrize("invalid_end", [None, "", "not-a-date"])
+def test_missing_or_invalid_expiry_denies(invalid_end) -> None:
+    record = permission_record()
+    record["effective_until"] = invalid_end
+    result = evaluate_permission(record, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (
+        False,
+        "invalid_or_missing_effective_until",
+    )
+
+
+def test_expiry_must_be_after_effective_start() -> None:
+    record = permission_record()
+    record["effective_from"] = "2026-11-19T00:00:00Z"
+    record["effective_until"] = "2026-11-19T00:00:00Z"
+    result = evaluate_permission(record, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (
+        False,
+        "invalid_permission_window",
+    )
+
+
 def test_naive_evaluation_time_denies() -> None:
     result = evaluate_permission(
         permission_record(), "discovery", now=datetime(2026, 11, 19)
