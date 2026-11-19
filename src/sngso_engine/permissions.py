@@ -120,9 +120,17 @@ def evaluate_permission(
     if "source_id" in permission:
         evidence_ids = permission.get("evidence_ids")
         operation_evidence_ids = operation_permission.get("evidence_ids")
-        if not isinstance(evidence_ids, list) or not evidence_ids:
+        if (
+            not isinstance(evidence_ids, list)
+            or not evidence_ids
+            or any(not isinstance(value, str) or not value.strip() for value in evidence_ids)
+        ):
             return PermissionDecision(False, "permission_evidence_missing", permission_id)
-        if not isinstance(operation_evidence_ids, list) or not operation_evidence_ids:
+        if (
+            not isinstance(operation_evidence_ids, list)
+            or not operation_evidence_ids
+            or any(not isinstance(value, str) or not value.strip() for value in operation_evidence_ids)
+        ):
             return PermissionDecision(False, "operation_evidence_missing", permission_id)
 
     # Conditions have no evaluator yet. Never interpret an unhandled condition
