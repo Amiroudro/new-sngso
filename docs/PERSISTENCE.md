@@ -47,7 +47,7 @@ Migration 4 adds:
 
 - `ingestion_decisions`: append-only, revisioned decisions linking a stored metadata observation to a distinct article identity, with deterministic duplicate fingerprint, candidate/confirmed duplicate relationship, canonical URI, explanation, and timestamp.
 - `ingestion_current`: a current-pointer table. Updating this pointer does not rewrite history; every resolution appends a new decision and audit event.
-- Expression and fingerprint indexes for source/canonical-URL identity and cross-source candidate lookup. Database triggers reject decisions that point to missing or mismatched articles/observations.
+- Expression and fingerprint indexes for source/canonical-URL identity and cross-source candidate lookup. Candidate queries consider only the latest current fingerprint for each article. Database triggers reject decisions that point to missing or mismatched articles/observations.
 
 The applied schema version is stored in SQLite's `user_version` and in `schema_migrations`. Migrations run in an exclusive transaction. A failed migration rolls back; a database with a newer unknown schema version is rejected rather than downgraded.
 
