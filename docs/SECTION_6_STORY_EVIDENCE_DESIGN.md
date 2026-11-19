@@ -54,3 +54,18 @@ Section 6 will remain open until the full fixture suite verifies the provenance 
 ## First-slice verification
 
 GitHub Actions [run #44608678246](https://github.com/Amiroudro/new-sngso/actions/runs/44608678246) executed the full Python 3.12 fixture suite: **319 passed in 1.53 seconds**. The verified slice covers source/article/observation provenance matching, evidence-to-claim binding, prevention of story revisions that orphan claim provenance, prevention of claim revisions that orphan evidence, and immutable evidence identity links. This is a verified foundation, not completion of all Section 6 work.
+
+
+## Human claim assessment workflow
+
+- New claims start as unassessed.
+- A reviewed assessment requires a timezone-aware reviewed_at timestamp and a non-empty review_note.
+- A reviewed claim must list every evidence record currently linked to it. The evidence IDs in the claim cannot silently omit a recorded relationship.
+- Supported requires supporting evidence and no unresolved contradiction.
+- Partially supported requires supporting evidence plus qualifying or unclear evidence.
+- Disputed requires both supporting and contradicting evidence.
+- Contradicted requires contradicting evidence without supporting evidence.
+- Retracted requires a recorded review rationale.
+- Adding new evidence to a reviewed claim is blocked until an editor explicitly resets the claim to unassessed. The new evidence is then added, the complete evidence list is revised, and the claim is reviewed again.
+
+These are conservative workflow consistency rules, not a machine-generated truth score. A human reviewer records the assessment, timestamp, actor, and rationale; the system checks that the selected status is consistent with the evidence relationships recorded in the registry.
