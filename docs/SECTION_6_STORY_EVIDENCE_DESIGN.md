@@ -99,7 +99,7 @@ The registry now accepts a dedicated `story_decision` record for human-reviewed 
 - an explicit article-to-resulting-story allocation for every article considered;
 - the deciding editor, rationale, and timezone-aware decision timestamp.
 
-The SQLite boundary verifies that every affected story and article exists, the canonical story belongs to the decision scope, and every listed article is already linked to at least one affected story. A merge must account for every article in every affected story and assign all of them to the canonical story. A split must allocate articles to at least two resulting stories. Duplicate article assignments and targets outside the decision scope are rejected. Decision records are immutable and included in the normal append-only audit chain. `story_decision_history(story_id)` retrieves the decisions involving a given story.
+The SQLite boundary verifies that every affected story and article exists, the canonical story belongs to the decision scope, and every listed article is already linked to at least one affected story. Each decision captures the expected revision of every affected story. It also captures an explicit assignment and expected revision for every existing claim linked to those stories. A merge must account for every article in every affected story and assign all of them to the canonical story; every affected claim must also be assigned to the canonical story. A split must allocate articles to at least two resulting stories, and each claim's assigned destination must be consistent with the destinations of all article-specific provenance entries. Duplicate assignments, stale revisions, incomplete claim coverage, and targets outside the decision scope are rejected. Decision records are immutable and included in the normal append-only audit chain. `story_decision_history(story_id)` retrieves the decisions involving a given story.
 
 **Deliberate boundary:** this first ledger records and preserves the editorial decision; it does not silently rewrite story membership, reassign claims, or archive a story. Applying a merge or split to live story membership requires a separate atomic workflow that can reconcile claims and provenance. That workflow remains future work. This avoids pretending that recording a decision is the same as safely executing it.
 
@@ -110,3 +110,10 @@ SQLite schema migration 5 creates a dedicated `story_decisions` table rather tha
 
 
 The explicit article-allocation extension and its additional regression tests were committed after the 336-test passing run. They are awaiting a new CI result; the earlier run does not verify this extension.
+
+
+## Decision preconditions and claim allocation
+
+The decision contract now captures `expected_story_revisions` for every affected story and `claim_assignments` for every claim currently linked to those stories. Each claim assignment includes the claim's expected revision and its intended resulting story. Registry validation rejects stale story or claim revisions, duplicate or incomplete claim assignments, destinations outside the decision scope, and assignments that separate a claim from its article-specific provenance. For merges, every claim must target the canonical story. These fields preserve the editorial state the decision was based on; they do not execute the decision.
+
+GitHub Actions [run #44611918568](https://github.com/Amiroudro/new-sngso/actions/runs/44611918568) passed **337 tests** after the contract and registry precondition checks were added. The latest follow-up adds four focused regression tests for stale story revisions, stale claim revisions, missing claim assignments, and split/provenance mismatch; the final CI run for that follow-up is pending.
