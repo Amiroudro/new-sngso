@@ -8,6 +8,8 @@ Migration line: schema version 1.
 
 The engine uses a modular monolith and SQLite for local development and early, low-volume operation. SQLite ships with Python, so this layer adds no paid database service and no new runtime package dependency. PostgreSQL is deliberately deferred until measured concurrency or operational needs justify it.
 
+The repository ports in `src/sngso_engine/ports.py` define source-governance, editorial-record, and audit interfaces. `SQLiteRegistry` is the initial adapter; callers can depend on the protocols instead of importing SQLite details. The older source-observation and edition-export ports remain future interfaces, not implemented services.
+
 The default `SQLiteRegistry()` uses an in-memory database. A persistent local database is opt-in:
 
 ```python
