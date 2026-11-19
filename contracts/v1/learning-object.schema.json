@@ -27,6 +27,7 @@
     },
     "kind": {
       "enum": [
+        "headline_summary",
         "brief_summary",
         "detailed_summary",
         "vocabulary",
@@ -58,6 +59,48 @@
           "object",
           "null"
         ]
+      },
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "term": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "meaning": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        },
+        "example": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        }
       }
     },
     "claim_ids": {
@@ -79,6 +122,152 @@
     },
     "reviewed_at": {
       "$ref": "common.schema.json#/$defs/dateTime"
+    },
+    "reviewed_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "review_note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "headline_summary",
+              "brief_summary",
+              "detailed_summary",
+              "revision_card"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "content": {
+            "required": [
+              "text"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "vocabulary"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "content": {
+            "required": [
+              "term",
+              "meaning",
+              "context",
+              "example"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "comprehension_question",
+              "analysis_question"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "content": {
+            "required": [
+              "question",
+              "answer",
+              "explanation"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "reviewed_at",
+          "reviewed_by",
+          "review_note"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "draft",
+              "review_required"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "reviewed_at"
+              ]
+            },
+            {
+              "required": [
+                "reviewed_by"
+              ]
+            },
+            {
+              "required": [
+                "review_note"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
 }
