@@ -960,10 +960,6 @@ class SQLiteRegistry:
                     raise RegistryIntegrityError(f"collection {uri_field} is invalid") from exc
                 if parsed_uri.scheme not in {"http", "https"} or not parsed_uri.hostname:
                     raise RegistryIntegrityError(f"collection {uri_field} must be an absolute HTTP(S) URI")
-                if not _host_in_domains(parsed_uri.hostname, allowed_domains):
-                    raise RegistryIntegrityError(
-                        f"collection {uri_field} is outside the registered source domains"
-                    )
             fingerprint = payload["content_fingerprint"]
             if fingerprint is not None and (
                 not isinstance(fingerprint, str)
@@ -1009,6 +1005,15 @@ class SQLiteRegistry:
                 endpoint_host = urlsplit(endpoint["endpoint_uri"]).hostname or ""
                 if not _host_in_domains(endpoint_host, allowed_domains):
                     raise RegistryIntegrityError("collection endpoint is outside the registered source domains")
+                for uri_field in ("locator", "final_locator"):
+                    uri_value = payload[uri_field]
+                    if uri_value is None:
+                        continue
+                    uri_host = urlsplit(uri_value).hostname or ""
+                    if not _host_in_domains(uri_host, allowed_domains):
+                        raise RegistryIntegrityError(
+                            f"collection {uri_field} is outside the registered source domains"
+                        )
                 if grant is None:
                     raise RegistryIntegrityError("collection grant is missing or belongs to another source")
                 if grant["revision"] != payload["grant_revision"]:
