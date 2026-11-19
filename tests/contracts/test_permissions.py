@@ -84,3 +84,24 @@ def test_approved_global_status_does_not_override_denied_operation() -> None:
     record["operations"]["discovery"] = {"allowed": True, "status": "revoked"}
     result = evaluate_permission(record, "discovery", now=NOW)
     assert (result.allowed, result.reason) == (False, "operation_not_approved")
+
+def test_unhandled_operation_conditions_require_review() -> None:
+    record = permission_record()
+    record["operations"]["discovery"]["conditions"] = [
+        "Only after confirming the publisher's written scope"
+    ]
+    result = evaluate_permission(record, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (
+        False,
+        "operation_conditions_require_review",
+    )
+
+
+def test_malformed_operation_conditions_deny() -> None:
+    record = permission_record()
+    record["operations"]["discovery"]["conditions"] = "not-a-condition-list"
+    result = evaluate_permission(record, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (
+        False,
+        "invalid_operation_conditions",
+    )
