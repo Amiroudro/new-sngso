@@ -1,6 +1,6 @@
 # Section 6: Story intelligence, claims, and evidence
 
-Status: in progress. Provenance, claim-assessment, and conservative reporting-independence foundations are implemented and verified. GitHub Actions run #44609756106 passed with 330 tests on code head 1025c41cfbdc775f6d365e7ef4e3900afe1ddd57. Later changes on the current PR head are documentation-only. Timeline persistence, explicit story merge/split records, automated story clustering, claim extraction, and corroboration scoring remain unimplemented.
+Status: in progress. Provenance integrity, human claim assessment, immutable story merge/split decisions and atomic application, claim-backed event chronology, and attributed perspective history are implemented. The current Section 6 work remains fixture-verified and does not include automatic story clustering, claim extraction, event extraction, truth scoring, or live collection.
 
 ## Core distinctions
 
@@ -57,16 +57,15 @@ The view deliberately does **not** emit an independent-source count. A publisher
 
 ## Explicit non-goals in this slice
 
-- No automatic article-to-story assignment or story merge.
-- No claim extraction from article bodies.
-- No AI-generated truth score or corroboration score.
-- No timeline event extraction.
+- No automatic article-to-story assignment, story clustering, or claim extraction from article bodies.
+- No automatic timeline event extraction or automatic perspective classification.
+- No AI-generated truth score, confidence probability, or corroboration score.
 - No new publisher access, full-text collection, or translation.
-- No automatic reclassification of evidence.
+- No automatic reclassification of evidence or resolution of contested viewpoints.
 
 ## Acceptance path
 
-Section 6 will remain open until the full fixture suite verifies the provenance invariants, story/article relationship revisions, append-only decision history, and audit integrity. Later slices will add explicit story merge/split decisions, event chronology, and human-reviewed claim/evidence assessment workflows.
+Section 6 remains open while the full fixture suite verifies provenance invariants, story/article relationship revisions and atomic decision application, claim assessment, claim-backed event chronology, attributed perspective corrections, schema migrations, and audit integrity. Remaining work is focused on richer contradiction workflows, curated editorial quality gates, and end-to-end acceptance. No automated truth or corroboration score is planned.
 
 
 ## First-slice verification
