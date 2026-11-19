@@ -131,3 +131,5 @@ A transport-backed fixture connector now exercises the orchestration-to-transpor
 - grant revocation after a successful transport response: storage-time revision check rejects the observation.
 
 This is an integration-test harness only. The production HTTPS transport remains unregistered, no publisher network requests are made, and no live connector is enabled. The tests must pass in GitHub Actions before this milestone is considered verified.
+
+Verification: GitHub Actions run #164 passed with **179 tests**. The four added boundary tests cover denied-permission zero-call behavior, exact source-domain propagation, transport failure atomicity, and post-response grant revocation. The public `CollectionExecutionContext` type is exported from the package root.
