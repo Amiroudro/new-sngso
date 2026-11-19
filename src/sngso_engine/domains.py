@@ -13,8 +13,11 @@ def canonical_dns_name(value: Any) -> str | None:
     """Return a lowercase IDNA ASCII DNS name, or None for invalid input."""
     if not isinstance(value, str) or not value or value != value.strip():
         return None
+    raw_name = value[:-1] if value.endswith(".") else value
+    if not raw_name or raw_name.endswith("."):
+        return None
     try:
-        canonical = value.rstrip(".").encode("idna").decode("ascii").lower()
+        canonical = raw_name.encode("idna").decode("ascii").lower()
     except UnicodeError:
         return None
     if not canonical or len(canonical) > 253:
