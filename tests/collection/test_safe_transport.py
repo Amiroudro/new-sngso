@@ -80,6 +80,7 @@ def test_https_transport_pins_resolved_ip_and_preserves_host_header():
     "https://news.example.org:8443/feed.xml",
     "https://news.example.org:0/feed.xml",
     "https://news.example.org:/feed.xml",
+    "https://news.example.org../feed.xml",
     "https://127.0.0.1/feed.xml",
 ])
 def test_transport_rejects_unsafe_url_before_dns(url):
