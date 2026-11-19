@@ -66,6 +66,15 @@ class SourceGovernanceRepository(Protocol):
         endpoint_id: str,
         now: datetime | None = None,
     ) -> PermissionDecision: ...
+    def transition_permission_grant(
+        self,
+        grant_id: str,
+        new_status: str,
+        *,
+        actor: str,
+        reason: str,
+        at: str | None = None,
+    ) -> PermissionGrantRecord: ...
 
 
 class EditorialRepository(Protocol):
