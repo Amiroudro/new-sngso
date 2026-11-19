@@ -1,14 +1,14 @@
 # Persistence, Revisions, and Audit Trail
 
-Status: implemented foundation; execution tests not yet verified by CI.  
+Status: implemented foundation; fixture test suite verified by GitHub Actions.  
 Storage engine: Python `sqlite3` and SQLite.  
-Migration line: schema version 1.
+Migration line: schema version 2.
 
 ## Design choices
 
 The engine uses a modular monolith and SQLite for local development and early, low-volume operation. SQLite ships with Python, so this layer adds no paid database service and no new runtime package dependency. PostgreSQL is deliberately deferred until measured concurrency or operational needs justify it.
 
-The repository ports in `src/sngso_engine/ports.py` define source-governance, editorial-record, and audit interfaces. `SQLiteRegistry` is the initial adapter; callers can depend on the protocols instead of importing SQLite details. The older source-observation and edition-export ports remain future interfaces, not implemented services.
+The repository ports in `src/sngso_engine/ports.py` define source-governance, editorial-record, and audit interfaces. `SQLiteRegistry` is the initial adapter; callers can depend on the protocols instead of importing SQLite details. The older source-observation and edition-export ports remain future interfaces. Section 4 adds a separate append-only collection-observation repository port.
 
 The default `SQLiteRegistry()` uses an in-memory database. A persistent local database is opt-in:
 
@@ -34,6 +34,10 @@ Migration 1 creates:
 - `domain_records`: article, story, claim, factual evidence, and edition records.
 - `domain_record_revisions`: append-only editorial record history.
 - `audit_events`: append-only hash-linked operational and permission-decision events.
+
+Migration 2 adds:
+
+- `collection_observations`: immutable discovery/metadata observations linked by composite foreign keys to the exact source, endpoint, and permission grant. The row captures the grant revision, connector identity, observation time, locator, metadata, and decision reason.
 
 The applied schema version is stored in SQLite's `user_version` and in `schema_migrations`. Migrations run in an exclusive transaction. A failed migration rolls back; a database with a newer unknown schema version is rejected rather than downgraded.
 
@@ -67,7 +71,7 @@ Grant transitions are explicit:
 
 Approval records reviewer identity and timestamp. Revocation records its timestamp and reason. Every transition appends a grant revision and an audit event. An expired, suspended, revoked, out-of-scope, or evidence-invalid grant is denied.
 
-`evaluate_grant` resolves the persisted source, endpoint, grant, and evidence records before calling the operation evaluator. It records the operation, source, endpoint, result, reason, evaluation time, and policy version. This is a decision service, not yet a connector network guard; Section 4 must place it before every network request and retention action.
+`evaluate_grant` resolves the persisted source, endpoint, grant, and evidence records before calling the operation evaluator. It records the operation, source, endpoint, result, reason, evaluation time, and policy version. This is the decision service used by the Section 4 collection orchestrator. The orchestrator checks permission before invoking a connector. The persistent observation sink rechecks the grant revision, active source/endpoint, evidence state, and effective permission at storage time, so a grant revoked during connector execution cannot be used to store its result.
 
 ## Editorial record revisions
 
@@ -77,7 +81,7 @@ Edition snapshots are immutable through the repository API, including published 
 
 ## Audit integrity
 
-Every source, endpoint, permission evidence, grant, grant transition, domain record, domain revision, and permission decision appends an audit event. Each event hashes its canonical payload and the previous event hash. SQLite triggers reject ordinary UPDATE and DELETE operations on audit events and revision history. `verify_audit_chain()` checks the sequence and hashes.
+Every source, endpoint, permission evidence, grant, grant transition, domain record, domain revision, permission decision, and persisted collection observation appends an audit event. Each event hashes its canonical payload and the previous event hash. SQLite triggers reject ordinary UPDATE and DELETE operations on audit events and revision history. `verify_audit_chain()` checks the sequence and hashes.
 
 This is **tamper-evident, not tamper-proof**. A person with direct control of the database file can disable triggers or rewrite the file. Production deployment will need protected backups, restricted filesystem access, and potentially external audit anchoring. The current implementation does not claim cryptographic protection against a fully privileged database operator.
 
@@ -88,13 +92,13 @@ This is **tamper-evident, not tamper-proof**. A person with direct control of th
 - Evidence records store references and fingerprints, not copies of legal documents or full source articles.
 - Human reviewer identity is recorded, but authentication and reviewer-role authorization are not yet implemented.
 - Source and endpoint status changes do not yet have dedicated lifecycle APIs.
-- Source observations, pipeline runs, timelines, perspectives, and learning objects are not yet persisted.
+- Pipeline runs, timelines, perspectives, and learning objects are not yet persisted. The new collection-observation table persists only permission-checked discovery/metadata results; it is not a general-purpose article-content store.
 - Cross-record validation is implemented for the listed relationships only; it is not a substitute for the full publication gate.
 - SQLite is suitable for local and early low-volume use, not yet validated for a multi-user hosted production workload.
 - Backups, restore drills, encryption-at-rest policy, retention automation, and external audit anchoring remain future operational work.
 
 ## Verification
 
-The repository includes fixture tests for migration idempotency and rollback, cross-source reference rejection, evidence review requirements, grant lifecycle, permission decisions, audit chain integrity, append-only revisions, optimistic concurrency, and concurrent writes from separate registry instances.
+The repository includes fixture tests for migration idempotency and rollback, cross-source reference rejection, evidence review requirements, grant lifecycle, permission decisions, audit chain integrity, append-only revisions, optimistic concurrency, concurrent writes, permission-first connector gating, operation separation, provenance persistence, and revocation during connector execution.
 
-The GitHub Actions workflow now runs the full pytest suite, including `tests/storage`. The test suite is authored but is not called passing until a runner executes it successfully.
+The full pytest suite has passed in GitHub Actions runs #103, #104, and #105. Run #106 is validating the package-export update.
