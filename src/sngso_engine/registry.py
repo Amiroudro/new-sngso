@@ -1991,6 +1991,23 @@ class SQLiteRegistry:
                 story_id: require_record("story", story_id, "story decision")
                 for story_id in story_ids
             }
+
+            expected_story_revisions = payload["expected_story_revisions"]
+            expected_story_ids = [item["story_id"] for item in expected_story_revisions]
+            if len(expected_story_ids) != len(set(expected_story_ids)) or set(expected_story_ids) != story_ids:
+                raise RegistryIntegrityError(
+                    "story decision must capture exactly one expected revision for every affected story"
+                )
+            for item in expected_story_revisions:
+                row = connection.execute(
+                    "SELECT revision FROM domain_records WHERE record_type = 'story' AND id = ?",
+                    (item["story_id"],),
+                ).fetchone()
+                if row is None or row["revision"] != item["expected_revision"]:
+                    raise RegistryIntegrityError(
+                        f"story decision expected revision is stale for story: {item['story_id']}"
+                    )
+
             available_articles = {
                 article_id
                 for story_payload in story_payloads.values()
@@ -1998,6 +2015,9 @@ class SQLiteRegistry:
             }
             assignments = payload["article_assignments"]
             assigned_articles = [item["article_id"] for item in assignments]
+            article_destinations = {
+                item["article_id"]: item["assigned_story_id"] for item in assignments
+            }
             assigned_stories = {item["assigned_story_id"] for item in assignments}
             if len(assigned_articles) != len(set(assigned_articles)):
                 raise RegistryIntegrityError("story decision cannot assign an article more than once")
@@ -2026,6 +2046,60 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError(
                     "split decision must allocate articles to at least two resulting stories"
                 )
+
+            claim_rows = connection.execute(
+                """SELECT id, revision, payload_json FROM domain_records
+                WHERE record_type = 'claim'
+                  AND json_extract(payload_json, '$.story_id') IN (
+                      SELECT value FROM json_each(?)
+                  )""",
+                (_json_text(sorted(story_ids)),),
+            ).fetchall()
+            current_claims = {
+                row["id"]: (row["revision"], json.loads(row["payload_json"]))
+                for row in claim_rows
+            }
+            claim_assignments = payload["claim_assignments"]
+            assigned_claim_ids = [item["claim_id"] for item in claim_assignments]
+            if len(assigned_claim_ids) != len(set(assigned_claim_ids)):
+                raise RegistryIntegrityError("story decision cannot assign a claim more than once")
+            if set(assigned_claim_ids) != set(current_claims):
+                raise RegistryIntegrityError(
+                    "story decision must account for every claim in the affected stories"
+                )
+            for item in claim_assignments:
+                claim_id = item["claim_id"]
+                destination = item["assigned_story_id"]
+                current_revision, claim_payload = current_claims[claim_id]
+                if destination not in story_ids:
+                    raise RegistryIntegrityError(
+                        "story decision claim assignment target must be in the decision scope"
+                    )
+                if current_revision != item["expected_revision"]:
+                    raise RegistryIntegrityError(
+                        f"story decision expected revision is stale for claim: {claim_id}"
+                    )
+                provenance_destinations = {
+                    article_destinations[entry["article_id"]]
+                    for entry in claim_payload.get("provenance", [])
+                    if entry.get("article_id") in article_destinations
+                }
+                if any(
+                    entry.get("article_id") is not None
+                    and entry["article_id"] not in article_destinations
+                    for entry in claim_payload.get("provenance", [])
+                ):
+                    raise RegistryIntegrityError(
+                        f"story decision is missing an article assignment used by claim: {claim_id}"
+                    )
+                if provenance_destinations and provenance_destinations != {destination}:
+                    raise RegistryIntegrityError(
+                        f"claim provenance does not fit its assigned resulting story: {claim_id}"
+                    )
+                if payload["operation"] == "merge" and destination != payload["canonical_story_id"]:
+                    raise RegistryIntegrityError(
+                        "merge decision must assign every claim to the canonical story"
+                    )
         elif record_type == "edition":
             for story_id in payload["story_ids"]:
                 require_record("story", story_id, "edition")
