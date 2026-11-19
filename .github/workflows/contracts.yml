@@ -1,5 +1,7 @@
 name: Contract validation
 
+# Run the complete test suite when contracts, engine code, or tests change.
+
 on:
   push:
     branches: [main]
