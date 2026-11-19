@@ -1222,3 +1222,49 @@ def test_timeline_event_cannot_have_two_direct_corrections() -> None:
             else:
                 with pytest.raises(sqlite3.IntegrityError):
                     registry.add_timeline_event(correction)
+
+
+def test_timeline_event_sqlite_trigger_rejects_claim_from_another_story() -> None:
+    with SQLiteRegistry() as registry:
+        populate_editorial_records(registry)
+        other_article = article_record()
+        other_article.update({
+            "id": "article:publisher-a-002",
+            "canonical_uri": "https://publisher-a.example.org/news/002",
+        })
+        other_story = story_record()
+        other_story.update({
+            "id": "story:other-event",
+            "article_ids": ["article:publisher-a-002"],
+        })
+        other_claim = claim_record()
+        other_claim.update({
+            "id": "claim:other-event",
+            "story_id": "story:other-event",
+            "provenance": [{
+                "source_id": "source:publisher-a",
+                "article_id": "article:publisher-a-002",
+                "observed_at": STAMP,
+                "method": "manual_fixture",
+                "method_version": "1.0",
+            }],
+        })
+        registry.add_domain_record("article", other_article)
+        registry.add_domain_record("story", other_story)
+        registry.add_domain_record("claim", other_claim)
+        payload = _timeline_event_record()
+        with pytest.raises(sqlite3.IntegrityError, match="claims must belong"):
+            registry._connection.execute(
+                """INSERT INTO timeline_events
+                (id, story_id, occurred_sort_key, precision, supersedes_event_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    "timeline-event:sql-invalid",
+                    "story:sample-event",
+                    "2026-11-18",
+                    "date",
+                    None,
+                    STAMP,
+                    __import__("json").dumps({**payload, "claim_ids": ["claim:other-event"]}),
+                ),
+            )

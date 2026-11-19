@@ -399,9 +399,30 @@ _MIGRATION_7 = (
         supersedes_event_id TEXT UNIQUE,
         created_at TEXT NOT NULL,
         payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
-        FOREIGN KEY (supersedes_event_id) REFERENCES timeline_events(id) ON DELETE RESTRICT
+        UNIQUE (story_id, id),
+        FOREIGN KEY (story_id, supersedes_event_id)
+            REFERENCES timeline_events(story_id, id) ON DELETE RESTRICT
     )""",
     "CREATE INDEX idx_timeline_events_story_time ON timeline_events(story_id, occurred_sort_key, created_at, id)",
+    """CREATE TRIGGER timeline_events_validate_insert
+        BEFORE INSERT ON timeline_events
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM domain_records
+                WHERE record_type = 'story' AND id = NEW.story_id
+                  AND json_extract(payload_json, '$.status') != 'archived'
+            ) THEN RAISE(ABORT, 'timeline event requires an active registered story') END;
+            SELECT CASE WHEN json_array_length(NEW.payload_json, '$.claim_ids') IS NULL
+                OR json_array_length(NEW.payload_json, '$.claim_ids') = 0
+                OR (
+                    SELECT COUNT(*) FROM json_each(NEW.payload_json, '$.claim_ids') claim_ref
+                    JOIN domain_records claim_record
+                      ON claim_record.record_type = 'claim'
+                     AND claim_record.id = claim_ref.value
+                     AND json_extract(claim_record.payload_json, '$.story_id') = NEW.story_id
+                ) != json_array_length(NEW.payload_json, '$.claim_ids')
+            THEN RAISE(ABORT, 'timeline event claims must belong to its story') END;
+        END""",
     """CREATE TRIGGER timeline_events_no_update
         BEFORE UPDATE ON timeline_events
         BEGIN SELECT RAISE(ABORT, 'timeline events are append-only'); END""",
