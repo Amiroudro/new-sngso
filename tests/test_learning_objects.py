@@ -124,6 +124,8 @@ def test_vocabulary_and_question_content_require_kind_specific_fields():
         "kind": "vocabulary",
         "content": {
             "term": "accountability",
+            "term_language": "en",
+            "part_of_speech": "noun",
             "meaning": "দায়বদ্ধতা",
             "context": "The report discusses public accountability.",
             "example": "Public accountability requires transparent decisions.",
