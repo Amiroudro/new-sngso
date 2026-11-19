@@ -51,6 +51,15 @@ def test_malformed_permission_record_denies(malformed) -> None:
     assert (result.allowed, result.reason) == (False, "invalid_permission_record")
 
 
+@pytest.mark.parametrize("invalid_id", [None, "", "   ", [], 7])
+def test_missing_or_malformed_permission_id_denies(invalid_id) -> None:
+    record = permission_record()
+    record["id"] = invalid_id
+    result = evaluate_permission(record, "discovery", now=NOW)
+    assert (result.allowed, result.reason) == (False, "invalid_permission_id")
+    assert result.permission_id is None
+
+
 def test_unhashable_operation_input_denies_without_exception() -> None:
     result = evaluate_permission(permission_record(), ["discovery"], now=NOW)
     assert (result.allowed, result.reason) == (False, "unknown_operation")
