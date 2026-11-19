@@ -144,3 +144,8 @@ Further boundary checks now reject ambiguous explicit URL ports (including port 
 A dedicated pinned-connection test verifies that the socket connects to the validated IP address while TLS still receives the original DNS hostname for certificate verification and SNI. This is a deterministic unit test of the connection boundary, not a live TLS handshake against a publisher.
 
 GitHub Actions run #175 passed with **188 tests**. The latest run for commit f9cd0227990cbf6a2a02831f8a7077e8bd487fab passed with **189 tests**. These checks remain offline and fixture-based; no publisher endpoints were contacted.
+
+
+### Request-deadline enforcement review
+
+The remaining request deadline is now reapplied to the connected socket immediately before response headers are read, not only during connection setup and body streaming. This prevents time spent sending the request from leaving response-header reads with a stale, overly generous socket timeout. A deterministic fake-clock regression test advances time during request transmission and verifies that the reduced remaining budget is applied before getresponse(). GitHub Actions run #179 passed with **190 tests**. The change remains fixture-only and does not perform live network requests.
