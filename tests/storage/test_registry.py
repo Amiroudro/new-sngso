@@ -122,11 +122,11 @@ def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
         assert registry.schema_version() == 4
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 3
+        assert reopened.schema_version() == 4
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
-def test_existing_schema_v2_database_migrates_to_v3(tmp_path, monkeypatch):
+def test_existing_schema_v2_database_migrates_to_v4(tmp_path, monkeypatch):
     database = tmp_path / "registry-v2.sqlite"
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 2)
     with SQLiteRegistry(database) as old_registry:
