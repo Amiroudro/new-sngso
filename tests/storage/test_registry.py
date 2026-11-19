@@ -1269,3 +1269,22 @@ def test_timeline_event_sqlite_trigger_rejects_claim_from_another_story() -> Non
                     __import__("json").dumps({**payload, "claim_ids": ["claim:other-event"]}),
                 ),
             )
+
+
+def test_existing_schema_v7_database_migrates_to_v8(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "registry-v7.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 7)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 7
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'perspectives'"
+        ).fetchone() is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 8)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 8
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'perspectives'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 8
