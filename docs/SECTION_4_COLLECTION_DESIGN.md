@@ -105,7 +105,7 @@ Implemented and CI-verified:
 - audit events for persisted observations;
 - fixture-only tests with no publisher network calls.
 
-GitHub Actions run #107 passed with 132 tests.
+GitHub Actions run #116 passed with 136 tests.
 
 ## 10. Remaining Section 4 gates
 
