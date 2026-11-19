@@ -1270,6 +1270,18 @@ class SQLiteRegistry:
             raise RegistryIntegrityError("ingestion endpoint is missing or inactive")
         if grant is None or grant["revision"] != observation["grant_revision"]:
             raise RegistryIntegrityError("permission grant changed since the observation")
+        source_row = connection.execute(
+            "SELECT payload_json FROM sources WHERE id = ?", (observation["source_id"],)
+        ).fetchone()
+        source_domains = json.loads(source_row["payload_json"]).get("domains", [])
+        if not valid_domain_allowlist(source_domains):
+            raise RegistryIntegrityError("ingestion source domain allowlist is invalid")
+        for locator in (observation["locator"], observation["final_locator"]):
+            if locator is None:
+                continue
+            host = urlsplit(locator).hostname or ""
+            if not _host_in_domains(host, source_domains):
+                raise RegistryIntegrityError("ingestion observation locator is outside source scope")
         grant_payload = json.loads(grant["payload_json"])
         if grant_payload.get("status") != "approved":
             raise RegistryIntegrityError("permission grant is no longer approved")
@@ -1451,6 +1463,14 @@ class SQLiteRegistry:
             if current["outcome"] not in {"possible_duplicate", "confirmed_duplicate", "distinct"}:
                 raise RegistryIntegrityError("ingestion decision is not a duplicate candidate")
             duplicate_of = current["duplicate_of_article_id"]
+            if duplicate_of is None:
+                prior_candidate = connection.execute(
+                    """SELECT duplicate_of_article_id FROM ingestion_decisions
+                    WHERE observation_id = ? AND duplicate_of_article_id IS NOT NULL
+                    ORDER BY decision_revision DESC LIMIT 1""",
+                    (observation_id,),
+                ).fetchone()
+                duplicate_of = prior_candidate["duplicate_of_article_id"] if prior_candidate else None
             if outcome == "confirmed_duplicate" and duplicate_of is None:
                 raise RegistryIntegrityError("no duplicate candidate is available to confirm")
             decision_id = f"ingestion-decision:{uuid.uuid4().hex}"
