@@ -3832,6 +3832,163 @@ class SQLiteRegistry:
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
             return snapshot
 
+    def add_glossary_entry(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> GlossaryEntryRecord:
+        """Create a shared glossary headword with language-specific senses."""
+        validate_payload("glossary-entry", payload)
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        _aware_datetime(payload["created_at"], "created_at")
+        if payload["status"] not in {"draft", "review_required"}:
+            raise RegistryIntegrityError("new glossary entry must start in draft or review-required state")
+        if any(field in payload for field in ("reviewed_at", "reviewed_by", "review_note")):
+            raise RegistryIntegrityError("new glossary entry cannot contain review metadata")
+        record = GlossaryEntryRecord.from_payload(payload, revision=1)
+        lemma_key = payload["lemma"].strip().casefold()
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO glossary_entries
+                (id, lemma, lemma_key, term_language, part_of_speech, status, revision,
+                 created_at, updated_at, last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (record.id, record.lemma, lemma_key, record.term_language, record.part_of_speech,
+                 record.status, payload["created_at"], payload["created_at"],
+                 actor.strip(), reason.strip(), record.payload_json),
+            )
+            self._append_audit(
+                connection,
+                event_type="glossary_entry.created",
+                entity_type="glossary_entry",
+                entity_id=record.id,
+                payload={"record": payload, "actor": actor.strip(), "reason": reason.strip(), "revision": 1},
+            )
+        return record
+
+    def get_glossary_entry(self, glossary_entry_id: str) -> GlossaryEntryRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT revision, payload_json FROM glossary_entries WHERE id = ?",
+                (glossary_entry_id,),
+            ).fetchone()
+        return GlossaryEntryRecord.from_payload(json.loads(row["payload_json"]), row["revision"]) if row else None
+
+    def find_glossary_entry(
+        self, lemma: str, *, term_language: str, part_of_speech: str
+    ) -> GlossaryEntryRecord | None:
+        lemma_key = lemma.strip().casefold()
+        with self._lock:
+            row = self._connection.execute(
+                """SELECT revision, payload_json FROM glossary_entries
+                WHERE lemma_key = ? AND term_language = ? AND part_of_speech = ?""",
+                (lemma_key, term_language, part_of_speech),
+            ).fetchone()
+        return GlossaryEntryRecord.from_payload(json.loads(row["payload_json"]), row["revision"]) if row else None
+
+    def revise_glossary_entry(
+        self,
+        glossary_entry_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+    ) -> GlossaryEntryRecord:
+        """Revise senses or review state without rewriting the headword identity."""
+        validate_payload("glossary-entry", payload)
+        if payload.get("id") != glossary_entry_id:
+            raise RegistryIntegrityError("glossary entry identity cannot change during revision")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        _aware_datetime(payload["created_at"], "created_at")
+        if payload["status"] in {"approved", "rejected"}:
+            reviewed_at = _aware_datetime(payload["reviewed_at"], "reviewed_at")
+            if reviewed_at < _aware_datetime(payload["created_at"], "created_at"):
+                raise RegistryIntegrityError("glossary entry review cannot predate its creation")
+        record = GlossaryEntryRecord.from_payload(payload, revision=expected_revision + 1)
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM glossary_entries WHERE id = ?",
+                (glossary_entry_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot revise an unknown glossary entry")
+            if row["revision"] != expected_revision:
+                raise RegistryIntegrityError("glossary entry revision conflict")
+            previous = json.loads(row["payload_json"])
+            for field in ("lemma", "term_language", "part_of_speech", "created_at"):
+                if payload[field] != previous[field]:
+                    raise RegistryIntegrityError("glossary entry identity fields cannot be rewritten")
+            now = _utc_now()
+            updated = connection.execute(
+                """UPDATE glossary_entries
+                SET status = ?, revision = ?, updated_at = ?, last_actor = ?, last_reason = ?, payload_json = ?
+                WHERE id = ? AND revision = ?""",
+                (record.status, expected_revision + 1, now, actor.strip(), reason.strip(),
+                 record.payload_json, glossary_entry_id, expected_revision),
+            )
+            if updated.rowcount != 1:
+                raise RegistryIntegrityError("glossary entry revision conflict")
+            self._append_audit(
+                connection,
+                event_type="glossary_entry.revised",
+                entity_type="glossary_entry",
+                entity_id=glossary_entry_id,
+                payload={
+                    "revision": expected_revision + 1,
+                    "actor": actor.strip(),
+                    "reason": reason.strip(),
+                    "record": payload,
+                },
+            )
+        return record
+
+    def glossary_entry_history(self, glossary_entry_id: str) -> list[dict[str, Any]]:
+        if self.get_glossary_entry(glossary_entry_id) is None:
+            raise RegistryIntegrityError(f"unknown glossary entry: {glossary_entry_id}")
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, created_at, actor, reason, payload_json
+                FROM glossary_entry_revisions WHERE glossary_entry_id = ? ORDER BY revision""",
+                (glossary_entry_id,),
+            ).fetchall()
+        return [
+            {
+                "revision": row["revision"],
+                "created_at": row["created_at"],
+                "actor": row["actor"],
+                "reason": row["reason"],
+                "record": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def _validate_learning_object_glossary_reference(
+        self, connection: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        if payload.get("kind") != "vocabulary":
+            return
+        content = payload["content"]
+        row = connection.execute(
+            "SELECT status, payload_json FROM glossary_entries WHERE id = ?",
+            (content["glossary_entry_id"],),
+        ).fetchone()
+        if row is None:
+            raise RegistryIntegrityError("vocabulary learning object references an unknown glossary entry")
+        glossary = json.loads(row["payload_json"])
+        if any((
+            glossary["lemma"] != content["term"],
+            glossary["term_language"] != content["term_language"],
+            glossary["part_of_speech"] != content["part_of_speech"],
+        )):
+            raise RegistryIntegrityError("vocabulary fields must match the referenced glossary entry")
+        if payload["status"] == "approved" and row["status"] != "approved":
+            raise RegistryIntegrityError("approved vocabulary requires an approved glossary entry")
+
     def add_learning_object(
         self, payload: dict[str, Any], *, actor: str, reason: str
     ) -> LearningObjectRecord:
@@ -3870,6 +4027,7 @@ class SQLiteRegistry:
                     json.loads(row["payload_json"])["story_id"] != record.story_id for row in rows
                 ):
                     raise RegistryIntegrityError("learning object claims must belong to its story")
+            self._validate_learning_object_glossary_reference(connection, payload)
             connection.execute(
                 """INSERT INTO learning_objects
                 (id, story_id, kind, language, status, revision, created_at, updated_at,
@@ -3944,6 +4102,7 @@ class SQLiteRegistry:
                     json.loads(item["payload_json"])["story_id"] != record.story_id for item in claims
                 ):
                     raise RegistryIntegrityError("learning object claims must belong to its story")
+            self._validate_learning_object_glossary_reference(connection, payload)
             now = _utc_now()
             updated = connection.execute(
                 """UPDATE learning_objects
