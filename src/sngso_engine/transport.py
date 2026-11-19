@@ -113,28 +113,6 @@ def _validate_public_addresses(values: object) -> tuple[str, ...]:
     return tuple(checked)
 
 
-def _resolve_public(host: str, port: int) -> tuple[str, ...]:
-    try:
-        answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    except OSError as exc:
-        raise TransportError("DNS resolution failed") from exc
-    addresses = tuple(dict.fromkeys(item[4][0] for item in answers))
-    if not addresses:
-        raise TransportError("DNS returned no addresses")
-    checked: list[str] = []
-    for value in addresses:
-        try:
-            address = ipaddress.ip_address(value.split("%", 1)[0])
-        except ValueError as exc:
-            raise TransportError("DNS returned an invalid address") from exc
-        if not address.is_global:
-            raise TransportError("DNS resolved to a non-public IP address")
-        checked.append(str(address))
-    return tuple(checked)
-
-
-
-
 class BoundedDNSResolver:
     """Resolve A and AAAA records within one shared DNS deadline."""
 
