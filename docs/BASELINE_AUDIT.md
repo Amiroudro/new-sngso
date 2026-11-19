@@ -41,10 +41,11 @@ There is no live network transport. Timeout and retry values are bounded request
 - GitHub Actions run #127 passed the full pytest workflow for the first verified 137-test collection milestone.
 - GitHub Actions run #128 passed after adding source-domain scope regression tests for endpoint hosts, returned locators, final locators, and allowed subdomains.
 - An intermediate run #132 failed during the storage-boundary change because a domain check referenced transaction data before it was loaded. The check was moved into the transaction; run #133 passed with the storage-bypass regression test.
+- Run #136 passed after adding regression coverage for inactive sources/endpoints, expired grants, disallowed metadata fields, and atomic observation-batch rollback.
 - The workflow runs the full test suite on relevant source, contract, test, packaging, and workflow changes. It does not contact publisher websites.
 - A passing fixture test suite proves the tested software behavior only. It does not approve publishers, establish copyright permission, or prove production readiness.
 
-Latest verified code change for the source-domain persistence boundary: `a1157f22fb453f0adf27a6e3d8a60c0f0dfa0782`, with the corresponding regression test in `a0d251df56f805f3597a913dcde50213c8e7fae5`. GitHub Actions run #133 passed for the corrected code. Later documentation-only commits should still receive their own routine CI checks before merge.
+Latest verified collection test commit: `c81351f7f228e339d2b280669b7b1fd805b6bb1e`. GitHub Actions run #136 passed for the expanded suite. The Section 4 acceptance gates remain open for real transport controls and final adversarial review.
 
 ## Ten-section programme status
 
