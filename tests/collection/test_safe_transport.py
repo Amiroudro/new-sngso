@@ -180,6 +180,48 @@ def test_compressed_response_is_rejected_to_avoid_decompression_bombs():
         )
 
 
+def test_retry_backoff_uses_bounded_jitter():
+    delays = []
+    client = transport.SafeHTTPSTransport(
+        resolver=lambda host, port: ("93.184.216.34",),
+        connection_factory=lambda *args: FakeConnection(
+            FakeResponse(503) if len(delays) == 0 else FakeResponse(200)
+        ),
+        sleep=delays.append,
+        clock=lambda: 0.0,
+        jitter=lambda ceiling: ceiling / 2,
+    )
+    result = client.fetch(
+        "https://news.example.org/feed.xml",
+        allowed_domains=("example.org",),
+        max_retries=1,
+    )
+    assert result.status == 200
+    assert delays == [0.125]
+
+
+@pytest.mark.parametrize("jitter", [
+    lambda ceiling: -1,
+    lambda ceiling: ceiling + 1,
+    lambda ceiling: float("nan"),
+    lambda ceiling: True,
+])
+def test_retry_backoff_rejects_invalid_jitter(jitter):
+    client = transport.SafeHTTPSTransport(
+        resolver=lambda host, port: ("93.184.216.34",),
+        connection_factory=lambda *args: FakeConnection(FakeResponse(503)),
+        sleep=lambda delay: None,
+        clock=lambda: 0.0,
+        jitter=jitter,
+    )
+    with pytest.raises(transport.TransportError, match="retry jitter"):
+        client.fetch(
+            "https://news.example.org/feed.xml",
+            allowed_domains=("example.org",),
+            max_retries=1,
+        )
+
+
 def test_transient_status_retries_within_budget():
     client, connections = make_transport([
         FakeResponse(503, body=b"temporary"),
