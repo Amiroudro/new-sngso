@@ -51,7 +51,7 @@ Scheduling, retries, rate limits, health checks, audit logs, metrics, alert cond
 
 ## Core domain entities
 
-Publisher; SourcePermission; SourceObservation; Article; Story; StoryArticle; Claim; Evidence; Event; Perspective; LearningObject; Edition; PipelineRun; EditorialDecision.
+Source; SourceEndpoint; PermissionEvidence; SourcePermissionGrant; SourceObservation; Article; Story; StoryArticle; Claim; Evidence; Event; Perspective; LearningObject; Edition; PipelineRun; EditorialDecision.
 
 Use stable IDs and explicit relationships. A URL is not the sole identity of an article, and a headline is not the identity of a story.
 
