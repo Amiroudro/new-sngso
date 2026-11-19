@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 import json
 from dataclasses import replace
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import pytest
 
@@ -322,6 +324,112 @@ def test_revocation_during_connector_execution_prevents_observation_storage() ->
 
         assert connector.calls == 1
         assert registry.collection_observations() == []
+
+def _persistent_registry_pair(tmp_path):
+    database = tmp_path / "permission-race.sqlite"
+    first = SQLiteRegistry(database)
+    first.add_source(source_payload())
+    first.add_endpoint(endpoint_payload())
+    first.add_permission_evidence(evidence_payload())
+    first.add_permission_grant(grant_payload())
+    second = SQLiteRegistry(database)
+
+    connector = FixtureConnector([{
+        "locator": "https://publisher-a.example.org/news/race"
+    }])
+    result = make_collector(
+        first, connector, InMemoryObservationSink()
+    ).collect(make_request(), "fixture-feed")
+    assert result.allowed is True
+    return first, second, result.observations
+
+
+def test_cross_connection_revocation_wins_before_observation_storage(tmp_path, monkeypatch):
+    first, second, observations = _persistent_registry_pair(tmp_path)
+    revision_inserted = Event()
+    allow_revoke_commit = Event()
+    original_insert = second._insert_grant_revision
+
+    def pause_before_revocation_commit(*args, **kwargs):
+        revision_inserted.set()
+        assert allow_revoke_commit.wait(5)
+        return original_insert(*args, **kwargs)
+
+    monkeypatch.setattr(second, "_insert_grant_revision", pause_before_revocation_commit)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            revoke = executor.submit(
+                second.transition_permission_grant,
+                "permission:publisher-a-grant",
+                "revoked",
+                actor="rights-reviewer",
+                reason="Concurrent withdrawal test.",
+            )
+            assert revision_inserted.wait(5)
+            store_started = Event()
+
+            def store():
+                store_started.set()
+                first.append_many(observations)
+
+            store = executor.submit(store)
+            assert store_started.wait(5)
+            allow_revoke_commit.set()
+            revoke.result(timeout=5)
+            with pytest.raises(RegistryIntegrityError, match="grant changed during collection"):
+                store.result(timeout=5)
+
+        assert first.collection_observations() == []
+        assert first.get_permission_grant("permission:publisher-a-grant").status == "revoked"
+        assert first.verify_audit_chain()
+    finally:
+        allow_revoke_commit.set()
+        first.close()
+        second.close()
+
+
+def test_cross_connection_observation_storage_finishes_before_revocation(tmp_path, monkeypatch):
+    first, second, observations = _persistent_registry_pair(tmp_path)
+    observation_inserted = Event()
+    allow_storage_commit = Event()
+    revoke_started = Event()
+    original_audit = first._append_audit
+
+    def pause_after_observation_insert(connection, **kwargs):
+        if kwargs.get("event_type") == "collection.observation_recorded":
+            observation_inserted.set()
+            assert allow_storage_commit.wait(5)
+        return original_audit(connection, **kwargs)
+
+    monkeypatch.setattr(first, "_append_audit", pause_after_observation_insert)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            store = executor.submit(first.append_many, observations)
+            assert observation_inserted.wait(5)
+
+            def revoke():
+                revoke_started.set()
+                return second.transition_permission_grant(
+                    "permission:publisher-a-grant",
+                    "revoked",
+                    actor="rights-reviewer",
+                    reason="Concurrent withdrawal after storage began.",
+                )
+
+            revoke_future = executor.submit(revoke)
+            assert revoke_started.wait(5)
+            allow_storage_commit.set()
+            store.result(timeout=5)
+            revoke_future.result(timeout=5)
+
+        assert len(first.collection_observations()) == 1
+        assert first.get_permission_grant("permission:publisher-a-grant").status == "revoked"
+        assert first.verify_audit_chain()
+    finally:
+        allow_storage_commit.set()
+        first.close()
+        second.close()
+
 
 def test_per_domain_rate_limit_stops_connector_before_second_call() -> None:
     with populated_registry() as registry:
