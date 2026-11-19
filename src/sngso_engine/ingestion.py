@@ -210,7 +210,18 @@ def ingest_observation(
     observation = registry.get_collection_observation(observation_id)
     if observation is None:
         raise IngestionError("collection observation does not exist")
-    article_payload, duplicate_fingerprint = normalize_observation(observation, source_language)
+    endpoint = registry.get_endpoint(observation["endpoint_id"])
+    if endpoint is None:
+        raise IngestionError("observation endpoint does not exist")
+    normalized_language = normalize_language_tag(source_language)
+    supported = endpoint.to_payload().get("supported_languages", [])
+    try:
+        supported_primary = {normalize_language_tag(item).split("-", 1)[0] for item in supported}
+    except IngestionError as exc:
+        raise IngestionError("endpoint language declaration is invalid") from exc
+    if normalized_language.split("-", 1)[0] not in supported_primary:
+        raise IngestionError("source_language is not supported by the registered endpoint")
+    article_payload, duplicate_fingerprint = normalize_observation(observation, normalized_language)
     return registry.ingest_article_observation(
         observation_id,
         article_payload,
