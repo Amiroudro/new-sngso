@@ -33,6 +33,7 @@ class SourceRecord(_JsonRecord):
             payload_json=canonical_json_bytes(payload).decode("utf-8"),
             publisher_name=payload["publisher_name"],
             status=payload["status"],
+            revision=revision,
         )
 
 
@@ -280,9 +281,10 @@ class LearningObjectRecord(_JsonRecord):
     kind: str
     language: str
     status: str
+    revision: int = 1
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "LearningObjectRecord":
+    def from_payload(cls, payload: dict[str, Any], revision: int = 1) -> "LearningObjectRecord":
         return cls(
             id=payload["id"],
             payload_json=canonical_json_bytes(payload).decode("utf-8"),
