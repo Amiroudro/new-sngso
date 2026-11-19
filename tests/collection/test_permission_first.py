@@ -387,3 +387,63 @@ def test_permission_is_rechecked_after_rate_limit_before_connector_call() -> Non
         assert (result.allowed, result.reason) == (False, "permission_not_approved")
         assert connector.calls == 0
         assert sink.all() == ()
+
+
+def test_observation_locator_outside_registered_source_domains_is_rejected() -> None:
+    with populated_registry() as registry:
+        connector = FixtureConnector([{
+            "locator": "https://unrelated.example.net/story/1"
+        }])
+        sink = InMemoryObservationSink()
+
+        with pytest.raises(CollectionError, match="outside the registered source domains"):
+            make_collector(registry, connector, sink).collect(
+                make_request(), "fixture-feed"
+            )
+        assert connector.calls == 1
+        assert sink.all() == ()
+
+
+def test_final_locator_cannot_escape_registered_source_domains() -> None:
+    with populated_registry() as registry:
+        connector = FixtureConnector([{
+            "locator": "https://publisher-a.example.org/story/1",
+            "final_locator": "https://unrelated.example.net/story/1",
+        }])
+        sink = InMemoryObservationSink()
+
+        with pytest.raises(CollectionError, match="final_locator is outside the registered source domains"):
+            make_collector(registry, connector, sink).collect(
+                make_request(), "fixture-feed"
+            )
+        assert sink.all() == ()
+
+
+def test_registered_source_domain_allows_its_subdomains() -> None:
+    with populated_registry() as registry:
+        connector = FixtureConnector([{
+            "locator": "https://news.publisher-a.example.org/story/1"
+        }])
+        result = make_collector(registry, connector, registry).collect(
+            make_request(), "fixture-feed"
+        )
+        assert result.allowed is True
+
+
+def test_endpoint_host_outside_registered_source_domains_is_rejected() -> None:
+    with populated_registry() as registry:
+        registry.add_endpoint({
+            **endpoint_payload("endpoint:publisher-a-external"),
+            "endpoint_uri": "https://unrelated.example.net/feed.xml",
+        })
+        connector = FixtureConnector([{
+            "locator": "https://unrelated.example.net/story/1"
+        }])
+        sink = InMemoryObservationSink()
+        result = make_collector(registry, connector, sink).collect(
+            make_request(endpoint_id="endpoint:publisher-a-external"), "fixture-feed"
+        )
+        assert (result.allowed, result.reason) == (
+            False, "endpoint_domain_outside_source_scope"
+        )
+        assert connector.calls == 0
