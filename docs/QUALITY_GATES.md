@@ -52,15 +52,16 @@ The repository is at the foundation milestone. The following is the verified sco
 | Area | Current state | Not yet delivered |
 |---|---|---|
 | Versioned contracts | JSON Schema Draft 2020-12 contracts exist for the core domain records | Cross-record relational integrity checks and full publication-policy validation |
-| Runtime validation | Python loader validates schema definitions and payloads with format checking and local common-schema references | Persistence-boundary integration because repository adapters are not implemented |
-| Source governance contracts | Separate source, endpoint, permission-evidence, and scoped permission-grant schemas; legacy permission schema marked deprecated | Cross-record source/endpoint/evidence ownership validation and persisted registry |
+| Runtime validation | Python loader validates schema definitions and payloads; SQLite registry validates records and cross-record references inside transactions | Broader API/connector boundary enforcement and integration tests after CI can execute |
+| Source governance contracts | Separate source, endpoint, permission-evidence, and scoped grant schemas; SQLite validates source/endpoint/evidence ownership and approved-grant evidence state | Human reviewer authentication/authorization and connector network enforcement |
 | Permission evaluator | Operation-specific, time-bounded, fail-closed evaluator; scoped grants require exact source/endpoint matches and evidence references; malformed records, identifiers, operation values, evaluation times, and unhandled conditions are denied | Verified evidence-record lookup, typed condition evaluator, human review workflow, and collector enforcement |
 | Content fingerprints | Deterministic JSON serialization and SHA-256 fingerprint helper exist | Frozen run manifests and end-to-end artifact reproducibility |
 | Automated tests | Contract fixtures, schema checks, source-governance fixtures for scoped grants/evidence/revocation, permission evaluator tests for malformed inputs and unhandled-condition denial, and canonical serialization tests are authored | A verified green CI run and broader integration/regression suites |
-| GitHub Actions | Python 3.12 workflow installs the package and runs `pytest tests/contracts` | Lint, formatting, static typing, dependency/security scans, migration tests, and publication integration tests |
-| Persistence | SQLite migration v1, typed records, cross-record checks, grant/domain revisions, and append-only hash-linked audit events are implemented in the registry layer | Successful CI execution, source-observation/pipeline-run storage, backup/restore drills, external audit anchoring, and production authorization |\n| Collection and publication | Not implemented | Connectors, permission-before-network enforcement, editorial review workflow, edition assembly gates, and publisher/export adapters |
+| GitHub Actions | Python 3.12 workflow installs the package and runs the full pytest suite, including storage tests | Lint, formatting, static typing, dependency/security scans, migration tests, and publication integration tests |
+| Persistence | SQLite migration v1, typed records, cross-record checks, grant/domain revisions, and append-only hash-linked audit events are implemented in the registry layer | Successful CI execution, source-observation/pipeline-run storage, backup/restore drills, external audit anchoring, and production authorization 
+| Collection and publication | Not implemented | Connectors, permission-before-network enforcement, editorial review workflow, edition assembly gates, and publisher/export adapters |
 
-The current workflow is intentionally fixture-only and does not contact publisher websites. Source governance contracts and evaluator scope checks have been added, but no live publisher is approved and no connector enforces these decisions yet. Its path filters include `src/**` and `tests/**`, so changes to the runtime evaluator or its tests trigger the contract check.
+The current workflow is intentionally fixture-only and does not contact publisher websites. No live publisher is approved and no connector enforces permission decisions yet. Its path filters include `src/**` and `tests/**`, so runtime and storage changes trigger the full test suite.
 
 ## CI requirements
 
