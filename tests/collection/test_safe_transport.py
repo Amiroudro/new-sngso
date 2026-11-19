@@ -382,3 +382,28 @@ def test_transport_rejects_scoped_dns_addresses(address):
             allowed_domains=("example.org",),
         )
     assert connected == []
+
+
+
+@pytest.mark.parametrize("headers", [
+    [
+        ("Content-Type", "application/rss+xml"),
+        ("content-type", "text/html"),
+    ],
+    [
+        ("Content-Encoding", "identity"),
+        ("content-encoding", "gzip"),
+    ],
+    [
+        ("Location", "https://news.example.org/a"),
+        ("location", "https://news.example.org/b"),
+    ],
+])
+def test_transport_rejects_duplicate_singleton_headers(headers):
+    client, connections = make_transport([FakeResponse(302, headers)])
+    with pytest.raises(transport.TransportError, match="duplicate"):
+        client.fetch(
+            "https://news.example.org/feed.xml",
+            allowed_domains=("example.org",),
+        )
+    assert len(connections) == 1
