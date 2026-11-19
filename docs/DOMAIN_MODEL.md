@@ -10,8 +10,10 @@ Reporting, factual propositions, editorial interpretation, and learning content 
 
 ## Entities
 
-- **Source:** publisher or feed endpoint with a stable identity and governance record.
-- **SourcePermission:** operation-specific permission record. Discovery, metadata storage, excerpt storage, full-text storage, translation, image storage, and republication are evaluated independently.
+- **Source:** publisher or originating organization with a stable identity. It does not grant collection rights.
+- **SourceEndpoint:** a separately identified feed, API route, sitemap, or page owned by one source.
+- **PermissionEvidence:** captured permission material with a fingerprint, scope description, and review state.
+- **SourcePermissionGrant:** time-bounded permission for explicitly named endpoints and independently evaluated operations. Discovery, metadata storage, excerpt storage, full-text storage, translation, image storage, and republication are separate decisions.
 - **SourceObservation:** immutable record of what was observed, when, and by which connector. Observation does not grant a right to retain or republish the observed material.
 - **Article:** normalized bibliographic/reporting record. It points to source and observation records. It does not imply permission to retain full text.
 - **Story:** evolving real-world subject that can be covered by multiple articles and publishers. The relationship between stories and articles is many-to-many.
@@ -26,7 +28,8 @@ Reporting, factual propositions, editorial interpretation, and learning content 
 
 ## Relationship sketch
 
-Source -> SourcePermission  
+Source -> SourceEndpoint -> SourcePermissionGrant  
+Source -> PermissionEvidence  
 Source -> SourceObservation -> Article  
 Article <-> Story  
 Story -> Claim -> Evidence  
