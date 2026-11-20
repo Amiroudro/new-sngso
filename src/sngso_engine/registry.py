@@ -5189,7 +5189,7 @@ class SQLiteRegistry:
 
     def get_benchmark_review_assignment(self, assignment_id: str) -> dict[str, Any] | None:
         row = self._connection.execute(
-            "SELECT revision, created_at, updated_at, last_actor, last_reason, payload_json "
+            "SELECT revision, assigned_at AS created_at, updated_at, last_actor, last_reason, payload_json "
             "FROM benchmark_review_assignments WHERE assignment_id = ?", (assignment_id,)
         ).fetchone()
         if row is None:
@@ -5222,7 +5222,7 @@ class SQLiteRegistry:
             values.append(language)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         rows = self._connection.execute(
-            "SELECT revision, created_at, updated_at, last_actor, last_reason, payload_json "
+            "SELECT revision, assigned_at AS created_at, updated_at, last_actor, last_reason, payload_json "
             "FROM benchmark_review_assignments" + where + " ORDER BY due_at, assignment_id",
             values,
         ).fetchall()
