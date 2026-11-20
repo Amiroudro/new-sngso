@@ -82,8 +82,13 @@ def validate_human_benchmark_review(review: Mapping[str, Any]) -> dict[str, Any]
             break
         source_checks = source_checks and all(
             isinstance(source.get(key), str) and bool(source.get(key, "").strip())
-            for key in ("article_id", "source_id", "approved_use_reference")
-        ) and _https_uri(source.get("canonical_uri")) \
+            for key in (
+                "article_id", "source_id", "approved_use_reference",
+                "permission_grant_id", "endpoint_id",
+            )
+        ) and source.get("permission_operation") in {
+            "excerpt_storage", "full_text_storage", "translation"
+        } and _https_uri(source.get("canonical_uri")) \
           and isinstance(source.get("content_fingerprint"), str) \
           and bool(_FINGERPRINT.fullmatch(source.get("content_fingerprint", ""))) \
           and _aware_timestamp(source.get("checked_at"))
