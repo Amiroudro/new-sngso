@@ -322,7 +322,8 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 The staging-only Flutter compatibility verifier received an additional defensive validation pass:
 - Rejects boolean revision values for editions, stories, and learning objects.
 - Rejects boolean, negative, float, and string collection counts; rejects unknown count keys.
+- Rejects duplicate edition-level source references.
+- Reports the actual number of permission bindings rechecked.
 - Removes duplicate validation branches.
-- Adds focused regression tests for these cases.
 
-Implementation and tests are committed on the existing draft PR branch. GitHub Actions run [#44767401224](https://github.com/Amiroudro/new-sngso/actions/runs/44767401224) passed the full Python 3.12 suite: **709 passed in 6.09 seconds** on code-bearing head `d3d055099d10630b16db12ca2f0f56b2f2f16e0d`. The latest PR head is `db56d3c33a0541a406f54bf053c01220d86da234`; the commits after the tested code head update documentation only. Keep PR #7 draft and unmerged. No app, website, or published-edition repository was changed.
+GitHub Actions run [#44767670067](https://github.com/Amiroudro/new-sngso/actions/runs/44767670067) passed the full Python 3.12 suite: **710 passed in 8.42 seconds** on code head `e3d7a6bb7f8baba5dd6e4660b8705a1c9d065130`. The later roadmap/handover commits are documentation-only. This verifies the Python test suite, not Flutter runtime compatibility or editorial correctness. Keep PR #7 draft and unmerged. No app, website, or published-edition repository was changed.
