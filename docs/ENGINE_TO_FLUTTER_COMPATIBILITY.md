@@ -53,4 +53,9 @@ The verifier checks an English story-only client candidate against a current app
 
 The builder creates an in-memory candidate for every story in an approved edition from explicit approved headline and summary object selections. It emits a provenance manifest with edition, story, and learning-object revisions/fingerprints, then invokes the verifier. It rejects unbound fields and unsupported collections, including bilingual overlays, vocabulary, phrases, MCQs, and learning modules. GitHub Actions [run #44753534682](https://github.com/Amiroudro/new-sngso/actions/runs/44753534682) passed the full Python 3.12 suite: **703 tests in 6.68 seconds** on code head f7889295a9ca329852b518f96af68fb0b2b4b315.
 
+
+### Static Flutter model inspection
+
+On 20 November 2026, inspected `Amiroudro/Sngs-plus` main at `4d22d99a19b17a1724d36922096ab97fe6029dec`, specifically `app/lib/models.dart` and the bundled edition model. `Edition.fromJson` reads `edition_date`, `edition_day`, `coverage`, `status`, `counts`, `stories`, `words`, `revision_words`, `phrases`, `mcqs`, and `sources`. `Story.fromJson` reads `id`, `headline`, `category`, `summary`, optional event/article dates and editorial fields, and per-story source references. The staging candidate uses the recognized top-level and headline/summary/source keys; unsupported educational collections remain empty. Because category and coverage are not yet bound to reviewed engine values, the candidate leaves them empty rather than inventing data. This source inspection improves confidence in the intended shape but does not execute Dart parsing or verify UI behavior.
+
 Neither component has been run through the Flutter parser. The integrated app does not consume the provenance sidecar, and no cross-repository golden test or confirmed republication grant exists. The compatibility exit gate remains open; keep the engines and edition feeds separate.
