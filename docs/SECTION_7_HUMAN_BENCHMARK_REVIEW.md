@@ -35,3 +35,18 @@ The registry does not independently establish that an editorial judgement is cor
 - Add a read-only benchmark quality report and expose review provenance in the story editorial snapshot.
 - Add a controlled reviewer identity and role authorization mechanism.
 - Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
+
+
+## 7.4 Operation-scoped permission enforcement
+
+A verified permission-evidence record is not, by itself, an authorization to use an article in a benchmark. Each source-material entry now identifies its exact permission grant, endpoint, and permitted operation. Approved benchmark reviews accept only the explicitly declared benchmark-material operations: `excerpt_storage`, `full_text_storage`, or `translation`.
+
+At registry write time, the grant must:
+- exist and belong to the same publisher as the article and evidence;
+- be approved and currently effective;
+- explicitly include the declared endpoint;
+- explicitly allow the declared operation;
+- cite the same verified evidence at both grant and operation level;
+- pass the fail-closed permission evaluator, including its handling of unimplemented conditions.
+
+This check is performed when a review is created or revised. It does not authenticate the reviewer, prove that the grantor had legal authority, or make a legal determination about copyright. Permission can also be suspended or revoked after a review is recorded; downstream publication and use workflows must re-evaluate the grant at the point of use rather than treating an old review as permanent authorization.
