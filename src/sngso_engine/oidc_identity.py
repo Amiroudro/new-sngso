@@ -106,7 +106,8 @@ class OIDCIdentityProvider:
                 audience=self.config.audience,
                 issuer=self.config.issuer,
                 leeway=self.config.clock_skew_seconds,
-                options={"require": ["iss", "sub", "aud", "exp", "iat", "auth_time", "jti", "sid"],\n                         "verify_exp": False, "verify_iat": False, "verify_nbf": False},
+                options={"require": ["iss", "sub", "aud", "exp", "iat", "auth_time", "jti", "sid"],
+                         "verify_exp": False, "verify_iat": False, "verify_nbf": False},
             )
             now = self._clock()
             if now.tzinfo is None or now.utcoffset() is None:
