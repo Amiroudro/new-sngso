@@ -44,6 +44,8 @@ def _url_parts(value: Any, label: str, *, endpoint: bool = False):
     if (
         parts.scheme.casefold() not in {"http", "https"}
         or not hostname
+        or hostname.rstrip(".") == ""
+        or port == 0
         or parts.username is not None
         or parts.password is not None
         or parts.fragment
