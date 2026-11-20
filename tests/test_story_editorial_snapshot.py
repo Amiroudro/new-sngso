@@ -237,7 +237,7 @@ def test_narrative_assembly_is_embedded_in_snapshot_without_changing_source_evid
         report = snapshot["narrative_assembly_report"]
         assert report["assembly_policy"]["attributed_positions_remain_separate"] is True
         assert report["assembly_policy"]["bangla_and_english_are_assessed_independently"] is True
-        assert report["snapshot_fingerprint"] is None
+        assert "snapshot_fingerprint" not in report
         assert snapshot["fingerprint"]
         assert registry.verify_audit_chain()
     finally:
