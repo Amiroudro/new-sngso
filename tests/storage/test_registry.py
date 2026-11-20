@@ -1652,7 +1652,7 @@ def test_benchmark_review_cannot_be_rebound_to_a_different_fingerprint():
         payload = _benchmark_review_payload()
         registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
         changed = {**payload, "benchmark_fingerprint": "sha256:" + "e" * 64}
-        with pytest.raises(sqlite3.IntegrityError, match="fingerprint binding are immutable"):
+        with pytest.raises(RegistryIntegrityError, match="does not match registered artifact"):
             registry.revise_benchmark_review(
                 payload["review_id"], changed, expected_revision=1,
                 actor="editor:second", reason="attempt to rebind old review",
