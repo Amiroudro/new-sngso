@@ -91,7 +91,7 @@ class FakeRegistry:
         return snapshot
 
     def get_source(self, source_id):
-        return {"id": source_id, "publisher_name": "Example Publisher"}
+        return {"id": source_id, "publisher_name": "Example Publisher", "status": "active"}
 
     def get_learning_object(self, object_id):
         return self.records.get(object_id)
