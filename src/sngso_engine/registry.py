@@ -5936,6 +5936,14 @@ class SQLiteRegistry:
                 payload["status"] == "approved",
                 "Learning object must be approved before it can pass the registry quality gate.",
             )
+            language_review_valid = _language_review_passes(
+                payload.get("language_review"), payload.get("language")
+            )
+            check(
+                "language_review",
+                language_review_valid,
+                "A complete language-specific rubric review must pass before a learning object can pass the registry quality gate.",
+            )
             claim_ids = payload.get("claim_ids", [])
             placeholders = ",".join("?" for _ in claim_ids)
             claim_rows = connection.execute(

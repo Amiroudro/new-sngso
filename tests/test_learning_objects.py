@@ -564,11 +564,43 @@ def _approve_learning_object(registry, payload):
         payload, actor="editor", reason="Create editorial draft."
     )
     approved = draft.to_payload()
+    reviewed_at = "2026-11-19T03:00:00Z"
+    language = approved["language"]
+    if language == "bn":
+        rubric_version = "bn-editorial-v1"
+        dimensions = {
+            "grammar_and_spelling": "pass",
+            "naturalness_and_register": "pass",
+            "terminology_consistency": "pass",
+            "factual_fidelity": "pass",
+            "attribution": "pass",
+            "omissions": "pass",
+            "translation_fidelity": "pass",
+        }
+    else:
+        rubric_version = "en-editorial-v1"
+        dimensions = {
+            "grammar_and_style": "pass",
+            "clarity_and_readability": "pass",
+            "terminology_consistency": "pass",
+            "factual_fidelity": "pass",
+            "attribution": "pass",
+            "omissions": "pass",
+            "translation_fidelity": "pass",
+        }
     approved.update({
         "status": "approved",
-        "reviewed_at": "2026-11-19T03:00:00Z",
+        "reviewed_at": reviewed_at,
         "reviewed_by": "reviewer",
         "review_note": "The content and claim links were reviewed.",
+        "language_review": {
+            "language": language,
+            "rubric_version": rubric_version,
+            "reviewer_id": "reviewer",
+            "reviewed_at": reviewed_at,
+            "note": "The exact language-specific rubric was reviewed.",
+            "dimensions": dimensions,
+        },
     })
     return registry.revise_learning_object(
         draft.id, approved, expected_revision=1,
@@ -1167,5 +1199,36 @@ def test_revision_card_quality_report_blocks_unassessed_factual_claims():
             and "unassessed" in blocker["detail"]
             for blocker in report["blockers"]
         )
+    finally:
+        registry.close()
+
+
+
+def test_quality_report_blocks_approved_learning_object_without_language_rubric():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary("learning:generic-approval"),
+            actor="editor", reason="Create a generic approval fixture.",
+        )
+        approved = draft.to_payload()
+        approved.update({
+            "status": "approved",
+            "reviewed_at": "2026-11-19T03:00:00Z",
+            "reviewed_by": "reviewer",
+            "review_note": "Generic editorial approval without a language rubric.",
+        })
+        registry.revise_learning_object(
+            draft.id, approved, expected_revision=1,
+            actor="reviewer", reason="Record generic approval.",
+        )
+
+        report = registry.learning_object_quality_report(draft.id)
+        assert report["meets_registry_quality_gates"] is False
+        language_check = next(
+            item for item in report["checks"] if item["name"] == "language_review"
+        )
+        assert language_check["passed"] is False
+        assert any(item["check"] == "language_review" for item in report["blockers"])
     finally:
         registry.close()
