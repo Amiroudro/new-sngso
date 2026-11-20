@@ -5129,6 +5129,12 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("assignment must reference a registered benchmark artifact")
             if artifact["language"] != payload["language"] or artifact["content_fingerprint"] != payload["artifact_fingerprint"]:
                 raise RegistryIntegrityError("assignment must bind to the exact artifact fingerprint and language")
+            final_adjudication = connection.execute(
+                "SELECT 1 FROM benchmark_adjudications WHERE benchmark_id = ?",
+                (payload["artifact_id"],),
+            ).fetchone()
+            if final_adjudication is not None:
+                raise RegistryIntegrityError("cannot assign reviews after final artifact adjudication")
             reviewer = connection.execute(
                 "SELECT roles_json, languages_json, active FROM benchmark_principals WHERE principal_id = ?",
                 (payload["reviewer_id"],),
