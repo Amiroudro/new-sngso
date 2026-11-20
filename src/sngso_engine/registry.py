@@ -39,7 +39,7 @@ from .benchmark_adjudication import validate_benchmark_adjudication
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 15
+_SCHEMA_VERSION = 16
 
 
 _MIGRATION_14 = (
@@ -90,6 +90,17 @@ _MIGRATION_15 = (
         BEFORE DELETE ON benchmark_adjudications
         BEGIN SELECT RAISE(ABORT, 'benchmark adjudications are immutable'); END""",
 )
+
+_MIGRATION_16 = (
+    """CREATE TRIGGER benchmark_adjudications_one_per_artifact
+        BEFORE INSERT ON benchmark_adjudications
+        WHEN EXISTS (
+            SELECT 1 FROM benchmark_adjudications
+            WHERE benchmark_id = NEW.benchmark_id
+        )
+        BEGIN SELECT RAISE(ABORT, 'benchmark artifact already has a final adjudication'); END""",
+)
+
 
 class RegistryIntegrityError(ValueError):
     """Raised when a record references missing or incompatible registry data."""
@@ -1394,6 +1405,19 @@ class SQLiteRegistry:
                     version = 15
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 15 failed; transaction rolled back") from exc
+
+            if version == 15 and _SCHEMA_VERSION >= 16:
+                try:
+                    for statement in _MIGRATION_16:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (16, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 16")
+                    version = 16
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 16 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -5117,7 +5141,9 @@ class SQLiteRegistry:
         self, payload: dict[str, Any], *, actor: str, reason: str
     ) -> dict[str, Any]:
         """Persist an immutable, independently adjudicated benchmark disagreement."""
-        validate_benchmark_adjudication(payload)
+        validation = validate_benchmark_adjudication(payload)
+        if not validation["eligible_for_adjudication"]:
+            raise RegistryIntegrityError("adjudication contract or independence checks failed")
         if not actor.strip() or not reason.strip():
             raise ValueError("actor and reason are required")
         adjudicator_id = payload["adjudicator"]["principal_id"]
@@ -5134,9 +5160,10 @@ class SQLiteRegistry:
             if artifact is None or artifact["content_fingerprint"] != payload["benchmark_fingerprint"]:
                 raise RegistryIntegrityError("adjudication must bind to the exact registered benchmark artifact")
             actual_reviewers = []
+            referenced_reviews = {}
             for review_id in payload["review_ids"]:
                 row = connection.execute(
-                    "SELECT benchmark_id, benchmark_fingerprint, payload_json FROM benchmark_reviews WHERE review_id = ?",
+                    "SELECT benchmark_id, benchmark_fingerprint, status, payload_json FROM benchmark_reviews WHERE review_id = ?",
                     (review_id,),
                 ).fetchone()
                 if row is None:
@@ -5144,6 +5171,11 @@ class SQLiteRegistry:
                 if row["benchmark_id"] != payload["benchmark_id"] or row["benchmark_fingerprint"] != payload["benchmark_fingerprint"]:
                     raise RegistryIntegrityError("adjudication reviews must concern the same exact benchmark artifact")
                 actual_reviewers.append(json.loads(row["payload_json"])["reviewer"]["reviewer_id"])
+                referenced_reviews[review_id] = row["status"]
+            if payload["outcome"] == "uphold_existing":
+                upheld = payload["upheld_review_ids"]
+                if any(referenced_reviews.get(review_id) != "approved" for review_id in upheld):
+                    raise RegistryIntegrityError("upheld reviews must be referenced approved review records")
             if sorted(actual_reviewers) != sorted(payload["reviewer_ids"]):
                 raise RegistryIntegrityError("adjudication reviewer IDs must match the referenced stored reviews")
             if adjudicator_id in actual_reviewers:
@@ -5244,40 +5276,47 @@ class SQLiteRegistry:
                 permission_detail = f"Current source permission check failed: {exc}"
         check("current_source_permission", permission_ok, permission_detail)
 
-        adjudication_row = connection.execute(
+        adjudication_rows = connection.execute(
             """SELECT adjudication_id, payload_json FROM benchmark_adjudications
-            WHERE benchmark_id = ? ORDER BY resolved_at DESC, created_at DESC LIMIT 1""",
+            WHERE benchmark_id = ? ORDER BY resolved_at, created_at, adjudication_id""",
             (review.get("benchmark_id"),),
-        ).fetchone()
-        adjudication_ok = True
+        ).fetchall()
+        adjudication_ok = len(adjudication_rows) <= 1
         adjudication_detail = "No adjudication currently applies to this benchmark."
         adjudication_summary = None
-        if adjudication_row is not None:
-            decision = json.loads(adjudication_row["payload_json"])
+        if len(adjudication_rows) > 1:
+            adjudication_detail = "Multiple final adjudications exist for one immutable artifact; eligibility is blocked pending data review."
+            adjudication_summary = {
+                "conflict": True,
+                "adjudication_ids": [row["adjudication_id"] for row in adjudication_rows],
+            }
+        elif adjudication_rows:
+            decision = json.loads(adjudication_rows[0]["payload_json"])
             adjudication_summary = {
                 "adjudication_id": decision["adjudication_id"],
                 "outcome": decision["outcome"],
                 "resolved_at": decision["resolved_at"],
+                "upheld_review_ids": decision.get("upheld_review_ids", []),
             }
             if decision["outcome"] == "uphold_existing":
                 adjudication_ok = (
-                    review.get("review_id") in decision["review_ids"]
+                    review.get("review_id") in decision.get("upheld_review_ids", [])
                     and approved
                 )
                 adjudication_detail = (
-                    "The adjudicator upheld the existing decision; only a referenced approved review may remain eligible."
+                    "This exact approved review was explicitly upheld."
                     if adjudication_ok else
-                    "The latest adjudication upholds existing decisions, but this review is not a referenced approved review."
+                    "The adjudicator upheld only the explicitly listed approved reviews; this review was not selected."
                 )
             elif decision["outcome"] == "return_for_revision":
                 adjudication_ok = False
-                adjudication_detail = "The latest adjudication returned the benchmark for revision; it is blocked until a new reviewed artifact is registered."
+                adjudication_detail = "The adjudication returned this immutable artifact for revision; it remains blocked. Register a new artifact and obtain fresh reviews."
             elif decision["outcome"] == "reject_benchmark_item":
                 adjudication_ok = False
-                adjudication_detail = "The latest adjudication rejected this benchmark item; it is not eligible for current use."
+                adjudication_detail = "The adjudication rejected this benchmark item; it is not eligible for current use."
             elif decision["outcome"] == "split_accepted_answers":
                 adjudication_ok = False
-                adjudication_detail = "The adjudication requires distinct accepted-answer items; register a revised artifact and obtain fresh reviews before use."
+                adjudication_detail = "The adjudication requires distinct accepted-answer items; register a new artifact and obtain fresh reviews."
         check("adjudication_policy", adjudication_ok, adjudication_detail)
         return {
             "review_id": review.get("review_id"),
