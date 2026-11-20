@@ -99,7 +99,7 @@ def test_study_protocol_versions_are_sequential_immutable_and_audited():
         )
         assert second["protocol_fingerprint"] != first["protocol_fingerprint"]
         assert [row["study_version"] for row in registry.benchmark_study_protocol_history(protocol["study_id"])] == [1, 2]
-        with pytest.raises(RegistryIntegrityError, match="versioned contract"):
+        with pytest.raises(sqlite3.IntegrityError, match="sequential"):
             registry.register_benchmark_study_protocol(
                 dict(second_payload, study_version=4), actor="curator:study", reason="Skip version",
             )
