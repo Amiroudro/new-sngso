@@ -6,6 +6,7 @@ registry records. It does not serialize, write, publish, or authorize an edition
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -41,8 +42,13 @@ def _url_parts(value: Any, label: str, *, endpoint: bool = False):
         port = parts.port
     except ValueError as exc:
         raise FlutterCompatibilityError(f"{label} is malformed") from exc
+    unsafe_path = (
+        any(ord(char) <= 32 or ord(char) == 127 or char == "\\\\" for char in parts.path)
+        or re.search(r"%(?:2e|2f|5c)", parts.path, flags=re.IGNORECASE) is not None
+    )
     if (
-        parts.scheme.casefold() not in {"http", "https"}
+        unsafe_path
+        or parts.scheme.casefold() not in {"http", "https"}
         or not hostname
         or hostname.rstrip(".") == ""
         or port == 0
