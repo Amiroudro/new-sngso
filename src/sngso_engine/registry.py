@@ -6584,16 +6584,18 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("registered study execution fingerprint verification failed")
             if execution_row["protocol_record_id"] != protocol_row["protocol_record_id"]:
                 raise RegistryIntegrityError("execution is not bound to the referenced registered protocol version")
-            try:
-                validate_benchmark_acceptance_review(payload, protocol=protocol, execution=execution)
-            except (TypeError, ValueError, BenchmarkAcceptanceReviewError) as exc:
-                raise RegistryIntegrityError("acceptance review does not satisfy the exact registered study evidence") from exc
             if actor != payload["reviewer_id"]:
                 raise RegistryIntegrityError("acceptance reviewer must match the authenticated principal")
             if actor in {row["reviewer_id"] for row in protocol["reviewer_plan"]}:
                 raise RegistryIntegrityError("blind evaluator cannot act as independent acceptance reviewer")
             if actor == execution_row["methodologist_id"]:
                 raise RegistryIntegrityError("methodologist cannot act as independent acceptance reviewer")
+            try:
+                validate_benchmark_acceptance_review(payload, protocol=protocol, execution=execution)
+            except (TypeError, ValueError, BenchmarkAcceptanceReviewError) as exc:
+                raise RegistryIntegrityError(
+                    f"acceptance review does not satisfy the exact registered study evidence: {exc}"
+                ) from exc
             artifact = connection.execute(
                 "SELECT content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
                 (execution_row["benchmark_id"],),
