@@ -82,3 +82,11 @@ def test_draft_can_be_valid_without_source_approval():
     result = validate_human_benchmark_review(review)
     assert result["valid"] is True
     assert result["approval_eligible"] is False
+
+
+def test_source_material_requires_a_valid_https_uri():
+    review = _review()
+    review["source_materials"][0]["canonical_uri"] = "javascript:alert(1)"
+    result = validate_human_benchmark_review(review)
+    assert result["approval_eligible"] is False
+    assert "approved_source_material" in {x["name"] for x in result["failures"]}
