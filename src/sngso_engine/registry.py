@@ -1177,6 +1177,21 @@ _MIGRATION_11 = (
 )
 
 
+def _validate_learning_object_language_review(payload: dict[str, Any]) -> None:
+    review = payload.get('language_review')
+    if review is None:
+        return
+    if payload.get('status') != 'approved':
+        raise RegistryIntegrityError('structured language review requires approval')
+    if review.get('language') != payload.get('language'):
+        raise RegistryIntegrityError('language review language mismatch')
+    if review.get('reviewer_id') != payload.get('reviewed_by'):
+        raise RegistryIntegrityError('language review reviewer mismatch')
+    if review.get('reviewed_at') != payload.get('reviewed_at'):
+        raise RegistryIntegrityError('language review timestamp mismatch')
+    _aware_datetime(review['reviewed_at'], 'language_review.reviewed_at')
+
+
 def _validate_learning_object_traceability(payload: dict[str, Any]) -> None:
     """Require every summary segment to map exactly to the object's claim set."""
     if payload.get("kind") not in {"headline_summary", "brief_summary", "detailed_summary"}:
@@ -4825,6 +4840,7 @@ class SQLiteRegistry:
     ) -> LearningObjectRecord:
         """Create a language-specific learning object in a non-approved state."""
         validate_payload("learning-object", payload)
+        _validate_learning_object_language_review(payload)
         _validate_learning_object_traceability(payload)
         _validate_learning_object_answer_links(payload)
         if not isinstance(actor, str) or not actor.strip():
