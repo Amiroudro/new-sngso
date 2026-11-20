@@ -1360,7 +1360,7 @@ def test_existing_schema_v11_database_migrates_to_v12(tmp_path, monkeypatch) -> 
 
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 12)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 13
+        assert migrated.schema_version() == 12
         assert migrated._connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'glossary_entries'"
         ).fetchone() is not None
@@ -1368,7 +1368,7 @@ def test_existing_schema_v11_database_migrates_to_v12(tmp_path, monkeypatch) -> 
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_reviews'"
         ).fetchone() is not None
         migrated.migrate()
-        assert migrated.schema_version() == 13
+        assert migrated.schema_version() == 12
 
 
 def _benchmark_review_payload() -> dict:
@@ -1490,7 +1490,7 @@ def test_direct_review_head_update_also_creates_history_via_trigger():
             SET status = 'rejected', revision = 2, updated_at = ?,
                 last_actor = ?, last_reason = ?, payload_json = ?
             WHERE review_id = ?""",
-            (registry_module._utc_now(), "editor:second", "direct SQL revision", __import__("json").dumps(changed)),
+            (registry_module._utc_now(), "editor:second", "direct SQL revision", __import__("json").dumps(changed), payload["review_id"]),
         )
         history = registry.benchmark_review_history(payload["review_id"])
         assert [item["revision"] for item in history] == [1, 2]
