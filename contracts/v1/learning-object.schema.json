@@ -281,10 +281,16 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["option_id", "rationale"],
+            "required": ["option_id", "rationale", "basis_claim_ids"],
             "properties": {
               "option_id": {"type": "string", "minLength": 1, "maxLength": 40},
-              "rationale": {"type": "string", "minLength": 1, "maxLength": 1200}
+              "rationale": {"type": "string", "minLength": 1, "maxLength": 1200},
+              "basis_claim_ids": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"$ref": "common.schema.json#/$defs/id"}
+              }
             }
           }
         },
