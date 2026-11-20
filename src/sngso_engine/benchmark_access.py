@@ -8,6 +8,7 @@ never accepts a principal ID supplied by an untrusted request body.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from datetime import datetime, timezone
 from typing import Any, Protocol, runtime_checkable
 
@@ -24,6 +25,11 @@ class AuthenticatedIdentity:
     authenticated_at: datetime
     expires_at: datetime
     session_id: str
+    subject: str = ""
+    authentication_methods: tuple[str, ...] = ()
+    authentication_context: str = ""
+    provider_key_id: str = ""
+    provider_adapter: str = ""
 
 
 @runtime_checkable
@@ -60,7 +66,7 @@ class AuthenticatedBenchmarkAccess:
         self._expected_audience = expected_audience
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
-    def _principal(self, request_context: Any, required_role: str | tuple[str, ...]) -> str:
+    def _identity(self, request_context: Any) -> AuthenticatedIdentity:
         identity = self._identity_provider.authenticate(request_context)
         if not isinstance(identity, AuthenticatedIdentity):
             raise RegistryIntegrityError("identity provider returned an invalid identity")
@@ -75,6 +81,10 @@ class AuthenticatedBenchmarkAccess:
             raise RegistryIntegrityError("identity timestamps must be timezone-aware")
         if identity.authenticated_at > now or identity.expires_at <= now:
             raise RegistryIntegrityError("authenticated session is not currently valid")
+        return identity
+
+    def _principal(self, request_context: Any, required_role: str | tuple[str, ...]) -> str:
+        identity = self._identity(request_context)
         principal = self._registry.get_benchmark_principal(identity.principal_id)
         if principal is None or not principal["active"]:
             raise RegistryIntegrityError("authenticated principal is not active in the benchmark registry")
@@ -95,10 +105,36 @@ class AuthenticatedBenchmarkAccess:
     def submit_review(
         self, request_context: Any, review: dict[str, Any], *, reason: str
     ) -> dict[str, Any]:
-        actor = self._principal(request_context, "benchmark_reviewer")
+        identity = self._identity(request_context)
+        actor = identity.principal_id
+        principal = self._registry.get_benchmark_principal(actor)
+        if principal is None or not principal["active"] or "benchmark_reviewer" not in principal["roles"]:
+            raise RegistryIntegrityError("authenticated principal lacks required role: ('benchmark_reviewer',)")
         if review.get("reviewer", {}).get("reviewer_id") != actor:
             raise RegistryIntegrityError("authenticated reviewer must match the review declaration")
-        return self._registry.add_benchmark_review(review, actor=actor, reason=reason)
+        if not identity.subject.strip() or not identity.authentication_methods or not identity.authentication_context.strip():
+            raise RegistryIntegrityError("identity provider must supply subject, authentication methods, and authentication context for review attestation")
+        if not identity.provider_key_id.strip() or not identity.provider_adapter.strip():
+            raise RegistryIntegrityError("identity provider must identify its verification key and adapter")
+        result = self._registry.add_benchmark_review(review, actor=actor, reason=reason)
+        attestation = {
+            "attestation_id": f"identity-attestation:{review['review_id']}:{result['revision']}",
+            "review_id": review["review_id"], "review_revision": result["revision"],
+            "principal_id": actor, "issuer": identity.issuer, "audience": identity.audience,
+            "subject": identity.subject,
+            "authenticated_at": identity.authenticated_at.isoformat(),
+            "expires_at": identity.expires_at.isoformat(),
+            "authentication_methods": list(identity.authentication_methods),
+            "authentication_context": identity.authentication_context,
+            "provider_key_id": identity.provider_key_id,
+            "provider_adapter": identity.provider_adapter,
+            "session_fingerprint": "sha256:" + hashlib.sha256(identity.session_id.encode("utf-8")).hexdigest(),
+            "attested_at": self._clock().isoformat(),
+        }
+        self._registry.record_benchmark_review_identity_attestation(
+            attestation, actor=actor, reason="Trusted identity provider attestation captured at review submission"
+        )
+        return result
 
     def adjudicate(
         self, request_context: Any, payload: dict[str, Any], *, reason: str
