@@ -110,6 +110,10 @@ class AuthenticatedBenchmarkAccess:
         principal = self._registry.get_benchmark_principal(actor)
         if principal is None or not principal["active"] or "benchmark_reviewer" not in principal["roles"]:
             raise RegistryIntegrityError("authenticated principal lacks required role: ('benchmark_reviewer',)")
+        if principal.get("principal_kind") != "human":
+            raise RegistryIntegrityError("human reviewer identity attestation requires a human-classified principal")
+        if self._clock() - identity.authenticated_at > __import__("datetime").timedelta(minutes=15):
+            raise RegistryIntegrityError("review submission requires recent authentication within 15 minutes")
         if review.get("reviewer", {}).get("reviewer_id") != actor:
             raise RegistryIntegrityError("authenticated reviewer must match the review declaration")
         if not identity.subject.strip() or not identity.authentication_methods or not identity.authentication_context.strip():
