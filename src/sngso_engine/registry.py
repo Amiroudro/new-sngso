@@ -5848,6 +5848,7 @@ class SQLiteRegistry:
                          "principal_id": actor, "issuer": attestation["issuer"],
                          "provider_adapter": attestation["provider_adapter"],
                          "provider_key_id": attestation["provider_key_id"],
+                         "attestation_fingerprint": sha256_fingerprint(attestation),
                          "reason": reason},
             )
         return dict(attestation)
