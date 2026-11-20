@@ -85,11 +85,20 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 - PR #7 is a draft and is not merged.
 - Base branch: `feat/section-7-editorial-benchmarks`.
 - Head branch: `feat/section-7-human-benchmark-review-contract`.
-- Latest full-suite-verified code head: `bf1559f352455055070303177a051eed357d38ac`; GitHub Actions run [#44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064) passed with **688 tests in 7.75 seconds**. Documentation-only PR head `f1a265adb722e16575b675b0ab0918f1516061d8` also passed [run #44725377085](https://github.com/Amiroudro/new-sngso/actions/runs/44725377085), 688 tests in 4.55 seconds. Recheck PR #7 for any later commits.
+- Latest full-suite-verified code head: `bf1559f352455055070303177a051eed357d38ac`; GitHub Actions run [#44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064) passed with **688 tests in 7.75 seconds**. Latest documentation-only head `bea55e22c1cb0d5cd6dcd389cfaf8362900c932d` passed [run #44729198761](https://github.com/Amiroudro/new-sngso/actions/runs/44729198761), 688 tests in 8.58 seconds. Recheck PR #7 for any later commits.
 - PR #7 is based on the benchmark branch from PR #6, which remains open and draft. Keep PR #7 draft until the dependency is integrated or the target branch is deliberately changed.
 - Previous historical checkpoint: run [#44708874613](https://github.com/Amiroudro/new-sngso/actions/runs/44708874613), 677 Python 3.12 tests in 6.94 seconds.
 - PR has 68 changed files at the latest check.
 - No Android, website, or published-edition paths are included in PR #7.
+
+### Cross-repository audit checkpoint (20 November 2026)
+
+- `Amiroudro/Sngs-plus` main identifies itself as the integrated Flutter app + Engine v2 + web/backend project. Its main head is `4d22d99a19b17a1724d36922096ab97fe6029dec`; PRs #18, #24, and #26 are open drafts. PR #18 is not currently mergeable. The latest checks for UI PRs #24 and #26 failed; PR #26 reports the account's recent GitHub Actions payment failures. Flutter, Dart, and Gradle are not installed in this execution environment, so app builds cannot currently be verified locally.
+- `Amiroudro/Sngso-app-all` is a separate Kotlin/Compose prototype with a documented screen inventory; its build-verification PR #2 remains open. Do not treat it as the shipped client without an explicit product integration decision.
+- `Amiroudro/Engine` contains a standalone/earlier Engine v2 copy. Compare it with `Sngs-plus/engine-v2` before transferring changes.
+- `Amiroudro/sarangsho-plus-editions` is the public app feed. Its existing edition files are published history; corrections need a new validated release record.
+- The evidence-first engine in this repository is not yet connected to the Flutter app. PR #7 is based on the branch of open draft PR #6.
+
 
 Always re-check the live PR head, changed-file list, and latest workflow run before reporting status. The figures above are a dated checkpoint, not a promise that the branch has not changed since.
 

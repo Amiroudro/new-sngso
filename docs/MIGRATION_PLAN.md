@@ -2,16 +2,28 @@
 
 ## Objective
 
-Use previous Sarangsho work as a source of requirements and lessons without inheriting its implementation. The old private repository and public editions repository remain read-only.
+Use earlier Sarangsho work as a source of requirements and lessons. The user has now authorized engineering changes across all connected Sarangsho Plus repositories, including the app UI, intelligence workflows, engine, documentation, and tests. This supersedes the original read-only restriction for repository code changes.
 
-## Preservation rules
+## Current repository map
 
-- Never edit, delete, rename, or overwrite files in either existing repository.
-- Never merge or close their pull requests.
-- Never change their schedules, secrets, Pages settings, or deployment configuration.
-- Never publish new output to the existing editions repository.
-- Never assume an existing publisher record grants collection or republication permission.
-- Any future integration or production promotion requires separate explicit approval.
+- `Amiroudro/Sngs-plus`: integrated Flutter application, Engine v2, frontend/backend, and working edition snapshots.
+- `Amiroudro/new-sngso`: evidence-first Python editorial engine and contracts; not yet integrated with the Flutter app.
+- `Amiroudro/Sngso-app-all`: Kotlin/Compose UI prototype; treat as a reference until its integration with the shipped Flutter app is decided.
+- `Amiroudro/Engine`: standalone/earlier Engine v2 copy; compare it with `Sngs-plus/engine-v2` before transferring logic.
+- `Amiroudro/sarangsho-plus-editions`: public app feed containing published editions.
+
+The exact current branch, commit, PR, and CI state in each repository must be rechecked before changes.
+
+## Preservation and release rules
+
+- Repository code, contracts, tests, and documentation may be changed in the authorized repositories.
+- Preserve existing published edition artifacts as history. Correct a published edition by creating a new, validated correction/superseding record; do not silently rewrite its history.
+- Do not switch or modify a live schedule as a side effect of code changes. Verify operational instructions and the user's release direction before applying a schedule change.
+- Do not publish to the public feed until the artifact has passed its rights, editorial, translation, and schema gates.
+- Never assume a publisher record grants permission to collect, store, translate, or republish material.
+- Never merge or close a PR merely to clear a backlog. Review dependencies, changed paths, and exact-head CI first.
+- Do not add paid infrastructure or usage without approval.
+- Any release or production integration must preserve rollback and last-known-good output.
 
 ## Transfer categories
 
