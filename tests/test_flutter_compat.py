@@ -281,6 +281,8 @@ def test_endpoint_coverage_rejects_ambiguous_or_unsafe_urls(
     ("https://publisher.example/news", "https://publisher.example/news/story#fragment"),
     ("https://publisher.example/news?redirect=1", "https://publisher.example/news/story"),
     ("https://publisher.example:bad/news", "https://publisher.example/news/story"),
+    ("https://publisher.example:0/news", "https://publisher.example/news/story"),
+    ("https://./news", "https://./news/story"),
 ])
 def test_endpoint_coverage_rejects_unsafe_url_components(endpoint_url, article_url):
     from sngso_engine.flutter_compat import _endpoint_covers_article
