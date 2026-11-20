@@ -5205,7 +5205,7 @@ class SQLiteRegistry:
                 "meets_registry_quality_gates": quality["meets_registry_quality_gates"],
                 "blockers": quality["blockers"],
                 "warnings": quality["warnings"],
-                "language_review": record.get("language_review"),
+                "language_review": item["record"].get("language_review"),
             })
 
         kinds_by_language = {
@@ -5288,6 +5288,7 @@ class SQLiteRegistry:
                 "meets_registry_quality_gates": quality["meets_registry_quality_gates"],
                 "blockers": quality["blockers"],
                 "warnings": quality["warnings"],
+                "language_review": record.get("language_review"),
             })
 
         languages: dict[str, Any] = {}
