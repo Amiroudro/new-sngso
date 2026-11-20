@@ -6,7 +6,7 @@
 **Repository:** `Amiroudro/new-sngso`  
 **Working branch:** `feat/section-7-human-benchmark-review-contract`  
 **Open pull request:** [PR #7](https://github.com/Amiroudro/new-sngso/pull/7)  
-**Latest full-suite-verified code head:** `1ecf6a9345c996366363d5f8a08191485f6db66e` — [run #44731019456](https://github.com/Amiroudro/new-sngso/actions/runs/44731019456), 689 passed in 8.59 seconds. Recheck the live PR head before further edits.
+**Latest full-suite-verified code head:** `4b14a10705ab4352b8c4c915179c3b564d601086` — [run #44732795832](https://github.com/Amiroudro/new-sngso/actions/runs/44732795832), 689 passed in 7.70 seconds. Recheck the live PR head before further edits.
 
 ---
 
@@ -174,9 +174,9 @@ Continue Section 7. Do not jump to Section 8 until Section 7 exit criteria are d
 
 ### Remaining Section 7 work
 
-The source-evidence bindings, revision-card segment checks, bilingual claim-coverage diagnostic, and language-rubric quality gate are implemented and CI-verified. Continue in Section 7 while these exit blockers remain:
+The source-evidence bindings, revision-card segment checks, bilingual claim-coverage diagnostic, language-rubric quality gate, and authenticated MCQ rubric capture are implemented. The latest full Python suite passed; the new MCQ paths still lack dedicated regression cases and remain unproven with real reviewers. Continue in Section 7 while these exit blockers remain:
 
-1. Add a durable, authenticated human review workflow for MCQ pedagogical validity: one defensible answer, clear stem, plausible but unambiguously incorrect distractors, rationale quality, learner-level fit, and explanation fidelity. Existing automated checks do not establish these judgments.
+1. The authenticated MCQ pedagogical-review capture and fail-closed quality gate are now implemented (Section 7.40). Real qualified reviewers still need to use the workflow, and targeted rubric regression coverage plus review evidence must be added before claiming the control is fully validated.
 2. Obtain genuine, qualified Bangla and English human review data, prespecified calibration evidence, and independent acceptance evidence. Keep synthetic tests clearly separate.
 3. Collect actual reporting-lineage evidence and current permission evidence for each intended source operation. Do not infer independence or rights from publisher counts.
 4. Finish production identity-provider, protected administrator bootstrap, database/host controls, backup/restore drills, and the Section 7.18 operational sign-off.
@@ -278,3 +278,12 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 - The gate remains a deterministic completeness check; it does not establish reviewer identity or factual correctness by itself. The authenticated review facade and the Section 7.18 production gate remain separate controls.
 - GitHub Actions [run #44731019456](https://github.com/Amiroudro/new-sngso/actions/runs/44731019456) passed the full Python 3.12 suite: **689 passed in 8.59 seconds** on code head `1ecf6a9345c996366363d5f8a08191485f6db66e`.
 - Section 7 remains in progress; Sections 8–10 remain future work.
+
+
+## Section 7.40: authenticated MCQ pedagogical review rubric (CI verified)
+
+- The learning-object contract now defines a versioned mcq-editorial-v1 review with eight dimensions: single defensible key, stem clarity, distractor plausibility, unambiguous incorrectness, misconception alignment, option parallelism, absence of accidental clues, and explanation fidelity.
+- The trusted review facade requires those dimensions for MCQ decisions, restricts values to pass/needs_revision, requires all-pass findings for approval, and records provider-backed identity attestation with the review.
+- The registry rejects malformed or mismatched MCQ review metadata. The quality report blocks an approved MCQ without a complete all-pass pedagogical review. Existing human-review warnings remain; automated completeness does not judge pedagogical quality.
+- Full Python 3.12 CI run [#44732795832](https://github.com/Amiroudro/new-sngso/actions/runs/44732795832) passed **689 tests in 7.70 seconds** on head 4b14a10705ab4352b8c4c915179c3b564d601086. This run contains no new dedicated MCQ-rubric regression cases, so the newly added paths need targeted coverage before they are treated as fully validated.
+- Section 7 remains open. Real human review records, calibration/independent acceptance, source lineage and permission evidence, production operations sign-off, Flutter compatibility, and realistic daily inputs remain outstanding.
