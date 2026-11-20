@@ -4,6 +4,7 @@ from sngso_engine.benchmark_acceptance_review import BenchmarkAcceptanceReviewEr
 from test_benchmark_study import _protocol
 from test_benchmark_study_execution import _execution
 from sngso_engine.canonical import sha256_fingerprint
+from sngso_engine.contracts import ContractValidationError
 
 def _review():
     return {
@@ -26,8 +27,8 @@ def _review():
 
 def _validate(review=None, protocol=None, execution=None):
     protocol=protocol or _protocol(); execution=execution or _execution(); review=review or _review()
-    review["protocol_fingerprint"]=sha256_fingerprint(protocol)
-    review["execution_fingerprint"]=sha256_fingerprint(execution)
+    review.setdefault("protocol_fingerprint",sha256_fingerprint(protocol))
+    review.setdefault("execution_fingerprint",sha256_fingerprint(execution))
     return validate_benchmark_acceptance_review(review,protocol=protocol,execution=execution)
 
 def test_acceptance_review_binds_exact_evidence_and_never_grants_production():
@@ -38,7 +39,13 @@ def test_acceptance_review_binds_exact_evidence_and_never_grants_production():
 
 @pytest.mark.parametrize("field",["study_id","study_version","protocol_fingerprint","execution_id","execution_fingerprint","benchmark_id","benchmark_fingerprint","rubric_version"])
 def test_review_rejects_stale_or_mismatched_evidence_binding(field):
-    review=_review(); review[field]="stale-value"
+    review=_review()
+    if field == "study_version":
+        review[field] = 2
+    elif field in {"protocol_fingerprint", "execution_fingerprint", "benchmark_fingerprint"}:
+        review[field] = "sha256:" + "f" * 64
+    else:
+        review[field] = "stale-value"
     with pytest.raises(BenchmarkAcceptanceReviewError,match=field): _validate(review)
 
 def test_review_rejects_blind_evaluator_or_methodologist_as_acceptance_reviewer():
@@ -64,4 +71,4 @@ def test_rejection_and_revision_decisions_need_matching_domain_outcomes():
 
 def test_reviewed_at_must_be_timezone_aware():
     review=_review(); review["reviewed_at"]="2026-11-20T13:00:00"
-    with pytest.raises(BenchmarkAcceptanceReviewError,match="timezone-aware"): _validate(review)
+    with pytest.raises(ContractValidationError,match="date-time"): _validate(review)
