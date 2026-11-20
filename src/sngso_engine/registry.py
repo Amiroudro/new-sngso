@@ -1177,19 +1177,65 @@ _MIGRATION_11 = (
 )
 
 
+_LANGUAGE_REVIEW_RUBRICS = {
+    "bn": {
+        "version": "bn-editorial-v1",
+        "dimensions": {
+            "grammar_and_spelling", "naturalness_and_register",
+            "terminology_consistency", "factual_fidelity", "attribution",
+            "omissions", "translation_fidelity",
+        },
+    },
+    "en": {
+        "version": "en-editorial-v1",
+        "dimensions": {
+            "grammar_and_style", "clarity_and_readability",
+            "terminology_consistency", "factual_fidelity", "attribution",
+            "omissions", "translation_fidelity",
+        },
+    },
+}
+
+
+def _language_review_passes(review: dict[str, Any] | None, language: str) -> bool:
+    rubric = _LANGUAGE_REVIEW_RUBRICS.get(language)
+    if not isinstance(review, dict) or rubric is None:
+        return False
+    dimensions = review.get("dimensions")
+    if not isinstance(dimensions, dict) or set(dimensions) != rubric["dimensions"]:
+        return False
+    if review.get("rubric_version") != rubric["version"] or review.get("language") != language:
+        return False
+    return all(
+        value == "pass" or (name == "translation_fidelity" and value == "not_applicable")
+        for name, value in dimensions.items()
+    )
+
+
 def _validate_learning_object_language_review(payload: dict[str, Any]) -> None:
-    review = payload.get('language_review')
+    review = payload.get("language_review")
     if review is None:
         return
-    if payload.get('status') != 'approved':
-        raise RegistryIntegrityError('structured language review requires approval')
-    if review.get('language') != payload.get('language'):
-        raise RegistryIntegrityError('language review language mismatch')
-    if review.get('reviewer_id') != payload.get('reviewed_by'):
-        raise RegistryIntegrityError('language review reviewer mismatch')
-    if review.get('reviewed_at') != payload.get('reviewed_at'):
-        raise RegistryIntegrityError('language review timestamp mismatch')
-    _aware_datetime(review['reviewed_at'], 'language_review.reviewed_at')
+    if payload.get("status") not in {"approved", "rejected"}:
+        raise RegistryIntegrityError("structured language review requires an approved or rejected decision")
+    language = payload.get("language")
+    rubric = _LANGUAGE_REVIEW_RUBRICS.get(language)
+    if rubric is None or review.get("language") != language:
+        raise RegistryIntegrityError("language review language mismatch")
+    if review.get("rubric_version") != rubric["version"]:
+        raise RegistryIntegrityError("language review rubric version mismatch")
+    if set(review.get("dimensions", {})) != rubric["dimensions"]:
+        raise RegistryIntegrityError("language review dimensions do not match the language rubric")
+    if review.get("reviewer_id") != payload.get("reviewed_by"):
+        raise RegistryIntegrityError("language review reviewer mismatch")
+    if review.get("reviewed_at") != payload.get("reviewed_at"):
+        raise RegistryIntegrityError("language review timestamp mismatch")
+    _aware_datetime(review["reviewed_at"], "language_review.reviewed_at")
+    needs_revision = any(value == "needs_revision" for value in review["dimensions"].values())
+    if payload.get("status") == "approved" and needs_revision:
+        raise RegistryIntegrityError("approved language review cannot contain needs_revision findings")
+    if payload.get("status") == "rejected" and not needs_revision:
+        raise RegistryIntegrityError("rejected language review must identify at least one needs_revision finding")
 
 
 def _validate_learning_object_traceability(payload: dict[str, Any]) -> None:
@@ -5307,12 +5353,10 @@ class SQLiteRegistry:
                 if len(artifacts) != 1 or artifacts[0]["status"] != "approved":
                     unapproved_tiers.append(tier)
                 review = artifacts[0]["language_review"] if len(artifacts) == 1 else None
-                review_passed = bool(review) and all(
-                    verdict == "pass" or (
-                        name == "translation_fidelity" and verdict == "not_applicable"
-                    )
-                    for name, verdict in (review or {}).get("dimensions", {}).items()
-                ) and len(review["dimensions"]) == 6
+                review_passed = (
+                    artifacts[0]["status"] == "approved"
+                    and _language_review_passes(review, language)
+                ) if len(artifacts) == 1 else False
                 if (
                     len(artifacts) != 1
                     or not artifacts[0]["meets_registry_quality_gates"]
@@ -5329,13 +5373,8 @@ class SQLiteRegistry:
                     ),
                     "language_review_pass": (
                         len(artifacts) == 1
-                        and bool(artifacts[0]["language_review"])
-                        and all(
-                            verdict == "pass" or (
-                                name == "translation_fidelity" and verdict == "not_applicable"
-                            )
-                            for name, verdict in artifacts[0]["language_review"]["dimensions"].items()
-                        )
+                        and artifacts[0]["status"] == "approved"
+                        and _language_review_passes(artifacts[0]["language_review"], language)
                     ),
                     "artifacts": artifacts,
                 }
