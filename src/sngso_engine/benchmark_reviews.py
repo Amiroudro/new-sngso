@@ -1,7 +1,8 @@
 """Validation helpers for human-review metadata on editorial benchmarks.
 
-This module validates declarations; it does not authenticate reviewers, verify
-publisher rights, or persist an immutable review history.
+This module validates declarations. Registry persistence additionally resolves
+each source against a scoped permission grant; neither layer authenticates
+reviewer identity or makes a legal determination about publisher rights.
 """
 from __future__ import annotations
 
@@ -120,8 +121,8 @@ def validate_human_benchmark_review(review: Mapping[str, Any]) -> dict[str, Any]
         "checks": checks,
         "failures": failures,
         "scope_note": (
-            "Metadata validation only. It does not authenticate reviewer identity, "
-            "verify source-use rights, assess editorial correctness, or create an "
-            "immutable registry review history."
+            "Metadata validation only. Registry persistence separately checks declared "
+            "source grants and their operation scope. This does not authenticate "
+            "reviewer identity or make a legal determination about rights."
         ),
     }
