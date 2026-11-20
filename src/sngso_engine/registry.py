@@ -5244,6 +5244,93 @@ class SQLiteRegistry:
             "authorization_granted": False,
         }
 
+
+    def story_summary_tier_report(self, story_id: str) -> dict[str, Any]:
+        """Report the completeness of the three independently reviewed summary tiers."""
+        snapshot = self.story_editorial_snapshot(story_id)
+        required_tiers = ("headline_summary", "brief_summary", "detailed_summary")
+        by_language: dict[str, dict[str, list[dict[str, Any]]]] = {
+            language: {tier: [] for tier in required_tiers}
+            for language in ("bn", "en")
+        }
+        for item in snapshot["learning_objects"]:
+            record = item["record"]
+            language = record.get("language")
+            tier = record.get("kind")
+            if language not in by_language or tier not in required_tiers:
+                continue
+            quality = self.learning_object_quality_report(item["id"])
+            if quality["revision"] != item["revision"]:
+                raise RegistryIntegrityError(
+                    "learning object changed while summary-tier report was being assembled"
+                )
+            by_language[language][tier].append({
+                "learning_object_id": item["id"],
+                "revision": item["revision"],
+                "status": quality["status"],
+                "meets_registry_quality_gates": quality["meets_registry_quality_gates"],
+                "blockers": quality["blockers"],
+                "warnings": quality["warnings"],
+            })
+
+        languages: dict[str, Any] = {}
+        for language, tiers in by_language.items():
+            tier_reports = {}
+            missing_tiers = []
+            duplicate_tiers = []
+            unapproved_tiers = []
+            quality_blocked_tiers = []
+            for tier in required_tiers:
+                artifacts = tiers[tier]
+                if not artifacts:
+                    missing_tiers.append(tier)
+                if len(artifacts) > 1:
+                    duplicate_tiers.append(tier)
+                if len(artifacts) != 1 or artifacts[0]["status"] != "approved":
+                    unapproved_tiers.append(tier)
+                if len(artifacts) != 1 or not artifacts[0]["meets_registry_quality_gates"]:
+                    quality_blocked_tiers.append(tier)
+                tier_reports[tier] = {
+                    "artifact_count": len(artifacts),
+                    "exactly_one": len(artifacts) == 1,
+                    "approved": len(artifacts) == 1 and artifacts[0]["status"] == "approved",
+                    "quality_gate_pass": (
+                        len(artifacts) == 1
+                        and artifacts[0]["meets_registry_quality_gates"]
+                    ),
+                    "artifacts": artifacts,
+                }
+            languages[language] = {
+                "tiers": tier_reports,
+                "missing_tiers": missing_tiers,
+                "duplicate_tiers": duplicate_tiers,
+                "unapproved_or_ambiguous_tiers": unapproved_tiers,
+                "quality_blocked_or_ambiguous_tiers": quality_blocked_tiers,
+                "complete_reviewed_set": not (
+                    missing_tiers or duplicate_tiers or unapproved_tiers or quality_blocked_tiers
+                ),
+            }
+
+        confirmed_snapshot = self.story_editorial_snapshot(story_id)
+        if confirmed_snapshot["fingerprint"] != snapshot["fingerprint"]:
+            raise RegistryIntegrityError(
+                "story editorial snapshot changed while summary-tier report was being assembled"
+            )
+        return {
+            "story_id": story_id,
+            "snapshot_fingerprint": snapshot["fingerprint"],
+            "required_tiers": list(required_tiers),
+            "languages": languages,
+            "interpretation": (
+                "This report checks tier coverage, uniqueness, independent approval, and existing "
+                "deterministic registry quality gates. It does not assess prose quality, summary "
+                "length, completeness against the full source record, or factual truth. Bangla and "
+                "English are evaluated independently; an absent language is unassessed."
+            ),
+            "production_ready": False,
+            "authorization_granted": False,
+        }
+
     def get_domain_record(self, record_type: str, record_id: str):
         if record_type == "story_decision":
             with self._lock:
