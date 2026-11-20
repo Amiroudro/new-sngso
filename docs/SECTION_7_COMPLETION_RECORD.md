@@ -160,3 +160,12 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - Registry validation checks reviewer, timestamp, language, version, and rubric structure. The quality report blocks approved MCQs lacking a complete all-pass rubric.
 - GitHub Actions [run #44733507721](https://github.com/Amiroudro/new-sngso/actions/runs/44733507721) passed the full Python 3.12 suite: **689 tests in 7.56 seconds** on code head d6921b020e92355a5117910babf88430b514c44b. This run contains no dedicated regression cases for the new MCQ rubric path.
 - No dedicated tests were added for the new MCQ route in this slice. Treat this as implemented but awaiting targeted regression coverage and real human use; it is not an editorial-quality certification. Section 7 remains in progress.
+
+
+## Section 7.41: engine-to-Flutter compatibility boundary (design only)
+
+- Recorded the existing Flutter client's legacy Edition/Story/MCQ data shape and the difference from the evidence-first engine records.
+- Added a compatibility design and staging gates in docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md, including explicit preservation of claim/evidence/permission provenance outside fields that the current client parser discards.
+- The adapter, manifest validator, executable shared contract, Flutter parser validation, and cross-repository golden tests remain unimplemented. Flutter tooling was not available in this session.
+- No Sngs-plus files, bundled assets, existing edition snapshots, or publication schedules were changed.
+- Section 7 remains open; this design note does not pass the compatibility exit criterion.
