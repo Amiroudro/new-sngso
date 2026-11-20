@@ -5141,7 +5141,10 @@ class SQLiteRegistry:
         self, payload: dict[str, Any], *, actor: str, reason: str
     ) -> dict[str, Any]:
         """Persist an immutable, independently adjudicated benchmark disagreement."""
-        validation = validate_benchmark_adjudication(payload)
+        try:
+            validation = validate_benchmark_adjudication(payload)
+        except (TypeError, ValueError) as exc:
+            raise RegistryIntegrityError("adjudication contract validation failed") from exc
         if not validation["eligible_for_adjudication"]:
             raise RegistryIntegrityError("adjudication contract or independence checks failed")
         if not actor.strip() or not reason.strip():
