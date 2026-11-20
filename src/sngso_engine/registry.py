@@ -36,6 +36,7 @@ from .models import (
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 from .benchmark_reviews import validate_human_benchmark_review
+from .benchmark_scoring import validate_benchmark_scoring
 from .benchmark_adjudication import validate_benchmark_adjudication
 from .benchmark_assignments import (
     BenchmarkAssignmentError,
@@ -45,7 +46,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 19
+_SCHEMA_VERSION = 20
 
 
 _MIGRATION_14 = (
@@ -249,6 +250,44 @@ _MIGRATION_19 = (
     """CREATE TRIGGER benchmark_review_identity_attestations_no_delete
        BEFORE DELETE ON benchmark_review_identity_attestations
        BEGIN SELECT RAISE(ABORT, 'identity attestations are immutable'); END""",
+)
+
+
+_MIGRATION_20 = (
+    """CREATE TABLE benchmark_scores (
+        score_id TEXT PRIMARY KEY,
+        assignment_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        artifact_fingerprint TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        task_type TEXT NOT NULL,
+        language TEXT NOT NULL CHECK (language IN ('bn', 'en')),
+        evaluator_id TEXT NOT NULL,
+        evaluated_at TEXT NOT NULL,
+        weighted_score TEXT NOT NULL,
+        eligible_for_comparison INTEGER NOT NULL CHECK (eligible_for_comparison IN (0, 1)),
+        score_fingerprint TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        provider_key_id TEXT NOT NULL,
+        provider_adapter TEXT NOT NULL,
+        authenticated_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        FOREIGN KEY (assignment_id) REFERENCES benchmark_review_assignments(assignment_id) ON DELETE RESTRICT,
+        FOREIGN KEY (artifact_id) REFERENCES benchmark_artifacts(artifact_id) ON DELETE RESTRICT,
+        FOREIGN KEY (evaluator_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT,
+        UNIQUE (assignment_id, item_id)
+    )""",
+    """CREATE INDEX benchmark_scores_artifact_item
+       ON benchmark_scores(artifact_id, item_id, language)""",
+    """CREATE TRIGGER benchmark_scores_no_update
+       BEFORE UPDATE ON benchmark_scores
+       BEGIN SELECT RAISE(ABORT, 'benchmark score records are immutable'); END""",
+    """CREATE TRIGGER benchmark_scores_no_delete
+       BEFORE DELETE ON benchmark_scores
+       BEGIN SELECT RAISE(ABORT, 'benchmark score records are append-only'); END""",
 )
 
 
@@ -1607,6 +1646,21 @@ class SQLiteRegistry:
                     version = 19
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 19 failed; transaction rolled back") from exc
+
+            
+            if version == 19 and _SCHEMA_VERSION >= 20:
+                try:
+                    for statement in _MIGRATION_20:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (20, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 20")
+                    version = 20
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 20 failed; transaction rolled back") from exc
+
 
 
     def _append_audit(
@@ -5876,6 +5930,162 @@ class SQLiteRegistry:
                          "reason": reason},
             )
         return dict(attestation)
+
+
+    def add_benchmark_score(
+        self, score: dict[str, Any], *, assignment_id: str, actor: str,
+        identity: dict[str, Any], reason: str
+    ) -> dict[str, Any]:
+        """Persist one immutable score for an accepted, exact-item assignment."""
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise RegistryIntegrityError("score actor and reason are required")
+        try:
+            report = validate_benchmark_scoring(score)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise RegistryIntegrityError("score sheet violates the versioned scoring contract") from exc
+        if not report["valid"]:
+            raise RegistryIntegrityError("score sheet has invalid criterion IDs or weights")
+        evaluated_at = _aware_datetime(score["evaluated_at"], "evaluated_at")
+        required_identity = ("issuer", "subject", "provider_key_id", "provider_adapter", "authenticated_at")
+        if not isinstance(identity, dict) or any(
+            not isinstance(identity.get(key), str) or not identity[key].strip()
+            for key in required_identity
+        ):
+            raise RegistryIntegrityError("score requires trusted provider identity evidence")
+        authenticated_at = _aware_datetime(identity["authenticated_at"], "authenticated_at")
+        if evaluated_at < authenticated_at:
+            raise RegistryIntegrityError("score timestamp cannot precede evaluator authentication")
+        with self._transaction() as connection:
+            assignment_row = connection.execute(
+                "SELECT payload_json FROM benchmark_review_assignments WHERE assignment_id = ?",
+                (assignment_id,),
+            ).fetchone()
+            if assignment_row is None:
+                raise RegistryIntegrityError("score must reference an existing reviewer assignment")
+            assignment = json.loads(assignment_row["payload_json"])
+            if assignment["status"] != "accepted":
+                raise RegistryIntegrityError("only an accepted reviewer assignment may be scored")
+            if assignment["reviewer_id"] != actor or score["evaluator_id"] != actor:
+                raise RegistryIntegrityError("score evaluator must be the reviewer assigned to this artifact")
+            if (
+                score["benchmark_id"] != assignment["artifact_id"]
+                or score["benchmark_fingerprint"] != assignment["artifact_fingerprint"]
+                or score["language"] != assignment["language"]
+            ):
+                raise RegistryIntegrityError("score must bind to the assignment's exact artifact, fingerprint, and language")
+            artifact_row = connection.execute(
+                "SELECT language, content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+                (assignment["artifact_id"],),
+            ).fetchone()
+            if artifact_row is None:
+                raise RegistryIntegrityError("score artifact is not registered")
+            artifact_content = json.loads(artifact_row["content_json"])
+            if sha256_fingerprint(artifact_content) != artifact_row["content_fingerprint"]:
+                raise RegistryIntegrityError("registered artifact fingerprint verification failed")
+            if (
+                artifact_row["content_fingerprint"] != assignment["artifact_fingerprint"]
+                or artifact_row["language"] != assignment["language"]
+            ):
+                raise RegistryIntegrityError("assignment no longer matches its immutable artifact")
+            item = next(
+                (candidate for candidate in artifact_content.get("items", [])
+                 if candidate.get("item_id") == score["item_id"]),
+                None,
+            )
+            if item is None or item.get("task_type") != score["task_type"]:
+                raise RegistryIntegrityError("score item ID and task type must match the registered artifact")
+            principal = connection.execute(
+                "SELECT active, roles_json, languages_json, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                (actor,),
+            ).fetchone()
+            if (
+                principal is None or not principal["active"]
+                or "benchmark_reviewer" not in json.loads(principal["roles_json"])
+                or assignment["language"] not in json.loads(principal["languages_json"])
+                or principal["principal_kind"] != "human"
+            ):
+                raise RegistryIntegrityError("scoring requires an active, qualified, human-classified reviewer")
+            final = connection.execute(
+                "SELECT 1 FROM benchmark_adjudications WHERE benchmark_id = ?",
+                (assignment["artifact_id"],),
+            ).fetchone()
+            if final is not None:
+                raise RegistryIntegrityError("cannot add a score after final artifact adjudication")
+            score_id = score.get("score_id")
+            if not isinstance(score_id, str) or not score_id.strip():
+                raise RegistryIntegrityError("score_id is required for durable score history")
+            payload_json = _json_text(score)
+            score_fingerprint = sha256_fingerprint(score)
+            created_at = _utc_now()
+            connection.execute(
+                """INSERT INTO benchmark_scores
+                (score_id, assignment_id, artifact_id, artifact_fingerprint, item_id,
+                 task_type, language, evaluator_id, evaluated_at, weighted_score,
+                 eligible_for_comparison, score_fingerprint, payload_json, issuer,
+                 subject, provider_key_id, provider_adapter, authenticated_at,
+                 created_at, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (score_id, assignment_id, assignment["artifact_id"],
+                 assignment["artifact_fingerprint"], score["item_id"], score["task_type"],
+                 score["language"], actor, score["evaluated_at"], report["weighted_score"],
+                 int(report["eligible_for_comparison"]), score_fingerprint, payload_json,
+                 identity["issuer"], identity["subject"], identity["provider_key_id"],
+                 identity["provider_adapter"], identity["authenticated_at"], created_at, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_score.recorded",
+                entity_type="benchmark_score", entity_id=score_id,
+                payload={"assignment_id": assignment_id, "artifact_id": assignment["artifact_id"],
+                         "artifact_fingerprint": assignment["artifact_fingerprint"],
+                         "item_id": score["item_id"], "evaluator_id": actor,
+                         "score_fingerprint": score_fingerprint,
+                         "eligible_for_comparison": report["eligible_for_comparison"],
+                         "reason": reason},
+            )
+        return {
+            "score_id": score_id, "assignment_id": assignment_id,
+            "artifact_id": assignment["artifact_id"], "item_id": score["item_id"],
+            "evaluator_id": actor, "weighted_score": report["weighted_score"],
+            "eligible_for_comparison": report["eligible_for_comparison"],
+            "score_fingerprint": score_fingerprint, "created_at": created_at,
+        }
+
+    def get_benchmark_score(self, score_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_scores WHERE score_id = ?", (score_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "score_id": row["score_id"], "assignment_id": row["assignment_id"],
+            "artifact_id": row["artifact_id"], "artifact_fingerprint": row["artifact_fingerprint"],
+            "item_id": row["item_id"], "task_type": row["task_type"],
+            "language": row["language"], "evaluator_id": row["evaluator_id"],
+            "evaluated_at": row["evaluated_at"], "weighted_score": row["weighted_score"],
+            "eligible_for_comparison": bool(row["eligible_for_comparison"]),
+            "score_fingerprint": row["score_fingerprint"],
+            "score": json.loads(row["payload_json"]), "issuer": row["issuer"],
+            "subject": row["subject"], "provider_key_id": row["provider_key_id"],
+            "provider_adapter": row["provider_adapter"], "authenticated_at": row["authenticated_at"],
+            "created_at": row["created_at"], "reason": row["reason"],
+        }
+
+    def list_benchmark_scores(
+        self, *, artifact_id: str | None = None, item_id: str | None = None,
+        evaluator_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        clauses, values = [], []
+        for column, value in (("artifact_id", artifact_id), ("item_id", item_id),
+                              ("evaluator_id", evaluator_id)):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                values.append(value)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self._connection.execute(
+            "SELECT score_id FROM benchmark_scores" + where + " ORDER BY created_at, score_id",
+            values,
+        ).fetchall()
+        return [self.get_benchmark_score(row["score_id"]) for row in rows]
 
     def benchmark_readiness_report(self, artifact_id: str) -> dict[str, Any]:
         """Report evidence readiness without treating declared principal types as identity proof."""
