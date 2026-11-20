@@ -1,16 +1,82 @@
-from copy import deepcopy
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from sngso_engine.registry import RegistryIntegrityError, SQLiteRegistry
-from tests.test_benchmark_study_registry import _registered
 
 
-STAMP = "2026-11-20T00:00:00Z"
-ACCEPTED = "2026-11-20T00:05:00Z"
-COMPLETED = "2026-11-20T03:30:00Z"
-AUTHENTICATED = "2026-11-20T04:10:00Z"
+NOW = datetime.now(timezone.utc)
+STARTED = NOW - timedelta(minutes=30)
+STAMP = STARTED.isoformat()
+ACCEPTED = (STARTED + timedelta(minutes=5)).isoformat()
+SCORE_AT = (STARTED + timedelta(minutes=10)).isoformat()
+COMPLETED = (NOW - timedelta(minutes=10)).isoformat()
+AUTHENTICATED = (NOW - timedelta(minutes=1)).isoformat()
+REVIEWED = (NOW - timedelta(minutes=5)).isoformat()
+
+
+def _registered(registry):
+    registry.register_benchmark_principal(
+        "curator:study", display_name="Study Curator", roles=["benchmark_curator"],
+        provisioned_by="deployment-operator", reason="Test curator",
+    )
+    items = [
+        {"item_id": item_id, "task_type": "headline", "input": "পরীক্ষার সংবাদ",
+         "expected_output": "পরীক্ষার শিরোনাম", "scoring_criteria": ["Factual accuracy"]}
+        for item_id in ("cal:1", "blind:1", "blind:2", "adj:1")
+    ]
+    artifact = registry.register_benchmark_artifact(
+        "artifact:study:bn", language="bn", content={"schema_version": "1.0.0", "items": items},
+        actor="curator:study", reason="Register study benchmark",
+    )
+    protocol = {
+        "schema_version": "1.0.0", "study_id": "study:bn:headlines",
+        "study_version": 1, "status": "protocol_only",
+        "benchmark_id": artifact["artifact_id"],
+        "benchmark_fingerprint": artifact["content_fingerprint"],
+        "rubric_version": "headline-rubric/2.1",
+        "language_task_strata": [{"language": "bn", "task_type": "headline"}],
+        "sampling_plan": {
+            "sampling_frame_description": "All eligible Bangla headline items in the registered immutable benchmark artifact.",
+            "selection_method": "stratified_random",
+            "inclusion_criteria": ["Registered items with verified source provenance."],
+            "exclusion_criteria": ["Items with unresolved permissions or answer leakage."],
+            "target_rationale": "The sample target will be justified by the estimand, precision goal, and planned statistical design."
+        },
+        "partition_membership": {
+            "calibration_item_ids": ["cal:1"],
+            "blind_evaluation_item_ids": ["blind:1", "blind:2"],
+            "adjudication_item_ids": ["adj:1"]
+        },
+        "reviewer_plan": [
+            {"reviewer_id": "human:one", "principal_kind": "human", "languages": ["bn"],
+             "task_types": ["headline"], "training_completed": True,
+             "training_record_reference": "training:one",
+             "qualification_basis": "Documented professional Bangla editing experience and task-specific assessment."},
+            {"reviewer_id": "human:two", "principal_kind": "human", "languages": ["bn"],
+             "task_types": ["headline"], "training_completed": True,
+             "training_record_reference": "training:two",
+             "qualification_basis": "Documented professional Bangla journalism experience and task-specific assessment."}
+        ],
+        "blind_assignment_plan": [
+            {"item_id": item_id, "language": "bn", "task_type": "headline",
+             "reviewer_ids": ["human:one", "human:two"]}
+            for item_id in ("blind:1", "blind:2")
+        ],
+        "analysis_plan": {
+            "measurement_scale": "ordinal",
+            "proposed_statistic": "A statistic suitable for ordinal ratings and crossed evaluator/item design",
+            "statistic_rationale": "The selected statistic must reflect ordinal scores, multiple raters, and the actual sampling structure.",
+            "unit_of_analysis": "Item-level criterion ratings, with clustering by item and evaluator represented.",
+            "confidence_interval_plan": "Use a justified interval method that respects clustering and reports its assumptions and limitations.",
+            "missing_data_plan": "Describe missingness, reasons, exclusions, and sensitivity analyses before examining outcomes.",
+            "independence_assumptions": "Reviewers score independently without seeing peer scores or adjudication outcomes.",
+            "methodological_reviewer": "Independent statistician or research-methods reviewer appointed before data collection."
+        },
+        "limitations": ["Protocol validation does not establish actual execution, sample adequacy, or reliability."]
+    }
+    return artifact, protocol
 
 
 def _score(registry, artifact, item_id, evaluator_id):
@@ -35,7 +101,7 @@ def _score(registry, artifact, item_id, evaluator_id):
         "schema_version": "1.0.0", "benchmark_id": artifact["artifact_id"],
         "benchmark_fingerprint": artifact["content_fingerprint"],
         "item_id": item_id, "task_type": "headline", "language": "bn",
-        "evaluator_id": evaluator_id, "evaluated_at": "2026-11-20T01:00:00Z",
+        "evaluator_id": evaluator_id, "evaluated_at": SCORE_AT,
         "scale": {"minimum": 0, "maximum": 4},
         "criterion_scores": [{
             "criterion_id": "accuracy", "weight": 1.0, "score": 3,
@@ -64,7 +130,7 @@ def _execution(artifact, protocol, score_ids):
         "benchmark_id": artifact["artifact_id"],
         "benchmark_fingerprint": artifact["content_fingerprint"],
         "rubric_version": protocol["rubric_version"],
-        "started_at": "2026-11-20T00:30:00Z", "completed_at": COMPLETED,
+        "started_at": STAMP, "completed_at": COMPLETED,
         "score_records": [
             {"score_id": score_id, "item_id": item_id, "evaluator_id": evaluator_id}
             for score_id, (item_id, evaluator_id) in zip(
@@ -84,7 +150,7 @@ def _execution(artifact, protocol, score_ids):
             "independence_assessment": "Reviewers scored independently without access to peer scores or adjudication outcomes.",
             "methodologist_id": "methodologist:one",
             "methodologist_rationale": "The selected coefficient is suitable for ordinal ratings and the crossed rater/item design; the uncertainty interval and design limitations are reported.",
-            "reviewed_at": "2026-11-20T03:45:00Z",
+            "reviewed_at": REVIEWED,
         },
         "limitations": ["The registry stores the analysis artifact fingerprint but does not independently reproduce its computation."]
     }
