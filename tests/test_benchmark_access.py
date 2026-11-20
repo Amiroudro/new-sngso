@@ -48,6 +48,18 @@ class FakeRegistry:
     def get_benchmark_principal(self, principal_id):
         return self.principal if principal_id == self.principal["principal_id"] else None
 
+    def register_benchmark_acceptance_review(self, payload, **kwargs):
+        self.calls.append(("acceptance_review", payload, kwargs))
+        return {"review_id": payload["review_id"], "reviewer_id": kwargs["actor"], "decision": payload["decision"]}
+
+    def get_benchmark_acceptance_review(self, review_id):
+        self.calls.append(("get_acceptance_review", review_id))
+        return {"review_id": review_id, "reviewer_id": "person:42"}
+
+    def list_benchmark_acceptance_reviews(self, **kwargs):
+        self.calls.append(("list_acceptance_reviews", kwargs))
+        return [{"study_id": kwargs.get("study_id")}]
+
     def register_benchmark_study_execution(self, payload, **kwargs):
         self.calls.append(("study_execution", payload, kwargs))
         return {"execution_id": payload["execution_id"], **kwargs}
@@ -486,5 +498,46 @@ def test_methodologist_cannot_submit_analysis_for_another_principal():
             "trusted-request",
             {"execution_id": "execution:one", "analysis": {"methodologist_id": "someone-else"}},
             reason="Identity substitution",
+        )
+    assert registry.calls == []
+
+
+def test_acceptance_review_submission_uses_authenticated_human_role_and_provider_provenance():
+    registry = FakeRegistry(roles=("benchmark_acceptance_reviewer",))
+    payload = {"review_id": "acceptance:one", "reviewer_id": "person:42",
+               "reviewer_role": "independent_acceptance_reviewer",
+               "decision": "accepted_for_limited_use"}
+    result = access(registry).submit_acceptance_review(
+        "trusted-request", payload, reason="independent review"
+    )
+    call = next(call for call in registry.calls if call[0] == "acceptance_review")
+    assert result["reviewer_id"] == "person:42"
+    assert call[2]["actor"] == "person:42"
+    assert call[2]["identity"]["subject"] == "oidc-subject-42"
+    assert call[2]["identity"]["provider_key_id"] == "key-2026-01"
+    assert "session:opaque" not in str(call[2])
+
+
+def test_acceptance_review_rejects_wrong_role_or_reviewer_identity():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    payload = {"reviewer_id": "person:42"}
+    with pytest.raises(RegistryIntegrityError, match="acceptance reviewer"):
+        access(registry).submit_acceptance_review(
+            "trusted-request", payload, reason="wrong role"
+        )
+    registry = FakeRegistry(roles=("benchmark_acceptance_reviewer",))
+    payload = {"reviewer_id": "person:attacker"}
+    with pytest.raises(RegistryIntegrityError, match="must match"):
+        access(registry).submit_acceptance_review(
+            "trusted-request", payload, reason="identity substitution"
+        )
+
+
+def test_acceptance_review_rejects_stale_authentication():
+    registry = FakeRegistry(roles=("benchmark_acceptance_reviewer",))
+    stale = identity(authenticated_at=NOW - timedelta(minutes=16))
+    with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+        access(registry, stale).submit_acceptance_review(
+            "trusted-request", {"reviewer_id": "person:42"}, reason="stale"
         )
     assert registry.calls == []
