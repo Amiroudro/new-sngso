@@ -6390,6 +6390,9 @@ class SQLiteRegistry:
                         raise RegistryIntegrityError("excluded score is bound to a different benchmark artifact")
                     if row["eligible_for_comparison"]:
                         raise RegistryIntegrityError("only ineligible scores may be represented as excluded score evidence")
+                    excluded_at = _aware_datetime(row["evaluated_at"], "excluded_score.evaluated_at")
+                    if excluded_at < started_at or excluded_at > completed_at:
+                        raise RegistryIntegrityError("excluded score timestamp falls outside the declared study execution window")
                     if item["score_id"] in score_ids:
                         raise RegistryIntegrityError("execution cannot reference the same score twice")
                     score_ids.add(item["score_id"])
