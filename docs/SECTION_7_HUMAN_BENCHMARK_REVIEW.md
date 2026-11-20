@@ -172,3 +172,12 @@ A versioned scoring contract and deterministic validator now require item-bound 
 - Final adjudication blocks new score records. A score with a declared critical failure is retained as an immutable judgment but is marked ineligible for comparison.
 - Provider issuer, subject, key ID, adapter identity, and authentication time are retained as provenance. Raw session IDs and tokens are not stored.
 - This ledger records judgments; it does not prove evidence correctness, rubric validity, evaluator competence, or inter-rater reliability. Deployment must still provide a real cryptographic identity provider and independently validated reviewer qualifications.
+
+
+## Section 7.21: evaluator agreement and calibration intelligence
+
+- Added deterministic descriptive agreement reporting for persisted, independently submitted score sheets on one exact artifact fingerprint, item, task type, language, and matching criterion rubric.
+- Reports include pairwise exact agreement, within-one-point agreement, mean absolute score difference per criterion, and criterion-weighted mean absolute difference.
+- Registry reports require provider provenance and human-classified evaluator principals. The authenticated facade exposes peer-score reports only to curators and adjudicators, preserving reviewer blindness during independent scoring.
+- Critical-failure score sheets are excluded from agreement comparison. Mismatched items, artifacts, criterion sets, or weights fail closed.
+- Explicit statistical boundary: these are descriptive disagreement measures, not reliability coefficients. No generalization or claim of inter-rater reliability is supported. Genuine human calibration data and an independently designed reliability study remain necessary.
