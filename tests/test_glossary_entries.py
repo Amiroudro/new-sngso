@@ -60,6 +60,26 @@ def _prepared():
         }],
         "created_at": STAMP,
     })
+    registry.add_domain_record("evidence", {
+        "schema_version": "1.0.0",
+        "id": "evidence:one",
+        "claim_id": "claim:one",
+        "source_id": "source:publisher",
+        "article_id": "article:one",
+        "relationship": "mentions",
+        "locator": {"uri": f"https://{host}/one#accountability"},
+        "assessed_at": STAMP,
+        "assessed_by": "editor",
+    })
+    claim_row = registry._connection.execute(
+        "SELECT payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:one'"
+    ).fetchone()
+    claim = json.loads(claim_row["payload_json"])
+    claim["evidence_ids"] = ["evidence:one"]
+    registry.revise_domain_record(
+        "claim", "claim:one", claim, expected_revision=1,
+        actor="editor", reason="Link the source-context locator.",
+    )
     return registry
 
 
@@ -105,6 +125,9 @@ def _vocabulary(identifier="learning:vocab"):
         "content": {
             "term": "accountability",
             "glossary_entry_id": "glossary:accountability",
+            "source_evidence_id": "evidence:one",
+            "source_evidence_revision": 1,
+            "source_evidence_revision": 1,
             "term_language": "en",
             "part_of_speech": "noun",
             "pronunciation": "/əˌkaʊntəˈbɪləti/",
@@ -117,6 +140,125 @@ def _vocabulary(identifier="learning:vocab"):
         "created_at": STAMP,
     }
 
+
+
+def test_vocabulary_requires_registered_source_evidence_link():
+    registry = _prepared()
+    try:
+        payload = _vocabulary("learning:vocab-missing-evidence")
+        payload["content"].pop("source_evidence_id")
+        with pytest.raises(ValueError):
+            validate_payload("learning-object", payload)
+
+        payload = _vocabulary("learning:vocab-unknown-evidence")
+        payload["content"]["source_evidence_id"] = "evidence:missing"
+        with pytest.raises(RegistryIntegrityError, match="unknown source evidence"):
+            registry.add_learning_object(
+                payload, actor="editor", reason="Reject a missing source locator."
+            )
+
+        registry.add_domain_record("claim", {
+            "schema_version": "1.0.0",
+            "id": "claim:foreign",
+            "story_id": "story:one",
+            "text": "A separate contextual claim.",
+            "language": "en",
+            "assessment": "unassessed",
+            "provenance": [{
+                "source_id": "source:publisher",
+                "article_id": "article:one",
+                "observed_at": STAMP,
+                "method": "human_review",
+                "method_version": "1.0",
+                "locator": {"uri": "https://publisher.example.org/one"},
+            }],
+            "created_at": STAMP,
+        })
+        registry.add_domain_record("evidence", {
+            "schema_version": "1.0.0",
+            "id": "evidence:foreign",
+            "claim_id": "claim:foreign",
+            "source_id": "source:publisher",
+            "article_id": "article:one",
+            "relationship": "mentions",
+            "locator": {"uri": "https://publisher.example.org/one#other"},
+            "assessed_at": STAMP,
+            "assessed_by": "editor",
+        })
+        payload = _vocabulary("learning:vocab-foreign-evidence")
+        payload["content"]["source_evidence_id"] = "evidence:foreign"
+        with pytest.raises(RegistryIntegrityError, match="belong to one of the learning object's claims"):
+            registry.add_learning_object(
+                payload, actor="editor", reason="Reject evidence belonging to another claim."
+            )
+    finally:
+        registry.close()
+
+
+def test_vocabulary_source_evidence_must_remain_linked_to_current_claim_provenance():
+    registry = _prepared()
+    try:
+        registry.add_glossary_entry(
+            _glossary(), actor="editor", reason="Create controlled headword."
+        )
+        item = registry.add_learning_object(
+            _vocabulary(), actor="editor", reason="Create source-grounded vocabulary item."
+        )
+        stale_revision = item.to_payload()
+        stale_revision["content"]["source_evidence_revision"] = 2
+        with pytest.raises(RegistryIntegrityError, match="source evidence revision is stale"):
+            registry.revise_learning_object(
+                item.id, stale_revision, expected_revision=1,
+                actor="editor", reason="Reject a stale evidence revision.",
+            )
+        claim_row = registry._connection.execute(
+            "SELECT payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:one'"
+        ).fetchone()
+        claim = json.loads(claim_row["payload_json"])
+        claim["evidence_ids"] = []
+        registry.revise_domain_record(
+            "claim", "claim:one", claim, expected_revision=2,
+            actor="editor", reason="Remove the now-stale evidence link.",
+        )
+        report = registry.learning_object_quality_report(item.id)
+        assert report["meets_registry_quality_gates"] is False
+        assert any(
+            blocker["check"] == "vocabulary_source_evidence"
+            for blocker in report["blockers"]
+        )
+        revised = item.to_payload()
+        revised["content"]["source_evidence_id"] = "evidence:missing"
+        with pytest.raises(RegistryIntegrityError, match="unknown source evidence"):
+            registry.revise_learning_object(
+                item.id, revised, expected_revision=1,
+                actor="editor", reason="Reject a stale source locator.",
+            )
+    finally:
+        registry.close()
+
+
+def test_sqlite_boundary_rejects_vocabulary_with_unknown_source_evidence():
+    registry = _prepared()
+    try:
+        registry.add_glossary_entry(
+            _glossary(), actor="editor", reason="Create controlled headword."
+        )
+        payload = _vocabulary("learning:vocab-direct-missing-evidence")
+        payload["content"]["source_evidence_id"] = "evidence:missing"
+        with pytest.raises(sqlite3.IntegrityError, match="vocabulary source evidence"):
+            registry._connection.execute(
+                """INSERT INTO learning_objects
+                (id, story_id, kind, language, status, revision, created_at, updated_at,
+                 last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (
+                    payload["id"], payload["story_id"], payload["kind"], payload["language"],
+                    payload["status"], payload["created_at"], payload["created_at"],
+                    "editor", "Direct SQL source-evidence guard test.", json.dumps(payload),
+                ),
+            )
+    finally:
+        registry.close()
 
 def test_glossary_entry_persists_bilingual_senses_and_revision_history():
     registry = _prepared()

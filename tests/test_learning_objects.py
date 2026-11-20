@@ -140,6 +140,8 @@ def test_vocabulary_and_question_content_require_kind_specific_fields():
         "content": {
             "term": "accountability",
             "glossary_entry_id": "glossary:accountability",
+            "source_evidence_id": "evidence:source-context",
+            "source_evidence_revision": 1,
             "term_language": "en",
             "part_of_speech": "noun",
             "meaning": "দায়বদ্ধতা",

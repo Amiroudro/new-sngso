@@ -24,6 +24,11 @@ New artifacts start as `draft` or `review_required`. Approval or rejection is a 
 
 Revisions use optimistic concurrency with an expected revision. Story, kind, language, ID, and creation time are immutable identity fields. Content, claim links, lifecycle state, and review metadata can change through a new revision. Revision history is append-only and is written by SQLite triggers in the same transaction as the current-record update. Stale edits are rejected.
 
+### Vocabulary source provenance
+
+Every vocabulary object must identify a registered evidence record and the exact evidence revision whose locator points to the source context. The evidence must belong to one of the object's linked claims, remain listed by that claim, and match its current source/article provenance. Store the evidence ID and revision rather than copying a source sentence into the learning object. The registry rechecks this binding on create, revision, and quality reporting; SQLite repeats it for direct writes. An absent, mismatched, or stale evidence link blocks the quality gate. This is traceability, not proof that the contextual sense or glossary definition is linguistically correct; a qualified editor must review those separately.
+
+
 ## Editorial constraints
 
 - Every factual learning object should link to the claims it uses. Summary segments must each link to one or more claims, and the object-level claim list must exactly match the segment links. Empty claim lists remain representable for non-factual learning material, but they must not be used to disguise factual assertions without provenance.

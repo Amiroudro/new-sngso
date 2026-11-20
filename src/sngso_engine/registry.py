@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 23
+_SCHEMA_VERSION = 24
 
 
 _MIGRATION_14 = (
@@ -461,6 +461,80 @@ _MIGRATION_23 = (
        BEGIN SELECT RAISE(ABORT, 'benchmark acceptance decisions are append-only'); END""",
 )
 
+
+
+_MIGRATION_24 = (
+    """CREATE TRIGGER learning_object_vocabulary_source_evidence_insert
+       BEFORE INSERT ON learning_objects
+       WHEN json_extract(NEW.payload_json, '$.kind') = 'vocabulary'
+       BEGIN
+         SELECT CASE WHEN NOT EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.claim_ids') object_claim
+           JOIN domain_records claim_record
+             ON claim_record.record_type = 'claim' AND claim_record.id = object_claim.value
+           JOIN domain_records evidence_record
+             ON evidence_record.record_type = 'evidence'
+            AND evidence_record.id = json_extract(NEW.payload_json, '$.content.source_evidence_id')
+            AND evidence_record.revision = json_extract(NEW.payload_json, '$.content.source_evidence_revision')
+           WHERE json_extract(evidence_record.payload_json, '$.claim_id') = claim_record.id
+             AND EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.evidence_ids') claim_evidence
+               WHERE claim_evidence.value = evidence_record.id
+             )
+             AND EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.provenance') provenance
+               WHERE json_extract(provenance.value, '$.source_id') =
+                     json_extract(evidence_record.payload_json, '$.source_id')
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.article_id') IS NULL
+                   OR json_extract(provenance.value, '$.article_id') =
+                      json_extract(evidence_record.payload_json, '$.article_id')
+                 )
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.observation_id') IS NULL
+                   OR json_extract(provenance.value, '$.observation_id') =
+                      json_extract(evidence_record.payload_json, '$.observation_id')
+                 )
+             )
+         ) THEN RAISE(ABORT, 'vocabulary source evidence must be current and linked to an object claim') END;
+       END""",
+    """CREATE TRIGGER learning_object_vocabulary_source_evidence_update
+       BEFORE UPDATE OF payload_json ON learning_objects
+       WHEN json_extract(NEW.payload_json, '$.kind') = 'vocabulary'
+       BEGIN
+         SELECT CASE WHEN NOT EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.claim_ids') object_claim
+           JOIN domain_records claim_record
+             ON claim_record.record_type = 'claim' AND claim_record.id = object_claim.value
+           JOIN domain_records evidence_record
+             ON evidence_record.record_type = 'evidence'
+            AND evidence_record.id = json_extract(NEW.payload_json, '$.content.source_evidence_id')
+            AND evidence_record.revision = json_extract(NEW.payload_json, '$.content.source_evidence_revision')
+           WHERE json_extract(evidence_record.payload_json, '$.claim_id') = claim_record.id
+             AND EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.evidence_ids') claim_evidence
+               WHERE claim_evidence.value = evidence_record.id
+             )
+             AND EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.provenance') provenance
+               WHERE json_extract(provenance.value, '$.source_id') =
+                     json_extract(evidence_record.payload_json, '$.source_id')
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.article_id') IS NULL
+                   OR json_extract(provenance.value, '$.article_id') =
+                      json_extract(evidence_record.payload_json, '$.article_id')
+                 )
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.observation_id') IS NULL
+                   OR json_extract(provenance.value, '$.observation_id') =
+                      json_extract(evidence_record.payload_json, '$.observation_id')
+                 )
+             )
+         ) THEN RAISE(ABORT, 'vocabulary source evidence must be current and linked to an object claim') END;
+       END""",
+)
 
 class RegistryIntegrityError(ValueError):
     """Raised when a record references missing or incompatible registry data."""
@@ -1970,6 +2044,19 @@ class SQLiteRegistry:
                     version = 23
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 23 failed; transaction rolled back") from exc
+
+            if version == 23 and _SCHEMA_VERSION >= 24:
+                try:
+                    for statement in _MIGRATION_24:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (24, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 24")
+                    version = 24
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 24 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -5270,6 +5357,64 @@ class SQLiteRegistry:
             for row in rows
         ]
 
+    def _validate_learning_object_source_evidence_reference(
+        self, connection: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        if payload.get("kind") != "vocabulary":
+            return
+        content = payload["content"]
+        evidence_id = content.get("source_evidence_id")
+        expected_revision = content.get("source_evidence_revision")
+        if not isinstance(evidence_id, str) or not evidence_id.strip():
+            raise RegistryIntegrityError("vocabulary source evidence ID is required")
+        if not isinstance(expected_revision, int) or isinstance(expected_revision, bool) or expected_revision < 1:
+            raise RegistryIntegrityError("vocabulary source evidence revision is required")
+        evidence_row = connection.execute(
+            """SELECT revision, payload_json FROM domain_records
+            WHERE record_type = 'evidence' AND id = ?""",
+            (evidence_id,),
+        ).fetchone()
+        if evidence_row is None:
+            raise RegistryIntegrityError(
+                "vocabulary learning object references an unknown source evidence record"
+            )
+        if evidence_row["revision"] != expected_revision:
+            raise RegistryIntegrityError("vocabulary source evidence revision is stale")
+        evidence = json.loads(evidence_row["payload_json"])
+        claim_ids = payload.get("claim_ids", [])
+        if evidence.get("claim_id") not in claim_ids:
+            raise RegistryIntegrityError(
+                "vocabulary source evidence must belong to one of the learning object's claims"
+            )
+        claim_row = connection.execute(
+            """SELECT payload_json FROM domain_records
+            WHERE record_type = 'claim' AND id = ?""",
+            (evidence["claim_id"],),
+        ).fetchone()
+        if claim_row is None:
+            raise RegistryIntegrityError("vocabulary source evidence claim is missing")
+        claim = json.loads(claim_row["payload_json"])
+        if evidence_id not in claim.get("evidence_ids", []):
+            raise RegistryIntegrityError(
+                "vocabulary source evidence is no longer linked from its claim"
+            )
+        provenance_matches = any(
+            item.get("source_id") == evidence.get("source_id")
+            and (
+                evidence.get("article_id") is None
+                or item.get("article_id") == evidence.get("article_id")
+            )
+            and (
+                evidence.get("observation_id") is None
+                or item.get("observation_id") == evidence.get("observation_id")
+            )
+            for item in claim.get("provenance", [])
+        )
+        if not provenance_matches or not evidence.get("locator"):
+            raise RegistryIntegrityError(
+                "vocabulary source evidence locator must match the claim's current provenance"
+            )
+
     def _validate_learning_object_glossary_reference(
         self, connection: sqlite3.Connection, payload: dict[str, Any]
     ) -> None:
@@ -5349,6 +5494,7 @@ class SQLiteRegistry:
                     json.loads(row["payload_json"])["story_id"] != record.story_id for row in rows
                 ):
                     raise RegistryIntegrityError("learning object claims must belong to its story")
+            self._validate_learning_object_source_evidence_reference(connection, payload)
             self._validate_learning_object_glossary_reference(connection, payload)
             connection.execute(
                 """INSERT INTO learning_objects
@@ -5656,6 +5802,18 @@ class SQLiteRegistry:
                     })
 
             if payload["kind"] == "vocabulary":
+                try:
+                    self._validate_learning_object_source_evidence_reference(connection, payload)
+                    source_evidence_valid = True
+                    source_evidence_detail = (
+                        "The vocabulary source evidence exists, remains linked to an object claim, "
+                        "and matches current claim provenance."
+                    )
+                except RegistryIntegrityError as exc:
+                    source_evidence_valid = False
+                    source_evidence_detail = str(exc)
+                check("vocabulary_source_evidence", source_evidence_valid, source_evidence_detail)
+
                 glossary_id = payload["content"]["glossary_entry_id"]
                 glossary_row = connection.execute(
                     "SELECT status, payload_json FROM glossary_entries WHERE id = ?",

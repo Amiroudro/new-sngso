@@ -245,3 +245,8 @@ Remaining Section 7 work includes genuine human review of MCQs and other learnin
 ### Section 7.34 implementation update
 
 MCQ distractor rationales now require one or more source claim IDs drawn from the same learning object's claim set. The quality report verifies that every rationale basis claim exists, is assessed as supported/partially supported, and has linked evidence. Unsupported or unassessed rationale claims block the registry quality gate. This checks evidence traceability, not logical entailment or distractor quality; human review remains mandatory.
+
+### Section 7.35 implementation update
+
+Vocabulary learning objects now require a registered source-evidence ID and revision. The registry checks that the evidence locator belongs to a linked claim, remains in that claim's evidence list, and matches current source/article/observation provenance and the evidence revision. The quality report repeats the check so stale references block use, and migration 24 adds the same invariant at SQLite insert/update boundaries. Tests cover missing/unknown/stale references and the v23→v24 migration. The object stores a pointer to the evidence locator, not copied source text. This provides traceability but does not establish the correctness of the vocabulary sense; human review remains necessary. CI verification is pending.
+
