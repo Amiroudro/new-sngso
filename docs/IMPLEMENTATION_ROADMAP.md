@@ -229,3 +229,9 @@ Remaining Section 7 work includes real human review evidence, stronger source-in
 The story snapshot now includes a source-independence evidence gap report. It distinguishes confirmed/possible duplicate article relationships from independent reporting, marks no-candidate and reviewed-distinct articles as not establishing independence, and lists the provenance checks still required (original reporting, syndication/republication, shared sources/common origin, and primary-source evidence). It never computes an independent-reporting count from publisher IDs or article counts.
 
 Remaining work includes collecting and reviewing actual reporting-lineage evidence, real human editorial review, source-grounded learning workflows, and daily briefing inputs.
+
+### Section 7.32 implementation update
+
+Narrative assembly now checks the shared language-review pass criteria against the exact Bangla or English rubric instead of treating any review object as sufficient. Missing reviews, rejected reviews, and any needs-revision rubric dimension block that language's assembly report. Per-language summaries expose object/segment counts, factual and traceable coverage, unsupported factual segments, passing language reviews, blocker counts, and a blocked/review-required status. No publication authorization is granted.
+
+Remaining Section 7 work includes real human review evidence, actual reporting-lineage evidence, source-grounded learning workflows, and daily briefing inputs.
