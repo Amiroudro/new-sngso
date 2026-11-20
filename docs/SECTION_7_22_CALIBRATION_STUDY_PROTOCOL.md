@@ -29,3 +29,10 @@ The validator returns a canonical protocol fingerprint over the full submitted p
 The result is always protocol_only and production_ready=false. It does not claim that sampling occurred, training was completed, scores were collected, sample size is adequate, or reliability has been established. No benchmark is promoted to production by the existence of a protocol or a future study report. Production acceptance still requires the operational security gates in Section 7.18, genuine independent human evidence, source permissions, and a separate explicit approval process.
 
 Synthetic fixtures test validation behavior only. They are not human calibration data.
+
+
+## Section 7.23 registry boundary
+
+The study protocol is now persisted by the SQLite registry as immutable version rows. Each row binds the study ID/version, exact registered benchmark ID and SHA-256 fingerprint, rubric version, protocol fingerprint, actor, timestamp, and reason. Database triggers enforce payload/index consistency, sequential versions, stable benchmark/rubric binding across versions, and append-only history. The registry verifies every partition item belongs to the registered artifact and every blind assignment's task type matches the artifact item. Registration requires the curator role; the authenticated facade derives the actor from the trusted session. Protocol retrieval/history is restricted to curator, adjudicator, and security-admin roles through that facade.
+
+The registry does not attest that training occurred or independently verify reviewer qualifications. A versioned protocol remains a design record only. Scores, analysis execution, statistical adequacy, and explicit production acceptance remain separate gates.
