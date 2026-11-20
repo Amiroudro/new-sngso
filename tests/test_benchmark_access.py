@@ -48,6 +48,18 @@ class FakeRegistry:
     def get_benchmark_principal(self, principal_id):
         return self.principal if principal_id == self.principal["principal_id"] else None
 
+    def register_benchmark_study_execution(self, payload, **kwargs):
+        self.calls.append(("study_execution", payload, kwargs))
+        return {"execution_id": payload["execution_id"], **kwargs}
+
+    def get_benchmark_study_execution(self, execution_id):
+        self.calls.append(("get_study_execution", execution_id))
+        return {"execution_id": execution_id}
+
+    def list_benchmark_study_executions(self, study_id):
+        self.calls.append(("list_study_executions", study_id))
+        return [{"study_id": study_id}]
+
     def register_benchmark_study_protocol(self, payload, **kwargs):
         self.calls.append(("study_protocol", payload, kwargs))
         return {"study_id": payload["study_id"], **kwargs}
@@ -441,3 +453,38 @@ def test_curator_can_read_protocol_history_through_facade():
     result = access(registry).study_protocol_history("trusted-request", "study:bn:one")
     assert result == [{"study_id": "study:bn:one", "study_version": 1}]
     assert registry.calls == [("study_protocol_history", "study:bn:one")]
+
+
+def test_study_execution_requires_authenticated_independent_methodologist():
+    registry = FakeRegistry(roles=("benchmark_methodologist",))
+    payload = {"execution_id": "execution:one", "analysis": {"methodologist_id": "person:42"}}
+    result = access(registry).register_study_execution(
+        "trusted-request", payload, reason="Submit reviewed study analysis",
+    )
+    assert result["execution_id"] == "execution:one"
+    call = registry.calls[-1]
+    assert call[0] == "study_execution"
+    assert call[2]["actor"] == "person:42"
+    assert call[2]["identity"]["subject"] == "oidc-subject-42"
+
+
+def test_curator_cannot_submit_study_execution_as_methodologist():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    with pytest.raises(RegistryIntegrityError, match="methodologist"):
+        access(registry).register_study_execution(
+            "trusted-request",
+            {"execution_id": "execution:one", "analysis": {"methodologist_id": "person:42"}},
+            reason="Unauthorized analysis submission",
+        )
+    assert registry.calls == []
+
+
+def test_methodologist_cannot_submit_analysis_for_another_principal():
+    registry = FakeRegistry(roles=("benchmark_methodologist",))
+    with pytest.raises(RegistryIntegrityError, match="must match"):
+        access(registry).register_study_execution(
+            "trusted-request",
+            {"execution_id": "execution:one", "analysis": {"methodologist_id": "someone-else"}},
+            reason="Identity substitution",
+        )
+    assert registry.calls == []
