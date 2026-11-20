@@ -282,6 +282,16 @@ _MIGRATION_20 = (
     )""",
     """CREATE INDEX benchmark_scores_artifact_item
        ON benchmark_scores(artifact_id, item_id, language)""",
+    """CREATE TRIGGER benchmark_scores_payload_guard_insert
+       BEFORE INSERT ON benchmark_scores
+       WHEN json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.artifact_id
+         OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.artifact_fingerprint
+         OR json_extract(NEW.payload_json, '$.item_id') IS NOT NEW.item_id
+         OR json_extract(NEW.payload_json, '$.task_type') IS NOT NEW.task_type
+         OR json_extract(NEW.payload_json, '$.language') IS NOT NEW.language
+         OR json_extract(NEW.payload_json, '$.evaluator_id') IS NOT NEW.evaluator_id
+         OR json_extract(NEW.payload_json, '$.evaluated_at') IS NOT NEW.evaluated_at
+       BEGIN SELECT RAISE(ABORT, 'score payload does not match indexed score fields'); END""",
     """CREATE TRIGGER benchmark_scores_no_update
        BEFORE UPDATE ON benchmark_scores
        BEGIN SELECT RAISE(ABORT, 'benchmark score records are immutable'); END""",
