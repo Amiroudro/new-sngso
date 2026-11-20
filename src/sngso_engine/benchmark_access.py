@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol, runtime_checkable
 
 from .registry import RegistryIntegrityError
@@ -112,7 +112,7 @@ class AuthenticatedBenchmarkAccess:
             raise RegistryIntegrityError("authenticated principal lacks required role: ('benchmark_reviewer',)")
         if principal.get("principal_kind") != "human":
             raise RegistryIntegrityError("human reviewer identity attestation requires a human-classified principal")
-        if self._clock() - identity.authenticated_at > __import__("datetime").timedelta(minutes=15):
+        if self._clock() - identity.authenticated_at > timedelta(minutes=15):
             raise RegistryIntegrityError("review submission requires recent authentication within 15 minutes")
         if review.get("reviewer", {}).get("reviewer_id") != actor:
             raise RegistryIntegrityError("authenticated reviewer must match the review declaration")
