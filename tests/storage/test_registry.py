@@ -1524,6 +1524,7 @@ def test_assignment_requires_curator_and_prevents_duplicate_active_assignment():
         payload = _benchmark_assignment_payload(assigned_by="editor:second")
         with pytest.raises(RegistryIntegrityError, match="lacks required role"):
             registry.create_benchmark_review_assignment(payload, actor="editor:second", reason="not curator")
+        payload["assigned_by"] = "curator"
         registry.create_benchmark_review_assignment(payload, actor="curator", reason="first assignment")
         duplicate = _benchmark_assignment_payload(assignment_id="assignment:duplicate")
         with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
