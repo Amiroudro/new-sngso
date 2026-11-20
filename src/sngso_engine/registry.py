@@ -5115,6 +5115,12 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("cannot revise an unknown benchmark review")
             if row["revision"] != expected_revision:
                 raise RegistryIntegrityError("benchmark review revision conflict")
+            finalized = connection.execute(
+                "SELECT 1 FROM benchmark_adjudications WHERE benchmark_id = ? LIMIT 1",
+                (review["benchmark_id"],),
+            ).fetchone()
+            if finalized is not None:
+                raise RegistryIntegrityError("a review bound to a finally adjudicated artifact cannot be revised")
             reviewer_id = review["reviewer"]["reviewer_id"]
             if actor != reviewer_id:
                 raise RegistryIntegrityError("review actor must match the declared reviewer principal")
@@ -5144,7 +5150,7 @@ class SQLiteRegistry:
         try:
             validation = validate_benchmark_adjudication(payload)
         except (TypeError, ValueError) as exc:
-            raise RegistryIntegrityError("adjudication contract validation failed") from exc
+            raise RegistryIntegrityError("adjudication contract or independence validation failed") from exc
         if not validation["eligible_for_adjudication"]:
             raise RegistryIntegrityError("adjudication contract or independence checks failed")
         if not actor.strip() or not reason.strip():
