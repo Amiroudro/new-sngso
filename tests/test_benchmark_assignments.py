@@ -142,7 +142,7 @@ def test_transition_does_not_mutate_prior_record_and_records_actor_reason():
 
 def test_accepted_assignment_cannot_be_cancelled_before_acceptance():
     accepted = assignment(
-        status="accepted", accepted_at="2026-11-20T02:00:00+00:00",
+        status="accepted", accepted_at="2026-11-20T13:00:00+00:00",
     )
     with pytest.raises(BenchmarkAssignmentError, match="cannot predate acceptance"):
         transition_benchmark_assignment(
