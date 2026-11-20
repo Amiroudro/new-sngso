@@ -4746,12 +4746,15 @@ class SQLiteRegistry:
             if not segments:
                 continue
             language_report = by_language[language]
+            language_review = record.get("language_review")
+            language_review_pass = _language_review_passes(language_review, language)
             object_entry = {
                 "learning_object_id": item["id"],
                 "revision": item["revision"],
                 "kind": record["kind"],
                 "status": record["status"],
-                "language_review": record.get("language_review"),
+                "language_review": language_review,
+                "language_review_pass": language_review_pass,
                 "segment_count": len(segments),
             }
             language_report["objects"].append(object_entry)
@@ -4760,10 +4763,17 @@ class SQLiteRegistry:
                     "learning_object_id": item["id"],
                     "reason": "learning object is not approved",
                 })
-            if not record.get("language_review"):
+            if language_review is None:
                 language_report["blockers"].append({
                     "learning_object_id": item["id"],
                     "reason": "independent language review evidence is missing",
+                })
+            elif not language_review_pass:
+                language_report["blockers"].append({
+                    "learning_object_id": item["id"],
+                    "reason": "language review is rejected or one or more required rubric dimensions did not pass",
+                    "reviewer_id": language_review.get("reviewer_id"),
+                    "rubric_version": language_review.get("rubric_version"),
                 })
 
             for index, segment in enumerate(segments):
