@@ -93,3 +93,12 @@ The validator rejects an adjudicator whose declared principal ID is also listed 
 The identity provider is an infrastructure trust boundary, not a mock authentication mechanism. A production adapter must validate the actual OIDC token signature or server-side session, exact issuer and audience, expiry, session revocation, and authentication freshness before returning `AuthenticatedIdentity`. The local facade cannot prove that an arbitrary Python object came from a trustworthy provider. Application handlers must expose this facade rather than raw registry mutation methods, and provider construction/configuration must remain inside trusted server code. Principal provisioning remains a separate administrator-only deployment operation; this facade intentionally does not expose provisioning or revocation.
 
 Tests use a fake provider only to verify the facade's enforcement behavior. They do not authenticate real users or constitute production identity integration.
+
+
+## 7.10 Reviewer assignment lifecycle contract
+
+The first assignment-workflow slice adds a versioned assignment record and a pure state machine. An assignment binds one reviewer to one exact immutable artifact ID, SHA-256 fingerprint, and language (bn or en), with an assigner, creation time, deadline, and reason. Self-assignment is rejected.
+
+The lifecycle is assigned → accepted → submitted, with cancellation or expiry available only while the assignment remains open. Only the named reviewer may accept or submit; submission must reference a review ID and cannot happen before acceptance or at/after the deadline. The assigner or reviewer may cancel an open assignment. Only the assigner may record expiry, and only at/after the deadline. Every transition returns an actor, timestamp, and reason receipt; callers must persist each transition as append-only history rather than overwrite prior states.
+
+This slice deliberately does not claim durable assignment persistence, verify a reviewer's language qualification, authenticate actors, or prove that the submitted review is approved. Those require the next registry migration and trusted-session application methods. Submission is a workflow handoff only; the existing review validator, artifact binding, source-permission checks, and adjudication gates remain authoritative.
