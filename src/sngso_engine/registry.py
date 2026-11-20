@@ -38,7 +38,27 @@ from .benchmark_reviews import validate_human_benchmark_review
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 13
+_SCHEMA_VERSION = 14
+
+
+_MIGRATION_14 = (
+    """CREATE TABLE benchmark_artifacts (
+        artifact_id TEXT PRIMARY KEY,
+        language TEXT NOT NULL CHECK (language IN ('bn', 'en')),
+        canonicalization TEXT NOT NULL CHECK (canonicalization = 'canonical-json-v1'),
+        content_fingerprint TEXT NOT NULL CHECK (content_fingerprint GLOB 'sha256:*'),
+        content_json TEXT NOT NULL CHECK (json_valid(content_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0)
+    )""",
+    """CREATE TRIGGER benchmark_artifacts_no_update
+        BEFORE UPDATE ON benchmark_artifacts
+        BEGIN SELECT RAISE(ABORT, 'benchmark artifacts are immutable'); END""",
+    """CREATE TRIGGER benchmark_artifacts_no_delete
+        BEFORE DELETE ON benchmark_artifacts
+        BEGIN SELECT RAISE(ABORT, 'benchmark artifacts are immutable'); END""",
+)
 
 
 class RegistryIntegrityError(ValueError):
@@ -1318,6 +1338,19 @@ class SQLiteRegistry:
                     version = 13
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 13 failed; transaction rolled back") from exc
+
+            if version == 13 and _SCHEMA_VERSION >= 14:
+                try:
+                    for statement in _MIGRATION_14:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (14, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 14")
+                    version = 14
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 14 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -4734,6 +4767,86 @@ class SQLiteRegistry:
         ]
 
 
+    def register_benchmark_artifact(
+        self, artifact_id: str, *, language: str, content: Any,
+        actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Register canonical benchmark content and calculate its immutable fingerprint."""
+        if not isinstance(artifact_id, str) or not artifact_id.strip():
+            raise ValueError("artifact_id is required")
+        if language not in {"bn", "en"}:
+            raise ValueError("benchmark language must be bn or en")
+        if not isinstance(content, (dict, list)):
+            raise ValueError("benchmark content must be a JSON object or array")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        try:
+            content_json = _json_text(content)
+            canonical_content = json.loads(content_json)
+            fingerprint = sha256_fingerprint(canonical_content)
+        except (TypeError, ValueError) as exc:
+            raise RegistryIntegrityError("benchmark content must be canonical JSON data") from exc
+        created_at = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO benchmark_artifacts
+                (artifact_id, language, canonicalization, content_fingerprint,
+                 content_json, created_at, actor, reason)
+                VALUES (?, ?, 'canonical-json-v1', ?, ?, ?, ?, ?)""",
+                (artifact_id, language, fingerprint, content_json, created_at, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_artifact.registered",
+                entity_type="benchmark_artifact", entity_id=artifact_id,
+                payload={"language": language, "content_fingerprint": fingerprint,
+                         "canonicalization": "canonical-json-v1", "reason": reason},
+            )
+        return self.get_benchmark_artifact(artifact_id) or {}
+
+    def get_benchmark_artifact(self, artifact_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_artifacts WHERE artifact_id = ?", (artifact_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        content = json.loads(row["content_json"])
+        recomputed = sha256_fingerprint(content)
+        return {
+            "artifact_id": row["artifact_id"],
+            "language": row["language"],
+            "canonicalization": row["canonicalization"],
+            "content_fingerprint": row["content_fingerprint"],
+            "content": content,
+            "created_at": row["created_at"],
+            "actor": row["actor"],
+            "reason": row["reason"],
+            "fingerprint_verified": recomputed == row["content_fingerprint"],
+        }
+
+    def _validate_benchmark_artifact_binding(
+        self, review: dict[str, Any], *, connection: sqlite3.Connection | None = None
+    ) -> None:
+        conn = connection or self._connection
+        row = conn.execute(
+            "SELECT language, canonicalization, content_fingerprint, content_json "
+            "FROM benchmark_artifacts WHERE artifact_id = ?",
+            (review["benchmark_id"],),
+        ).fetchone()
+        if row is None:
+            raise RegistryIntegrityError("benchmark review must reference a registered benchmark artifact")
+        artifact_content = json.loads(row["content_json"])
+        actual_fingerprint = sha256_fingerprint(artifact_content)
+        if actual_fingerprint != row["content_fingerprint"]:
+            raise RegistryIntegrityError("registered benchmark artifact fingerprint verification failed")
+        if row["canonicalization"] != "canonical-json-v1":
+            raise RegistryIntegrityError("unsupported benchmark artifact canonicalization")
+        if row["language"] != review["language"]:
+            raise RegistryIntegrityError("benchmark artifact language does not match the review language")
+        if row["content_fingerprint"] != review["benchmark_fingerprint"]:
+            raise RegistryIntegrityError("benchmark review fingerprint does not match registered artifact content")
+
     def add_benchmark_review(
         self, review: dict[str, Any], *, actor: str, reason: str
     ) -> dict[str, Any]:
@@ -4743,6 +4856,7 @@ class SQLiteRegistry:
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("reason is required")
         validate_payload("editorial-benchmark-review", review)
+        self._validate_benchmark_artifact_binding(review)
         report = validate_human_benchmark_review(review)
         if not report["valid"]:
             raise RegistryIntegrityError("benchmark review metadata is invalid")
@@ -4833,6 +4947,7 @@ class SQLiteRegistry:
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("reason is required")
         validate_payload("editorial-benchmark-review", review)
+        self._validate_benchmark_artifact_binding(review)
         report = validate_human_benchmark_review(review)
         if not report["valid"]:
             raise RegistryIntegrityError("benchmark review metadata is invalid")
@@ -4893,6 +5008,13 @@ class SQLiteRegistry:
     ) -> dict[str, Any]:
         """Evaluate review metadata and whether declared source permissions remain usable."""
         metadata = validate_human_benchmark_review(review)
+        artifact_ok = True
+        artifact_detail = "Registered benchmark artifact fingerprint and language are verified."
+        try:
+            self._validate_benchmark_artifact_binding(review, connection=connection)
+        except (RegistryIntegrityError, KeyError, TypeError, ValueError) as exc:
+            artifact_ok = False
+            artifact_detail = f"Benchmark artifact check failed: {exc}"
         checks: list[dict[str, Any]] = []
         blockers: list[dict[str, str]] = []
 
@@ -4913,6 +5035,7 @@ class SQLiteRegistry:
             "Review metadata satisfies the human-review contract."
             if metadata["valid"] else "Review metadata has validation failures.",
         )
+        check("benchmark_artifact", artifact_ok, artifact_detail)
         permission_ok = True
         permission_detail = "Not required for a non-approved review."
         if approved:
