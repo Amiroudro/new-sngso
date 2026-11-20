@@ -13,6 +13,7 @@ from .benchmark_scoring import validate_benchmark_scoring
 from .benchmark_agreement import BenchmarkAgreementError, benchmark_evaluator_agreement
 from .benchmark_study import BenchmarkStudyError, validate_benchmark_study_protocol
 from .benchmark_study_execution import BenchmarkStudyExecutionError, validate_benchmark_study_execution
+from .benchmark_acceptance_review import BenchmarkAcceptanceReviewError, validate_benchmark_acceptance_review
 from .benchmarks import evaluate_editorial_benchmark
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .collection import (
@@ -68,6 +69,7 @@ __all__ = [
     "BenchmarkAssignmentError",
     "BenchmarkStudyError",
     "BenchmarkStudyExecutionError",
+    "BenchmarkAcceptanceReviewError",
     "AuditRepository",
     "ClaimRecord",
     "ClaimRelationRecord",
@@ -114,6 +116,7 @@ __all__ = [
     "benchmark_evaluator_agreement",
     "validate_benchmark_study_protocol",
     "validate_benchmark_study_execution",
+    "validate_benchmark_acceptance_review",
     "ingest_observation",
     "normalize_language_tag",
     "normalize_observation",
