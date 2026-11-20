@@ -212,6 +212,9 @@ _MIGRATION_18 = (
     """ALTER TABLE benchmark_principals
        ADD COLUMN principal_kind TEXT NOT NULL DEFAULT 'unverified'
        CHECK (principal_kind IN ('human', 'synthetic', 'automation', 'unverified'))""",
+    """CREATE TRIGGER benchmark_principal_kind_immutable
+       BEFORE UPDATE OF principal_kind ON benchmark_principals
+       BEGIN SELECT RAISE(ABORT, 'benchmark principal classification is immutable'); END""",
 )
 
 
@@ -5009,7 +5012,7 @@ class SQLiteRegistry:
             self._append_audit(
                 connection, event_type="benchmark_principal.provisioned",
                 entity_type="benchmark_principal", entity_id=principal_id,
-                payload={"roles": sorted(roles), "provisioned_by": provisioned_by, "reason": reason},
+                payload={"roles": sorted(roles), "principal_kind": principal_kind, "provisioned_by": provisioned_by, "reason": reason},
             )
         return self.get_benchmark_principal(principal_id) or {}
 
