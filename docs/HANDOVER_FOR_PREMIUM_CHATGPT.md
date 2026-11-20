@@ -6,7 +6,7 @@
 **Repository:** `Amiroudro/new-sngso`  
 **Working branch:** `feat/section-7-human-benchmark-review-contract`  
 **Open pull request:** [PR #7](https://github.com/Amiroudro/new-sngso/pull/7)  
-**Latest full-suite-verified code head:** `872e422460af970d85a87d2bfb7f55d376b36d91` — [run #44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090), 687 passed in 8.63 seconds. Recheck the live PR head before further edits.
+**Latest full-suite-verified code head:** `bf1559f352455055070303177a051eed357d38ac` — [run #44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064), 688 passed in 7.75 seconds. Recheck the live PR head before further edits.
 
 ---
 
@@ -71,7 +71,7 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 10. **End-to-end verification and controlled handover**  
     Verify the complete system, document limitations and operations, and hand over without unauthorized publication.
 
-**Current position:** Section 7 remains in progress. Sections 7.35 vocabulary evidence binding, 7.36 question answer-evidence binding, and 7.37 revision-card claim traceability are verified. Sections 8, 9, and 10 have not started. Do not describe Section 7 as complete.
+**Current position:** Section 7 remains in progress. Sections 7.35 vocabulary evidence binding, 7.36 question answer-evidence binding, 7.37 revision-card claim traceability, and 7.38 bilingual variant claim-coverage reporting are verified. Sections 8, 9, and 10 have not started. Do not describe Section 7 as complete.
 
 ## 4. Verified repository and PR state
 
@@ -236,7 +236,7 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 >
 > Start with a fresh audit of the live repository, current branches, PRs, changed files, tests, and latest GitHub Actions results. Verify the current commit before editing. Do not assume the handover's dated SHA or test count is still current.
 >
-> Continue from the actual state of the code. Sections 7.35–7.37 are verified. After verifying the current code head, continue auditing MCQ validity, bilingual consistency, genuine human evidence, and Section 7 exit gates before selecting the next slice. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
+> Continue from the actual state of the code. Sections 7.35–7.38 are verified. After verifying the current code head, continue auditing MCQ validity, genuine human evidence, and Section 7 exit gates before selecting the next slice. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
 >
 > Follow the original ten-section sequence exactly. Do not begin Section 8 until Section 7 exit criteria are actually met. Do not claim that synthetic tests prove editorial quality, that different publishers prove independent reporting, or that passing tests establish production readiness. Preserve uncertainty, attribution, source permissions, and human review.
 >
@@ -260,3 +260,11 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 - Regression tests cover an out-of-object claim, text omitted from the segments, and an unassessed factual claim.
 - GitHub Actions [run #44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090) passed the full Python 3.12 suite: **687 passed in 8.63 seconds** on code head `872e422460af970d85a87d2bfb7f55d376b36d91`.
 - This is evidence-link and assessment enforcement, not proof that revision-card content is accurate or useful. Qualified human review remains required. Section 7 remains in progress.
+
+
+**7.38: Bilingual variant claim-coverage report (verified)**
+- The bilingual editorial quality report now compares claim-ID sets for learning objects explicitly paired by the same kind and `variant_group_id`.
+- It reports missing counterparts, matching sets, and Bangla-only/English-only claim IDs for mismatches. Unpaired objects are not guessed to be counterparts.
+- This is a structural coverage diagnostic. Matching claim IDs do not establish translation fidelity, equivalent nuance, or linguistic quality. The report continues to return `production_ready=false` and `authorization_granted=false`.
+- Tests cover both matched and mismatched Bangla/English variant groups.
+- GitHub Actions [run #44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064) passed the full Python 3.12 suite: **688 passed in 7.75 seconds** on code head `bf1559f352455055070303177a051eed357d38ac`. Section 7 remains in progress.

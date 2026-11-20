@@ -258,3 +258,8 @@ Comprehension, analysis, and MCQ answer claims now require explicit mappings to 
 ### Section 7.37 implementation update
 
 Revision-card segments now use the same exact text and claim-set traceability checks as summary tiers. Revision-card factual segments are included in quality-report checks, where unassessed or unsupported claims block the report; attributed and analysis segments retain qualification warnings. Regression tests cover unlinked claims, text/segment mismatch, and unassessed factual claims. GitHub Actions [run #44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090) passed the full Python 3.12 suite: **687 tests in 8.63 seconds** on code head `872e422460af970d85a87d2bfb7f55d376b36d91`. This establishes traceability controls, not editorial correctness. Section 7 remains in progress.
+
+
+### Section 7.38 implementation update
+
+The bilingual editorial report now compares claim IDs for explicitly paired learning-object variants sharing a kind and `variant_group_id`. It labels matched pairs, mismatches, and missing counterparts, and reports language-specific claim differences without guessing pairings. Matching IDs do not prove translation fidelity or linguistic quality, and the report remains non-authorizing. Tests cover matched and mismatched pairs. GitHub Actions [run #44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064) passed the full Python 3.12 suite: **688 tests in 7.75 seconds** on code head `bf1559f352455055070303177a051eed357d38ac`. Section 7 remains in progress.

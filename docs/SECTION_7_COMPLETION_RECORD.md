@@ -133,3 +133,12 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - Regression tests cover out-of-object claims, text/segment mismatch, and unassessed factual claims.
 - GitHub Actions [run #44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090) passed the full Python 3.12 suite: **687 passed in 8.63 seconds** on code head `872e422460af970d85a87d2bfb7f55d376b36d91`.
 - These safeguards establish traceability and assessment checks, not factual correctness or pedagogical value. Section 7 remains in progress; Sections 8–10 remain future work.
+
+
+## Section 7.38: bilingual variant claim-coverage report (verified)
+
+- The bilingual report now compares claim-ID sets only for learning objects sharing an explicit `variant_group_id` and kind.
+- It reports matching coverage, missing language counterparts, or exact Bangla-only and English-only claim IDs. It does not infer a pairing from kind or language alone.
+- Tests cover matching and mismatched claim sets and confirm the report remains non-authorizing.
+- GitHub Actions [run #44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064) passed the full Python 3.12 suite: **688 passed in 7.75 seconds** on code head `bf1559f352455055070303177a051eed357d38ac`.
+- Claim-set parity is structural only; it does not prove translation fidelity or equivalent nuance. Section 7 remains in progress.
