@@ -64,6 +64,10 @@ class FakeRegistry:
         self.calls.append(("adjudication", payload, kwargs))
         return payload
 
+    def add_benchmark_score(self, score, **kwargs):
+        self.calls.append(("score", score, kwargs))
+        return {"score_id": "score:assignment:item", "evaluator_id": kwargs["actor"]}
+
     def create_benchmark_review_assignment(self, payload, **kwargs):
         self.calls.append(("assignment", payload, kwargs))
         return payload
@@ -358,4 +362,40 @@ def test_security_admin_cannot_revoke_or_reinstate_self():
         facade.revoke_principal("trusted-request", "person:42", reason="self revoke")
     with pytest.raises(RegistryIntegrityError, match="cannot reinstate their own"):
         facade.reinstate_principal("trusted-request", "person:42", reason="self restore")
+    assert registry.calls == []
+
+
+
+def test_score_submission_uses_authenticated_recent_human_reviewer_identity():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    score = {"evaluator_id": "person:42", "item_id": "item-1"}
+    result = access(registry).submit_score(
+        "trusted-request", "assignment-1", score, reason="Criterion scoring completed"
+    )
+    assert result["evaluator_id"] == "person:42"
+    call = next(entry for entry in registry.calls if entry[0] == "score")
+    assert call[2]["assignment_id"] == "assignment-1"
+    assert call[2]["identity"]["subject"] == "oidc-subject-42"
+    assert call[2]["identity"]["provider_key_id"] == "key-2026-01"
+
+
+def test_score_submission_rejects_stale_authentication_before_registry_write():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    stale = identity(authenticated_at=NOW - timedelta(minutes=16))
+    with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+        access(registry, stale).submit_score(
+            "trusted-request", "assignment-1",
+            {"evaluator_id": "person:42"}, reason="stale",
+        )
+    assert registry.calls == []
+
+
+def test_score_submission_rejects_synthetic_or_unverified_evaluator():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.principal["principal_kind"] = "synthetic"
+    with pytest.raises(RegistryIntegrityError, match="human-classified"):
+        access(registry).submit_score(
+            "trusted-request", "assignment-1",
+            {"evaluator_id": "person:42"}, reason="synthetic",
+        )
     assert registry.calls == []
