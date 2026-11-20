@@ -62,8 +62,8 @@ def test_adjudication_requires_two_distinct_reviews():
 def test_uphold_existing_requires_an_explicit_subset_of_review_ids():
     payload = _payload()
     payload["outcome"] = "uphold_existing"
-    result = validate_benchmark_adjudication(payload)
-    assert result["valid"] is False
+    with pytest.raises(ValueError):
+        validate_benchmark_adjudication(payload)
     payload["upheld_review_ids"] = ["review:one"]
     result = validate_benchmark_adjudication(payload)
     assert result["valid"] is True
