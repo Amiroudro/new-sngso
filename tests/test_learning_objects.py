@@ -598,6 +598,13 @@ def test_mcq_requires_exactly_one_explanation_for_each_distractor():
             registry.add_learning_object(
                 duplicate, actor="editor", reason="Reject duplicate distractor rationale IDs."
             )
+
+        unlinked = _mcq("learning:mcq-unlinked-rationale")
+        unlinked["content"]["distractor_rationales"][0]["basis_claim_ids"] = ["claim:outside"]
+        with pytest.raises(RegistryIntegrityError, match="basis claims must be a non-empty subset"):
+            registry.add_learning_object(
+                unlinked, actor="editor", reason="Reject distractor rationale without linked story claim."
+            )
     finally:
         registry.close()
 
