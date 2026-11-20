@@ -316,3 +316,13 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 - Tests cover a successful build and explicit-selection failure, in addition to verifier failure cases.
 - GitHub Actions [run #44753534682](https://github.com/Amiroudro/new-sngso/actions/runs/44753534682) passed the full Python 3.12 suite: **703 tests in 6.68 seconds** on code head f7889295a9ca329852b518f96af68fb0b2b4b315.
 - This is not a Flutter runtime or cross-repository golden test. No confirmed republication grant exists; the integrated app does not consume the sidecar. Bilingual and learning-object export remain unsupported. Section 7 stays open.
+
+## Continuation update: Section 7.44 (20 November 2026)
+
+The staging-only Flutter compatibility verifier received an additional defensive validation pass:
+- Rejects boolean revision values for editions, stories, and learning objects.
+- Rejects boolean, negative, float, and string collection counts; rejects unknown count keys.
+- Removes duplicate validation branches.
+- Adds focused regression tests for these cases.
+
+Implementation and tests are committed on the existing draft PR branch. The current full-suite result is **pending**: the GitHub Actions interface has not reported a run for the new head, and no local test environment was available in this session. Do not infer a pass from the earlier 703-test run, which was on the prior code head. Keep PR #7 draft and unmerged. No app, website, or published-edition repository was changed.
