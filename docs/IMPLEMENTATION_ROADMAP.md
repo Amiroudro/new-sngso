@@ -125,7 +125,7 @@ Acceptance:
 
 Tasks remaining:
 - Build reviewed three-level summary workflows and deterministic editorial templates with sentence-level claim traceability.
-- Complete independent Bangla and English editorial/language review workflows and language-specific acceptance evidence.
+- Extend the current versioned, language-specific Bangla and English review rubric into authenticated reviewer assignment, independent review provenance, and human-audited acceptance evidence.
 - Build multi-source perspectives into useful editorial outputs while preserving attribution and source independence.
 - Expand controlled bilingual terminology and source-grounded vocabulary, comprehension, analysis, MCQ, and revision-card workflows.
 - Establish and use genuine human-reviewed Bangla/English benchmarks for omission, distortion, attribution, language quality, and question answerability.
