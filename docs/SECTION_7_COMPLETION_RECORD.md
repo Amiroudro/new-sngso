@@ -92,3 +92,11 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - The quality report exposes a dedicated rationale-coverage check.
 - Every MCQ quality report retains a human-review warning for plausibility, unambiguous incorrectness, misconception alignment, parallel construction, and accidental clues. The system does not infer distractor quality from rationale presence.
 - This improves inspectability and source-grounded editorial review; it does not establish item validity or publication readiness. Section 7 remains in progress; Sections 8–10 remain future phases.
+
+## Section 7.34: source-claim support for MCQ distractor rationales
+
+- Each distractor rationale must identify one or more basis claim IDs from the same learning object.
+- The quality report checks that all basis claims exist, are assessed as supported or partially supported, and have linked evidence.
+- Unassessed, disputed, contradicted, retracted, missing, or evidence-free basis claims block the registry quality gate.
+- The check establishes source traceability only. It does not prove logical entailment, pedagogical quality, or that a distractor is unambiguously wrong. Human review remains required.
+- Section 7 remains in progress; Sections 8–10 remain future phases.
