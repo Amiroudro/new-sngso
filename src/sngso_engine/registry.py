@@ -5871,9 +5871,9 @@ class SQLiteRegistry:
                 "SELECT revision, payload_json FROM benchmark_reviews WHERE benchmark_id = ? ORDER BY review_id",
                 (artifact_id,),
             ).fetchall()
-            reviews = [json.loads(row["payload_json"]) for row in rows]
+            reviews = [(json.loads(row["payload_json"]), row["revision"]) for row in rows]
             principals = {}
-            for review in reviews:
+            for review, _review_revision in reviews:
                 reviewer_id = review.get("reviewer", {}).get("reviewer_id")
                 if reviewer_id and reviewer_id not in principals:
                     row = connection.execute(
@@ -5886,7 +5886,7 @@ class SQLiteRegistry:
                     }
             eligible = []
             review_checks = []
-            for review in reviews:
+            for review, review_revision in reviews:
                 reviewer_id = review.get("reviewer", {}).get("reviewer_id")
                 principal = principals.get(reviewer_id)
                 quality = self._benchmark_review_quality_report(review, connection)
@@ -5901,7 +5901,7 @@ class SQLiteRegistry:
                 )
                 attestation_row = connection.execute(
                     "SELECT principal_id, issuer, audience, subject, provider_key_id, provider_adapter, authenticated_at, expires_at, attested_at FROM benchmark_review_identity_attestations WHERE review_id = ? AND review_revision = ?",
-                    (review.get("review_id"), row["revision"]),
+                    (review.get("review_id"), review_revision),
                 ).fetchone()
                 identity_attested = bool(
                     attestation_row
