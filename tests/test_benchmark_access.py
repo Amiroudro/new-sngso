@@ -541,3 +541,71 @@ def test_acceptance_review_rejects_stale_authentication():
             "trusted-request", {"reviewer_id": "person:42"}, reason="stale"
         )
     assert registry.calls == []
+
+
+
+def test_authenticated_editorial_review_binds_human_identity_language_and_provider_provenance():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.get_learning_object = lambda object_id: type("Record", (), {
+        "payload_json": __import__("json").dumps({
+            "id": object_id, "story_id": "story:one", "kind": "brief_summary",
+            "language": "bn", "status": "draft", "created_at": "2026-11-19T00:00:00Z",
+            "content": {"text": "বাংলা", "segments": [{"text": "বাংলা", "claim_ids": ["claim:one"], "role": "fact"}]},
+            "claim_ids": ["claim:one"],
+        }), "revision": 1
+    })()
+    registry.revise_learning_object = lambda object_id, payload, **kwargs: (
+        registry.calls.append(("learning_object_revision", object_id, {"payload": payload, **kwargs}))
+        or {"id": object_id, "revision": 2, "status": payload["status"]}
+    )
+    dimensions = {
+        "grammar_and_spelling": "pass", "naturalness_and_register": "pass",
+        "terminology_consistency": "pass", "factual_fidelity": "pass",
+        "attribution": "pass", "omissions": "pass", "translation_fidelity": "not_applicable",
+    }
+    result = access(registry).review_learning_object(
+        "trusted-request", "learning:bn:one", expected_revision=1,
+        decision="approved", dimensions=dimensions, note="Reviewed in Bangla.",
+        reason="Authenticated Bangla editorial review",
+    )
+    assert result["status"] == "approved"
+    payload = registry.calls[-1][2]["payload"]
+    attestation = payload["language_review"]["identity_attestation"]
+    assert attestation["principal_id"] == "person:42"
+    assert attestation["subject"] == "oidc-subject-42"
+    assert attestation["provider_key_id"] == "key-2026-01"
+    assert attestation["provider_adapter"] == "example-oidc-adapter/1.0"
+    assert "session:opaque" not in str(attestation)
+
+
+def test_authenticated_editorial_review_rejects_wrong_language_qualification():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.principal["languages"] = ["en"]
+    registry.get_learning_object = lambda object_id: type("Record", (), {
+        "payload_json": __import__("json").dumps({"id": object_id, "language": "bn"}),
+        "revision": 1
+    })()
+    with pytest.raises(RegistryIntegrityError, match="not qualified"):
+        access(registry).review_learning_object(
+            "trusted-request", "learning:bn:one", expected_revision=1,
+            decision="approved", dimensions={}, note="Review.",
+            reason="Wrong language",
+        )
+    assert registry.calls == []
+
+
+def test_authenticated_editorial_review_rejects_stale_or_synthetic_reviewer():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    stale = identity(authenticated_at=NOW - timedelta(minutes=16))
+    with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+        access(registry, stale).review_learning_object(
+            "trusted-request", "learning:bn:one", expected_revision=1,
+            decision="approved", dimensions={}, note="Review.", reason="Stale",
+        )
+    registry.principal["principal_kind"] = "synthetic"
+    with pytest.raises(RegistryIntegrityError, match="human-classified"):
+        access(registry).review_learning_object(
+            "trusted-request", "learning:bn:one", expected_revision=1,
+            decision="approved", dimensions={}, note="Review.", reason="Synthetic",
+        )
+    assert registry.calls == []
