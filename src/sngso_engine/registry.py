@@ -4759,13 +4759,38 @@ class SQLiteRegistry:
                 "SELECT source_id, review_status FROM permission_evidence WHERE id = ?",
                 (source["approved_use_reference"],),
             ).fetchone()
-            if article_row is None or publisher_row is None or permission_row is None:
-                raise RegistryIntegrityError("benchmark source material must reference a registered article, publisher, and permission evidence record")
+            grant_row = conn.execute(
+                "SELECT payload_json FROM permission_grants WHERE id = ?",
+                (source["permission_grant_id"],),
+            ).fetchone()
+            if article_row is None or publisher_row is None or permission_row is None or grant_row is None:
+                raise RegistryIntegrityError("benchmark source material must reference a registered article, publisher, verified evidence, and permission grant")
             article = json.loads(article_row["payload_json"])
-            if article.get("source_id") != source["source_id"] or permission_row["source_id"] != source["source_id"]:
-                raise RegistryIntegrityError("benchmark article, publisher, and permission evidence must belong to the same publisher")
+            grant = json.loads(grant_row["payload_json"])
+            if article.get("source_id") != source["source_id"] or permission_row["source_id"] != source["source_id"] or grant.get("source_id") != source["source_id"]:
+                raise RegistryIntegrityError("benchmark article, publisher, evidence, and permission grant must belong to the same publisher")
             if permission_row["review_status"] != "verified":
                 raise RegistryIntegrityError("benchmark source permission evidence must be verified")
+            if source["endpoint_id"] not in grant.get("endpoint_ids", []):
+                raise RegistryIntegrityError("benchmark permission grant does not cover the declared endpoint")
+            operation = source["permission_operation"]
+            operation_record = grant.get("operations", {}).get(operation, {})
+            if (
+                grant.get("status") != "approved"
+                or grant.get("effective_from") is None
+                or grant.get("effective_until") is None
+                or operation_record.get("allowed") is not True
+                or operation_record.get("status") != "approved"
+                or source["approved_use_reference"] not in grant.get("evidence_ids", [])
+                or source["approved_use_reference"] not in operation_record.get("evidence_ids", [])
+            ):
+                raise RegistryIntegrityError("benchmark permission grant does not explicitly authorize the required operation with this evidence")
+            decision = evaluate_permission_record(
+                grant, operation, source_id=source["source_id"],
+                endpoint_id=source["endpoint_id"],
+            )
+            if not decision.allowed:
+                raise RegistryIntegrityError(f"benchmark permission grant is not currently usable: {decision.reason}")
             if article.get("canonical_uri") != source["canonical_uri"]:
                 raise RegistryIntegrityError("benchmark source URI must match the registered article")
             if article.get("content_fingerprint") and article["content_fingerprint"] != source["content_fingerprint"]:
