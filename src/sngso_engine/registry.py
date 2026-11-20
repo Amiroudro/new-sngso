@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any, Iterator
@@ -40,6 +40,7 @@ from .benchmark_scoring import validate_benchmark_scoring
 from .benchmark_agreement import benchmark_evaluator_agreement, BenchmarkAgreementError
 from .benchmark_adjudication import validate_benchmark_adjudication
 from .benchmark_study import validate_benchmark_study_protocol, BenchmarkStudyError
+from .benchmark_study_execution import validate_benchmark_study_execution, BenchmarkStudyExecutionError
 from .benchmark_assignments import (
     BenchmarkAssignmentError,
     transition_benchmark_assignment,
@@ -48,7 +49,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 21
+_SCHEMA_VERSION = 22
 
 
 _MIGRATION_14 = (
@@ -350,6 +351,54 @@ _MIGRATION_21 = (
     """CREATE TRIGGER benchmark_study_protocols_no_delete
        BEFORE DELETE ON benchmark_study_protocols
        BEGIN SELECT RAISE(ABORT, 'study protocol history is append-only'); END""",
+)
+
+
+_MIGRATION_22 = (
+    """CREATE TABLE benchmark_study_executions (
+        execution_id TEXT PRIMARY KEY,
+        protocol_record_id TEXT NOT NULL,
+        study_id TEXT NOT NULL,
+        study_version INTEGER NOT NULL,
+        protocol_fingerprint TEXT NOT NULL,
+        benchmark_id TEXT NOT NULL,
+        benchmark_fingerprint TEXT NOT NULL,
+        rubric_version TEXT NOT NULL,
+        execution_fingerprint TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status = 'analysis_reviewed'),
+        methodologist_id TEXT NOT NULL,
+        issuer TEXT NOT NULL CHECK (length(trim(issuer)) > 0),
+        subject TEXT NOT NULL CHECK (length(trim(subject)) > 0),
+        provider_key_id TEXT NOT NULL CHECK (length(trim(provider_key_id)) > 0),
+        provider_adapter TEXT NOT NULL CHECK (length(trim(provider_adapter)) > 0),
+        authenticated_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        FOREIGN KEY (protocol_record_id) REFERENCES benchmark_study_protocols(protocol_record_id) ON DELETE RESTRICT,
+        FOREIGN KEY (benchmark_id) REFERENCES benchmark_artifacts(artifact_id) ON DELETE RESTRICT,
+        FOREIGN KEY (methodologist_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT
+    )""",
+    """CREATE INDEX benchmark_study_executions_study
+       ON benchmark_study_executions(study_id, study_version, created_at)""",
+    """CREATE TRIGGER benchmark_study_executions_payload_guard
+       BEFORE INSERT ON benchmark_study_executions
+       WHEN json_extract(NEW.payload_json, '$.execution_id') IS NOT NEW.execution_id
+         OR json_extract(NEW.payload_json, '$.study_id') IS NOT NEW.study_id
+         OR json_extract(NEW.payload_json, '$.study_version') IS NOT NEW.study_version
+         OR json_extract(NEW.payload_json, '$.protocol_fingerprint') IS NOT NEW.protocol_fingerprint
+         OR json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.benchmark_id
+         OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.benchmark_fingerprint
+         OR json_extract(NEW.payload_json, '$.rubric_version') IS NOT NEW.rubric_version
+         OR json_extract(NEW.payload_json, '$.analysis.methodologist_id') IS NOT NEW.methodologist_id
+       BEGIN SELECT RAISE(ABORT, 'study execution payload does not match indexed fields'); END""",
+    """CREATE TRIGGER benchmark_study_executions_no_update
+       BEFORE UPDATE ON benchmark_study_executions
+       BEGIN SELECT RAISE(ABORT, 'study execution records are immutable'); END""",
+    """CREATE TRIGGER benchmark_study_executions_no_delete
+       BEFORE DELETE ON benchmark_study_executions
+       BEGIN SELECT RAISE(ABORT, 'study execution history is append-only'); END""",
 )
 
 
@@ -1722,6 +1771,20 @@ class SQLiteRegistry:
                     version = 20
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 20 failed; transaction rolled back") from exc
+
+
+            if version == 21 and _SCHEMA_VERSION >= 22:
+                try:
+                    for statement in _MIGRATION_22:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (22, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 22")
+                    version = 22
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 22 failed; transaction rolled back") from exc
 
 
             if version == 20 and _SCHEMA_VERSION >= 21:
@@ -5161,7 +5224,7 @@ class SQLiteRegistry:
         principal_kind: str = "unverified"
     ) -> dict[str, Any]:
         """Provision a registry principal; caller must be a trusted operator."""
-        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin"}
+        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist"}
         supported_languages = {"bn", "en"}
         if principal_kind not in {"human", "synthetic", "automation", "unverified"}:
             raise ValueError("principal_kind must be human, synthetic, automation, or unverified")
@@ -6243,6 +6306,163 @@ class SQLiteRegistry:
             self.get_benchmark_study_protocol(row["study_id"], row["study_version"])
             for row in rows
         ]
+
+
+    def register_benchmark_study_execution(
+        self, payload: dict[str, Any], *, actor: str,
+        identity: dict[str, Any], reason: str
+    ) -> dict[str, Any]:
+        """Persist immutable execution evidence with an independently reviewed analysis."""
+        try:
+            report = validate_benchmark_study_execution(payload)
+        except (TypeError, ValueError, BenchmarkStudyExecutionError) as exc:
+            raise RegistryIntegrityError("study execution record does not satisfy its versioned contract") from exc
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise RegistryIntegrityError("study execution actor and reason are required")
+        identity_fields = ("issuer", "subject", "provider_key_id", "provider_adapter", "authenticated_at")
+        if not isinstance(identity, dict) or any(not isinstance(identity.get(k), str) or not identity[k].strip() for k in identity_fields):
+            raise RegistryIntegrityError("study execution requires trusted methodologist identity evidence")
+        authenticated_at = _aware_datetime(identity["authenticated_at"], "authenticated_at")
+        started_at = _aware_datetime(payload["started_at"], "started_at")
+        completed_at = _aware_datetime(payload["completed_at"], "completed_at")
+        now = datetime.now(timezone.utc)
+        if completed_at > now:
+            raise RegistryIntegrityError("study execution cannot be registered before its declared completion")
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_methodologist")
+            methodologist = connection.execute(
+                "SELECT active, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                (actor,),
+            ).fetchone()
+            if methodologist is None or not methodologist["active"] or methodologist["principal_kind"] != "human":
+                raise RegistryIntegrityError("study analysis requires an active human-classified methodologist")
+            protocol_row = connection.execute(
+                "SELECT * FROM benchmark_study_protocols WHERE study_id = ? AND study_version = ?",
+                (payload["study_id"], payload["study_version"]),
+            ).fetchone()
+            if protocol_row is None:
+                raise RegistryIntegrityError("execution must reference a registered study protocol version")
+            protocol = json.loads(protocol_row["payload_json"])
+            if sha256_fingerprint(protocol) != protocol_row["protocol_fingerprint"]:
+                raise RegistryIntegrityError("registered study protocol fingerprint verification failed")
+            if payload["protocol_fingerprint"] != protocol_row["protocol_fingerprint"]:
+                raise RegistryIntegrityError("execution protocol fingerprint is stale or mismatched")
+            for field in ("benchmark_id", "benchmark_fingerprint", "rubric_version"):
+                if payload[field] != protocol_row[field]:
+                    raise RegistryIntegrityError(f"execution {field} does not match the registered protocol")
+            assigned = {
+                (item["item_id"], reviewer_id)
+                for item in protocol["blind_assignment_plan"]
+                for reviewer_id in item["reviewer_ids"]
+            }
+            scored_pairs, missing_pairs, score_ids = set(), set(), set()
+            for item in payload["score_records"]:
+                pair = (item["item_id"], item["evaluator_id"])
+                if pair not in assigned:
+                    raise RegistryIntegrityError("execution score is outside the protocol's blind reviewer assignments")
+                if pair in scored_pairs or item["score_id"] in score_ids:
+                    raise RegistryIntegrityError("execution score evidence contains duplicate pairs or score IDs")
+                row = connection.execute("SELECT * FROM benchmark_scores WHERE score_id = ?", (item["score_id"],)).fetchone()
+                if row is None:
+                    raise RegistryIntegrityError("execution references a score not present in the durable score ledger")
+                if (row["item_id"], row["evaluator_id"]) != pair:
+                    raise RegistryIntegrityError("execution score ID does not match its declared item and evaluator")
+                if row["artifact_id"] != payload["benchmark_id"] or row["artifact_fingerprint"] != payload["benchmark_fingerprint"]:
+                    raise RegistryIntegrityError("execution score is bound to a different benchmark artifact")
+                if not row["eligible_for_comparison"]:
+                    raise RegistryIntegrityError("ineligible critical-failure scores must be recorded as missing/excluded pairs")
+                evaluated_at = _aware_datetime(row["evaluated_at"], "score.evaluated_at")
+                if evaluated_at < started_at or evaluated_at > completed_at:
+                    raise RegistryIntegrityError("score timestamp falls outside the declared study execution window")
+                scored_pairs.add(pair)
+                score_ids.add(item["score_id"])
+            for item in payload["missing_records"]:
+                pair = (item["item_id"], item["evaluator_id"])
+                if pair not in assigned:
+                    raise RegistryIntegrityError("missing pair is outside the protocol's blind reviewer assignments")
+                if pair in scored_pairs or pair in missing_pairs:
+                    raise RegistryIntegrityError("execution missing evidence contains duplicate or already-scored pairs")
+                if item.get("score_id"):
+                    row = connection.execute("SELECT * FROM benchmark_scores WHERE score_id = ?", (item["score_id"],)).fetchone()
+                    if row is None or (row["item_id"], row["evaluator_id"]) != pair:
+                        raise RegistryIntegrityError("excluded score reference does not match its declared item/evaluator pair")
+                    if row["artifact_id"] != payload["benchmark_id"] or row["artifact_fingerprint"] != payload["benchmark_fingerprint"]:
+                        raise RegistryIntegrityError("excluded score is bound to a different benchmark artifact")
+                    if row["eligible_for_comparison"]:
+                        raise RegistryIntegrityError("only ineligible scores may be represented as excluded score evidence")
+                    if item["score_id"] in score_ids:
+                        raise RegistryIntegrityError("execution cannot reference the same score twice")
+                    score_ids.add(item["score_id"])
+                else:
+                    existing = connection.execute(
+                        "SELECT score_id FROM benchmark_scores WHERE artifact_id = ? AND item_id = ? AND evaluator_id = ?",
+                        (payload["benchmark_id"], item["item_id"], item["evaluator_id"]),
+                    ).fetchone()
+                    if existing is not None:
+                        raise RegistryIntegrityError("an existing score must be explicitly referenced when classified as missing/excluded")
+                missing_pairs.add(pair)
+            if scored_pairs | missing_pairs != assigned:
+                raise RegistryIntegrityError("execution must account for every planned blind item/evaluator pair")
+            if len({item["item_id"] for item in protocol["blind_assignment_plan"]}) != payload["analysis"]["sampled_item_count"]:
+                raise RegistryIntegrityError("analysis sampled-item count must match the protocol blind sample")
+            if actor in {reviewer_id for _, reviewer_id in assigned}:
+                raise RegistryIntegrityError("methodologist must be independent of all blind evaluators")
+            if authenticated_at > now or now - authenticated_at > timedelta(minutes=15):
+                raise RegistryIntegrityError("methodologist submission requires recent authentication within 15 minutes")
+            if _aware_datetime(payload["analysis"]["reviewed_at"], "analysis.reviewed_at") > now:
+                raise RegistryIntegrityError("methodological review timestamp cannot be in the future")
+            created_at = _utc_now()
+            fingerprint = report["execution_fingerprint"]
+            connection.execute(
+                """INSERT INTO benchmark_study_executions
+                (execution_id, protocol_record_id, study_id, study_version,
+                 protocol_fingerprint, benchmark_id, benchmark_fingerprint,
+                 rubric_version, execution_fingerprint, status, methodologist_id,
+                 issuer, subject, provider_key_id, provider_adapter, authenticated_at,
+                 payload_json, created_at, actor, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'analysis_reviewed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (payload["execution_id"], protocol_row["protocol_record_id"], payload["study_id"],
+                 payload["study_version"], payload["protocol_fingerprint"], payload["benchmark_id"],
+                 payload["benchmark_fingerprint"], payload["rubric_version"], fingerprint, actor,
+                 identity["issuer"], identity["subject"], identity["provider_key_id"],
+                 identity["provider_adapter"], identity["authenticated_at"], _json_text(payload),
+                 created_at, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_study_execution.registered",
+                entity_type="benchmark_study_execution", entity_id=payload["execution_id"],
+                payload={"study_id": payload["study_id"], "study_version": payload["study_version"],
+                         "execution_fingerprint": fingerprint, "methodologist_id": actor,
+                         "score_count": len(payload["score_records"]),
+                         "missing_count": len(payload["missing_records"]), "reason": reason},
+            )
+        return self.get_benchmark_study_execution(payload["execution_id"]) or {}
+
+    def get_benchmark_study_execution(self, execution_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_study_executions WHERE execution_id = ?", (execution_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload_json"])
+        return {
+            "execution_id": row["execution_id"], "study_id": row["study_id"],
+            "study_version": row["study_version"], "protocol_fingerprint": row["protocol_fingerprint"],
+            "benchmark_id": row["benchmark_id"], "benchmark_fingerprint": row["benchmark_fingerprint"],
+            "rubric_version": row["rubric_version"], "execution_fingerprint": row["execution_fingerprint"],
+            "status": row["status"], "methodologist_id": row["methodologist_id"],
+            "issuer": row["issuer"], "subject": row["subject"], "provider_key_id": row["provider_key_id"],
+            "provider_adapter": row["provider_adapter"], "authenticated_at": row["authenticated_at"],
+            "execution": payload, "created_at": row["created_at"], "actor": row["actor"],
+            "reason": row["reason"], "fingerprint_verified": sha256_fingerprint(payload) == row["execution_fingerprint"],
+        }
+
+    def list_benchmark_study_executions(self, study_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            "SELECT execution_id FROM benchmark_study_executions WHERE study_id = ? ORDER BY created_at, execution_id",
+            (study_id,),
+        ).fetchall()
+        return [self.get_benchmark_study_execution(row["execution_id"]) for row in rows]
 
     def get_benchmark_score(self, score_id: str) -> dict[str, Any] | None:
         row = self._connection.execute(
