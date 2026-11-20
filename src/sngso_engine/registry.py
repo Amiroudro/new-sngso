@@ -412,6 +412,7 @@ _MIGRATION_23 = (
         study_version INTEGER NOT NULL,
         protocol_fingerprint TEXT NOT NULL,
         execution_fingerprint TEXT NOT NULL,
+        acceptance_fingerprint TEXT NOT NULL UNIQUE,
         benchmark_id TEXT NOT NULL,
         benchmark_fingerprint TEXT NOT NULL,
         rubric_version TEXT NOT NULL,
@@ -6605,7 +6606,7 @@ class SQLiteRegistry:
             connection.execute(
                 """INSERT INTO benchmark_acceptance_reviews
                 (review_id, execution_id, protocol_record_id, study_id, study_version,
-                 protocol_fingerprint, execution_fingerprint, benchmark_id,
+                 protocol_fingerprint, execution_fingerprint, acceptance_fingerprint, benchmark_id,
                  benchmark_fingerprint, rubric_version, reviewer_id, reviewer_role,
                  decision, issuer, subject, provider_key_id, provider_adapter,
                  authenticated_at, payload_json, created_at, actor, reason)
@@ -6639,14 +6640,14 @@ class SQLiteRegistry:
             "review_id": row["review_id"], "execution_id": row["execution_id"],
             "protocol_record_id": row["protocol_record_id"], "study_id": row["study_id"],
             "study_version": row["study_version"], "protocol_fingerprint": row["protocol_fingerprint"],
-            "execution_fingerprint": row["execution_fingerprint"], "benchmark_id": row["benchmark_id"],
+            "execution_fingerprint": row["execution_fingerprint"], "acceptance_fingerprint": row["acceptance_fingerprint"], "benchmark_id": row["benchmark_id"],
             "benchmark_fingerprint": row["benchmark_fingerprint"], "rubric_version": row["rubric_version"],
             "reviewer_id": row["reviewer_id"], "decision": row["decision"],
             "issuer": row["issuer"], "subject": row["subject"], "provider_key_id": row["provider_key_id"],
             "provider_adapter": row["provider_adapter"], "authenticated_at": row["authenticated_at"],
             "review": payload, "created_at": row["created_at"], "actor": row["actor"],
             "reason": row["reason"], "fingerprint_verified": (
-                sha256_fingerprint(payload) == sha256_fingerprint(json.loads(row["payload_json"]))
+                sha256_fingerprint(payload) == row["acceptance_fingerprint"]
             ),
             "production_ready": False, "authorization_granted": False,
         }
