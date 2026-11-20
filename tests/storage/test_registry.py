@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 17
+        assert registry.schema_version() == 18
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 17
+        assert reopened.schema_version() == 18
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -1654,6 +1654,76 @@ def test_schema_v16_migrates_to_v17_assignment_ledger(tmp_path, monkeypatch):
         assert "benchmark_review_assignment_update_requires_revision" in triggers
         migrated.migrate()
         assert migrated.schema_version() == 17
+
+
+def test_schema_17_migrates_principals_to_unverified_classification(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v17.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 17)
+    with SQLiteRegistry(database) as old_registry:
+        _register_benchmark_test_principals(old_registry)
+        assert old_registry.schema_version() == 17
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 18)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 18
+        assert migrated.get_benchmark_principal("editor:lead")["principal_kind"] == "unverified"
+        migrated.migrate()
+        assert migrated.schema_version() == 18
+
+
+def test_benchmark_readiness_never_confuses_test_principals_with_verified_humans():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="fixture review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Independent editorial experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second fixture review")
+        report = registry.benchmark_readiness_report(first["benchmark_id"])
+        assert report["status"] == "human_review_pending"
+        assert report["eligible_approved_review_count"] == 2
+        assert report["reviewer_classifications"] == ["unverified"]
+        assert report["production_ready"] is False
+        assert any("identity-provider attestation" in item for item in report["blockers"])
+
+
+def test_benchmark_readiness_requires_adjudication_even_for_two_human_classified_reviewers():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        registry._connection.execute(
+            "UPDATE benchmark_principals SET principal_kind = 'human' WHERE principal_id IN ('editor:lead', 'editor:second')"
+        )
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="human-classified review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Independent editorial experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second human-classified review")
+        report = registry.benchmark_readiness_report(first["benchmark_id"])
+        assert report["status"] == "ready_for_adjudication"
+        assert report["distinct_eligible_reviewer_count"] == 2
+        assert report["production_ready"] is False
+        assert any("identity-provider attestation" in item for item in report["blockers"])
+
+
+def test_synthetic_only_benchmark_is_never_reported_as_human_ready():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        registry._connection.execute(
+            "UPDATE benchmark_principals SET principal_kind = 'synthetic' WHERE principal_id IN ('editor:lead', 'editor:second')"
+        )
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="synthetic fixture review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Synthetic fixture."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second synthetic fixture review")
+        report = registry.benchmark_readiness_report(first["benchmark_id"])
+        assert report["status"] == "synthetic_only"
+        assert report["production_ready"] is False
 
 
 def test_benchmark_review_persists_with_registered_source_references_and_history():
