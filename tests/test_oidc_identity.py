@@ -116,7 +116,7 @@ def test_unapproved_algorithm_is_rejected_before_key_lookup(signing_key):
     token = jwt.encode(
         {"iss": ISSUER, "sub": "subject-42", "aud": AUDIENCE,
          "exp": int(NOW.timestamp()) + 600},
-        "shared-secret", algorithm="HS256", headers={"kid": "key-1"},
+        "s" * 32, algorithm="HS256", headers={"kid": "key-1"},
     )
     with pytest.raises(RegistryIntegrityError, match="algorithm is not allowed"):
         provider.authenticate(token)
