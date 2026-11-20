@@ -178,3 +178,13 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - It blocks published payload status, stale records, mismatched text or citations, unsupported fields/collections, and missing or denied permission evidence. It makes no writes and grants no publication authorization.
 - Synthetic tests cover successful staging verification and failure conditions. GitHub Actions [run #44752476466](https://github.com/Amiroudro/new-sngso/actions/runs/44752476466) passed the full Python 3.12 suite: **701 tests in 6.38 seconds** on code head ec06daf4d3abba0b8034d56c1f84bb470d63229d.
 - The serializer, actual Flutter parser/golden tests, bilingual export, source grants, and production evidence remain open. Section 7 is not complete.
+
+
+## Section 7.43: English Flutter staging builder (CI verified)
+
+- Added an in-memory staging builder for the narrow English story subset.
+- It requires explicit approved headline and summary object IDs for every story in an approved registered edition, then binds their exact revisions and fingerprints into a provenance manifest.
+- It builds citation references from registered active sources/articles and delegates to the fail-closed verifier for reviewer, source grant, endpoint, and content checks.
+- The result remains staging-only. It writes no edition file, changes no app asset, and grants no publication authorization.
+- Tests verify successful candidate construction and incomplete-selection rejection. GitHub Actions [run #44753534682](https://github.com/Amiroudro/new-sngso/actions/runs/44753534682) passed the full Python 3.12 suite: **703 tests in 6.68 seconds** on code head f7889295a9ca329852b518f96af68fb0b2b4b315.
+- Flutter parser/golden tests, actual source republishing grants, bilingual and study-object mappings, and real human/operational evidence remain unresolved. Section 7 is still in progress.
