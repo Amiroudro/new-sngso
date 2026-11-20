@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 15
+        assert registry.schema_version() == 16
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 15
+        assert reopened.schema_version() == 16
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -1899,6 +1899,8 @@ def test_adjudication_outcome_controls_current_use_eligibility(outcome, expected
             "evidence_references": ["permission-evidence:publisher-a-001"],
             "resolved_at": "2026-11-20T00:00:00Z",
         }
+        if outcome == "uphold_existing":
+            adjudication["upheld_review_ids"] = [first["review_id"]]
         registry.add_benchmark_adjudication(
             adjudication, actor="adjudicator:senior", reason="Apply adjudication policy",
         )
@@ -1907,3 +1909,96 @@ def test_adjudication_outcome_controls_current_use_eligibility(outcome, expected
         policy_check = next(item for item in report["checks"] if item["name"] == "adjudication_policy")
         assert policy_check["passed"] is expected_eligible
         assert report["adjudication"]["outcome"] == outcome
+
+
+def test_benchmark_adjudication_rejects_multiple_final_decisions_for_one_artifact():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Experienced English editor with independent verification experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second review")
+        payload = {
+            "schema_version": "1.0.0",
+            "adjudication_id": "adjudication:final-one",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": "reject_benchmark_item",
+            "rationale": "The benchmark item contains a material ambiguity that cannot be accepted in its current form.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+        }
+        registry.add_benchmark_adjudication(payload, actor="adjudicator:senior", reason="Final decision")
+        second_decision = dict(payload)
+        second_decision["adjudication_id"] = "adjudication:final-two"
+        second_decision["outcome"] = "uphold_existing"
+        second_decision["upheld_review_ids"] = [first["review_id"]]
+        second_decision["resolved_at"] = "2026-11-20T00:01:00Z"
+        with pytest.raises(sqlite3.IntegrityError, match="already has a final adjudication"):
+            registry.add_benchmark_adjudication(second_decision, actor="adjudicator:senior", reason="Attempt to supersede final decision")
+        report = registry.benchmark_review_quality_report(first["review_id"])
+        assert report["eligible_for_current_use"] is False
+        assert report["adjudication"]["outcome"] == "reject_benchmark_item"
+
+
+def test_uphold_existing_only_preserves_the_explicitly_selected_approved_review():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Experienced English editor with independent verification experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second review")
+        payload = {
+            "schema_version": "1.0.0",
+            "adjudication_id": "adjudication:select-one",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": "uphold_existing",
+            "upheld_review_ids": [first["review_id"]],
+            "rationale": "The first approved review correctly applies the evidence while the second review is not accepted.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+        }
+        registry.add_benchmark_adjudication(payload, actor="adjudicator:senior", reason="Select accepted review")
+        assert registry.benchmark_review_quality_report(first["review_id"])["eligible_for_current_use"] is True
+        assert registry.benchmark_review_quality_report(second["review_id"])["eligible_for_current_use"] is False
+
+
+def test_schema_v15_migrates_to_v16_with_single_final_adjudication_guard(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v15.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 15)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 15
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 16)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 16
+        trigger = migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'benchmark_adjudications_one_per_artifact'"
+        ).fetchone()
+        assert trigger is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 16
+
+
