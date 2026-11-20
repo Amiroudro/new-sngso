@@ -5125,6 +5125,10 @@ class SQLiteRegistry:
         self, payload: dict[str, Any], *, actor: str, reason: str
     ) -> dict[str, Any]:
         """Create an immutable-artifact assignment for a language-qualified reviewer."""
+        try:
+            validate_payload("editorial-benchmark-assignment", payload)
+        except (TypeError, ValueError) as exc:
+            raise RegistryIntegrityError("assignment does not satisfy its versioned JSON contract") from exc
         report = validate_benchmark_assignment(payload)
         if not report["valid"] or payload.get("status") != "assigned":
             raise RegistryIntegrityError("assignment contract invalid; new assignments must start as assigned")
@@ -5298,6 +5302,10 @@ class SQLiteRegistry:
                 )
             except (TypeError, ValueError) as exc:
                 raise RegistryIntegrityError(f"invalid benchmark assignment transition: {exc}") from exc
+            try:
+                validate_payload("editorial-benchmark-assignment", updated)
+            except (TypeError, ValueError) as exc:
+                raise RegistryIntegrityError("assignment transition violates the versioned JSON contract") from exc
 
             if event == "submit":
                 review_row = connection.execute(
