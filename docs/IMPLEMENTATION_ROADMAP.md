@@ -1,6 +1,6 @@
 # Engine Implementation Programme
 
-Status: Sections 1–6 implemented to their documented local/fixture-first scope; Sections 7–10 planned  
+Status: Sections 1–6 implemented to their documented local/fixture-first scope; Section 7 in progress; Sections 8–10 planned  
 Baseline branch: `fix/engine-ci-source-triggers`  
 Scope: the new `new-sngso` engine repository only
 
@@ -252,4 +252,9 @@ Vocabulary learning objects now require a registered source-evidence ID and revi
 
 ### Section 7.36 implementation update
 
-Comprehension, analysis, and MCQ answer claims now require explicit mappings to supporting evidence IDs and exact evidence revisions. Registry create/revision methods and the read-only quality report verify current claim linkage, support relationship, revision, locator, and matching source provenance. SQLite migration 25 enforces the binding for direct writes. The new tests cover missing, unknown, stale, unrelated, and directly injected references, plus migration 24→25. These checks provide provenance, not proof of logical entailment or editorial quality; human review remains necessary. Full-suite CI verification is pending.
+Comprehension, analysis, and MCQ answer claims now require explicit mappings to supporting evidence IDs and exact evidence revisions. Registry create/revision methods and the read-only quality report verify current claim linkage, support relationship, revision, locator, and matching source provenance. SQLite migration 25 enforces the binding for direct writes. The new tests cover missing, unknown, stale, unrelated, and directly injected references, plus migration 24→25. These checks provide provenance, not proof of logical entailment or editorial quality; human review remains necessary. Full-suite Python 3.12 CI passed: **685 tests in 6.86 seconds** on code head `49bfed5e9929ca2501bf11e1ebe2399743b7a9d4` ([run #44723149350](https://github.com/Amiroudro/new-sngso/actions/runs/44723149350)).
+
+
+### Section 7.37 implementation update
+
+Revision-card segments now use the same exact text and claim-set traceability checks as summary tiers. Revision-card factual segments are included in quality-report checks, where unassessed or unsupported claims block the report; attributed and analysis segments retain qualification warnings. Regression tests cover unlinked claims, text/segment mismatch, and unassessed factual claims. GitHub Actions [run #44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090) passed the full Python 3.12 suite: **687 tests in 8.63 seconds** on code head `872e422460af970d85a87d2bfb7f55d376b36d91`. This establishes traceability controls, not editorial correctness. Section 7 remains in progress.

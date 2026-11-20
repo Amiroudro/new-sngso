@@ -110,11 +110,26 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - The vocabulary object stores an evidence reference, not a copied source sentence. Linkage gives traceability; glossary correctness and contextual meaning still need qualified human review.
 - GitHub Actions [run #44720406104](https://github.com/Amiroudro/new-sngso/actions/runs/44720406104) passed the full Python 3.12 suite: **681 passed in 8.15 seconds** on code head `c2401950927a9ba26b5f7d05678a213543405940`. Section 7 remains in progress; this slice does not close its production/security gates.
 
-## Section 7.36: question answer-evidence binding (implementation added; verification pending)
-
 - Comprehension, analysis, and MCQ objects require a structured `answer_evidence` mapping for each `answer_claim_id`.
 - Each mapping pins a registered evidence record and revision. Registry creation/revision checks the claim link, supporting relationship, exact revision, locator, and current source/article/observation provenance.
 - The quality report rechecks each mapping and blocks missing, unrelated, stale, or non-supporting references. SQLite migration 25 enforces the same binding for direct inserts and updates.
 - Tests cover missing/unknown/stale references, stale claim links, migration 24→25, and direct-SQL bypass.
 - The evidence link establishes traceability, not logical entailment or question quality. Human review remains necessary to judge whether the answer is defensible and preserves uncertainty and attribution.
-- Full-suite CI verification is pending on the current code head. Section 7 remains in progress; no production or publication authorization is added.
+- GitHub Actions [run #44723149350](https://github.com/Amiroudro/new-sngso/actions/runs/44723149350) passed the full Python 3.12 suite: **685 passed in 6.86 seconds** on code head `49bfed5e9929ca2501bf11e1ebe2399743b7a9d4`. Section 7 remains in progress; no production or publication authorization is added.
+
+
+## Section 7.36: question answer-evidence binding (verified)
+
+- Comprehension, analysis, and MCQ objects require a structured `answer_evidence` mapping for each answer claim, pinned to a registered evidence record and exact revision.
+- Registry creation/revision, quality reporting, and SQLite migration 25 recheck claim ownership, current claim linkage, supporting relationship, locator, source provenance, and staleness.
+- Tests cover missing, unknown, stale, unrelated, and direct-SQL bypass references, plus migration 24→25.
+- GitHub Actions [run #44723149350](https://github.com/Amiroudro/new-sngso/actions/runs/44723149350) passed the full Python 3.12 suite: **685 passed in 6.86 seconds** on code head `49bfed5e9929ca2501bf11e1ebe2399743b7a9d4`.
+- Traceability does not prove logical entailment or question quality. Human review remains necessary; Section 7 is still in progress.
+
+## Section 7.37: revision-card claim traceability (verified)
+
+- Revision-card segments now receive exact text-to-segment and segment-to-object claim checks, matching the summary traceability contract.
+- The quality report applies factual-segment assessment and evidence requirements to revision cards, while retaining qualification warnings for attributed and analysis segments.
+- Regression tests cover out-of-object claims, text/segment mismatch, and unassessed factual claims.
+- GitHub Actions [run #44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090) passed the full Python 3.12 suite: **687 passed in 8.63 seconds** on code head `872e422460af970d85a87d2bfb7f55d376b36d91`.
+- These safeguards establish traceability and assessment checks, not factual correctness or pedagogical value. Section 7 remains in progress; Sections 8–10 remain future work.

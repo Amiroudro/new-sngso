@@ -6,7 +6,7 @@
 **Repository:** `Amiroudro/new-sngso`  
 **Working branch:** `feat/section-7-human-benchmark-review-contract`  
 **Open pull request:** [PR #7](https://github.com/Amiroudro/new-sngso/pull/7)  
-**Latest full-suite-verified code head:** `c2401950927a9ba26b5f7d05678a213543405940` — [run #44720406104](https://github.com/Amiroudro/new-sngso/actions/runs/44720406104), 681 passed in 8.15 seconds. Recheck the live PR head before further edits.
+**Latest full-suite-verified code head:** `872e422460af970d85a87d2bfb7f55d376b36d91` — [run #44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090), 687 passed in 8.63 seconds. Recheck the live PR head before further edits.
 
 ---
 
@@ -71,7 +71,7 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 10. **End-to-end verification and controlled handover**  
     Verify the complete system, document limitations and operations, and hand over without unauthorized publication.
 
-**Current position:** Section 7 remains in progress. Section 7.35 vocabulary evidence binding is verified; Section 7.36 question answer-evidence binding is implemented pending CI. Sections 8, 9, and 10 have not started. Do not describe Section 7 as complete.
+**Current position:** Section 7 remains in progress. Sections 7.35 vocabulary evidence binding, 7.36 question answer-evidence binding, and 7.37 revision-card claim traceability are verified. Sections 8, 9, and 10 have not started. Do not describe Section 7 as complete.
 
 ## 4. Verified repository and PR state
 
@@ -79,7 +79,7 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 - PR #7 is a draft and is not merged.
 - Base branch: `feat/section-7-editorial-benchmarks`.
 - Head branch: `feat/section-7-human-benchmark-review-contract`.
-- Latest full-suite-verified code head: `c2401950927a9ba26b5f7d05678a213543405940`; GitHub Actions run [#44720406104](https://github.com/Amiroudro/new-sngso/actions/runs/44720406104) passed with **681 tests in 8.15 seconds**. Recheck PR #7 for any later docs-only head.
+- Latest full-suite-verified code head: `872e422460af970d85a87d2bfb7f55d376b36d91`; GitHub Actions run [#44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090) passed with **687 tests in 8.63 seconds**. Recheck PR #7 for any later docs-only head.
 - Final-head GitHub Actions run: [#44708874613](https://github.com/Amiroudro/new-sngso/actions/runs/44708874613).
 - Final-head Python 3.12 test result: **677 passed in 6.94 seconds**.
 - PR has 65 changed files at the last check.
@@ -236,7 +236,7 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 >
 > Start with a fresh audit of the live repository, current branches, PRs, changed files, tests, and latest GitHub Actions results. Verify the current commit before editing. Do not assume the handover's dated SHA or test count is still current.
 >
-> Continue from the actual state of the code. Section 7.35 vocabulary evidence binding is verified; Section 7.36 question answer-evidence binding is implemented pending CI. After verifying the current code head, audit remaining revision-card traceability, MCQ validity, bilingual consistency, genuine human evidence, and Section 7 exit gates before selecting the next slice. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
+> Continue from the actual state of the code. Sections 7.35–7.37 are verified. After verifying the current code head, continue auditing MCQ validity, bilingual consistency, genuine human evidence, and Section 7 exit gates before selecting the next slice. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
 >
 > Follow the original ten-section sequence exactly. Do not begin Section 8 until Section 7 exit criteria are actually met. Do not claim that synthetic tests prove editorial quality, that different publishers prove independent reporting, or that passing tests establish production readiness. Preserve uncertainty, attribution, source permissions, and human review.
 >
@@ -246,9 +246,17 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 >
 > My goal is a complete, reliable Sarangsho Plus product: accurate bilingual daily briefings, transparent source and evidence trails, useful exam-oriented learning material, a safe edition workflow, a maintainable frontend/backend boundary, and dependable low-cost operations. Optimize for correctness, safety, usability, and maintainability rather than speed or impressive-looking feature counts.
 
-**7.36: Question answer-evidence binding (implementation added; CI pending)**
+**7.36: Question answer-evidence binding (verified)**
 - Comprehension, analysis, and MCQ answer claims must each map to supporting evidence with an exact evidence revision.
 - The registry, quality report, and SQLite migration recheck claim ownership, source provenance, evidence relationship, locator, and staleness.
 - Test coverage includes missing/unknown/stale references, unlinked evidence, direct-SQL guards, and migration 24→25.
 - These checks establish traceability only. Human review still needs to judge answer defensibility, uncertainty, attribution, and question quality.
-- Full-suite CI verification is pending on the current code head. Section 7 remains in progress; Sections 8–10 are not started.
+- GitHub Actions [run #44723149350](https://github.com/Amiroudro/new-sngso/actions/runs/44723149350) passed the full Python 3.12 suite: **685 passed in 6.86 seconds** on code head `49bfed5e9929ca2501bf11e1ebe2399743b7a9d4`. Section 7 remains in progress; no production or publication authorization is added.
+
+
+**7.37: Revision-card claim traceability (verified)**
+- Revision-card segments now use the same exact text-to-segment and segment-to-object claim mapping as headline, brief, and detailed summaries.
+- Revision-card factual segments now block the quality report when their claims are unassessed, disputed, contradicted, retracted, or lack linked evidence. Attributed and analysis segments preserve the existing qualification warnings.
+- Regression tests cover an out-of-object claim, text omitted from the segments, and an unassessed factual claim.
+- GitHub Actions [run #44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090) passed the full Python 3.12 suite: **687 passed in 8.63 seconds** on code head `872e422460af970d85a87d2bfb7f55d376b36d91`.
+- This is evidence-link and assessment enforcement, not proof that revision-card content is accurate or useful. Qualified human review remains required. Section 7 remains in progress.
