@@ -4815,7 +4815,7 @@ class SQLiteRegistry:
             })
         unresolved_contradictions = [
             item for item in contradictions
-            if item["review_status"] not in {"approved", "resolved"}
+            if item["review_status"] != "rejected"
         ]
 
         languages = {}
