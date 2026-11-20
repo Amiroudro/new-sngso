@@ -46,6 +46,17 @@ class FakeRegistry:
         self.calls.append(("adjudication", payload, kwargs))
         return payload
 
+    def create_benchmark_review_assignment(self, payload, **kwargs):
+        self.calls.append(("assignment", payload, kwargs))
+        return payload
+
+    def get_benchmark_review_assignment(self, assignment_id):
+        return {"assignment_id": assignment_id, "assigned_by": "person:42", "reviewer_id": "person:reviewer"}
+
+    def transition_benchmark_review_assignment(self, assignment_id, **kwargs):
+        self.calls.append(("assignment_transition", assignment_id, kwargs))
+        return {"assignment_id": assignment_id, **kwargs}
+
 
 def identity(**overrides):
     values = {
@@ -137,3 +148,40 @@ def test_adjudicator_identity_must_match_authenticated_principal():
     with pytest.raises(RegistryIntegrityError, match="must match"):
         access(registry).adjudicate("trusted-request", payload, reason="test")
     assert registry.calls == []
+
+
+def test_assignment_actor_is_derived_from_authenticated_curator():
+    registry = FakeRegistry()
+    payload = {"assigned_by": "person:42", "reviewer_id": "person:reviewer"}
+    access(registry).assign_review("trusted-request", payload, reason="Assign review")
+    assert registry.calls[-1][0] == "assignment"
+    assert registry.calls[-1][2]["actor"] == "person:42"
+
+
+def test_assignment_cannot_claim_another_assigner():
+    registry = FakeRegistry()
+    with pytest.raises(RegistryIntegrityError, match="must match"):
+        access(registry).assign_review(
+            "trusted-request", {"assigned_by": "person:attacker"},
+            reason="Attempted actor substitution",
+        )
+    assert registry.calls == []
+
+
+def test_acceptance_uses_authenticated_reviewer_and_not_request_actor():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    result = access(registry).transition_review_assignment(
+        "trusted-request", "assignment:001", event="accept",
+        at="2026-11-20T12:00:00Z", reason="Accepted",
+    )
+    assert result["assignment_id"] == "assignment:001"
+    assert registry.calls[-1][2]["actor"] == "person:42"
+
+
+def test_assignment_expiry_requires_authenticated_curator():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    access(registry).transition_review_assignment(
+        "trusted-request", "assignment:001", event="expire",
+        at="2026-11-21T12:00:00Z", reason="Deadline passed",
+    )
+    assert registry.calls[-1][2]["actor"] == "person:42"
