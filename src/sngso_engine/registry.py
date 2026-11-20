@@ -4033,6 +4033,30 @@ class SQLiteRegistry:
                     for row in glossary_rows
                 ]
             reporting_independence = self.story_reporting_independence(story_id)
+            benchmark_reviews = []
+            if article_ids:
+                review_rows = connection.execute(
+                    "SELECT review_id, revision, payload_json FROM benchmark_reviews ORDER BY review_id"
+                ).fetchall()
+                story_article_ids = set(article_ids)
+                for review_row in review_rows:
+                    review_payload = json.loads(review_row["payload_json"])
+                    linked_article_ids = {
+                        item.get("article_id")
+                        for item in review_payload.get("source_materials", [])
+                        if isinstance(item, dict)
+                    }
+                    if not story_article_ids.intersection(linked_article_ids):
+                        continue
+                    benchmark_reviews.append({
+                        "review_id": review_row["review_id"],
+                        "revision": review_row["revision"],
+                        "record": review_payload,
+                        "quality_report": self._benchmark_review_quality_report(
+                            review_payload, connection
+                        ),
+                        "history": self.benchmark_review_history(review_row["review_id"]),
+                    })
             snapshot = {
                 "story_id": story_id,
                 "story_revision": story_row["revision"],
@@ -4050,6 +4074,7 @@ class SQLiteRegistry:
                 "story_decisions": decisions,
                 "learning_objects": learning_objects,
                 "glossary_entries": glossary_entries,
+                "benchmark_reviews": benchmark_reviews,
                 "reporting_independence": reporting_independence,
             }
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
@@ -4862,6 +4887,72 @@ class SQLiteRegistry:
         return [{"revision": row["revision"], "created_at": row["created_at"],
                  "actor": row["actor"], "reason": row["reason"],
                  "record": json.loads(row["payload_json"])} for row in rows]
+
+    def _benchmark_review_quality_report(
+        self, review: dict[str, Any], connection: sqlite3.Connection
+    ) -> dict[str, Any]:
+        """Evaluate review metadata and whether declared source permissions remain usable."""
+        metadata = validate_human_benchmark_review(review)
+        checks: list[dict[str, Any]] = []
+        blockers: list[dict[str, str]] = []
+
+        def check(name: str, passed: bool, detail: str) -> None:
+            checks.append({"name": name, "passed": passed, "detail": detail})
+            if not passed:
+                blockers.append({"check": name, "detail": detail})
+
+        approved = review.get("status") == "approved"
+        check(
+            "approved_review",
+            approved,
+            "Review must be approved before it can qualify as a current benchmark reference.",
+        )
+        check(
+            "review_metadata",
+            metadata["valid"] and metadata["approval_eligible"] if approved else metadata["valid"],
+            "Review metadata satisfies the human-review contract."
+            if metadata["valid"] else "Review metadata has validation failures.",
+        )
+        permission_ok = True
+        permission_detail = "Not required for a non-approved review."
+        if approved:
+            try:
+                self._validate_benchmark_review_sources(review, connection=connection)
+                permission_detail = (
+                    "Every source still has a verified evidence record and a currently usable "
+                    "grant for its declared endpoint and operation."
+                )
+            except (RegistryIntegrityError, KeyError, TypeError, ValueError) as exc:
+                permission_ok = False
+                permission_detail = f"Current source permission check failed: {exc}"
+        check("current_source_permission", permission_ok, permission_detail)
+        return {
+            "review_id": review.get("review_id"),
+            "benchmark_id": review.get("benchmark_id"),
+            "status": review.get("status"),
+            "eligible_for_current_use": approved and metadata["approval_eligible"] and permission_ok,
+            "blockers": blockers,
+            "checks": checks,
+            "warnings": [
+                "Reviewer identity and authorization are not authenticated by this registry.",
+                "This report does not assess factual correctness or general editorial quality.",
+            ],
+        }
+
+    def benchmark_review_quality_report(self, review_id: str) -> dict[str, Any]:
+        """Return a read-only report of review eligibility and current permission state."""
+        with self._transaction("DEFERRED") as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM benchmark_reviews WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError(f"unknown benchmark review: {review_id}")
+            report = self._benchmark_review_quality_report(
+                json.loads(row["payload_json"]), connection
+            )
+            report["revision"] = row["revision"]
+            return report
 
     def schema_version(self) -> int:
         with self._lock:
