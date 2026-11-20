@@ -4837,7 +4837,6 @@ class SQLiteRegistry:
 
         return {
             "story_id": snapshot["story_id"],
-            "snapshot_fingerprint": None,
             "languages": languages,
             "contradictions": contradictions,
             "unresolved_contradictions": unresolved_contradictions,
