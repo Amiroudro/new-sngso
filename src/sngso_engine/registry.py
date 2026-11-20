@@ -4916,10 +4916,16 @@ class SQLiteRegistry:
 
     def register_benchmark_principal(
         self, principal_id: str, *, display_name: str, roles: list[str],
-        provisioned_by: str, reason: str
+        provisioned_by: str, reason: str, languages: list[str] | None = None
     ) -> dict[str, Any]:
         """Provision a registry principal; caller must be a trusted operator."""
         allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator"}
+        supported_languages = {"bn", "en"}
+        languages = [] if languages is None else languages
+        if not isinstance(languages, list) or len(languages) != len(set(languages)) or not set(languages) <= supported_languages:
+            raise ValueError("languages must be a unique subset of bn and en")
+        if languages and "benchmark_reviewer" not in roles:
+            raise ValueError("language qualifications may only be assigned to benchmark reviewers")
         if not isinstance(principal_id, str) or not principal_id.strip():
             raise ValueError("principal_id is required")
         if not isinstance(display_name, str) or not display_name.strip():
@@ -4932,9 +4938,9 @@ class SQLiteRegistry:
         with self._transaction() as connection:
             connection.execute(
                 """INSERT INTO benchmark_principals
-                (principal_id, display_name, roles_json, active, created_at, created_by, reason)
-                VALUES (?, ?, ?, 1, ?, ?, ?)""",
-                (principal_id, display_name, _json_text(sorted(roles)), now, provisioned_by, reason),
+                (principal_id, display_name, roles_json, active, created_at, created_by, reason, languages_json)
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?)""",
+                (principal_id, display_name, _json_text(sorted(roles)), now, provisioned_by, reason, _json_text(sorted(languages))),
             )
             self._append_audit(
                 connection, event_type="benchmark_principal.provisioned",
@@ -4952,6 +4958,7 @@ class SQLiteRegistry:
         return {
             "principal_id": row["principal_id"], "display_name": row["display_name"],
             "roles": json.loads(row["roles_json"]), "active": bool(row["active"]),
+            "languages": json.loads(row["languages_json"]),
             "created_at": row["created_at"], "created_by": row["created_by"], "reason": row["reason"],
         }
 
