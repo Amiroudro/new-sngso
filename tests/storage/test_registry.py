@@ -1666,6 +1666,14 @@ def test_schema_17_migrates_principals_to_unverified_classification(tmp_path, mo
     with SQLiteRegistry(database) as migrated:
         assert migrated.schema_version() == 18
         assert migrated.get_benchmark_principal("editor:lead")["principal_kind"] == "unverified"
+        trigger = migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'benchmark_principal_kind_immutable'"
+        ).fetchone()
+        assert trigger is not None
+        with pytest.raises(sqlite3.IntegrityError, match="classification is immutable"):
+            migrated._connection.execute(
+                "UPDATE benchmark_principals SET principal_kind = 'human' WHERE principal_id = 'editor:lead'"
+            )
         migrated.migrate()
         assert migrated.schema_version() == 18
 
