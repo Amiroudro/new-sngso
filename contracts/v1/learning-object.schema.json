@@ -651,6 +651,8 @@
             "stem_clarity_and_precision",
             "distractor_plausibility",
             "distractors_unambiguously_incorrect",
+            "distractor_rationale_quality",
+            "learner_level_fit",
             "misconception_alignment",
             "option_parallelism",
             "no_accidental_clues",
@@ -700,6 +702,18 @@
               ]
             },
             "explanation_fidelity": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "distractor_rationale_quality": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "learner_level_fit": {
               "enum": [
                 "pass",
                 "needs_revision"
