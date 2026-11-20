@@ -351,6 +351,22 @@ def test_approved_vocabulary_requires_approved_glossary_entry():
             "reviewed_at": "2026-11-19T02:00:00Z",
             "reviewed_by": "reviewer",
             "review_note": "Vocabulary content reviewed.",
+            "language_review": {
+                "language": "bn",
+                "rubric_version": "bn-editorial-v1",
+                "reviewer_id": "reviewer",
+                "reviewed_at": "2026-11-19T02:00:00Z",
+                "note": "Bangla vocabulary language rubric checked.",
+                "dimensions": {
+                    "grammar_and_spelling": "pass",
+                    "naturalness_and_register": "pass",
+                    "terminology_consistency": "pass",
+                    "factual_fidelity": "pass",
+                    "attribution": "pass",
+                    "omissions": "pass",
+                    "translation_fidelity": "pass",
+                },
+            },
         })
         with pytest.raises(RegistryIntegrityError, match="requires an approved glossary entry"):
             registry.revise_learning_object(
