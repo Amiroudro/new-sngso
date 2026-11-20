@@ -1703,3 +1703,54 @@ def test_benchmark_review_cannot_be_rebound_to_a_different_fingerprint():
                 payload["review_id"], changed, expected_revision=1,
                 actor="editor:second", reason="attempt to rebind old review",
             )
+
+
+def test_benchmark_principal_roles_and_revocation_are_enforced_for_curators():
+    with SQLiteRegistry() as registry:
+        registry.register_benchmark_principal(
+            "reviewer-only", display_name="Reviewer only",
+            roles=["benchmark_reviewer"], provisioned_by="trusted-bootstrap",
+            reason="Test role boundary",
+        )
+        content = {"schema_version": "1.0.0", "items": [{
+            "item_id": "role-test", "task_type": "headline", "input": "Input",
+            "expected_output": "Output", "scoring_criteria": ["Accurate"],
+        }]}
+        with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+            registry.register_benchmark_artifact(
+                "benchmark:role-denied", language="en", content=content,
+                actor="reviewer-only", reason="Must be denied",
+            )
+        registry.register_benchmark_principal(
+            "curator-active", display_name="Curator",
+            roles=["benchmark_curator"], provisioned_by="trusted-bootstrap",
+            reason="Test curator role",
+        )
+        registry.revoke_benchmark_principal(
+            "curator-active", actor="trusted-bootstrap", reason="Access withdrawn",
+        )
+        assert registry.get_benchmark_principal("curator-active")["active"] is False
+        with pytest.raises(RegistryIntegrityError, match="active registered principal"):
+            registry.register_benchmark_artifact(
+                "benchmark:revoked", language="en", content=content,
+                actor="curator-active", reason="Must be denied after revocation",
+            )
+
+
+def test_benchmark_principal_role_assignments_are_validated_and_audited():
+    with SQLiteRegistry() as registry:
+        with pytest.raises(ValueError, match="roles must be"):
+            registry.register_benchmark_principal(
+                "unknown-role", display_name="Unknown",
+                roles=["superuser"], provisioned_by="trusted-bootstrap",
+                reason="Invalid role",
+            )
+        principal = registry.register_benchmark_principal(
+            "curator-one", display_name="Curator One",
+            roles=["benchmark_curator"], provisioned_by="trusted-bootstrap",
+            reason="Approved curator",
+        )
+        assert principal["active"] is True
+        assert principal["roles"] == ["benchmark_curator"]
+        events = registry.audit_events(entity_id="curator-one")
+        assert [event["event_type"] for event in events] == ["benchmark_principal.provisioned"]
