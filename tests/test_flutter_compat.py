@@ -264,10 +264,6 @@ def test_staging_candidate_rejects_duplicate_edition_source_references():
     ("https://publisher.example/news", "https://publisher.example/newsroom/story", False),
     ("https://publisher.example/news", "https://publisher.example.evil/news/story", False),
     ("https://publisher.example/news", "http://publisher.example/news/story", False),
-    ("https://publisher.example/news", "https://user@publisher.example/news/story", False),
-    ("https://publisher.example/news", "https://publisher.example/news/story#fragment", False),
-    ("https://publisher.example/news?redirect=1", "https://publisher.example/news/story", False),
-    ("https://publisher.example:bad/news", "https://publisher.example/news/story", False),
 ])
 def test_endpoint_coverage_rejects_ambiguous_or_unsafe_urls(
     endpoint_url, article_url, expected
@@ -278,6 +274,19 @@ def test_endpoint_coverage_rejects_ambiguous_or_unsafe_urls(
         assert _endpoint_covers_article(endpoint_url, article_url) is True
     else:
         assert _endpoint_covers_article(endpoint_url, article_url) is False
+
+
+@pytest.mark.parametrize("endpoint_url,article_url", [
+    ("https://publisher.example/news", "https://user@publisher.example/news/story"),
+    ("https://publisher.example/news", "https://publisher.example/news/story#fragment"),
+    ("https://publisher.example/news?redirect=1", "https://publisher.example/news/story"),
+    ("https://publisher.example:bad/news", "https://publisher.example/news/story"),
+])
+def test_endpoint_coverage_rejects_unsafe_url_components(endpoint_url, article_url):
+    from sngso_engine.flutter_compat import _endpoint_covers_article
+
+    with pytest.raises(FlutterCompatibilityError):
+        _endpoint_covers_article(endpoint_url, article_url)
 
 
 def test_endpoint_coverage_rejects_malformed_article_urls():
