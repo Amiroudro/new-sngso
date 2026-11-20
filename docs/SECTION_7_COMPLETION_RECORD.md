@@ -67,3 +67,12 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - Contradictory claims and both claim texts remain visible. A reviewed/accepted contradiction is not silently treated as resolved.
 - Missing language review and non-approved learning objects are blockers. The report never grants production authorization.
 - This is traceability logic, not a truth engine, linguistic quality certification, or proof of independent reporting. Section 7 remains in progress; Sections 8–10 remain future phases.
+
+## Section 7.31: source-independence evidence gap report
+
+- Added a read-only source-independence evidence report and embedded it in story editorial snapshots.
+- The report distinguishes duplicate article review from reporting independence. A reviewed-distinct article is not automatically an independent report; no duplicate candidate is not evidence of independence.
+- Independent-reporting count remains unset and all article independence statuses remain not established until original-reporting provenance, syndication/republication, shared-source/common-origin, and relevant primary-source evidence are assessed.
+- Confirmed duplicate groups and unresolved duplicate candidates remain visible.
+- The report exposes missing evidence requirements and never authorizes production.
+- Actual reporting-lineage evidence and human review remain outstanding. Section 7 remains in progress; Sections 8–10 remain future phases.
