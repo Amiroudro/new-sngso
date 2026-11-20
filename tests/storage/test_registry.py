@@ -1418,6 +1418,11 @@ def _register_benchmark_test_principals(registry: SQLiteRegistry) -> None:
             roles=["benchmark_reviewer"], provisioned_by="test-bootstrap",
             reason="Provision test reviewer",
         )
+    registry.register_benchmark_principal(
+        "adjudicator:senior", display_name="Senior adjudicator",
+        roles=["benchmark_adjudicator"], provisioned_by="test-bootstrap",
+        reason="Provision test adjudicator",
+    )
 
 
 def _populate_benchmark_review_sources(registry: SQLiteRegistry) -> None:
@@ -1778,3 +1783,80 @@ def test_existing_schema_v14_database_migrates_to_v15(tmp_path, monkeypatch):
         ).fetchone() is not None
         migrated.migrate()
         assert migrated.schema_version() == 15
+
+
+def test_benchmark_adjudication_is_persisted_against_two_stored_reviews():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first independent review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Experienced English editor with independent verification experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second independent review")
+        adjudication = {
+            "schema_version": "1.0.0",
+            "adjudication_id": "adjudication:benchmark-en-001",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": "split_accepted_answers",
+            "rationale": "Both answers preserve the verified facts while representing distinct acceptable editorial choices.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+        }
+        saved = registry.add_benchmark_adjudication(
+            adjudication, actor="adjudicator:senior", reason="Resolve reviewer disagreement",
+        )
+        assert saved["adjudication_id"] == adjudication["adjudication_id"]
+        assert saved["outcome"] == "split_accepted_answers"
+        assert saved["actor"] == "adjudicator:senior"
+        assert registry.audit_events(entity_id=adjudication["adjudication_id"])[0]["event_type"] == "benchmark_adjudication.recorded"
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            registry._connection.execute(
+                "DELETE FROM benchmark_adjudications WHERE adjudication_id = ?",
+                (adjudication["adjudication_id"],),
+            )
+
+
+def test_benchmark_adjudication_rejects_reviewers_and_wrong_artifact_binding():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        registry.add_benchmark_review(second, actor="editor:second", reason="second review")
+        payload = {
+            "schema_version": "1.0.0",
+            "adjudication_id": "adjudication:benchmark-en-bad",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": "uphold_existing",
+            "rationale": "The first review is supported by the registered source evidence and the second review is resolved.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+        }
+        payload["reviewer_ids"] = ["editor:lead", "editor:second"]
+        payload["adjudicator"]["principal_id"] = "editor:lead"
+        with pytest.raises(RegistryIntegrityError, match="lacks required role|independent"):
+            registry.add_benchmark_adjudication(
+                payload, actor="editor:lead", reason="Invalid self-adjudication",
+            )
