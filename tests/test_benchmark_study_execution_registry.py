@@ -13,6 +13,7 @@ ACCEPTED = (STARTED + timedelta(minutes=5)).isoformat()
 SCORE_AT = (STARTED + timedelta(minutes=10)).isoformat()
 COMPLETED = (NOW - timedelta(minutes=10)).isoformat()
 AUTHENTICATED = (NOW - timedelta(minutes=1)).isoformat()
+DUE_AT = (NOW + timedelta(hours=2)).isoformat()
 REVIEWED = (NOW - timedelta(minutes=5)).isoformat()
 
 
@@ -88,7 +89,7 @@ def _score(registry, artifact, item_id, evaluator_id):
             "artifact_fingerprint": artifact["content_fingerprint"],
             "language": "bn", "reviewer_id": evaluator_id,
             "assigned_by": "curator:study", "assigned_at": STAMP,
-            "due_at": "2026-11-20T04:00:00Z", "status": "assigned",
+            "due_at": DUE_AT, "status": "assigned",
             "reason": "Blind study evaluator assignment",
         },
         actor="curator:study", reason="Assign blind study evaluator",
