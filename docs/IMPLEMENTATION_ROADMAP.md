@@ -268,3 +268,8 @@ The bilingual editorial report now compares claim IDs for explicitly paired lear
 ### Section 7.39 implementation update
 
 An approved learning object now passes the registry quality gate only when its exact language-specific editorial rubric is present and fully passing. Generic approval status without a rubric is explicitly blocked. Test helpers now state the relevant Bangla/English rubric outcome, and regression coverage checks the missing-rubric blocker. GitHub Actions [run #44731019456](https://github.com/Amiroudro/new-sngso/actions/runs/44731019456) passed the complete Python 3.12 suite: **689 tests in 8.59 seconds** on code head `1ecf6a9345c996366363d5f8a08191485f6db66e`. This is a software completeness check, not proof of reviewer identity or factual truth. Section 7 remains in progress.
+
+
+### Section 7.40 implementation update
+
+Added a versioned MCQ pedagogical rubric and provider-attested capture to the authenticated learning-object review facade. MCQ approval is quality-gated on eight all-pass dimensions covering answer-key defensibility, stem clarity, distractor quality and construction, accidental cues, and explanation fidelity. The quality report does not infer pedagogical correctness. GitHub Actions [run #44732795832](https://github.com/Amiroudro/new-sngso/actions/runs/44732795832) passed 689 tests in 7.70 seconds on head 4b14a10705ab4352b8c4c915179c3b564d601086; no targeted MCQ-rubric regression tests were added in this slice, so the new route is not considered fully validated. Real reviewers and the remaining Section 7 exit evidence are still required.
