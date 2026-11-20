@@ -162,3 +162,29 @@ def test_acceptance_review_rejects_stale_execution_binding_and_insufficient_doma
                     "authenticated_at": AUTHENTICATED,
                 }, reason="Acceptance with a failing domain must fail",
             )
+
+
+
+def test_acceptance_quality_report_rechecks_registered_evidence_and_fails_closed_without_current_human_source_reviews():
+    with SQLiteRegistry() as registry:
+        artifact, protocol, execution = _complete_registered_study(registry)
+        payload = _acceptance_payload(artifact, protocol, execution)
+        stored = registry.register_benchmark_acceptance_review(
+            payload, actor="acceptance:one",
+            identity={
+                "issuer": "https://login.example.test/", "subject": "oidc:acceptance:one",
+                "provider_key_id": "test-key", "provider_adapter": "test-adapter/1",
+                "authenticated_at": AUTHENTICATED,
+            },
+            reason="Independent acceptance review",
+        )
+        report = registry.benchmark_acceptance_review_quality_report(stored["review_id"])
+        assert report["decision"] == "accepted_for_limited_use"
+        assert report["checks"]
+        assert any(check["name"] == "registered_protocol" and check["passed"] for check in report["checks"])
+        assert any(check["name"] == "registered_execution" and check["passed"] for check in report["checks"])
+        assert any(check["name"] == "benchmark_artifact" and check["passed"] for check in report["checks"])
+        assert any(check["name"] == "current_human_source_reviews" and not check["passed"] for check in report["checks"])
+        assert report["eligible_for_scoped_reference"] is False
+        assert report["production_ready"] is False
+        assert report["authorization_granted"] is False
