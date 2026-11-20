@@ -5168,6 +5168,82 @@ class SQLiteRegistry:
                 "checks": checks,
             }
 
+    def bilingual_editorial_quality_report(self, story_id: str) -> dict[str, Any]:
+        """Compare Bangla and English editorial coverage without averaging away language failures."""
+        snapshot = self.story_editorial_snapshot(story_id)
+        objects_by_language: dict[str, list[dict[str, Any]]] = {"bn": [], "en": []}
+        for item in snapshot["learning_objects"]:
+            language = item["record"].get("language")
+            if language not in objects_by_language:
+                continue
+            quality = self.learning_object_quality_report(item["id"])
+            if quality["revision"] != item["revision"]:
+                raise RegistryIntegrityError(
+                    "learning object changed while bilingual quality report was being assembled"
+                )
+            objects_by_language[language].append({
+                "learning_object_id": item["id"],
+                "revision": item["revision"],
+                "kind": item["record"]["kind"],
+                "status": quality["status"],
+                "meets_registry_quality_gates": quality["meets_registry_quality_gates"],
+                "blockers": quality["blockers"],
+                "warnings": quality["warnings"],
+            })
+
+        kinds_by_language = {
+            language: {item["kind"] for item in items}
+            for language, items in objects_by_language.items()
+        }
+        all_kinds = sorted(kinds_by_language["bn"] | kinds_by_language["en"])
+        coverage = [
+            {
+                "kind": kind,
+                "bangla_present": kind in kinds_by_language["bn"],
+                "english_present": kind in kinds_by_language["en"],
+                "paired": kind in kinds_by_language["bn"] and kind in kinds_by_language["en"],
+            }
+            for kind in all_kinds
+        ]
+        language_reports = {}
+        for language, items in objects_by_language.items():
+            language_reports[language] = {
+                "artifact_count": len(items),
+                "approved_count": sum(item["status"] == "approved" for item in items),
+                "quality_gate_pass_count": sum(item["meets_registry_quality_gates"] for item in items),
+                "blocked_count": sum(not item["meets_registry_quality_gates"] for item in items),
+                "by_kind": {
+                    kind: sum(item["kind"] == kind for item in items)
+                    for kind in sorted({item["kind"] for item in items})
+                },
+                "artifacts": items,
+            }
+
+        confirmed_snapshot = self.story_editorial_snapshot(story_id)
+        if confirmed_snapshot["fingerprint"] != snapshot["fingerprint"]:
+            raise RegistryIntegrityError(
+                "story editorial snapshot changed while bilingual quality report was being assembled"
+            )
+        return {
+            "story_id": story_id,
+            "snapshot_fingerprint": snapshot["fingerprint"],
+            "languages": language_reports,
+            "kind_coverage": coverage,
+            "missing_language_counterparts": [
+                {"kind": item["kind"], "missing_language": "en" if item["bangla_present"] else "bn"}
+                for item in coverage if not item["paired"]
+            ],
+            "overall_quality_score": None,
+            "interpretation": (
+                "Bangla and English are reported independently. Counts describe registered artifacts "
+                "and deterministic registry checks, not linguistic quality or factual truth. "
+                "A language with no artifacts is unassessed, not a zero-quality result. "
+                "No cross-language average or automatic publication approval is produced."
+            ),
+            "production_ready": False,
+            "authorization_granted": False,
+        }
+
     def get_domain_record(self, record_type: str, record_id: str):
         if record_type == "story_decision":
             with self._lock:
