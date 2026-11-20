@@ -41,11 +41,11 @@ Schema migration 14 adds an immutable benchmark-artifact table. Curators registe
 
 A human review must now reference a registered artifact by its artifact ID. On review creation and revision, the registry re-reads the stored artifact, recomputes its fingerprint, and checks both the declared review fingerprint and language. The read-only quality report repeats this artifact check, and current-use eligibility fails closed if the artifact is missing, mismatched, or cannot be verified.
 
-This stage stores structured JSON benchmark content. It does not yet define a domain-specific benchmark-item schema or authenticate curator/reviewer identities. Canonicalization is explicitly versioned so a future change cannot silently reinterpret old fingerprints.
+This stage also defines a versioned benchmark-content contract. Each artifact contains one or more uniquely identified items with a task type, input, expected output, and explicit scoring criteria. The contract supports headline, summary, translation, claim extraction, fact-checking, vocabulary, and editorial-judgment tasks. Curator/reviewer identity authentication remains outside this stage. Canonicalization is explicitly versioned so a future change cannot silently reinterpret old fingerprints.
 
 ## Next gates
 
-- Add a domain-specific schema for benchmark item content and stronger curator/reviewer identity and role authorization.
+- Add stronger curator/reviewer identity and role authorization, plus adjudication workflows for disagreements.
 - Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
 
 ## 7.4 Operation-scoped permission enforcement
