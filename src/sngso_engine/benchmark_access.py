@@ -153,7 +153,7 @@ class AuthenticatedBenchmarkAccess:
     def review_learning_object(
         self, request_context: Any, learning_object_id: str, *,
         expected_revision: int, decision: str, dimensions: dict[str, str],
-        note: str, reason: str,
+        note: str, reason: str, mcq_dimensions: dict[str, str] | None = None,
     ) -> Any:
         """Record a language-specific editorial decision with provider-backed reviewer provenance."""
         identity = self._identity(request_context)
@@ -186,6 +186,25 @@ class AuthenticatedBenchmarkAccess:
             raise RegistryIntegrityError("authenticated reviewer is not qualified for this editorial language")
         if decision not in {"approved", "rejected"}:
             raise RegistryIntegrityError("editorial review decision must be approved or rejected")
+        is_mcq = payload.get("kind") == "mcq_question"
+        if is_mcq:
+            required_mcq_dimensions = {
+                "single_defensible_key", "stem_clarity_and_precision",
+                "distractor_plausibility", "distractors_unambiguously_incorrect",
+                "misconception_alignment", "option_parallelism",
+                "no_accidental_clues", "explanation_fidelity",
+            }
+            if not isinstance(mcq_dimensions, dict) or set(mcq_dimensions) != required_mcq_dimensions:
+                raise RegistryIntegrityError("MCQ review requires every pedagogical rubric dimension")
+            if any(value not in {"pass", "needs_revision"} for value in mcq_dimensions.values()):
+                raise RegistryIntegrityError("MCQ review rubric values must be pass or needs_revision")
+            has_findings = any(value == "needs_revision" for value in mcq_dimensions.values())
+            if decision == "approved" and has_findings:
+                raise RegistryIntegrityError("approved MCQ review cannot contain needs_revision findings")
+            if decision == "rejected" and not has_findings:
+                raise RegistryIntegrityError("rejected MCQ review must identify a needs_revision finding")
+        elif mcq_dimensions is not None:
+            raise RegistryIntegrityError("MCQ pedagogical dimensions are only valid for MCQ learning objects")
         reviewed_at = now.isoformat()
         rubric_version = "bn-editorial-v1" if language == "bn" else "en-editorial-v1"
         payload.update({
@@ -213,6 +232,26 @@ class AuthenticatedBenchmarkAccess:
                 },
             },
         })
+        if is_mcq:
+            payload["mcq_review"] = {
+                "language": language,
+                "rubric_version": "mcq-editorial-v1",
+                "reviewer_id": actor,
+                "reviewed_at": reviewed_at,
+                "note": note,
+                "dimensions": mcq_dimensions,
+                "identity_attestation": {
+                    "principal_id": actor,
+                    "issuer": identity.issuer,
+                    "subject": identity.subject,
+                    "provider_key_id": identity.provider_key_id,
+                    "provider_adapter": identity.provider_adapter,
+                    "authenticated_at": identity.authenticated_at.isoformat(),
+                    "attested_at": reviewed_at,
+                    "authentication_methods": list(identity.authentication_methods),
+                    "authentication_context": identity.authentication_context,
+                },
+            }
         return self._registry.revise_learning_object(
             learning_object_id, payload, expected_revision=expected_revision,
             actor=actor, reason=reason,
