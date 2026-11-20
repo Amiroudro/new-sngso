@@ -184,6 +184,72 @@ class AuthenticatedBenchmarkAccess:
         )
 
 
+
+    def submit_acceptance_review(
+        self, request_context: Any, payload: dict[str, Any], *, reason: str
+    ) -> dict[str, Any]:
+        """Submit an immutable independent acceptance decision from its authenticated reviewer."""
+        identity = self._identity(request_context)
+        actor = identity.principal_id
+        principal = self._registry.get_benchmark_principal(actor)
+        if (
+            principal is None or not principal["active"]
+            or "benchmark_acceptance_reviewer" not in principal["roles"]
+            or principal.get("principal_kind") != "human"
+        ):
+            raise RegistryIntegrityError("acceptance review requires an active human-classified acceptance reviewer")
+        if self._clock() - identity.authenticated_at > timedelta(minutes=15):
+            raise RegistryIntegrityError("acceptance review requires recent authentication within 15 minutes")
+        if (
+            not identity.subject.strip() or not identity.authentication_methods
+            or not identity.authentication_context.strip()
+            or not identity.provider_key_id.strip() or not identity.provider_adapter.strip()
+        ):
+            raise RegistryIntegrityError("acceptance reviewer requires provider-backed identity and authentication context")
+        if payload.get("reviewer_id") != actor:
+            raise RegistryIntegrityError("acceptance reviewer must match the authenticated principal")
+        return self._registry.register_benchmark_acceptance_review(
+            payload, actor=actor,
+            identity={
+                "issuer": identity.issuer, "subject": identity.subject,
+                "provider_key_id": identity.provider_key_id,
+                "provider_adapter": identity.provider_adapter,
+                "authenticated_at": identity.authenticated_at.isoformat(),
+            },
+            reason=reason,
+        )
+
+    def get_acceptance_review(
+        self, request_context: Any, review_id: str
+    ) -> dict[str, Any] | None:
+        actor = self._principal(
+            request_context,
+            ("benchmark_curator", "benchmark_adjudicator", "benchmark_security_admin",
+             "benchmark_methodologist", "benchmark_acceptance_reviewer"),
+        )
+        record = self._registry.get_benchmark_acceptance_review(review_id)
+        if record is not None and record["reviewer_id"] != actor:
+            principal = self._registry.get_benchmark_principal(actor)
+            if not any(role in principal["roles"] for role in (
+                "benchmark_curator", "benchmark_adjudicator", "benchmark_security_admin",
+                "benchmark_methodologist",
+            )):
+                raise RegistryIntegrityError("acceptance reviewers may only retrieve their own submitted decisions")
+        return record
+
+    def list_acceptance_reviews(
+        self, request_context: Any, *, study_id: str | None = None,
+        execution_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        self._principal(
+            request_context,
+            ("benchmark_curator", "benchmark_adjudicator", "benchmark_security_admin",
+             "benchmark_methodologist"),
+        )
+        return self._registry.list_benchmark_acceptance_reviews(
+            study_id=study_id, execution_id=execution_id,
+        )
+
     def register_study_execution(
         self, request_context: Any, payload: dict[str, Any], *, reason: str
     ) -> dict[str, Any]:
