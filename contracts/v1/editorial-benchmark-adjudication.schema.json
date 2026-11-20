@@ -14,7 +14,8 @@
     "outcome",
     "rationale",
     "evidence_references",
-    "resolved_at"
+    "resolved_at",
+    "reviewer_ids"
   ],
   "properties": {
     "schema_version": {
@@ -100,12 +101,13 @@
     },
     "reviewer_ids": {
       "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
       "items": {
         "type": "string",
         "minLength": 1,
         "maxLength": 160
-      },
-      "uniqueItems": true
+      }
     }
   }
 }
