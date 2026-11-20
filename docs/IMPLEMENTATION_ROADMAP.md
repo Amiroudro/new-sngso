@@ -126,7 +126,7 @@ Acceptance:
 Tasks remaining:
 - Build reviewed three-level summary workflows and deterministic editorial templates with sentence-level claim traceability.
 - Extend the current versioned, language-specific Bangla and English review rubric into authenticated reviewer assignment, independent review provenance, and human-audited acceptance evidence.
-- Build multi-source perspectives into useful editorial outputs while preserving attribution and source independence.
+- Extend the new story-dossier perspective attribution report into reviewed narrative assembly, explicit source-independence evidence, and bilingual attribution checks.
 - Expand controlled bilingual terminology and source-grounded vocabulary, comprehension, analysis, MCQ, and revision-card workflows.
 - Establish and use genuine human-reviewed Bangla/English benchmarks for omission, distortion, attribution, language quality, and question answerability.
 - Prepare daily briefing inputs for Section 8 edition assembly.
