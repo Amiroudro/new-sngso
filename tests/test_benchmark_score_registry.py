@@ -128,3 +128,53 @@ def test_score_records_cannot_be_updated_or_deleted():
                 "DELETE FROM benchmark_scores WHERE score_id = ?",
                 (stored["score_id"],),
             )
+
+
+def test_registry_agreement_report_uses_two_distinct_persisted_human_scores():
+    from copy import deepcopy
+
+    with SQLiteRegistry() as registry:
+        score, identity = _score_fixture(registry)
+        registry.add_benchmark_score(
+            score, assignment_id="assignment:one", actor="reviewer:one",
+            identity=identity, reason="First independent score",
+        )
+        registry.register_benchmark_principal(
+            "reviewer:two", display_name="Reviewer Two", roles=["benchmark_reviewer"],
+            languages=["bn"], principal_kind="human",
+            provisioned_by="deployment-operator", reason="Second human reviewer provisioning",
+        )
+        assignment = {
+            "schema_version": "1.0.0",
+            "assignment_id": "assignment:two",
+            "artifact_id": score["benchmark_id"],
+            "artifact_fingerprint": score["benchmark_fingerprint"],
+            "language": "bn",
+            "reviewer_id": "reviewer:two",
+            "assigned_by": "curator:one",
+            "assigned_at": STAMP,
+            "due_at": "2026-11-22T00:00:00Z",
+            "status": "assigned",
+            "reason": "Independent second evaluator",
+        }
+        registry.create_benchmark_review_assignment(
+            assignment, actor="curator:one", reason="Assign second evaluator",
+        )
+        registry.transition_benchmark_review_assignment(
+            "assignment:two", event="accept", actor="reviewer:two",
+            at=ACCEPTED, reason="Second reviewer accepted",
+        )
+        second = deepcopy(score)
+        second["evaluator_id"] = "reviewer:two"
+        second["criterion_scores"][0]["score"] = 2
+        second_identity = dict(identity, subject="oidc-reviewer-two")
+        registry.add_benchmark_score(
+            second, assignment_id="assignment:two", actor="reviewer:two",
+            identity=second_identity, reason="Second independent score",
+        )
+        report = registry.benchmark_evaluator_agreement_report(
+            "artifact:bn:one", "item:headline:one"
+        )
+        assert report["evaluator_count"] == 2
+        assert report["weighted_mean_absolute_score_difference"] == "1.0000"
+        assert report["evaluators"] == ["reviewer:one", "reviewer:two"]
