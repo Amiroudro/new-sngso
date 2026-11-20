@@ -102,6 +102,10 @@ class EditorialRepository(Protocol):
 class BenchmarkReviewRepository(Protocol):
     """Versioned human review records with append-only decision history."""
 
+    def add_benchmark_adjudication(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]: ...
+    def get_benchmark_adjudication(self, adjudication_id: str) -> dict[str, Any] | None: ...
     def register_benchmark_principal(
         self, principal_id: str, *, display_name: str, roles: list[str],
         provisioned_by: str, reason: str
