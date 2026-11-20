@@ -181,3 +181,10 @@ A versioned scoring contract and deterministic validator now require item-bound 
 - Registry reports require provider provenance and human-classified evaluator principals. The authenticated facade exposes peer-score reports only to curators and adjudicators, preserving reviewer blindness during independent scoring.
 - Critical-failure score sheets are excluded from agreement comparison. Mismatched items, artifacts, criterion sets, or weights fail closed.
 - Explicit statistical boundary: these are descriptive disagreement measures, not reliability coefficients. No generalization or claim of inter-rater reliability is supported. Genuine human calibration data and an independently designed reliability study remain necessary.
+
+
+## Section 7.22: benchmark calibration study protocol
+
+A versioned study contract and validator now require an explicit sampling frame, selection method, inclusion/exclusion criteria, Bangla/English task strata, reviewer training and qualification declarations, blind assignment plan, measurement scale, proposed statistic and rationale, uncertainty-interval plan, missing-data plan, independence assumptions, and independent methodological reviewer. Calibration, blind evaluation, and adjudication item IDs must be disjoint. Every blind item must have exactly one assignment-plan row and at least two distinct, trained, declared reviewers qualified for its language and task.
+
+The validator fingerprints the full protocol and always reports protocol_only with production_ready=false. It does not persist protocol versions, prove training or human identity, execute sampling, prescribe a universal sample-size threshold, or establish reliability. A deployment must store approved protocol versions in an append-only study registry before use. The statistical method must be justified for the scale, rater/item sampling design, clustering, missingness, and intended inference, with uncertainty intervals and independent methods review. See docs/SECTION_7_22_CALIBRATION_STUDY_PROTOCOL.md.
