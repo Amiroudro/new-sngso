@@ -1781,6 +1781,31 @@ def test_benchmark_readiness_requires_adjudication_even_for_two_human_classified
         assert report["blockers"] == ["No independent final adjudication is recorded."]
 
 
+def test_identity_attestation_must_be_fresh_and_match_current_review_revision():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry, reviewer_kind="human")
+        review = _benchmark_review_payload()
+        registry.add_benchmark_review(review, actor="editor:lead", reason="initial review")
+        stale = _identity_attestation(review, "editor:lead")
+        stale["attested_at"] = "2026-11-20T00:20:00Z"
+        with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+            registry.record_benchmark_review_identity_attestation(
+                stale, actor="editor:lead", reason="stale identity assertion",
+            )
+        valid = _identity_attestation(review, "editor:lead")
+        registry.record_benchmark_review_identity_attestation(
+            valid, actor="editor:lead", reason="fresh identity assertion",
+        )
+        revised = {**review, "adjudication_note": "Reviewed again with a clearer rationale."}
+        registry.revise_benchmark_review(
+            review["review_id"], revised, expected_revision=1,
+            actor="editor:lead", reason="revised review rationale",
+        )
+        report = registry.benchmark_readiness_report(review["benchmark_id"])
+        assert report["reviews"][0]["identity_provider_attested"] is False
+        assert report["status"] == "human_review_pending"
+
+
 def test_synthetic_only_benchmark_is_never_reported_as_human_ready():
     with SQLiteRegistry() as registry:
         _populate_benchmark_review_sources(registry, reviewer_kind="synthetic")
