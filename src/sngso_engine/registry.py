@@ -5911,8 +5911,9 @@ class SQLiteRegistry:
                     "current_review_policy_eligible": quality["eligible_for_current_use"],
                     "eligible_approved_review": current,
                 })
-            distinct_reviewers = {review["reviewer"]["reviewer_id"] for review, _ in eligible}
-            kinds = {principal["principal_kind"] for _, principal in eligible}
+            distinct_reviewers = {review["reviewer"]["reviewer_id"] for review, _, _ in eligible}
+            kinds = {principal["principal_kind"] for _, principal, _ in eligible}
+            attested_reviewers = {review["reviewer"]["reviewer_id"] for review, principal, attested in eligible if principal["principal_kind"] == "human" and attested}
             adjudication_rows = connection.execute(
                 "SELECT adjudication_id, payload_json FROM benchmark_adjudications WHERE benchmark_id = ?",
                 (artifact_id,),
@@ -5924,17 +5925,18 @@ class SQLiteRegistry:
                 blockers.append("At least two distinct active, language-qualified reviewers with currently eligible approved reviews are required.")
             if any(kind != "human" for kind in kinds):
                 blockers.append("Eligible reviews include synthetic, automated, or unverified principals.")
+            if len(attested_reviewers) < 2:
+                blockers.append("At least two eligible human reviews require immutable identity-provider attestations bound to their exact review revisions.")
             if len(adjudication_rows) == 0:
                 blockers.append("No independent final adjudication is recorded.")
             if len(adjudication_rows) > 1:
                 blockers.append("Conflicting final adjudications exist.")
-            # A principal_kind value is an administrative classification, not identity proof.
-            blockers.append("No production identity-provider attestation is stored with these reviews; human identity remains unverified.")
+            # Provider attestations are only as trustworthy as the configured production adapter and its key-validation policy.
             if not reviews and not eligible:
                 status = "human_review_pending"
             elif eligible and kinds <= {"synthetic", "automation"}:
                 status = "synthetic_only"
-            elif len(distinct_reviewers) >= 2 and kinds == {"human"} and not adjudication_rows:
+            elif len(distinct_reviewers) >= 2 and len(attested_reviewers) >= 2 and kinds == {"human"} and not adjudication_rows:
                 status = "ready_for_adjudication"
             else:
                 status = "human_review_pending"
@@ -5945,7 +5947,7 @@ class SQLiteRegistry:
                 "adjudication_count": len(adjudication_rows), "blockers": blockers,
                 "production_ready": False,
                 "warnings": [
-                    "principal_kind is an administrative classification and does not authenticate a real person.",
+                    "principal_kind is an administrative classification; identity attestation depends on the configured provider adapter verifying issuer, audience, signature/key, session revocation, and subject-to-principal mapping.",
                     "This report does not compare review content to determine whether reviewers disagree.",
                     "Only the existing review, permission, and adjudication policy gates can authorize current use; this report grants no approval.",
                 ],
