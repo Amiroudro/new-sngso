@@ -260,6 +260,52 @@ def test_source_independence_report_does_not_confuse_distinct_articles_with_inde
         registry.close()
 
 
+def test_narrative_assembly_blocks_rejected_language_review_even_when_review_record_exists():
+    registry = _prepared()
+    try:
+        current = registry.get_learning_object("learning:summary-bn")
+        payload = current.to_payload()
+        payload.update({
+            "status": "rejected",
+            "reviewed_at": STAMP,
+            "reviewed_by": "reviewer:bn",
+            "review_note": "Needs language revision.",
+            "language_review": {
+                "language": "bn",
+                "rubric_version": "bn-editorial-v1",
+                "reviewer_id": "reviewer:bn",
+                "reviewed_at": STAMP,
+                "note": "Spelling and terminology require revision.",
+                "dimensions": {
+                    "grammar_and_spelling": "needs_revision",
+                    "naturalness_and_register": "pass",
+                    "terminology_consistency": "pass",
+                    "factual_fidelity": "pass",
+                    "attribution": "pass",
+                    "omissions": "pass",
+                    "translation_fidelity": "pass",
+                },
+            },
+        })
+        registry.revise_learning_object(
+            "learning:summary-bn",
+            payload,
+            expected_revision=current.revision,
+            actor="reviewer:bn",
+            reason="Record rejected language review.",
+        )
+        report = registry.story_narrative_assembly_report("story:one")
+        object_report = report["languages"]["bn"]["objects"][0]
+        assert object_report["language_review_pass"] is False
+        assert any(
+            blocker["reason"].startswith("language review is rejected")
+            for blocker in report["languages"]["bn"]["blockers"]
+        )
+        assert report["production_ready"] is False
+    finally:
+        registry.close()
+
+
 def test_editorial_snapshot_rejects_unknown_story():
     registry = _prepared()
     try:
