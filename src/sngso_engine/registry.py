@@ -5897,18 +5897,33 @@ class SQLiteRegistry:
                     review.get("benchmark_fingerprint") == artifact["content_fingerprint"]
                     and review.get("language") == artifact["language"]
                 )
+                attestation_row = connection.execute(
+                    "SELECT principal_id, issuer, audience, subject, provider_key_id, provider_adapter, authenticated_at, expires_at, attested_at FROM benchmark_review_identity_attestations WHERE review_id = ? AND review_revision = ?",
+                    (review.get("review_id"), row["revision"]),
+                ).fetchone()
+                identity_attested = bool(
+                    attestation_row
+                    and attestation_row["principal_id"] == reviewer_id
+                    and attestation_row["subject"]
+                    and attestation_row["issuer"]
+                    and attestation_row["audience"]
+                    and attestation_row["provider_key_id"]
+                    and attestation_row["provider_adapter"]
+                    and _aware_datetime(attestation_row["attested_at"], "attested_at") < _aware_datetime(attestation_row["expires_at"], "expires_at")
+                )
                 current = bool(
                     review.get("status") == "approved"
                     and quality["eligible_for_current_use"]
                     and principal_ok and binding_ok
                 )
                 if current:
-                    eligible.append((review, principal))
+                    eligible.append((review, principal, identity_attested))
                 review_checks.append({
                     "review_id": review.get("review_id"), "reviewer_id": reviewer_id,
                     "status": review.get("status"), "principal_kind": principal["principal_kind"] if principal else "missing",
                     "active_qualified_principal": principal_ok, "exact_artifact_binding": binding_ok,
                     "current_review_policy_eligible": quality["eligible_for_current_use"],
+                    "identity_provider_attested": identity_attested,
                     "eligible_approved_review": current,
                 })
             distinct_reviewers = {review["reviewer"]["reviewer_id"] for review, _, _ in eligible}
