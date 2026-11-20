@@ -182,6 +182,30 @@ def test_editorial_snapshot_collects_story_evidence_and_views_consistently():
         registry.close()
 
 
+def test_bilingual_quality_report_keeps_language_coverage_and_blockers_separate():
+    registry = _prepared()
+    try:
+        report = registry.bilingual_editorial_quality_report("story:one")
+        assert report["languages"]["bn"]["artifact_count"] == 2
+        assert report["languages"]["en"]["artifact_count"] == 0
+        assert report["languages"]["bn"]["approved_count"] == 0
+        assert report["languages"]["bn"]["quality_gate_pass_count"] == 0
+        assert report["languages"]["en"]["blocked_count"] == 0
+        assert report["kind_coverage"] == [
+            {"kind": "brief_summary", "bangla_present": True, "english_present": False, "paired": False},
+            {"kind": "vocabulary", "bangla_present": True, "english_present": False, "paired": False},
+        ]
+        assert report["missing_language_counterparts"] == [
+            {"kind": "brief_summary", "missing_language": "en"},
+            {"kind": "vocabulary", "missing_language": "en"},
+        ]
+        assert report["overall_quality_score"] is None
+        assert report["production_ready"] is False
+        assert report["authorization_granted"] is False
+    finally:
+        registry.close()
+
+
 def test_editorial_snapshot_rejects_unknown_story():
     registry = _prepared()
     try:
