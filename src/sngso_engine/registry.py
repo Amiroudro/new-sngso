@@ -37,6 +37,7 @@ from .models import (
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 from .benchmark_reviews import validate_human_benchmark_review
 from .benchmark_scoring import validate_benchmark_scoring
+from .benchmark_agreement import benchmark_evaluator_agreement, BenchmarkAgreementError
 from .benchmark_adjudication import validate_benchmark_adjudication
 from .benchmark_assignments import (
     BenchmarkAssignmentError,
@@ -6094,6 +6095,30 @@ class SQLiteRegistry:
             values,
         ).fetchall()
         return [self.get_benchmark_score(row["score_id"]) for row in rows]
+
+
+    def benchmark_evaluator_agreement_report(
+        self, artifact_id: str, item_id: str
+    ) -> dict[str, Any]:
+        """Return descriptive agreement for durable score sheets on one exact item."""
+        artifact = self.get_benchmark_artifact(artifact_id)
+        if artifact is None:
+            raise RegistryIntegrityError(f"unknown benchmark artifact: {artifact_id}")
+        scores = self.list_benchmark_scores(artifact_id=artifact_id, item_id=item_id)
+        if not scores:
+            raise RegistryIntegrityError("no persisted score sheets exist for this benchmark item")
+        for stored in scores:
+            if stored["artifact_fingerprint"] != artifact["content_fingerprint"]:
+                raise RegistryIntegrityError("stored score does not match the registered artifact fingerprint")
+            principal = self.get_benchmark_principal(stored["evaluator_id"])
+            if principal is None or principal.get("principal_kind") != "human":
+                raise RegistryIntegrityError("agreement reports require human-classified evaluator principals")
+            if not stored["issuer"] or not stored["subject"] or not stored["provider_key_id"]:
+                raise RegistryIntegrityError("agreement report requires provider-attested evaluator provenance")
+        try:
+            return benchmark_evaluator_agreement([row["score"] for row in scores])
+        except BenchmarkAgreementError as exc:
+            raise RegistryIntegrityError(str(exc)) from exc
 
     def benchmark_readiness_report(self, artifact_id: str) -> dict[str, Any]:
         """Report evidence readiness without treating declared principal types as identity proof."""
