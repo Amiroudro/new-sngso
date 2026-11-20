@@ -6590,6 +6590,12 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("blind evaluator cannot act as independent acceptance reviewer")
             if actor == execution_row["methodologist_id"]:
                 raise RegistryIntegrityError("methodologist cannot act as independent acceptance reviewer")
+            reviewed_at = _aware_datetime(payload["reviewed_at"], "reviewed_at")
+            execution_completed_at = _aware_datetime(execution["completed_at"], "execution.completed_at")
+            if reviewed_at > now:
+                raise RegistryIntegrityError("acceptance review timestamp cannot be in the future")
+            if reviewed_at < execution_completed_at:
+                raise RegistryIntegrityError("acceptance review cannot precede completed study execution")
             try:
                 validate_benchmark_acceptance_review(payload, protocol=protocol, execution=execution)
             except (TypeError, ValueError, BenchmarkAcceptanceReviewError) as exc:
