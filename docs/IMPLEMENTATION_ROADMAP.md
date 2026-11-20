@@ -273,3 +273,8 @@ An approved learning object now passes the registry quality gate only when its e
 ### Section 7.40 implementation update
 
 The authenticated learning-object review facade captures a ten-dimension, versioned MCQ pedagogical rubric. It covers key defensibility, stem clarity, distractor plausibility and rationale quality, learner-level fit, misconception alignment, option parallelism, accidental clues, and explanation fidelity. MCQ approval requires all ten dimensions to pass; the registry quality report blocks approval without this rubric. This deterministic gate does not establish actual pedagogical quality or reviewer independence. GitHub Actions [run #44733507721](https://github.com/Amiroudro/new-sngso/actions/runs/44733507721) passed the full Python 3.12 suite: **689 tests in 7.56 seconds** on code head d6921b020e92355a5117910babf88430b514c44b. This run contains no dedicated regression cases for the new MCQ rubric path. Targeted MCQ-route regression cases and genuine qualified reviewer evidence remain outstanding.
+
+
+### Section 7.41 implementation update
+
+Audited the existing Flutter edition models and the integrated repository's Engine v2 converter/status documentation. Added docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md with the current consumer shape, a cautious field mapping, required provenance-manifest behavior, and fail-closed staging gates. This is design documentation only: there is no shared executable schema, adapter, claim-level manifest consumer, or cross-repository golden test, and no Flutter verification was run. No integrated-app files or published/bundled editions were changed. The Section 7 compatibility gate remains open.
