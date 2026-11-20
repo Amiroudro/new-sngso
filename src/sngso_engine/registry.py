@@ -162,27 +162,43 @@ _MIGRATION_17 = (
        END""",
     """CREATE TRIGGER benchmark_review_assignment_payload_guard_insert
        BEFORE INSERT ON benchmark_review_assignments
-       WHEN json_extract(NEW.payload_json, '$.assignment_id') != NEW.assignment_id
-         OR json_extract(NEW.payload_json, '$.artifact_id') != NEW.artifact_id
-         OR json_extract(NEW.payload_json, '$.artifact_fingerprint') != NEW.artifact_fingerprint
-         OR json_extract(NEW.payload_json, '$.language') != NEW.language
-         OR json_extract(NEW.payload_json, '$.reviewer_id') != NEW.reviewer_id
-         OR json_extract(NEW.payload_json, '$.assigned_by') != NEW.assigned_by
-         OR json_extract(NEW.payload_json, '$.status') != NEW.status
+       WHEN json_extract(NEW.payload_json, '$.assignment_id') IS NOT NEW.assignment_id
+         OR json_extract(NEW.payload_json, '$.artifact_id') IS NOT NEW.artifact_id
+         OR json_extract(NEW.payload_json, '$.artifact_fingerprint') IS NOT NEW.artifact_fingerprint
+         OR json_extract(NEW.payload_json, '$.language') IS NOT NEW.language
+         OR json_extract(NEW.payload_json, '$.reviewer_id') IS NOT NEW.reviewer_id
+         OR json_extract(NEW.payload_json, '$.assigned_by') IS NOT NEW.assigned_by
+         OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
        BEGIN SELECT RAISE(ABORT, 'assignment payload does not match indexed fields'); END""",
     """CREATE TRIGGER benchmark_review_assignment_payload_guard_update
        BEFORE UPDATE ON benchmark_review_assignments
-       WHEN json_extract(NEW.payload_json, '$.assignment_id') != NEW.assignment_id
-         OR json_extract(NEW.payload_json, '$.artifact_id') != NEW.artifact_id
-         OR json_extract(NEW.payload_json, '$.artifact_fingerprint') != NEW.artifact_fingerprint
-         OR json_extract(NEW.payload_json, '$.language') != NEW.language
-         OR json_extract(NEW.payload_json, '$.reviewer_id') != NEW.reviewer_id
-         OR json_extract(NEW.payload_json, '$.assigned_by') != NEW.assigned_by
-         OR json_extract(NEW.payload_json, '$.status') != NEW.status
+       WHEN json_extract(NEW.payload_json, '$.assignment_id') IS NOT NEW.assignment_id
+         OR json_extract(NEW.payload_json, '$.artifact_id') IS NOT NEW.artifact_id
+         OR json_extract(NEW.payload_json, '$.artifact_fingerprint') IS NOT NEW.artifact_fingerprint
+         OR json_extract(NEW.payload_json, '$.language') IS NOT NEW.language
+         OR json_extract(NEW.payload_json, '$.reviewer_id') IS NOT NEW.reviewer_id
+         OR json_extract(NEW.payload_json, '$.assigned_by') IS NOT NEW.assigned_by
+         OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
        BEGIN SELECT RAISE(ABORT, 'assignment payload does not match indexed fields'); END""",
     """CREATE TRIGGER benchmark_review_assignments_no_delete
        BEFORE DELETE ON benchmark_review_assignments
        BEGIN SELECT RAISE(ABORT, 'benchmark review assignments cannot be deleted'); END""",
+    """CREATE TRIGGER benchmark_review_assignment_initial_revision
+       AFTER INSERT ON benchmark_review_assignments
+       BEGIN
+         INSERT INTO benchmark_review_assignment_revisions
+         (assignment_id, revision, created_at, actor, reason, payload_json)
+         VALUES (NEW.assignment_id, NEW.revision, NEW.updated_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+       END""",
+    """CREATE TRIGGER benchmark_review_assignment_update_requires_revision
+       BEFORE UPDATE ON benchmark_review_assignments
+       WHEN NOT EXISTS (
+         SELECT 1 FROM benchmark_review_assignment_revisions
+         WHERE assignment_id = NEW.assignment_id AND revision = NEW.revision
+           AND actor = NEW.last_actor AND reason = NEW.last_reason
+           AND payload_json = NEW.payload_json
+       )
+       BEGIN SELECT RAISE(ABORT, 'assignment update requires matching append-only revision'); END""",
     """CREATE TRIGGER benchmark_review_assignment_revisions_no_update
        BEFORE UPDATE ON benchmark_review_assignment_revisions
        BEGIN SELECT RAISE(ABORT, 'assignment revisions are append-only'); END""",
@@ -5157,12 +5173,6 @@ class SQLiteRegistry:
                 (payload["assignment_id"], payload["artifact_id"], payload["artifact_fingerprint"],
                  payload["language"], payload["reviewer_id"], actor, assigned_at.isoformat(),
                  due_at.isoformat(), payload_json, now, actor, reason),
-            )
-            connection.execute(
-                """INSERT INTO benchmark_review_assignment_revisions
-                (assignment_id, revision, created_at, actor, reason, payload_json)
-                VALUES (?, 1, ?, ?, ?, ?)""",
-                (payload["assignment_id"], now, actor, reason, payload_json),
             )
             self._append_audit(
                 connection, event_type="benchmark_review_assignment.created",
