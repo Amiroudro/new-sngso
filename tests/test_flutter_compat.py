@@ -35,6 +35,9 @@ class FakeRecord:
 class FakeRegistry:
     def __init__(self, *, permission_allowed=True, summary_revision=1):
         self.permission_allowed = permission_allowed
+        self.endpoint_source_id = "source:one"
+        self.grant_source_id = "source:one"
+        self.principal_languages = ["en"]
         self.records = {
             "learning:headline": FakeRecord({
                 "id": "learning:headline", "story_id": "story:one",
@@ -96,21 +99,21 @@ class FakeRegistry:
     def get_benchmark_principal(self, principal_id):
         return {
             "principal_id": principal_id, "active": True,
-            "principal_kind": "human",
+            "principal_kind": "human", "languages": self.principal_languages,
         }
 
     def get_endpoint(self, endpoint_id):
         if endpoint_id != "endpoint:one":
             return None
         return FakeRecord({
-            "id": endpoint_id, "source_id": "source:one",
+            "id": endpoint_id, "source_id": self.endpoint_source_id,
             "endpoint_uri": "https://publisher.example/",
         })
 
     def get_permission_grant(self, grant_id):
         if grant_id != "grant:republication":
             return None
-        return FakeRecord({"id": grant_id, "source_id": "source:one"})
+        return FakeRecord({"id": grant_id, "source_id": self.grant_source_id})
 
     def evaluate_grant(self, grant_id, operation, *, endpoint_id, now):
         self.permission_calls.append((grant_id, operation, endpoint_id, now))
@@ -134,7 +137,7 @@ def _candidate(registry=None):
     client = {
         "edition_date": "2026-11-20",
         "edition_day": "Friday",
-        "coverage": "Approved source window",
+        "coverage": "",
         "status": "staging",
         "counts": {"stories": 1, "words": 0, "phrases": 0, "mcqs": 0},
         "stories": [story],
@@ -223,3 +226,31 @@ def test_staging_candidate_requires_timezone_aware_permission_recheck_time():
         verify_flutter_staging_candidate(
             registry, client, manifest, now=datetime(2026, 11, 20, 14, 0)
         )
+
+
+def test_staging_candidate_rejects_unbound_coverage_metadata_and_wrong_weekday():
+    registry, client, manifest = _candidate()
+    client["coverage"] = "invented source window"
+    manifest["payload_sha256"] = sha256_fingerprint(client)
+    with pytest.raises(FlutterCompatibilityError, match="coverage text is unsupported"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+    registry, client, manifest = _candidate()
+    client["edition_day"] = "Thursday"
+    manifest["payload_sha256"] = sha256_fingerprint(client)
+    with pytest.raises(FlutterCompatibilityError, match="edition day does not match"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+
+def test_staging_candidate_rejects_permission_grant_for_another_publisher():
+    registry, client, manifest = _candidate()
+    registry.grant_source_id = "source:other"
+    with pytest.raises(FlutterCompatibilityError, match="must match the exact source"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+
+def test_staging_candidate_requires_current_reviewer_language_qualification():
+    registry, client, manifest = _candidate()
+    registry.principal_languages = ["bn"]
+    with pytest.raises(FlutterCompatibilityError, match="not an active human principal"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
