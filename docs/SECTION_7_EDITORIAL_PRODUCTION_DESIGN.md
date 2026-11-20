@@ -136,3 +136,9 @@ A review passes this gate only when its language and rubric version match the re
 MCQ learning objects now require one non-empty rationale for every incorrect option and no rationale for the correct option. Each rationale is keyed to the exact option ID. The registry rejects missing, duplicate, extra, or correct-answer rationale entries. This makes the author's intended distinction between the correct answer and each distractor inspectable and keeps rationale coverage stable if option order changes.
 
 The deterministic learning-object quality report exposes a dedicated distractor-rationale coverage check. It also emits a permanent human-review warning: rationale presence does not prove that a distractor is plausible, unambiguously incorrect under the exact question wording, misconception-based, parallel in form, or free of accidental clues. Editors must review those properties against the source claims and the intended learner level. The registry does not automatically score distractor quality or promote an MCQ to publication readiness.
+
+## Section 7.34: source-claim support for MCQ distractor rationales
+
+Each MCQ distractor rationale now carries one or more basis_claim_ids. These IDs must be a non-empty subset of the learning object's story-linked claims. The quality report separately checks whether every rationale basis claim still exists, is assessed as supported or partially supported, and has linked evidence. Missing, unassessed, disputed, contradicted, retracted, or evidence-free rationale claims block the registry quality gate.
+
+This is a conservative evidence-link check, not proof that the rationale logically follows from the claim or that the distractor is pedagogically effective. Human review remains necessary to judge the wording, ambiguity, plausibility, and learner-level suitability of each option.
