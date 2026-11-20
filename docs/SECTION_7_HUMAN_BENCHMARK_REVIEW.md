@@ -21,21 +21,17 @@ Bangla and English benchmarks require independent review by a reviewer working i
 
 The SQLite registry now stores review heads and a separate revision history. Every insert and update to a review head creates its matching history row through SQLite triggers. The database rejects deletion of review heads, updates or deletion of history rows, non-sequential revisions, missing actors/reasons, and timestamps moving backwards. The registry API also uses optimistic concurrency to reject stale edits.
 
-Before a review is stored, its declared article, publisher, and permission-evidence references must exist. They must belong to the same publisher; the canonical URI must match the registered article; the permission-evidence record must be marked verified. The source content fingerprint is checked against the registered article when that article has a fingerprint.
+Before a review is stored, its declared article, publisher, permission-evidence, endpoint, and permission-grant references must exist. The article, evidence, and grant must belong to the same publisher; the canonical URI must match the registered article; and the evidence must be marked verified. The source content fingerprint is checked against the registered article when that article has a fingerprint. The operation-specific grant requirements are detailed in Section 7.4.
 
 ## Limits that remain
 
-This is not reviewer authentication or authorization. A reviewer ID is a recorded declaration, not proof of identity. A permission-evidence record marked verified is not, by itself, proof that every intended use is covered by a currently effective permission grant. Those rights must be checked against the operation-specific grant before collection, translation, storage, or publication.
-
-The registry does not independently establish that an editorial judgement is correct. Synthetic fixtures are not a substitute for a real, bilingual, human-reviewed benchmark set. Do not present metadata validation as proof of factual correctness.
+This is not reviewer authentication or authorization. A reviewer ID is a recorded declaration, not proof of identity. The registry does not independently establish that an editorial judgement is correct. Synthetic fixtures are not a substitute for a real, bilingual, human-reviewed benchmark set. Do not present metadata validation as proof of factual correctness.
 
 ## Next gates
 
-- Add an operation-specific permission-grant check for benchmark source use.
-- Add a read-only benchmark quality report and expose review provenance in the story editorial snapshot.
+- Add a read-only benchmark quality report and expose eligible review provenance in the story editorial snapshot.
 - Add a controlled reviewer identity and role authorization mechanism.
 - Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
-
 
 ## 7.4 Operation-scoped permission enforcement
 
