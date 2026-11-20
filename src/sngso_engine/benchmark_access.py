@@ -184,6 +184,51 @@ class AuthenticatedBenchmarkAccess:
         )
 
 
+    def register_study_execution(
+        self, request_context: Any, payload: dict[str, Any], *, reason: str
+    ) -> dict[str, Any]:
+        """Register completed study evidence using an authenticated methodologist."""
+        identity = self._identity(request_context)
+        actor = identity.principal_id
+        principal = self._registry.get_benchmark_principal(actor)
+        if (
+            principal is None or not principal["active"]
+            or "benchmark_methodologist" not in principal["roles"]
+            or principal.get("principal_kind") != "human"
+        ):
+            raise RegistryIntegrityError("study execution requires an active human-classified methodologist")
+        now = self._clock()
+        if now - identity.authenticated_at > timedelta(minutes=15):
+            raise RegistryIntegrityError("study execution submission requires recent authentication within 15 minutes")
+        if not identity.subject.strip() or not identity.authentication_methods or not identity.authentication_context.strip():
+            raise RegistryIntegrityError("methodologist identity provider must supply subject and authentication context")
+        if not identity.provider_key_id.strip() or not identity.provider_adapter.strip():
+            raise RegistryIntegrityError("methodologist identity provider must identify its verification key and adapter")
+        if payload.get("analysis", {}).get("methodologist_id") != actor:
+            raise RegistryIntegrityError("analysis methodologist must match the authenticated principal")
+        return self._registry.register_benchmark_study_execution(
+            payload, actor=actor,
+            identity={
+                "issuer": identity.issuer, "subject": identity.subject,
+                "provider_key_id": identity.provider_key_id,
+                "provider_adapter": identity.provider_adapter,
+                "authenticated_at": identity.authenticated_at.isoformat(),
+            },
+            reason=reason,
+        )
+
+    def get_study_execution(
+        self, request_context: Any, execution_id: str
+    ) -> dict[str, Any] | None:
+        self._principal(request_context, ("benchmark_curator", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist"))
+        return self._registry.get_benchmark_study_execution(execution_id)
+
+    def list_study_executions(
+        self, request_context: Any, study_id: str
+    ) -> list[dict[str, Any]]:
+        self._principal(request_context, ("benchmark_curator", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist"))
+        return self._registry.list_benchmark_study_executions(study_id)
+
     def register_study_protocol(
         self, request_context: Any, payload: dict[str, Any], *, reason: str
     ) -> dict[str, Any]:
