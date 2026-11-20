@@ -124,7 +124,8 @@ def _score(registry, artifact, item_id, evaluator_id):
     return stored["score_id"]
 
 
-def _execution(artifact, protocol, score_ids):
+def _execution(artifact, protocol, score_ids, missing_records=None):
+    missing_records = missing_records or []
     return {
         "schema_version": "1.0.0", "execution_id": "execution:study:one",
         "study_id": protocol["study_id"], "study_version": protocol["study_version"],
@@ -141,12 +142,12 @@ def _execution(artifact, protocol, score_ids):
                  ("blind:2", "human:one"), ("blind:2", "human:two")],
             )
         ],
-        "missing_records": [],
+        "missing_records": missing_records,
         "analysis": {
             "measurement_scale": "ordinal", "statistic_name": "Ordinal Krippendorff alpha",
             "estimate": 0.81, "confidence_interval": {"lower": 0.72, "upper": 0.88},
             "confidence_level": 0.95, "sampled_item_count": 2,
-            "scored_pair_count": 4, "missing_pair_count": 0,
+            "scored_pair_count": len(score_ids), "missing_pair_count": len(missing_records),
             "analysis_artifact_fingerprint": "sha256:" + "c" * 64,
             "missing_data_handling": "All planned blind item/evaluator pairs were scored; no missingness was observed.",
             "independence_assessment": "Reviewers scored independently without access to peer scores or adjudication outcomes.",
@@ -178,10 +179,18 @@ def test_execution_registry_binds_protocol_scores_and_independent_methodologist(
         )
         score_ids = [
             _score(registry, artifact, item_id, reviewer_id)
-            for item_id in ("blind:1", "blind:2")
-            for reviewer_id in ("human:one", "human:two")
+            for item_id, reviewer_id in (
+                ("blind:1", "human:one"), ("blind:1", "human:two"),
+                ("blind:2", "human:one"),
+            )
         ]
-        payload = _execution(artifact, protocol, score_ids)
+        payload = _execution(
+            artifact, protocol, score_ids,
+            missing_records=[{
+                "item_id": "blind:2", "evaluator_id": "human:two",
+                "reason": "The assigned reviewer withdrew before submitting a score; no qualified replacement was available.",
+            }],
+        )
         stored = registry.register_benchmark_study_execution(
             payload, actor="methodologist:one",
             identity={
