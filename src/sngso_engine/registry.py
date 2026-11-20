@@ -35,6 +35,7 @@ from .models import (
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 from .benchmark_reviews import validate_human_benchmark_review
+from .benchmark_adjudication import validate_benchmark_adjudication
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
@@ -5110,6 +5111,69 @@ class SQLiteRegistry:
                 payload={"revision": next_revision, "actor": actor, "reason": reason, "record": review},
             )
         return {**review, "revision": next_revision, "created_at": row["created_at"], "updated_at": now}
+
+
+    def add_benchmark_adjudication(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Persist an immutable, independently adjudicated benchmark disagreement."""
+        validate_benchmark_adjudication(payload)
+        if not actor.strip() or not reason.strip():
+            raise ValueError("actor and reason are required")
+        adjudicator_id = payload["adjudicator"]["principal_id"]
+        if actor != adjudicator_id:
+            raise RegistryIntegrityError("adjudication actor must match the declared adjudicator principal")
+        resolved_at = _aware_datetime(payload["resolved_at"], "resolved_at")
+        created_at = _utc_now()
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_adjudicator")
+            artifact = connection.execute(
+                "SELECT content_fingerprint FROM benchmark_artifacts WHERE artifact_id = ?",
+                (payload["benchmark_id"],),
+            ).fetchone()
+            if artifact is None or artifact["content_fingerprint"] != payload["benchmark_fingerprint"]:
+                raise RegistryIntegrityError("adjudication must bind to the exact registered benchmark artifact")
+            actual_reviewers = []
+            for review_id in payload["review_ids"]:
+                row = connection.execute(
+                    "SELECT benchmark_id, benchmark_fingerprint, payload_json FROM benchmark_reviews WHERE review_id = ?",
+                    (review_id,),
+                ).fetchone()
+                if row is None:
+                    raise RegistryIntegrityError("adjudication references an unknown benchmark review")
+                if row["benchmark_id"] != payload["benchmark_id"] or row["benchmark_fingerprint"] != payload["benchmark_fingerprint"]:
+                    raise RegistryIntegrityError("adjudication reviews must concern the same exact benchmark artifact")
+                actual_reviewers.append(json.loads(row["payload_json"])["reviewer"]["reviewer_id"])
+            if sorted(actual_reviewers) != sorted(payload["reviewer_ids"]):
+                raise RegistryIntegrityError("adjudication reviewer IDs must match the referenced stored reviews")
+            if adjudicator_id in actual_reviewers:
+                raise RegistryIntegrityError("adjudicator must be independent of all referenced reviewers")
+            connection.execute(
+                """INSERT INTO benchmark_adjudications
+                (adjudication_id, benchmark_id, benchmark_fingerprint, adjudicator_id,
+                 resolved_at, payload_json, created_at, actor, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (payload["adjudication_id"], payload["benchmark_id"], payload["benchmark_fingerprint"],
+                 adjudicator_id, resolved_at.isoformat(), _json_text(payload), created_at, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_adjudication.recorded",
+                entity_type="benchmark_adjudication", entity_id=payload["adjudication_id"],
+                payload={"benchmark_id": payload["benchmark_id"], "review_ids": payload["review_ids"],
+                         "outcome": payload["outcome"], "actor": actor, "reason": reason},
+            )
+        return self.get_benchmark_adjudication(payload["adjudication_id"]) or {}
+
+    def get_benchmark_adjudication(self, adjudication_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_adjudications WHERE adjudication_id = ?", (adjudication_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            **json.loads(row["payload_json"]), "created_at": row["created_at"],
+            "actor": row["actor"], "reason": row["reason"],
+        }
 
     def get_benchmark_review(self, review_id: str) -> dict[str, Any] | None:
         with self._lock:
