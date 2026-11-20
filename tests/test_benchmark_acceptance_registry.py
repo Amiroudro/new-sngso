@@ -18,13 +18,13 @@ def _complete_registered_study(registry):
     protocol["protocol_fingerprint"] = stored_protocol["protocol_fingerprint"]
     for reviewer_id in ("human:one", "human:two"):
         registry.register_benchmark_principal(
-            reviewer_id, display_name=reviewer_id, roles=["benchmark_reviewer"],
+            reviewer_id, display_name=reviewer_id, roles=["benchmark_reviewer", "benchmark_acceptance_reviewer"] if reviewer_id == "human:one" else ["benchmark_reviewer"],
             languages=["bn"], principal_kind="human",
             provisioned_by="deployment-operator", reason="Study evaluator",
         )
     registry.register_benchmark_principal(
         "methodologist:one", display_name="Independent Methodologist",
-        roles=["benchmark_methodologist"], principal_kind="human",
+        roles=["benchmark_methodologist", "benchmark_acceptance_reviewer"], principal_kind="human",
         provisioned_by="deployment-operator", reason="Independent analysis review",
     )
     registry.register_benchmark_principal(
@@ -114,17 +114,9 @@ def test_acceptance_decision_persists_exact_evidence_and_is_append_only():
 def test_acceptance_review_rejects_blind_evaluator_and_methodologist_conflicts():
     with SQLiteRegistry() as registry:
         artifact, protocol, execution = _complete_registered_study(registry)
-        registry.register_benchmark_principal(
-            "human:one", display_name="Human One",
-            roles=["benchmark_reviewer", "benchmark_acceptance_reviewer"],
-            languages=["bn"], principal_kind="human",
-            provisioned_by="deployment-operator", reason="Grant acceptance role for conflict test",
-        ) if False else None
-        # A principal cannot be provisioned twice. Add the acceptance role in a dedicated
-        # principal that is deliberately named in the immutable protocol instead.
         payload = _acceptance_payload(artifact, protocol, execution)
         payload["reviewer_id"] = "human:one"
-        with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+        with pytest.raises(RegistryIntegrityError, match="blind evaluator"):
             registry.register_benchmark_acceptance_review(
                 payload, actor="human:one",
                 identity={
@@ -134,7 +126,7 @@ def test_acceptance_review_rejects_blind_evaluator_and_methodologist_conflicts()
                 }, reason="Blind evaluator must be blocked",
             )
         payload["reviewer_id"] = "methodologist:one"
-        with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+        with pytest.raises(RegistryIntegrityError, match="methodologist cannot act"):
             registry.register_benchmark_acceptance_review(
                 payload, actor="methodologist:one",
                 identity={
