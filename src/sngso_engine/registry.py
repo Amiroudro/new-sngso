@@ -1039,8 +1039,11 @@ _MIGRATION_13 = (
         BEFORE UPDATE ON benchmark_reviews
         BEGIN
             SELECT CASE WHEN NEW.review_id != OLD.review_id
+                OR NEW.benchmark_id != OLD.benchmark_id
+                OR NEW.benchmark_fingerprint != OLD.benchmark_fingerprint
+                OR NEW.language != OLD.language
                 OR NEW.created_at != OLD.created_at
-                THEN RAISE(ABORT, 'benchmark review identity is immutable') END;
+                THEN RAISE(ABORT, 'benchmark review identity and fingerprint binding are immutable') END;
             SELECT CASE WHEN NEW.revision != OLD.revision + 1
                 THEN RAISE(ABORT, 'benchmark review revision must increment by one') END;
             SELECT CASE WHEN julianday(NEW.updated_at) < julianday(OLD.updated_at)
