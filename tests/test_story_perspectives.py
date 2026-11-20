@@ -317,7 +317,7 @@ def test_perspective_attribution_report_exposes_unreviewed_and_contradictory_con
             "story_id": "story:one",
             "text": "The authority did not issue a notice.",
             "language": "en",
-            "assessment": "disputed",
+            "assessment": "unassessed",
             "provenance": [{
                 "source_id": source_id, "article_id": article_id,
                 "observed_at": STAMP, "method": "human_review",
