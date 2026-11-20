@@ -31,6 +31,143 @@ def _object_text(payload: dict[str, Any], path: str) -> str:
     return _required_text(value, f"learning object field {path}")
 
 
+def build_flutter_staging_candidate(
+    registry: Any,
+    edition_id: str,
+    field_bindings: dict[str, dict[str, str]],
+    source_permissions: list[dict[str, str]],
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Build and verify an English story-only Flutter staging candidate in memory.
+
+    field_bindings maps each registered story ID to the explicit approved
+    headline_summary and brief_summary learning-object IDs. No file or
+    publication feed is written.
+    """
+    _required_text(edition_id, "edition_id")
+    edition_record = registry.get_domain_record("edition", edition_id)
+    if edition_record is None:
+        raise FlutterCompatibilityError(f"registered edition not found: {edition_id}")
+    edition = edition_record.to_payload()
+    history = registry.domain_record_history("edition", edition_id)
+    edition_revision = history[-1]["revision"] if history else None
+    if edition_revision is None or edition.get("status") != "approved":
+        raise FlutterCompatibilityError("candidate requires a current approved registered edition")
+    story_ids = edition.get("story_ids")
+    if not isinstance(story_ids, list) or not story_ids or set(field_bindings) != set(story_ids):
+        raise FlutterCompatibilityError("field bindings must cover every approved edition story exactly")
+
+    edition_date = edition.get("edition_key")
+    try:
+        day_name = date.fromisoformat(edition_date).strftime("%A")
+    except (TypeError, ValueError) as exc:
+        raise FlutterCompatibilityError("registered edition key must be an ISO date") from exc
+
+    client_stories = []
+    story_bindings = []
+    all_source_refs: dict[str, dict[str, Any]] = {}
+    for story_id in sorted(story_ids):
+        selected = field_bindings.get(story_id)
+        if not isinstance(selected, dict) or set(selected) != {"headline", "summary"}:
+            raise FlutterCompatibilityError(f"story {story_id} requires explicit headline and summary object IDs")
+        snapshot = registry.story_editorial_snapshot(story_id)
+        if snapshot.get("story_id") != story_id:
+            raise FlutterCompatibilityError("registry story snapshot identity mismatch")
+        sources = []
+        for article in snapshot.get("articles", []):
+            article_payload = article.get("record", {}) if isinstance(article, dict) else {}
+            if article_payload.get("record_status") != "active":
+                continue
+            source_id = article_payload.get("source_id")
+            source_record = registry.get_source(source_id)
+            if source_record is None:
+                raise FlutterCompatibilityError(f"article source is not registered: {source_id}")
+            source_payload = source_record.to_payload() if hasattr(source_record, "to_payload") else source_record
+            if source_payload.get("status") != "active":
+                raise FlutterCompatibilityError(f"article source is not active: {source_id}")
+            published_at = article_payload.get("published_at")
+            source_ref = {
+                "id": source_id,
+                "publication": source_payload.get("publisher_name"),
+                "headline": article_payload.get("title"),
+                "date": published_at[:10] if isinstance(published_at, str) else "",
+                "url": article_payload.get("canonical_uri"),
+            }
+            if not all(isinstance(value, str) and value.strip() for value in source_ref.values()):
+                raise FlutterCompatibilityError(f"article source metadata is incomplete: {source_id}")
+            sources.append(source_ref)
+            all_source_refs[sha256_fingerprint(source_ref)] = source_ref
+        if not sources:
+            raise FlutterCompatibilityError(f"story {story_id} has no active registered source articles")
+
+        selected_objects = {}
+        object_bindings = {}
+        for field, expected_kind in (("headline", "headline_summary"), ("summary", "brief_summary")):
+            object_id = _required_text(selected[field], f"{story_id}.{field} learning object ID")
+            record = registry.get_learning_object(object_id)
+            if record is None:
+                raise FlutterCompatibilityError(f"selected learning object is missing: {object_id}")
+            payload = record.to_payload()
+            if payload.get("story_id") != story_id or payload.get("kind") != expected_kind:
+                raise FlutterCompatibilityError(f"selected object is not the required {expected_kind}: {object_id}")
+            text_value = _object_text(payload, "content.text")
+            selected_objects[field] = text_value
+            object_bindings[field] = {
+                "learning_object_id": object_id,
+                "revision": record.revision,
+                "sha256": sha256_fingerprint(payload),
+            }
+        client_stories.append({
+            "id": story_id,
+            "headline": selected_objects["headline"],
+            "category": "",
+            "summary": selected_objects["summary"],
+            "sources": sources,
+        })
+        story_bindings.append({
+            "story_id": story_id,
+            "story_revision": snapshot["story_revision"],
+            "snapshot_sha256": snapshot["fingerprint"],
+            "fields": object_bindings,
+        })
+
+    client_edition = {
+        "edition_date": edition_date,
+        "edition_day": day_name,
+        "coverage": "",
+        "status": "staging",
+        "counts": {
+            "stories": len(client_stories), "words": 0, "revision_words": 0,
+            "phrases": 0, "mcqs": 0, "sources": len(all_source_refs),
+        },
+        "stories": client_stories,
+        "words": [],
+        "revision_words": [],
+        "phrases": [],
+        "mcqs": [],
+        "sources": sorted(all_source_refs.values(), key=lambda item: (item["id"], item["url"])),
+    }
+    manifest = {
+        "schema_version": "1.0.0",
+        "target_contract": "flutter-edition-v1",
+        "edition_id": edition_id,
+        "edition_revision": edition_revision,
+        "edition_date": edition_date,
+        "payload_sha256": sha256_fingerprint(client_edition),
+        "story_bindings": story_bindings,
+        "source_permissions": source_permissions,
+    }
+    verification = verify_flutter_staging_candidate(
+        registry, client_edition, manifest, now=now
+    )
+    return {
+        "client_edition": client_edition,
+        "provenance_manifest": manifest,
+        "verification": verification,
+    }
+
+
 def verify_flutter_staging_candidate(
     registry: Any,
     client_edition: dict[str, Any],
@@ -48,9 +185,11 @@ def verify_flutter_staging_candidate(
         "payload_sha256": "...",
         "story_bindings": [{
           "story_id": "...",
+          "story_revision": 1,
+          "snapshot_sha256": "sha256:...",
           "fields": {
-            "headline": {"learning_object_id": "...", "revision": 1},
-            "summary": {"learning_object_id": "...", "revision": 1}
+            "headline": {"learning_object_id": "...", "revision": 1, "sha256": "sha256:..."},
+            "summary": {"learning_object_id": "...", "revision": 1, "sha256": "sha256:..."}
           }
         }],
         "source_permissions": [{
@@ -229,6 +368,8 @@ def verify_flutter_staging_candidate(
             if source_record is None:
                 raise FlutterCompatibilityError(f"client source is not registered: {source_id}")
             source_payload = source_record.to_payload() if hasattr(source_record, "to_payload") else source_record
+            if source_payload.get("status") != "active":
+                raise FlutterCompatibilityError(f"client source is not active: {source_id}")
             if source_ref.get("publication") != source_payload.get("publisher_name"):
                 raise FlutterCompatibilityError(f"client publisher name mismatch for {source_id}")
             matching_article = next((article for article in articles
@@ -256,8 +397,12 @@ def verify_flutter_staging_candidate(
         if client_story["category"] and client_story["category"] not in story_payload.get("topic_tags", []):
             raise FlutterCompatibilityError(f"client category is not a registered story topic tag: {story_id}")
         binding = bindings_by_story[story_id]
-        if set(binding) != {"story_id", "fields"}:
+        if set(binding) != {"story_id", "story_revision", "snapshot_sha256", "fields"}:
             raise FlutterCompatibilityError("story binding contains unsupported fields")
+        if binding.get("story_revision") != snapshot.get("story_revision"):
+            raise FlutterCompatibilityError(f"story revision is stale: {story_id}")
+        if binding.get("snapshot_sha256") != snapshot.get("fingerprint"):
+            raise FlutterCompatibilityError(f"story snapshot fingerprint is stale: {story_id}")
         fields = binding.get("fields")
         if not isinstance(fields, dict) or set(fields) != {"headline", "summary"}:
             raise FlutterCompatibilityError(
@@ -265,8 +410,10 @@ def verify_flutter_staging_candidate(
             )
         for field, expected_kind in (("headline", "headline_summary"), ("summary", "brief_summary")):
             item_binding = fields[field]
-            if not isinstance(item_binding, dict) or set(item_binding) != {"learning_object_id", "revision"}:
-                raise FlutterCompatibilityError(f"{story_id}.{field} binding must contain only object ID and revision")
+            if not isinstance(item_binding, dict) or set(item_binding) != {
+                "learning_object_id", "revision", "sha256"
+            }:
+                raise FlutterCompatibilityError(f"{story_id}.{field} binding must contain object ID, revision, and fingerprint")
             object_id = _required_text(item_binding.get("learning_object_id"), "learning object id")
             revision = item_binding.get("revision")
             if not isinstance(revision, int) or revision < 1:
@@ -275,6 +422,8 @@ def verify_flutter_staging_candidate(
             if record is None or record.revision != revision:
                 raise FlutterCompatibilityError(f"learning object is missing or stale: {object_id}")
             payload = record.to_payload()
+            if item_binding.get("sha256") != sha256_fingerprint(payload):
+                raise FlutterCompatibilityError(f"learning object fingerprint is stale: {object_id}")
             if (
                 payload.get("story_id") != story_id
                 or payload.get("kind") != expected_kind
