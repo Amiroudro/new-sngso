@@ -123,7 +123,7 @@ def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
         assert registry.schema_version() == 23
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 22
+        assert reopened.schema_version() == 23
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
