@@ -3,6 +3,11 @@
 __version__ = "0.1.0"
 
 from .benchmark_reviews import validate_human_benchmark_review
+from .benchmark_assignments import (
+    BenchmarkAssignmentError,
+    transition_benchmark_assignment,
+    validate_benchmark_assignment,
+)
 from .benchmark_adjudication import validate_benchmark_adjudication
 from .benchmarks import evaluate_editorial_benchmark
 from .canonical import canonical_json_bytes, sha256_fingerprint
@@ -56,6 +61,7 @@ from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegi
 
 __all__ = [
     "ArticleRecord",
+    "BenchmarkAssignmentError",
     "AuditRepository",
     "ClaimRecord",
     "ClaimRelationRecord",
@@ -94,6 +100,8 @@ __all__ = [
     "canonicalize_article_url",
     "evaluate_editorial_benchmark",
     "validate_human_benchmark_review",
+    "validate_benchmark_assignment",
+    "transition_benchmark_assignment",
     "validate_benchmark_adjudication",
     "ingest_observation",
     "normalize_language_tag",
