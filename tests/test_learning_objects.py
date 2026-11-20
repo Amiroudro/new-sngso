@@ -500,9 +500,9 @@ def _mcq(identifier="learning:mcq"):
             ],
             "correct_option_id": "A",
             "distractor_rationales": [
-                {"option_id": "B", "rationale": "This describes withholding transparency, not accountability."},
-                {"option_id": "C", "rationale": "Oversight is a separate control and does not define answerability."},
-                {"option_id": "D", "rationale": "Delegation does not remove the institution's accountability."},
+                {"option_id": "B", "rationale": "This describes withholding transparency, not accountability.", "basis_claim_ids": ["claim:one"]},
+                {"option_id": "C", "rationale": "Oversight is a separate control and does not define answerability.", "basis_claim_ids": ["claim:one"]},
+                {"option_id": "D", "rationale": "Delegation does not remove the institution's accountability.", "basis_claim_ids": ["claim:one"]},
             ],
             "difficulty": "moderate",
         },
