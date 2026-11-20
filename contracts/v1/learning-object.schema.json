@@ -414,6 +414,67 @@
             "bn-editorial-v1",
             "en-editorial-v1"
           ]
+        },
+        "identity_attestation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "principal_id",
+            "issuer",
+            "subject",
+            "provider_key_id",
+            "provider_adapter",
+            "authenticated_at",
+            "attested_at",
+            "authentication_methods",
+            "authentication_context"
+          ],
+          "properties": {
+            "principal_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "issuer": {
+              "type": "string",
+              "format": "uri"
+            },
+            "subject": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "provider_key_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "provider_adapter": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "authenticated_at": {
+              "$ref": "common.schema.json#/$defs/dateTime"
+            },
+            "attested_at": {
+              "$ref": "common.schema.json#/$defs/dateTime"
+            },
+            "authentication_methods": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            },
+            "authentication_context": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
         }
       },
       "allOf": [
