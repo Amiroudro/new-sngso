@@ -31,6 +31,42 @@ def _object_text(payload: dict[str, Any], path: str) -> str:
     return _required_text(value, f"learning object field {path}")
 
 
+def _url_parts(value: Any, label: str, *, endpoint: bool = False):
+    """Parse a registered URL without accepting ambiguous or credential-bearing origins."""
+    if not isinstance(value, str) or not value.strip():
+        raise FlutterCompatibilityError(f"{label} must be an absolute HTTP(S) URL")
+    try:
+        parts = urlsplit(value)
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError as exc:
+        raise FlutterCompatibilityError(f"{label} is malformed") from exc
+    if (
+        parts.scheme.casefold() not in {"http", "https"}
+        or not hostname
+        or parts.username is not None
+        or parts.password is not None
+        or parts.fragment
+        or (endpoint and parts.query)
+    ):
+        raise FlutterCompatibilityError(f"{label} must have a safe HTTP(S) origin")
+    effective_port = port or (443 if parts.scheme.casefold() == "https" else 80)
+    return parts, (parts.scheme.casefold(), hostname.rstrip(".").casefold(), effective_port)
+
+
+def _endpoint_covers_article(endpoint_url: Any, article_url: Any) -> bool:
+    endpoint, endpoint_origin = _url_parts(endpoint_url, "registered endpoint URL", endpoint=True)
+    article, article_origin = _url_parts(article_url, "registered article URL")
+    if endpoint_origin != article_origin:
+        return False
+    base_path = endpoint.path.rstrip("/")
+    return (
+        article.path == base_path
+        or article.path.startswith(base_path + "/")
+        or base_path == ""
+    )
+
+
 def build_flutter_staging_candidate(
     registry: Any,
     edition_id: str,
@@ -525,23 +561,10 @@ def verify_flutter_staging_candidate(
             )
     for source_id, article_urls in used_article_urls.items():
         for article_url in article_urls:
-            article_parts = urlsplit(article_url)
-            covered = False
-            for endpoint_url in endpoint_urls.get(source_id, []):
-                endpoint_parts = urlsplit(endpoint_url)
-                base_path = endpoint_parts.path.rstrip("/")
-                path_matches = (
-                    article_parts.path == base_path
-                    or article_parts.path.startswith(base_path + "/")
-                    or base_path == ""
-                )
-                if (
-                    article_parts.scheme == endpoint_parts.scheme
-                    and article_parts.netloc.casefold() == endpoint_parts.netloc.casefold()
-                    and path_matches
-                ):
-                    covered = True
-                    break
+            covered = any(
+                _endpoint_covers_article(endpoint_url, article_url)
+                for endpoint_url in endpoint_urls.get(source_id, [])
+            )
             if not covered:
                 raise FlutterCompatibilityError(
                     f"no permitted endpoint covers article URL for {source_id}"
