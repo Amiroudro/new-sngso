@@ -47,3 +47,8 @@ Section 8 must begin only after Section 7's editorial outputs and quality gates 
 The repository now exposes `bilingual_editorial_quality_report(story_id)`. It reports Bangla and English separately, including artifact counts, approval counts, deterministic registry quality-gate results, blockers, warnings, and per-kind coverage. Missing language counterparts are explicit. A language with no artifacts is reported as unassessed, not as a zero-quality language.
 
 The report deliberately has no overall quality score and never averages Bangla and English into one number. It checks snapshot stability while collecting per-artifact quality reports and fails if the story dossier changes during assembly. This remains a deterministic registry report, not a substitute for native-speaker linguistic review or human editorial judgment.
+
+
+## Three-tier summary-set reporting
+
+The story-level `story_summary_tier_report(story_id)` reports the headline, brief, and detailed summary tiers separately for Bangla and English. It identifies missing tiers, duplicate artifacts, unapproved or ambiguous tiers, and artifacts blocked by existing deterministic registry quality checks. A complete set requires exactly one approved, quality-gate-passing artifact for each tier in that language. It does not infer prose quality, source completeness, or factual truth, and it never authorizes production. The report rechecks the story snapshot fingerprint after collecting per-artifact reports to avoid returning a mixed-revision view.
