@@ -5031,7 +5031,7 @@ class SQLiteRegistry:
         principal_kind: str = "unverified"
     ) -> dict[str, Any]:
         """Provision a registry principal; caller must be a trusted operator."""
-        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator"}
+        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin"}
         supported_languages = {"bn", "en"}
         if principal_kind not in {"human", "synthetic", "automation", "unverified"}:
             raise ValueError("principal_kind must be human, synthetic, automation, or unverified")
@@ -5094,6 +5094,28 @@ class SQLiteRegistry:
                     entity_type="benchmark_principal", entity_id=principal_id,
                     payload={"actor": actor, "reason": reason},
                 )
+        return self.get_benchmark_principal(principal_id) or {}
+
+    def reinstate_benchmark_principal(self, principal_id: str, *, actor: str, reason: str) -> dict[str, Any]:
+        """Restore a revoked principal; application access must authorize a security administrator."""
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("actor and reason are required")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT active FROM benchmark_principals WHERE principal_id = ?", (principal_id,)
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot reinstate an unknown benchmark principal")
+            if row["active"]:
+                raise RegistryIntegrityError("benchmark principal is already active")
+            connection.execute(
+                "UPDATE benchmark_principals SET active = 1 WHERE principal_id = ?", (principal_id,)
+            )
+            self._append_audit(
+                connection, event_type="benchmark_principal.reinstated",
+                entity_type="benchmark_principal", entity_id=principal_id,
+                payload={"actor": actor, "reason": reason},
+            )
         return self.get_benchmark_principal(principal_id) or {}
 
     @staticmethod
