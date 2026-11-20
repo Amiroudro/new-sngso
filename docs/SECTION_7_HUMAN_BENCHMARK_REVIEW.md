@@ -55,6 +55,8 @@ Adjudicator role registration is enforced when an adjudication is written. The r
 
 Schema migration 16 makes the final adjudication unique per immutable benchmark artifact. A second adjudication for the same artifact is rejected at the SQLite boundary; a changed decision requires a newly registered artifact version with new reviews, preserving the old artifact's decision history. The current-use report also fails closed if legacy data contains multiple adjudications for one artifact.
 
+A final adjudication also freezes revisions to reviews bound to that artifact. If the outcome requires correction, the workflow moves to a newly registered artifact with new review IDs rather than mutating the decision's inputs.
+
 For `uphold_existing`, the adjudicator must name `upheld_review_ids`. The list must be a non-empty subset of the two or more referenced reviews, and every selected review must be approved in the registry. Only those exact selected reviews can remain eligible. Other outcomes must not include an upheld-review selection. This prevents an ambiguous “uphold” from preserving every approved review by default.
 
 ## Next gates
