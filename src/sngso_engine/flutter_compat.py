@@ -272,7 +272,7 @@ def verify_flutter_staging_candidate(
         raise FlutterCompatibilityError("unsupported Flutter client contract")
     manifest_date = _required_text(provenance_manifest.get("edition_date"), "manifest edition_date")
     payload_digest = provenance_manifest.get("payload_sha256")
-    if not isinstance(payload_digest, str) or re.fullmatch(r"[0-9a-f]{64}", payload_digest) is None:
+    if not isinstance(payload_digest, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", payload_digest) is None:
         raise FlutterCompatibilityError("manifest payload_sha256 must be a lowercase SHA-256 hex digest")
     edition_id = _required_text(provenance_manifest.get("edition_id"), "manifest edition_id")
     edition_revision = provenance_manifest.get("edition_revision")
