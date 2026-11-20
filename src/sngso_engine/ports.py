@@ -130,6 +130,16 @@ class BenchmarkReviewRepository(Protocol):
         self, assignment_id: str, *, event: str, actor: str, at: str,
         reason: str, submitted_review_id: str | None = None
     ) -> dict[str, Any]: ...
+    def register_benchmark_study_protocol(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]: ...
+    def get_benchmark_study_protocol(
+        self, study_id: str, study_version: int | None = None
+    ) -> dict[str, Any] | None: ...
+    def benchmark_study_protocol_history(self, study_id: str) -> list[dict[str, Any]]: ...
+    def list_benchmark_study_protocols(
+        self, *, benchmark_id: str | None = None
+    ) -> list[dict[str, Any]]: ...
     def add_benchmark_score(
         self, score: dict[str, Any], *, assignment_id: str, actor: str,
         identity: dict[str, Any], reason: str
