@@ -39,4 +39,4 @@ A regression test covers an injected `publication_authorized` extension. The bui
 
 ## Section 7.47: manifest metadata validation
 
-The staging verifier now validates the manifest payload digest as exactly 64 lowercase hexadecimal SHA-256 characters and requires a non-empty manifest edition date before comparing it with the registered edition and client payload. Regression tests reject missing, non-string, uppercase, non-hex, and malformed digest values, as well as an empty date. These are schema-boundary checks, not proof that a real client consumes the sidecar or that the content is publishable.
+The staging verifier now validates the manifest payload digest in the engine's canonical `sha256:` plus 64 lowercase hexadecimal characters format and requires a non-empty manifest edition date before comparing it with the registered edition and client payload. Regression tests reject missing, non-string, uppercase, non-hex, and malformed digest values, as well as an empty date. These are schema-boundary checks, not proof that a real client consumes the sidecar or that the content is publishable.
