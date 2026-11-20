@@ -5243,11 +5243,48 @@ class SQLiteRegistry:
                 permission_ok = False
                 permission_detail = f"Current source permission check failed: {exc}"
         check("current_source_permission", permission_ok, permission_detail)
+
+        adjudication_row = connection.execute(
+            """SELECT adjudication_id, payload_json FROM benchmark_adjudications
+            WHERE benchmark_id = ? ORDER BY resolved_at DESC, created_at DESC LIMIT 1""",
+            (review.get("benchmark_id"),),
+        ).fetchone()
+        adjudication_ok = True
+        adjudication_detail = "No adjudication currently applies to this benchmark."
+        adjudication_summary = None
+        if adjudication_row is not None:
+            decision = json.loads(adjudication_row["payload_json"])
+            adjudication_summary = {
+                "adjudication_id": decision["adjudication_id"],
+                "outcome": decision["outcome"],
+                "resolved_at": decision["resolved_at"],
+            }
+            if decision["outcome"] == "uphold_existing":
+                adjudication_ok = (
+                    review.get("review_id") in decision["review_ids"]
+                    and approved
+                )
+                adjudication_detail = (
+                    "The adjudicator upheld the existing decision; only a referenced approved review may remain eligible."
+                    if adjudication_ok else
+                    "The latest adjudication upholds existing decisions, but this review is not a referenced approved review."
+                )
+            elif decision["outcome"] == "return_for_revision":
+                adjudication_ok = False
+                adjudication_detail = "The latest adjudication returned the benchmark for revision; it is blocked until a new reviewed artifact is registered."
+            elif decision["outcome"] == "reject_benchmark_item":
+                adjudication_ok = False
+                adjudication_detail = "The latest adjudication rejected this benchmark item; it is not eligible for current use."
+            elif decision["outcome"] == "split_accepted_answers":
+                adjudication_ok = False
+                adjudication_detail = "The adjudication requires distinct accepted-answer items; register a revised artifact and obtain fresh reviews before use."
+        check("adjudication_policy", adjudication_ok, adjudication_detail)
         return {
             "review_id": review.get("review_id"),
             "benchmark_id": review.get("benchmark_id"),
             "status": review.get("status"),
-            "eligible_for_current_use": approved and metadata["approval_eligible"] and artifact_ok and permission_ok,
+            "adjudication": adjudication_summary,
+            "eligible_for_current_use": approved and metadata["approval_eligible"] and artifact_ok and permission_ok and adjudication_ok,
             "blockers": blockers,
             "checks": checks,
             "warnings": [
