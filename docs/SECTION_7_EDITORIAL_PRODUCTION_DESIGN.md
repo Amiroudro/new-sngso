@@ -97,3 +97,18 @@ The immutable learning-object revision contains a structured identity attestatio
 The story dossier now includes a deterministic `perspective_attribution_report`. It keeps each current perspective's exact attribution, source and article IDs (when applicable), language, text, linked claim IDs, and review state. It summarizes perspective coverage by kind and language, lists source-linked perspectives separately from stakeholder/editorial statements without publisher-source links, and preserves current claim-contradiction relations with their review state and any resolution note.
 
 The report deliberately does not turn publisher count into an independence score. Distinct publishers or articles do not prove independent reporting: syndication, common sourcing, and shared-origin material need separate evidence. Unreviewed perspectives and proposed contradictions remain visible. The report is read-only and always returns `production_ready=false` and `authorization_granted=false`; it is an editorial hand-off, not a publication gate.
+
+## Section 7.30: reviewed bilingual narrative assembly
+
+The story dossier now exposes a read-only narrative assembly report. It assembles existing sentence-level learning-object segments without flattening publisher framing, stakeholder positions, or editorial analysis into one undifferentiated narrative.
+
+- Bangla and English are reported separately. The report does not average language quality or treat a missing counterpart as a failed score.
+- Every segment retains its role, exact text, language, linked claim IDs, claim assessments, claim provenance, and evidence locators.
+- A factual segment is labelled supported only when every linked claim is assessed as supported and has at least one supporting evidence record. Otherwise it remains unverified/disputed and is listed as a blocker.
+- Attributed segments retain their attribution and remain distinct from factual statements. Publisher framing is grouped separately with its source and article IDs.
+- Editorial-analysis segments remain explicitly labelled as analysis.
+- Contradictory claim relationships and both claim texts remain visible. A contradiction is treated as unresolved unless its relationship has been rejected; an accepted contradiction is still shown because acceptance of the relationship does not itself resolve the underlying factual dispute.
+- Non-approved learning objects and missing language-review evidence are blockers. The report never grants publication or production authorization.
+- The snapshot embeds the report, and the public report includes the exact snapshot fingerprint used to assemble it.
+
+This is deterministic traceability and workflow reporting, not an automated truth judgement, a linguistic-quality evaluation, or proof that sources are independent. The report cannot replace human editorial review.
