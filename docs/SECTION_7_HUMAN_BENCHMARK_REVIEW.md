@@ -27,7 +27,7 @@ Before a review is stored, its declared article, publisher, permission-evidence,
 
 This is not reviewer authentication or authorization. A reviewer ID is a recorded declaration, not proof of identity. The registry does not independently establish that an editorial judgement is correct. Synthetic fixtures are not a substitute for a real, bilingual, human-reviewed benchmark set. Do not present metadata validation as proof of factual correctness.
 
-The benchmark fingerprint is currently a declared, immutable reference in the review record. This stage does not yet store the benchmark artifact itself or independently recompute its fingerprint from canonical artifact content. A future benchmark-artifact registry must close that gap before benchmark fingerprints can be treated as independently verified.
+The review record retains the fingerprint declaration, but migration 14 now binds it to stored canonical artifact content and independently recomputes it at review and eligibility checks.
 
 ## 7.5 Quality reporting and story snapshot integration
 
@@ -35,10 +35,17 @@ The registry exposes a read-only benchmark review quality report. It separates t
 
 The story editorial snapshot includes benchmark review records whose declared source articles belong to that story. Each included record carries its current revision, append-only review history, and a current-use quality report. This is provenance visibility, not an editorial quality score. The report explicitly warns that reviewer identity is not authenticated and that it does not determine factual correctness.
 
+## 7.6 Immutable benchmark artifact registry
+
+Schema migration 14 adds an immutable benchmark-artifact table. Curators register the actual structured JSON content with a stable artifact ID and language. The registry canonicalizes that content using `canonical-json-v1`, computes its SHA-256 fingerprint itself, and records the curator, timestamp, and reason. Direct SQL updates and deletes are rejected by database triggers.
+
+A human review must now reference a registered artifact by its artifact ID. On review creation and revision, the registry re-reads the stored artifact, recomputes its fingerprint, and checks both the declared review fingerprint and language. The read-only quality report repeats this artifact check, and current-use eligibility fails closed if the artifact is missing, mismatched, or cannot be verified.
+
+This stage stores structured JSON benchmark content. It does not yet define a domain-specific benchmark-item schema or authenticate curator/reviewer identities. Canonicalization is explicitly versioned so a future change cannot silently reinterpret old fingerprints.
+
 ## Next gates
 
-- Register immutable benchmark artifacts and independently compute their canonical content fingerprints.
-- Add a controlled reviewer identity and role authorization mechanism.
+- Add a domain-specific schema for benchmark item content and stronger curator/reviewer identity and role authorization.
 - Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
 
 ## 7.4 Operation-scoped permission enforcement
