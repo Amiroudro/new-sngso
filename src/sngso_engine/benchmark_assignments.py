@@ -32,23 +32,31 @@ def _timestamp(value: Any, field: str) -> datetime:
 
 
 def validate_benchmark_assignment(assignment: Mapping[str, Any]) -> dict[str, Any]:
-    """Validate an assignment record; this does not authenticate its actors."""
+    """Validate a state record; this does not authenticate its declared actors."""
     if not isinstance(assignment, Mapping):
         raise TypeError("assignment must be a mapping")
     required = (
         "assignment_id", "artifact_id", "artifact_fingerprint", "language",
         "reviewer_id", "assigned_by", "assigned_at", "due_at", "status", "reason",
     )
-    failures = [f"missing or invalid {key}" for key in required
-                if not isinstance(assignment.get(key), str) or not assignment.get(key, "").strip()]
+    failures = [
+        f"missing or invalid {key}" for key in required
+        if not isinstance(assignment.get(key), str) or not assignment.get(key, "").strip()
+    ]
     if assignment.get("schema_version") != "1.0.0":
         failures.append("schema_version must be 1.0.0")
     fingerprint = assignment.get("artifact_fingerprint")
-    if not isinstance(fingerprint, str) or len(fingerprint) != 71 or not fingerprint.startswith(_FINGERPRINT_PREFIX) or any(c not in "0123456789abcdef" for c in fingerprint[7:]):
+    if (
+        not isinstance(fingerprint, str)
+        or len(fingerprint) != 71
+        or not fingerprint.startswith(_FINGERPRINT_PREFIX)
+        or any(char not in "0123456789abcdef" for char in fingerprint[7:])
+    ):
         failures.append("artifact_fingerprint must be a lowercase SHA-256 fingerprint")
     if assignment.get("language") not in {"bn", "en"}:
         failures.append("language must be bn or en")
-    if assignment.get("status") not in STATUSES:
+    status = assignment.get("status")
+    if status not in STATUSES:
         failures.append("status is not supported")
     if assignment.get("reviewer_id") == assignment.get("assigned_by"):
         failures.append("self-assignment is not permitted")
@@ -61,7 +69,6 @@ def validate_benchmark_assignment(assignment: Mapping[str, Any]) -> dict[str, An
     except BenchmarkAssignmentError as exc:
         failures.append(str(exc))
 
-    status = assignment.get("status")
     required_by_status = {
         "accepted": ("accepted_at",),
         "submitted": ("accepted_at", "submitted_review_id", "closed_at"),
@@ -71,12 +78,27 @@ def validate_benchmark_assignment(assignment: Mapping[str, Any]) -> dict[str, An
     for key in required_by_status.get(status, ()):
         if not isinstance(assignment.get(key), str) or not assignment.get(key, "").strip():
             failures.append(f"{status} assignments require {key}")
+
     for key in ("accepted_at", "closed_at"):
         if assignment.get(key) is not None:
             try:
-                _timestamp(assignment[key], key)
+                parsed = _timestamp(assignment[key], key)
+                if key == "accepted_at" and "assigned_at" in locals() and parsed < assigned_at:
+                    failures.append("accepted_at cannot predate assigned_at")
+                if key == "closed_at" and "assigned_at" in locals() and parsed < assigned_at:
+                    failures.append("closed_at cannot predate assigned_at")
             except BenchmarkAssignmentError as exc:
                 failures.append(str(exc))
+
+    if status == "assigned" and any(
+        assignment.get(key) is not None
+        for key in ("accepted_at", "submitted_review_id", "closed_at", "closure_reason")
+    ):
+        failures.append("assigned state cannot contain later lifecycle fields")
+    if status == "accepted" and any(
+        assignment.get(key) is not None for key in ("submitted_review_id", "closed_at", "closure_reason")
+    ):
+        failures.append("accepted state cannot contain closure fields")
     return {"valid": not failures, "failures": failures}
 
 
@@ -89,14 +111,17 @@ def transition_benchmark_assignment(
     reason: str,
     submitted_review_id: str | None = None,
 ) -> dict[str, Any]:
-    """Return a new assignment state; callers must persist it append-only."""
+    """Return a new state with one transition receipt; persist history separately."""
     report = validate_benchmark_assignment(assignment)
     if not report["valid"]:
         raise BenchmarkAssignmentError("; ".join(report["failures"]))
     if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
         raise BenchmarkAssignmentError("actor and transition reason are required")
     moment = _timestamp(at, "at")
+    assigned_at = _timestamp(assignment["assigned_at"], "assigned_at")
     due = _timestamp(assignment["due_at"], "due_at")
+    if moment < assigned_at:
+        raise BenchmarkAssignmentError("transition cannot predate assignment creation")
     state = assignment["status"]
     result = dict(assignment)
 
@@ -111,6 +136,9 @@ def transition_benchmark_assignment(
             raise BenchmarkAssignmentError("only the assigned reviewer may submit an accepted assignment")
         if moment >= due:
             raise BenchmarkAssignmentError("assignment cannot be submitted at or after its deadline")
+        accepted_at = _timestamp(assignment["accepted_at"], "accepted_at")
+        if moment < accepted_at:
+            raise BenchmarkAssignmentError("submission cannot predate acceptance")
         if not isinstance(submitted_review_id, str) or not submitted_review_id.strip():
             raise BenchmarkAssignmentError("submission must reference a review ID")
         result.update(status="submitted", submitted_review_id=submitted_review_id, closed_at=at)
