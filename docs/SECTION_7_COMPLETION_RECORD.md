@@ -155,8 +155,8 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 
 ## Section 7.40: authenticated MCQ pedagogical review rubric (CI verified)
 
-- Added the optional mcq_review contract with version mcq-editorial-v1 and eight required dimensions for MCQ pedagogy.
-- The authenticated reviewer facade requires the full rubric for MCQ approvals/rejections, records provider-backed attestation, and disallows approval with any needs_revision finding.
+- Added the optional mcq_review contract with version mcq-editorial-v1 and ten required dimensions covering key defensibility, stem clarity, distractor plausibility and rationale quality, learner-level fit, misconception alignment, option construction, accidental clues, and explanation fidelity.
+- The authenticated reviewer facade requires the complete rubric for MCQ approvals/rejections, records provider-backed attestation, and rejects approval with any needs_revision finding.
 - Registry validation checks reviewer, timestamp, language, version, and rubric structure. The quality report blocks approved MCQs lacking a complete all-pass rubric.
-- GitHub Actions [run #44732795832](https://github.com/Amiroudro/new-sngso/actions/runs/44732795832) passed 689 tests in 7.70 seconds on code head 4b14a10705ab4352b8c4c915179c3b564d601086.
+- GitHub Actions [run #44733507721](https://github.com/Amiroudro/new-sngso/actions/runs/44733507721) passed the full Python 3.12 suite: **689 tests in 7.56 seconds** on code head d6921b020e92355a5117910babf88430b514c44b. This run contains no dedicated regression cases for the new MCQ rubric path.
 - No dedicated tests were added for the new MCQ route in this slice. Treat this as implemented but awaiting targeted regression coverage and real human use; it is not an editorial-quality certification. Section 7 remains in progress.
