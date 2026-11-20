@@ -161,3 +161,14 @@ The operational review concludes **NOT ACCEPTED FOR PRODUCTION**. The repository
 ## 7.19 Criterion-level scoring and calibration
 
 A versioned scoring contract and deterministic validator now require item-bound score sheets, criterion IDs, explicit weights, anchored 0–4 scores, evaluator rationale, and evidence references. Weights must sum to one; a declared critical failure requires a reason and blocks comparison eligibility regardless of the weighted score. The validator computes a decimal weighted score to four decimal places. This is a reproducible aggregation of declared judgments, not an automated measure of editorial truth. Score sheets are not yet persisted in the registry, evaluator identity is not authenticated by this module, and no real inter-rater reliability has been established. See `docs/SECTION_7_19_SCORING_CALIBRATION.md`.
+
+
+## Section 7.20: authenticated durable criterion-level scoring
+
+- SQLite migration 20 adds an immutable score ledger with one score per accepted reviewer assignment and benchmark item. Database triggers reject updates and deletes.
+- The score record binds the evaluator, assignment, exact artifact fingerprint, item ID, task type, language, evaluation timestamp, deterministic weighted result, comparison eligibility, and score fingerprint.
+- Registry validation resolves the item and task type from the stored immutable artifact. Client-declared artifact metadata is not trusted.
+- Scoring is exposed through the authenticated access facade only. The evaluator must have a recent authenticated session, provider verification metadata, an active human-classified reviewer principal, and the exact accepted language-qualified assignment.
+- Final adjudication blocks new score records. A score with a declared critical failure is retained as an immutable judgment but is marked ineligible for comparison.
+- Provider issuer, subject, key ID, adapter identity, and authentication time are retained as provenance. Raw session IDs and tokens are not stored.
+- This ledger records judgments; it does not prove evidence correctness, rubric validity, evaluator competence, or inter-rater reliability. Deployment must still provide a real cryptographic identity provider and independently validated reviewer qualifications.
