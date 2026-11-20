@@ -24,6 +24,16 @@ def _aware_timestamp(value: Any) -> bool:
     return parsed.tzinfo is not None and parsed.utcoffset() is not None
 
 
+def _https_uri(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and bool(parsed.netloc)
+
+
 def validate_human_benchmark_review(review: Mapping[str, Any]) -> dict[str, Any]:
     """Return named validation checks; approval requires explicit human evidence.
 
@@ -48,7 +58,7 @@ def validate_human_benchmark_review(review: Mapping[str, Any]) -> dict[str, Any]
     corrections = review.get("corrections")
     corrections = corrections if isinstance(corrections, list) else []
 
-    add("status", status in {"draft", "approved", "rejected"},
+    add("status", isinstance(status, str) and status in {"draft", "approved", "rejected"},
         "Status must be draft, approved, or rejected.")
     add("benchmark_fingerprint", isinstance(review.get("benchmark_fingerprint"), str)
         and bool(_FINGERPRINT.fullmatch(review["benchmark_fingerprint"])),
@@ -59,7 +69,7 @@ def validate_human_benchmark_review(review: Mapping[str, Any]) -> dict[str, Any]
         and bool(reviewer.get("reviewer_id", "").strip())
         and isinstance(reviewer.get("role"), str) and bool(reviewer.get("role", "").strip()),
         "Reviewer ID and role must be recorded.")
-    add("reviewer_language", reviewer.get("language") == language and language in {"bn", "en"},
+    add("reviewer_language", isinstance(language, str) and language in {"bn", "en"} and reviewer.get("language") == language,
         "Reviewer language must match the benchmark language.")
     add("reviewer_qualification", isinstance(reviewer.get("qualification_basis"), str)
         and len(reviewer.get("qualification_basis", "").strip()) >= 20,
@@ -70,8 +80,6 @@ def validate_human_benchmark_review(review: Mapping[str, Any]) -> dict[str, Any]
         if not isinstance(source, Mapping):
             source_checks = False
             break
-        uri = source.get("canonical_uri")
-        parsed = urlsplit(uri) if isinstance(uri, str) else None
         source_checks = source_checks and all(
             isinstance(source.get(key), str) and bool(source.get(key, "").strip())
             for key in ("article_id", "source_id", "approved_use_reference")
