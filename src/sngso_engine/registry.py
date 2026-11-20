@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -5787,6 +5788,7 @@ class SQLiteRegistry:
         }
         if not isinstance(attestation, dict) or set(attestation) != required:
             raise RegistryIntegrityError("identity attestation fields do not match the contract")
+        validate_payload("editorial-benchmark-identity-attestation", attestation)
         for field in ("attestation_id", "review_id", "principal_id", "issuer", "audience",
                       "subject", "authentication_context", "provider_key_id", "provider_adapter"):
             if not isinstance(attestation[field], str) or not attestation[field].strip():
