@@ -1450,6 +1450,22 @@ def test_benchmark_review_rejects_unregistered_or_mismatched_source_material():
             registry.add_benchmark_review(payload, actor="editor:lead", reason="bad source")
 
 
+def test_benchmark_review_requires_exact_operation_and_endpoint_grant():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        payload["source_materials"][0]["permission_operation"] = "translation"
+        with pytest.raises(RegistryIntegrityError, match="does not explicitly authorize"):
+            registry.add_benchmark_review(payload, actor="editor:lead", reason="operation not covered")
+
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        payload["source_materials"][0]["endpoint_id"] = "endpoint:publisher-b-rss"
+        with pytest.raises(RegistryIntegrityError, match="does not cover the declared endpoint"):
+            registry.add_benchmark_review(payload, actor="editor:lead", reason="endpoint not covered")
+
+
 def test_benchmark_review_history_cannot_be_updated_or_deleted():
     with SQLiteRegistry() as registry:
         _populate_benchmark_review_sources(registry)
