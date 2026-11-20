@@ -39,7 +39,7 @@ from .benchmark_adjudication import validate_benchmark_adjudication
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 16
+_SCHEMA_VERSION = 17
 
 
 _MIGRATION_14 = (
@@ -99,6 +99,71 @@ _MIGRATION_16 = (
             WHERE benchmark_id = NEW.benchmark_id
         )
         BEGIN SELECT RAISE(ABORT, 'benchmark artifact already has a final adjudication'); END""",
+)
+
+
+_MIGRATION_17 = (
+    """ALTER TABLE benchmark_principals
+       ADD COLUMN languages_json TEXT NOT NULL DEFAULT '[]'
+       CHECK (json_valid(languages_json))""",
+    """CREATE TABLE benchmark_review_assignments (
+        assignment_id TEXT PRIMARY KEY,
+        artifact_id TEXT NOT NULL,
+        artifact_fingerprint TEXT NOT NULL,
+        language TEXT NOT NULL CHECK (language IN ('bn', 'en')),
+        reviewer_id TEXT NOT NULL,
+        assigned_by TEXT NOT NULL,
+        assigned_at TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('assigned', 'accepted', 'submitted', 'cancelled', 'expired')),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        updated_at TEXT NOT NULL,
+        last_actor TEXT NOT NULL,
+        last_reason TEXT NOT NULL,
+        FOREIGN KEY (artifact_id) REFERENCES benchmark_artifacts(artifact_id) ON DELETE RESTRICT,
+        FOREIGN KEY (reviewer_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT,
+        FOREIGN KEY (assigned_by) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT
+    )""",
+    """CREATE TABLE benchmark_review_assignment_revisions (
+        assignment_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (assignment_id, revision),
+        FOREIGN KEY (assignment_id) REFERENCES benchmark_review_assignments(assignment_id) ON DELETE RESTRICT
+    )""",
+    """CREATE UNIQUE INDEX benchmark_review_assignment_one_active_per_reviewer
+       ON benchmark_review_assignments(artifact_id, reviewer_id)
+       WHERE status IN ('assigned', 'accepted')""",
+    """CREATE INDEX benchmark_review_assignment_reviewer_status
+       ON benchmark_review_assignments(reviewer_id, status, due_at)""",
+    """CREATE TRIGGER benchmark_review_assignment_revision_guard
+       BEFORE UPDATE ON benchmark_review_assignments
+       BEGIN
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'assignment revisions must increment sequentially') END;
+         SELECT CASE WHEN NEW.assignment_id != OLD.assignment_id
+              OR NEW.artifact_id != OLD.artifact_id
+              OR NEW.artifact_fingerprint != OLD.artifact_fingerprint
+              OR NEW.language != OLD.language
+              OR NEW.reviewer_id != OLD.reviewer_id
+              OR NEW.assigned_by != OLD.assigned_by
+              OR NEW.assigned_at != OLD.assigned_at
+              OR NEW.due_at != OLD.due_at
+           THEN RAISE(ABORT, 'assignment identity and artifact binding are immutable') END;
+       END""",
+    """CREATE TRIGGER benchmark_review_assignments_no_delete
+       BEFORE DELETE ON benchmark_review_assignments
+       BEGIN SELECT RAISE(ABORT, 'benchmark review assignments cannot be deleted'); END""",
+    """CREATE TRIGGER benchmark_review_assignment_revisions_no_update
+       BEFORE UPDATE ON benchmark_review_assignment_revisions
+       BEGIN SELECT RAISE(ABORT, 'assignment revisions are append-only'); END""",
+    """CREATE TRIGGER benchmark_review_assignment_revisions_no_delete
+       BEFORE DELETE ON benchmark_review_assignment_revisions
+       BEGIN SELECT RAISE(ABORT, 'assignment revisions are append-only'); END""",
 )
 
 
@@ -1418,6 +1483,20 @@ class SQLiteRegistry:
                     version = 16
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 16 failed; transaction rolled back") from exc
+
+            if version == 16 and _SCHEMA_VERSION >= 17:
+                try:
+                    for statement in _MIGRATION_17:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (17, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 17")
+                    version = 17
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 17 failed; transaction rolled back") from exc
+
 
     def _append_audit(
         self,
