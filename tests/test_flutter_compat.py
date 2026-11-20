@@ -251,6 +251,14 @@ def test_staging_candidate_rejects_stale_object_revision_and_denied_permission()
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
 
 
+def test_staging_candidate_rejects_duplicate_edition_source_references():
+    registry, client, manifest = _candidate()
+    client["sources"].append(deepcopy(SOURCE))
+    manifest["payload_sha256"] = sha256_fingerprint(client)
+    with pytest.raises(FlutterCompatibilityError, match="edition source references must be unique"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+
 def test_staging_candidate_rejects_unlinked_or_mismatched_source_and_unsupported_content():
     registry, client, manifest = _candidate()
     client["stories"][0]["sources"][0]["url"] = "https://attacker.example/"
