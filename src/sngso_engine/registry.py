@@ -44,7 +44,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 18
+_SCHEMA_VERSION = 19
 
 
 _MIGRATION_14 = (
@@ -215,6 +215,39 @@ _MIGRATION_18 = (
     """CREATE TRIGGER benchmark_principal_kind_immutable
        BEFORE UPDATE OF principal_kind ON benchmark_principals
        BEGIN SELECT RAISE(ABORT, 'benchmark principal classification is immutable'); END""",
+)
+
+
+_MIGRATION_19 = (
+    """CREATE TABLE benchmark_review_identity_attestations (
+        attestation_id TEXT PRIMARY KEY,
+        review_id TEXT NOT NULL,
+        review_revision INTEGER NOT NULL CHECK (review_revision >= 1),
+        principal_id TEXT NOT NULL,
+        issuer TEXT NOT NULL CHECK (length(trim(issuer)) > 0),
+        audience TEXT NOT NULL CHECK (length(trim(audience)) > 0),
+        subject TEXT NOT NULL CHECK (length(trim(subject)) > 0),
+        authenticated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        authentication_methods_json TEXT NOT NULL CHECK (json_valid(authentication_methods_json)),
+        authentication_context TEXT NOT NULL CHECK (length(trim(authentication_context)) > 0),
+        provider_key_id TEXT NOT NULL CHECK (length(trim(provider_key_id)) > 0),
+        provider_adapter TEXT NOT NULL CHECK (length(trim(provider_adapter)) > 0),
+        session_fingerprint TEXT NOT NULL CHECK (session_fingerprint GLOB 'sha256:*'),
+        attested_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        UNIQUE (review_id, review_revision),
+        FOREIGN KEY (review_id) REFERENCES benchmark_reviews(review_id) ON DELETE RESTRICT,
+        FOREIGN KEY (principal_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT
+    )""",
+    """CREATE TRIGGER benchmark_review_identity_attestations_no_update
+       BEFORE UPDATE ON benchmark_review_identity_attestations
+       BEGIN SELECT RAISE(ABORT, 'identity attestations are immutable'); END""",
+    """CREATE TRIGGER benchmark_review_identity_attestations_no_delete
+       BEFORE DELETE ON benchmark_review_identity_attestations
+       BEGIN SELECT RAISE(ABORT, 'identity attestations are immutable'); END""",
 )
 
 
@@ -1560,6 +1593,19 @@ class SQLiteRegistry:
                     version = 18
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 18 failed; transaction rolled back") from exc
+
+            if version == 18 and _SCHEMA_VERSION >= 19:
+                try:
+                    for statement in _MIGRATION_19:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (19, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 19")
+                    version = 19
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 19 failed; transaction rolled back") from exc
 
 
     def _append_audit(
@@ -5728,6 +5774,81 @@ class SQLiteRegistry:
                 "This report does not assess factual correctness or general editorial quality.",
             ],
         }
+
+    def record_benchmark_review_identity_attestation(
+        self, attestation: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Persist provider-verified identity metadata for one exact review revision."""
+        required = {
+            "attestation_id", "review_id", "review_revision", "principal_id", "issuer",
+            "audience", "subject", "authenticated_at", "expires_at",
+            "authentication_methods", "authentication_context", "provider_key_id",
+            "provider_adapter", "session_fingerprint", "attested_at",
+        }
+        if not isinstance(attestation, dict) or set(attestation) != required:
+            raise RegistryIntegrityError("identity attestation fields do not match the contract")
+        for field in ("attestation_id", "review_id", "principal_id", "issuer", "audience",
+                      "subject", "authentication_context", "provider_key_id", "provider_adapter"):
+            if not isinstance(attestation[field], str) or not attestation[field].strip():
+                raise RegistryIntegrityError(f"identity attestation {field} is required")
+        if not isinstance(attestation["review_revision"], int) or attestation["review_revision"] < 1:
+            raise RegistryIntegrityError("identity attestation review_revision must be positive")
+        methods = attestation["authentication_methods"]
+        if not isinstance(methods, list) or not methods or any(not isinstance(x, str) or not x.strip() for x in methods):
+            raise RegistryIntegrityError("identity attestation requires non-empty authentication methods")
+        if len(set(methods)) != len(methods):
+            raise RegistryIntegrityError("identity attestation authentication methods must be unique")
+        if not isinstance(attestation["session_fingerprint"], str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", attestation["session_fingerprint"]):
+            raise RegistryIntegrityError("identity attestation session fingerprint is invalid")
+        authenticated_at = _aware_datetime(attestation["authenticated_at"], "authenticated_at")
+        expires_at = _aware_datetime(attestation["expires_at"], "expires_at")
+        attested_at = _aware_datetime(attestation["attested_at"], "attested_at")
+        if expires_at <= authenticated_at or attested_at < authenticated_at or attested_at >= expires_at:
+            raise RegistryIntegrityError("identity attestation timestamps are inconsistent")
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise RegistryIntegrityError("identity attestation actor and reason are required")
+        payload_json = _json_text(attestation)
+        with self._transaction() as connection:
+            review_row = connection.execute(
+                "SELECT revision, payload_json FROM benchmark_reviews WHERE review_id = ?",
+                (attestation["review_id"],),
+            ).fetchone()
+            if review_row is None or review_row["revision"] != attestation["review_revision"]:
+                raise RegistryIntegrityError("identity attestation must bind to the current stored review revision")
+            review = json.loads(review_row["payload_json"])
+            if actor != attestation["principal_id"] or review["reviewer"]["reviewer_id"] != actor:
+                raise RegistryIntegrityError("identity attestation actor must match the stored reviewer")
+            principal = connection.execute(
+                "SELECT active, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                (actor,),
+            ).fetchone()
+            if principal is None or not principal["active"] or principal["principal_kind"] != "human":
+                raise RegistryIntegrityError("identity attestation requires an active human-classified principal")
+            connection.execute(
+                """INSERT INTO benchmark_review_identity_attestations
+                (attestation_id, review_id, review_revision, principal_id, issuer, audience,
+                 subject, authenticated_at, expires_at, authentication_methods_json,
+                 authentication_context, provider_key_id, provider_adapter, session_fingerprint,
+                 attested_at, payload_json, actor, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (attestation["attestation_id"], attestation["review_id"], attestation["review_revision"],
+                 actor, attestation["issuer"], attestation["audience"], attestation["subject"],
+                 attestation["authenticated_at"], attestation["expires_at"], _json_text(methods),
+                 attestation["authentication_context"], attestation["provider_key_id"],
+                 attestation["provider_adapter"], attestation["session_fingerprint"],
+                 attestation["attested_at"], payload_json, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_review.identity_attested",
+                entity_type="benchmark_review", entity_id=attestation["review_id"],
+                payload={"attestation_id": attestation["attestation_id"],
+                         "review_revision": attestation["review_revision"],
+                         "principal_id": actor, "issuer": attestation["issuer"],
+                         "provider_adapter": attestation["provider_adapter"],
+                         "provider_key_id": attestation["provider_key_id"],
+                         "reason": reason},
+            )
+        return dict(attestation)
 
     def benchmark_readiness_report(self, artifact_id: str) -> dict[str, Any]:
         """Report evidence readiness without treating declared principal types as identity proof."""
