@@ -79,10 +79,10 @@ def grant_record() -> dict:
     evidence_id = "permission-evidence:publisher-a-001"
     operations = {
         operation: {
-            "allowed": operation == "discovery",
-            "status": "approved" if operation == "discovery" else "denied",
+            "allowed": operation in {"discovery", "excerpt_storage"},
+            "status": "approved" if operation in {"discovery", "excerpt_storage"} else "denied",
             "conditions": [],
-            **({"evidence_ids": [evidence_id]} if operation == "discovery" else {}),
+            **({"evidence_ids": [evidence_id]} if operation in {"discovery", "excerpt_storage"} else {}),
         }
         for operation in (
             "discovery",
@@ -1390,6 +1390,9 @@ def _benchmark_review_payload() -> dict:
             "content_fingerprint": "sha256:" + "d" * 64,
             "checked_at": "2026-11-19T18:00:00Z",
             "approved_use_reference": "permission-evidence:publisher-a-001",
+            "permission_grant_id": "permission:publisher-a-discovery-001",
+            "endpoint_id": "endpoint:publisher-a-rss",
+            "permission_operation": "excerpt_storage",
         }],
         "corrections": [],
         "adjudication_note": "Checked against the registered article and source evidence.",
@@ -1398,7 +1401,9 @@ def _benchmark_review_payload() -> dict:
 
 def _populate_benchmark_review_sources(registry: SQLiteRegistry) -> None:
     registry.add_source(source_record())
+    registry.add_endpoint(endpoint_record())
     registry.add_permission_evidence(evidence_record())
+    registry.add_permission_grant(grant_record())
     registry.add_domain_record("article", article_record())
 
 
