@@ -215,12 +215,16 @@ def test_execution_rejects_reviewer_as_methodologist_and_unassigned_score():
             protocol, actor="curator:study", reason="Register prespecified study",
         )
         protocol["protocol_fingerprint"] = stored_protocol["protocol_fingerprint"]
-        for reviewer_id in ("human:one", "human:two"):
-            registry.register_benchmark_principal(
-                reviewer_id, display_name=reviewer_id,
-                roles=["benchmark_reviewer"], languages=["bn"], principal_kind="human",
-                provisioned_by="deployment-operator", reason="Study reviewer",
-            )
+        registry.register_benchmark_principal(
+            "human:one", display_name="human:one",
+            roles=["benchmark_reviewer", "benchmark_methodologist"], languages=["bn"],
+            principal_kind="human", provisioned_by="deployment-operator", reason="Reviewer and methodologist conflict test",
+        )
+        registry.register_benchmark_principal(
+            "human:two", display_name="human:two",
+            roles=["benchmark_reviewer"], languages=["bn"], principal_kind="human",
+            provisioned_by="deployment-operator", reason="Study reviewer",
+        )
         registry.register_benchmark_principal(
             "methodologist:one", display_name="Independent Methodologist",
             roles=["benchmark_methodologist"], principal_kind="human",
@@ -232,6 +236,15 @@ def test_execution_rejects_reviewer_as_methodologist_and_unassigned_score():
             for reviewer_id in ("human:one", "human:two")
         ]
         payload = _execution(artifact, protocol, score_ids)
+        with pytest.raises(RegistryIntegrityError, match="independent of all blind evaluators"):
+            registry.register_benchmark_study_execution(
+                payload, actor="human:one",
+                identity={
+                    "issuer": "https://login.example.test/", "subject": "oidc:human:one",
+                    "provider_key_id": "test-key", "provider_adapter": "test-adapter/1",
+                    "authenticated_at": AUTHENTICATED,
+                }, reason="Reviewer cannot sign off own study analysis",
+            )
         payload["score_records"][0]["evaluator_id"] = "not-assigned"
         with pytest.raises(RegistryIntegrityError, match="outside the protocol"):
             registry.register_benchmark_study_execution(
