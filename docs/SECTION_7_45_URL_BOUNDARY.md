@@ -35,3 +35,8 @@ No Flutter app, website, published edition, live schedule, or production feed wa
 The staging verifier now requires the provenance manifest to contain exactly the supported top-level fields. Unknown fields and missing required fields fail closed, rather than being silently ignored. This prevents callers from attaching unverified claims or control flags to a manifest and having them appear to be part of the accepted contract.
 
 A regression test covers an injected `publication_authorized` extension. The builder still emits the same supported manifest shape. The change is committed on the feature branch; **CI and the full Python suite have not yet reported a result for this exact head**.
+
+
+## Section 7.47: manifest metadata validation
+
+The staging verifier now validates the manifest payload digest as exactly 64 lowercase hexadecimal SHA-256 characters and requires a non-empty manifest edition date before comparing it with the registered edition and client payload. Regression tests reject missing, non-string, uppercase, non-hex, and malformed digest values, as well as an empty date. These are schema-boundary checks, not proof that a real client consumes the sidecar or that the content is publishable.
