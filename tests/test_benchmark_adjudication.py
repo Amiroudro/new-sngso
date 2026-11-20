@@ -102,17 +102,15 @@ def test_adjudication_requires_explicit_rationale_and_evidence():
 def test_each_material_disagreement_requires_exact_positions_for_both_reviews():
     payload = _payload()
     payload["issue_resolutions"][0]["reviewer_positions"].pop("review:two")
-    result = validate_benchmark_adjudication(payload)
-    assert result["valid"] is False
-    assert "every_review_position_recorded" in {x["name"] for x in result["checks"] if not x["passed"]}
+    with pytest.raises(ValueError):
+        validate_benchmark_adjudication(payload)
 
 
 def test_each_disagreement_requires_evidence_backed_resolution():
     payload = _payload()
     payload["issue_resolutions"][0]["evidence_references"] = []
-    result = validate_benchmark_adjudication(payload)
-    assert result["valid"] is False
-    assert "each_disagreement_resolved_with_evidence" in {x["name"] for x in result["checks"] if not x["passed"]}
+    with pytest.raises(ValueError):
+        validate_benchmark_adjudication(payload)
 
 
 def test_duplicate_disagreement_ids_fail_quality_validation():
