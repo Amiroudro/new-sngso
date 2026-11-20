@@ -6612,10 +6612,10 @@ class SQLiteRegistry:
                  benchmark_fingerprint, rubric_version, reviewer_id, reviewer_role,
                  decision, issuer, subject, provider_key_id, provider_adapter,
                  authenticated_at, payload_json, created_at, actor, reason)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (payload["review_id"], payload["execution_id"], protocol_row["protocol_record_id"],
                  payload["study_id"], payload["study_version"], payload["protocol_fingerprint"],
-                 payload["execution_fingerprint"], payload["benchmark_id"],
+                 payload["execution_fingerprint"], sha256_fingerprint(payload), payload["benchmark_id"],
                  payload["benchmark_fingerprint"], payload["rubric_version"], actor,
                  payload["reviewer_role"], payload["decision"], identity["issuer"], identity["subject"],
                  identity["provider_key_id"], identity["provider_adapter"], identity["authenticated_at"],
