@@ -6,7 +6,7 @@
 **Repository:** `Amiroudro/new-sngso`  
 **Working branch:** `feat/section-7-human-benchmark-review-contract`  
 **Open pull request:** [PR #7](https://github.com/Amiroudro/new-sngso/pull/7)  
-**Latest full-suite-verified code head:** `ec06daf4d3abba0b8034d56c1f84bb470d63229d` — [run #44752476466](https://github.com/Amiroudro/new-sngso/actions/runs/44752476466), 701 passed in 6.38 seconds. Recheck the live PR head before further edits.
+**Latest full-suite-verified code head:** `f7889295a9ca329852b518f96af68fb0b2b4b315` — [run #44753534682](https://github.com/Amiroudro/new-sngso/actions/runs/44753534682), 703 passed in 6.68 seconds. Recheck the live PR head before further edits.
 
 ---
 
@@ -85,10 +85,10 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 - PR #7 is a draft and is not merged.
 - Base branch: `feat/section-7-editorial-benchmarks`.
 - Head branch: `feat/section-7-human-benchmark-review-contract`.
-- Latest full-suite-verified code head: `1ecf6a9345c996366363d5f8a08191485f6db66e`; GitHub Actions run [#44731019456](https://github.com/Amiroudro/new-sngso/actions/runs/44731019456) passed with **689 tests in 8.59 seconds**. Recheck PR #7 for any later commits.
+- Latest full-suite-verified code head: `f7889295a9ca329852b518f96af68fb0b2b4b315`; GitHub Actions run [#44753534682](https://github.com/Amiroudro/new-sngso/actions/runs/44753534682) passed with **703 tests in 6.68 seconds**. Recheck PR #7 for any later commits.
 - PR #7 is based on the benchmark branch from PR #6, which remains open and draft. Keep PR #7 draft until the dependency is integrated or the target branch is deliberately changed.
-- Previous historical checkpoint: run [#44708874613](https://github.com/Amiroudro/new-sngso/actions/runs/44708874613), 677 Python 3.12 tests in 6.94 seconds.
-- PR has 68 changed files at the latest check.
+- This checkpoint reflects PR metadata verified on 20 November 2026; the PR currently reports 72 changed files.
+
 - No Android, website, or published-edition paths are included in PR #7.
 
 ### Cross-repository audit checkpoint (20 November 2026)
@@ -180,7 +180,7 @@ The source-evidence bindings, revision-card segment checks, bilingual claim-cove
 2. Obtain genuine, qualified Bangla and English human review data, prespecified calibration evidence, and independent acceptance evidence. Keep synthetic tests clearly separate.
 3. Collect actual reporting-lineage evidence and current permission evidence for each intended source operation. Do not infer independence or rights from publisher counts.
 4. Finish production identity-provider, protected administrator bootstrap, database/host controls, backup/restore drills, and the Section 7.18 operational sign-off.
-5. A fail-closed staging-candidate verifier now checks exact approved English text, current registry revisions, citation metadata, and current republication permissions. Implement the serializer and validate against the actual Flutter parser with cross-repository golden tests. Keep bilingual and study-object export blocked until separately mapped and tested.
+5. A staging-only English story serializer and verifier now bind an approved edition to exact English headline/summary revisions, current citation records, and republication permission. Validate the generated payload against the actual Flutter parser with cross-repository golden tests. Keep bilingual, vocabulary, phrase, MCQ, and learning-module export blocked until separately mapped and tested.
 6. Verify realistic daily briefing inputs through the editorial workflow without invented sources or claims.
 
 The engineering workflow can continue while external evidence is gathered. Keep Section 7 open until every exit criterion is evidenced or explicitly recorded as unresolved; do not start Section 8 ahead of it.
@@ -306,3 +306,13 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 - Added synthetic regression coverage for tampering, stale records, wrong source grants, denied permissions, unsupported collections, reviewer qualifications, timestamps, and source endpoint scope.
 - GitHub Actions [run #44752476466](https://github.com/Amiroudro/new-sngso/actions/runs/44752476466) passed the full Python 3.12 suite: **701 tests in 6.38 seconds** on code head ec06daf4d3abba0b8034d56c1f84bb470d63229d.
 - This does not serialize editions or run Flutter. The integrated client cannot validate the provenance sidecar, there is no cross-repository golden test, and no source currently has confirmed republication permission. Section 7 remains open.
+
+
+## Section 7.43: explicit English staging builder (CI verified)
+
+- Added build_flutter_staging_candidate, which takes an approved edition ID, explicit per-story headline/summary object selections, and source permission bindings. It builds only the supported English story subset in memory and immediately verifies it.
+- The generated client payload uses exact approved object text, registered article/source fields, a derived weekday, empty unbound metadata, and a staging status. The provenance manifest carries edition/story revisions and fingerprints plus selected object revisions and fingerprints.
+- Current republication grants are re-evaluated for the exact source and endpoint, and every article URL must fall inside a permitted registered endpoint. The builder writes no file or feed and never grants publication authorization.
+- Tests cover a successful build and explicit-selection failure, in addition to verifier failure cases.
+- GitHub Actions [run #44753534682](https://github.com/Amiroudro/new-sngso/actions/runs/44753534682) passed the full Python 3.12 suite: **703 tests in 6.68 seconds** on code head f7889295a9ca329852b518f96af68fb0b2b4b315.
+- This is not a Flutter runtime or cross-repository golden test. No confirmed republication grant exists; the integrated app does not consume the sidecar. Bilingual and learning-object export remain unsupported. Section 7 stays open.
