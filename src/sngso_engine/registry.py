@@ -5187,9 +5187,8 @@ class SQLiteRegistry:
             "blockers": blockers,
             "checks": checks,
             "warnings": [
-                "Reviewer identity and authorization are not authenticated by this registry.",
+                "Registry roles control declared principal IDs but do not authenticate the person operating the account.",
                 "This report does not assess factual correctness or general editorial quality.",
-                "The benchmark fingerprint is a declared immutable reference; no benchmark artifact is stored and independently re-hashed by this registry yet.",
             ],
         }
 
