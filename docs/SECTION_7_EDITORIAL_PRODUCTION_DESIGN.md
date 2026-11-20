@@ -112,3 +112,15 @@ The story dossier now exposes a read-only narrative assembly report. It assemble
 - The snapshot embeds the report, and the public report includes the exact snapshot fingerprint used to assemble it.
 
 This is deterministic traceability and workflow reporting, not an automated truth judgement, a linguistic-quality evaluation, or proof that sources are independent. The report cannot replace human editorial review.
+
+## Section 7.31: source-independence evidence gap report
+
+The story dossier now includes a source-independence evidence report alongside the existing duplicate-review summary. It distinguishes article-record identity from reporting independence:
+
+- A confirmed duplicate remains a duplicate group; a possible duplicate remains unresolved.
+- A reviewed-distinct result means only that the article records were judged distinct. It does not mean their reporting origins are independent.
+- Articles without duplicate candidates remain unreviewed for independence, not independent by default.
+- The report leaves independent-reporting count unset and every article's independence status as not established until original-reporting provenance, syndication/republication, shared-source/common-origin, and relevant primary-source evidence have been assessed.
+- The report is embedded in the story snapshot and is explicitly non-authorizing.
+
+This report exposes evidence gaps; it does not manufacture lineage evidence or infer independence from publisher count, URL, or wording.
