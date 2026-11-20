@@ -75,7 +75,7 @@ def validate_human_benchmark_review(review: Mapping[str, Any]) -> dict[str, Any]
         and len(reviewer.get("qualification_basis", "").strip()) >= 20,
         "A meaningful qualification basis must be recorded.")
 
-    source_checks = bool(sources)
+    source_checks = bool(sources) or status != "approved"
     for source in sources:
         if not isinstance(source, Mapping):
             source_checks = False
@@ -83,11 +83,12 @@ def validate_human_benchmark_review(review: Mapping[str, Any]) -> dict[str, Any]
         source_checks = source_checks and all(
             isinstance(source.get(key), str) and bool(source.get(key, "").strip())
             for key in ("article_id", "source_id", "approved_use_reference")
-        ) and bool(parsed and parsed.scheme == "https" and parsed.netloc) \
+        ) and _https_uri(source.get("canonical_uri")) \
+          and isinstance(source.get("content_fingerprint"), str) \
           and bool(_FINGERPRINT.fullmatch(source.get("content_fingerprint", ""))) \
           and _aware_timestamp(source.get("checked_at"))
     add("approved_source_material", source_checks,
-        "At least one HTTPS source article, source identity, content fingerprint, checked timestamp, and approved-use reference are required.")
+        "Approved reviews require at least one HTTPS source article, source identity, content fingerprint, checked timestamp, and approved-use reference.")
 
     correction_checks = all(
         isinstance(item, Mapping)
