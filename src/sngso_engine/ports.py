@@ -130,6 +130,16 @@ class BenchmarkReviewRepository(Protocol):
         self, assignment_id: str, *, event: str, actor: str, at: str,
         reason: str, submitted_review_id: str | None = None
     ) -> dict[str, Any]: ...
+    def add_benchmark_score(
+        self, score: dict[str, Any], *, assignment_id: str, actor: str,
+        identity: dict[str, Any], reason: str
+    ) -> dict[str, Any]: ...
+    def get_benchmark_score(self, score_id: str) -> dict[str, Any] | None: ...
+    def list_benchmark_scores(
+        self, *, artifact_id: str | None = None, item_id: str | None = None,
+        evaluator_id: str | None = None
+    ) -> list[dict[str, Any]]: ...
+
     def add_benchmark_review(
         self, review: dict[str, Any], *, actor: str, reason: str
     ) -> dict[str, Any]: ...
