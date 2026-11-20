@@ -195,6 +195,41 @@ class AuthenticatedBenchmarkAccess:
         )
 
 
+    def provision_principal(
+        self, request_context: Any, principal_id: str, *, display_name: str,
+        roles: list[str], languages: list[str] | None = None,
+        principal_kind: str = "unverified", reason: str
+    ) -> dict[str, Any]:
+        """Provision identities only through an authenticated security administrator."""
+        actor = self._principal(request_context, "benchmark_security_admin")
+        if actor == principal_id:
+            raise RegistryIntegrityError("security administrators cannot provision themselves")
+        return self._registry.register_benchmark_principal(
+            principal_id, display_name=display_name, roles=roles,
+            languages=languages, principal_kind=principal_kind,
+            provisioned_by=actor, reason=reason,
+        )
+
+    def revoke_principal(
+        self, request_context: Any, principal_id: str, *, reason: str
+    ) -> dict[str, Any]:
+        actor = self._principal(request_context, "benchmark_security_admin")
+        if actor == principal_id:
+            raise RegistryIntegrityError("security administrators cannot revoke their own access")
+        return self._registry.revoke_benchmark_principal(
+            principal_id, actor=actor, reason=reason
+        )
+
+    def reinstate_principal(
+        self, request_context: Any, principal_id: str, *, reason: str
+    ) -> dict[str, Any]:
+        actor = self._principal(request_context, "benchmark_security_admin")
+        if actor == principal_id:
+            raise RegistryIntegrityError("security administrators cannot reinstate their own access")
+        return self._registry.reinstate_benchmark_principal(
+            principal_id, actor=actor, reason=reason
+        )
+
     def reviewer_assignment_queue(
         self, request_context: Any, *, status: str | None = None,
         language: str | None = None
