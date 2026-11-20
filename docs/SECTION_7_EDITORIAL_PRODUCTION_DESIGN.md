@@ -130,3 +130,9 @@ This report exposes evidence gaps; it does not manufacture lineage evidence or i
 Narrative assembly now evaluates the actual language-specific review rubric, not merely the presence of a review record. Each language report exposes per-object language_review_pass, an aggregate assembly status, and counts for learning objects, segments, factual segments, traceable segments, unsupported factual segments, passing language reviews, and blockers.
 
 A review passes this gate only when its language and rubric version match the relevant language and every required rubric dimension passes (with translation fidelity allowed to be marked not applicable). Missing, rejected, or needs-revision language reviews remain blockers. Bangla and English are calculated independently. review_required means the deterministic blockers are absent but human editorial workflow remains; it is not a publication approval. Production authorization remains false.
+
+## Section 7.33: MCQ distractor rationale traceability
+
+MCQ learning objects now require one non-empty rationale for every incorrect option and no rationale for the correct option. Each rationale is keyed to the exact option ID. The registry rejects missing, duplicate, extra, or correct-answer rationale entries. This makes the author's intended distinction between the correct answer and each distractor inspectable and keeps rationale coverage stable if option order changes.
+
+The deterministic learning-object quality report exposes a dedicated distractor-rationale coverage check. It also emits a permanent human-review warning: rationale presence does not prove that a distractor is plausible, unambiguously incorrect under the exact question wording, misconception-based, parallel in form, or free of accidental clues. Editors must review those properties against the source claims and the intended learner level. The registry does not automatically score distractor quality or promote an MCQ to publication readiness.
