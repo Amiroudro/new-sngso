@@ -609,3 +609,106 @@ def test_authenticated_editorial_review_rejects_stale_or_synthetic_reviewer():
             decision="approved", dimensions={}, note="Review.", reason="Synthetic",
         )
     assert registry.calls == []
+
+
+def _mcq_review_dimensions(**overrides):
+    dimensions = {
+        "single_defensible_key": "pass",
+        "stem_clarity_and_precision": "pass",
+        "distractor_plausibility": "pass",
+        "distractors_unambiguously_incorrect": "pass",
+        "distractor_rationale_quality": "pass",
+        "learner_level_fit": "pass",
+        "misconception_alignment": "pass",
+        "option_parallelism": "pass",
+        "no_accidental_clues": "pass",
+        "explanation_fidelity": "pass",
+    }
+    dimensions.update(overrides)
+    return dimensions
+
+
+def _reviewable_mcq_registry():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.get_learning_object = lambda object_id: type("Record", (), {
+        "payload_json": __import__("json").dumps({
+            "id": object_id, "story_id": "story:one", "kind": "mcq_question",
+            "language": "en", "status": "draft", "created_at": "2026-11-19T00:00:00Z",
+            "content": {"question": "Question", "options": []},
+            "claim_ids": ["claim:one"],
+        }), "revision": 1
+    })()
+    registry.revise_learning_object = lambda object_id, payload, **kwargs: (
+        registry.calls.append(("learning_object_revision", object_id, {"payload": payload, **kwargs}))
+        or {"id": object_id, "revision": 2, "status": payload["status"]}
+    )
+    return registry
+
+
+def test_authenticated_mcq_review_records_complete_rubric_and_provider_attestation():
+    registry = _reviewable_mcq_registry()
+    language_dimensions = {
+        "grammar_and_style": "pass", "clarity_and_readability": "pass",
+        "terminology_consistency": "pass", "factual_fidelity": "pass",
+        "attribution": "pass", "omissions": "pass",
+        "translation_fidelity": "not_applicable",
+    }
+    result = access(registry).review_learning_object(
+        "trusted-request", "learning:mcq:one", expected_revision=1,
+        decision="approved", dimensions=language_dimensions,
+        mcq_dimensions=_mcq_review_dimensions(),
+        note="Reviewed question, options, rationale, and level.",
+        reason="Authenticated MCQ pedagogical review",
+    )
+    assert result["status"] == "approved"
+    payload = registry.calls[-1][2]["payload"]
+    review = payload["mcq_review"]
+    assert review["rubric_version"] == "mcq-editorial-v1"
+    assert set(review["dimensions"]) == set(_mcq_review_dimensions())
+    attestation = review["identity_attestation"]
+    assert attestation["principal_id"] == "person:42"
+    assert attestation["subject"] == "oidc-subject-42"
+    assert attestation["provider_key_id"] == "key-2026-01"
+    assert "session:opaque" not in str(attestation)
+
+
+def test_authenticated_mcq_review_rejects_missing_or_failed_rubric_before_writing():
+    language_dimensions = {
+        "grammar_and_style": "pass", "clarity_and_readability": "pass",
+        "terminology_consistency": "pass", "factual_fidelity": "pass",
+        "attribution": "pass", "omissions": "pass",
+        "translation_fidelity": "not_applicable",
+    }
+    registry = _reviewable_mcq_registry()
+    with pytest.raises(RegistryIntegrityError, match="requires every pedagogical rubric dimension"):
+        access(registry).review_learning_object(
+            "trusted-request", "learning:mcq:one", expected_revision=1,
+            decision="approved", dimensions=language_dimensions,
+            note="Review.", reason="Missing MCQ rubric",
+        )
+    assert registry.calls == []
+
+    registry = _reviewable_mcq_registry()
+    with pytest.raises(RegistryIntegrityError, match="cannot contain needs_revision"):
+        access(registry).review_learning_object(
+            "trusted-request", "learning:mcq:one", expected_revision=1,
+            decision="approved", dimensions=language_dimensions,
+            mcq_dimensions=_mcq_review_dimensions(learner_level_fit="needs_revision"),
+            note="Review.", reason="Failing MCQ rubric",
+        )
+    assert registry.calls == []
+
+
+def test_authenticated_non_mcq_review_rejects_mcq_dimensions():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.get_learning_object = lambda object_id: type("Record", (), {
+        "payload_json": __import__("json").dumps({"id": object_id, "kind": "brief_summary", "language": "en"}),
+        "revision": 1
+    })()
+    with pytest.raises(RegistryIntegrityError, match="only valid for MCQ"):
+        access(registry).review_learning_object(
+            "trusted-request", "learning:summary:one", expected_revision=1,
+            decision="approved", dimensions={}, mcq_dimensions=_mcq_review_dimensions(),
+            note="Review.", reason="Not an MCQ",
+        )
+    assert registry.calls == []
