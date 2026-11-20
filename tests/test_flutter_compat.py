@@ -398,3 +398,11 @@ def test_builder_rejects_ambiguous_or_incomplete_field_selection():
             }],
             now=NOW,
         )
+
+
+
+def test_staging_candidate_rejects_unrecognized_manifest_fields():
+    registry, client, manifest = _candidate()
+    manifest["unreviewed_extension"] = {"publication_authorized": True}
+    with pytest.raises(FlutterCompatibilityError, match="missing or unsupported fields"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
