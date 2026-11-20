@@ -217,3 +217,9 @@ No section is formally complete until its acceptance gates are verified. Section
 ## Execution order
 
 Complete Section 1 baseline first, then Sections 2–10 in order. A later section may be researched early, but implementation must respect the dependencies and acceptance gates above.
+
+### Section 7.30 implementation update
+
+A read-only bilingual narrative assembly report is now embedded in each story editorial snapshot. It preserves sentence roles (fact, attributed position, editorial analysis), exact claim links, claim provenance and evidence locators; it separates Bangla and English; keeps publisher accounts individually attributed; and preserves unresolved contradictions. A factual sentence is considered supported only when all linked claims are assessed as supported and each has supporting evidence. Draft/unapproved objects, missing language review, missing claims, and unsupported factual segments remain blockers. The report is non-authorizing and does not establish source independence or editorial truth.
+
+Remaining Section 7 work includes real human review evidence, stronger source-independence evidence, bilingual learning-object workflows, and daily briefing inputs.
