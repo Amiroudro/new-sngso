@@ -1407,6 +1407,11 @@ def _register_benchmark_test_principals(registry: SQLiteRegistry) -> None:
         roles=["benchmark_curator"], provisioned_by="test-bootstrap",
         reason="Provision test curator",
     )
+    registry.register_benchmark_principal(
+        "curator", display_name="Curator",
+        roles=["benchmark_curator"], provisioned_by="test-bootstrap",
+        reason="Provision test curator",
+    )
     for principal in ("editor:lead", "editor:second", "editor:en-01"):
         registry.register_benchmark_principal(
             principal, display_name=principal,
@@ -1562,12 +1567,12 @@ def test_existing_schema_v13_database_migrates_to_v14(tmp_path, monkeypatch):
 
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 14)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 15
+        assert migrated.schema_version() == 14
         assert migrated._connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'benchmark_artifacts_no_update'"
         ).fetchone() is not None
         migrated.migrate()
-        assert migrated.schema_version() == 15
+        assert migrated.schema_version() == 14
 
 
 def test_benchmark_artifact_fingerprint_is_computed_from_canonical_content():
@@ -1754,3 +1759,21 @@ def test_benchmark_principal_role_assignments_are_validated_and_audited():
         assert principal["roles"] == ["benchmark_curator"]
         events = registry.audit_events(entity_id="curator-one")
         assert [event["event_type"] for event in events] == ["benchmark_principal.provisioned"]
+
+
+def test_existing_schema_v14_database_migrates_to_v15(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v14.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 14)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 14
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_principals'"
+        ).fetchone() is None
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 15)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 15
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_adjudications'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 15
