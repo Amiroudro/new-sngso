@@ -184,6 +184,27 @@ class AuthenticatedBenchmarkAccess:
         )
 
 
+    def register_study_protocol(
+        self, request_context: Any, payload: dict[str, Any], *, reason: str
+    ) -> dict[str, Any]:
+        """Register a study protocol as an authenticated benchmark curator."""
+        actor = self._principal(request_context, "benchmark_curator")
+        return self._registry.register_benchmark_study_protocol(
+            payload, actor=actor, reason=reason
+        )
+
+    def get_study_protocol(
+        self, request_context: Any, study_id: str, study_version: int | None = None
+    ) -> dict[str, Any] | None:
+        self._principal(request_context, ("benchmark_curator", "benchmark_adjudicator", "benchmark_security_admin"))
+        return self._registry.get_benchmark_study_protocol(study_id, study_version)
+
+    def study_protocol_history(
+        self, request_context: Any, study_id: str
+    ) -> list[dict[str, Any]]:
+        self._principal(request_context, ("benchmark_curator", "benchmark_adjudicator", "benchmark_security_admin"))
+        return self._registry.benchmark_study_protocol_history(study_id)
+
     def evaluator_agreement_report(
         self, request_context: Any, artifact_id: str, item_id: str
     ) -> dict[str, Any]:
