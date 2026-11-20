@@ -84,3 +84,11 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - Per-language reports include object/segment counts, factual and traceable coverage, unsupported factual segments, passing review counts, blocker counts, and a deterministic blocked/review-required state.
 - Bangla and English remain independently assessed. review_required is not publication approval, and production authorization remains false.
 - Regression tests cover a rejected review record and the resulting language-level blocker summary. Section 7 remains in progress; Sections 8–10 remain future phases.
+
+## Section 7.33: MCQ distractor rationale traceability
+
+- The learning-object contract requires one non-empty rationale keyed to every incorrect MCQ option and forbids a rationale for the correct option.
+- Registry validation enforces exact option-ID coverage and rejects missing or duplicate rationale records.
+- The quality report exposes a dedicated rationale-coverage check.
+- Every MCQ quality report retains a human-review warning for plausibility, unambiguous incorrectness, misconception alignment, parallel construction, and accidental clues. The system does not infer distractor quality from rationale presence.
+- This improves inspectability and source-grounded editorial review; it does not establish item validity or publication readiness. Section 7 remains in progress; Sections 8–10 remain future phases.
