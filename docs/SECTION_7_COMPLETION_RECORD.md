@@ -15,6 +15,7 @@ Section 7 now covers the lifecycle from a declared human review through benchmar
 | 7.19–7.21 | Criterion-level scoring, authenticated score ledger, and descriptive evaluator-agreement reporting |
 | 7.22–7.24 | Prespecified calibration-study protocol, immutable protocol registry, execution evidence, and independent methodological review |
 | 7.25 | Three-domain independent acceptance review and immutable authenticated decision ledger |
+| 7.26 | Benchmark acceptance evidence in story snapshots and separate Bangla/English editorial coverage reporting |
 
 ## Persistence and trust boundaries
 
@@ -46,7 +47,7 @@ Synthetic tests validate software behavior only. Production use remains blocked 
 
 ## Relationship to the ten-section master plan
 
-This completion record covers the human-benchmark governance slice of **Section 7: Editorial production and bilingual quality**. It does not mark all of Section 7 complete. Section 7 still requires production workflows for three-level summaries, independent Bangla and English review, multi-source perspectives, bilingual terminology, source-grounded vocabulary and exam learning, and daily briefing assembly inputs.
+This completion record covers the human-benchmark governance slice and its story-snapshot/bilingual-report integration within **Section 7: Editorial production and bilingual quality**. It does not mark all of Section 7 complete. Section 7 still requires production workflows for three-level summaries, independent Bangla and English review, multi-source perspectives, bilingual terminology, source-grounded vocabulary and exam learning, and daily briefing assembly inputs.
 
 Sections 8, 9, and 10 remain future ordered phases:
 
