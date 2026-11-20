@@ -121,19 +121,22 @@ Acceptance:
 
 ## 7. Editorial production and bilingual quality
 
-**Goal:** produce useful Bangla and English editorial outputs from reviewed evidence.
+**Status: in progress.** The first editorial persistence slice is implemented: story-linked learning objects, sentence-to-claim traceability, answer-claim links, independent language variants and review states, controlled bilingual glossary entries, vocabulary-to-glossary consistency, optimistic revisions, immutable history, and deterministic per-object quality gates. Human benchmark governance, study evidence, criterion-level scoring, and independent acceptance records are implemented as a review framework. The benchmark acceptance report is now connected to story editorial snapshots. A separate Bangla/English coverage report reports artifact counts, approval and registry-gate states, blockers, warnings, and missing counterparts without creating a cross-language average.
 
-Tasks:
-- Build three-level summaries, daily briefings, timelines, and multi-source perspectives.
-- Preserve attribution, uncertainty, dates, quantities, and distinctions between fact and analysis.
-- Add separate Bangla and English review states and a controlled glossary.
-- Create source-grounded vocabulary and exam-learning objects.
-- Establish human-reviewed benchmark fixtures.
+Tasks remaining:
+- Build reviewed three-level summary workflows and deterministic editorial templates with sentence-level claim traceability.
+- Complete independent Bangla and English editorial/language review workflows and language-specific acceptance evidence.
+- Build multi-source perspectives into useful editorial outputs while preserving attribution and source independence.
+- Expand controlled bilingual terminology and source-grounded vocabulary, comprehension, analysis, MCQ, and revision-card workflows.
+- Establish and use genuine human-reviewed Bangla/English benchmarks for omission, distortion, attribution, language quality, and question answerability.
+- Prepare daily briefing inputs for Section 8 edition assembly.
 
 Acceptance:
 - Editorial outputs link back to claims/evidence.
 - No unsupported detail is introduced during compression or translation.
+- Bangla and English are evaluated independently; a strong result in one cannot hide a failure or missing evidence in the other.
 - Learning questions have answerable, evidence-backed explanations.
+- Synthetic fixtures are never represented as human editorial evidence.
 
 ## 8. Edition assembly and publication safety
 
@@ -204,7 +207,7 @@ Acceptance:
 | 4. Permission-first collection | **Complete for the fixture-first framework:** permission-first orchestration, independent storage rechecks, cross-connection revocation tests, atomic batch persistence, full observation provenance including HTTP method, bounded pinned-IP HTTPS transport prototype, strict URL/DNS/header/redirect/body controls, and passing current-head CI | Live publisher adapters remain gated on source-specific rights review, trusted connector review, shared rate limiting, and deployment-level network-egress controls |
 | 5. Ingestion and identity | **Complete:** canonical URL/text/timestamp/language normalization; metadata-only permission-rechecked ingestion; exact observation provenance; deterministic article identity; ordered immutable metadata revisions; idempotency; cross-publisher duplicate candidates; reversible duplicate resolutions; migration 4; 311-test verification | No live publisher integration is enabled |
 | 6. Story intelligence and evidence | **Complete for local registry/fixture scope:** provenance and claim assessment; immutable merge/split decisions with atomic application; claim-backed timeline with correction and review history; attributed perspectives with review gates; curated claim-to-claim contradiction/qualification/reframing links; deterministic read-only editorial dossier; schema migrations through v10; 404 passing tests | Reviewer authentication, production editorial interface, automated extraction/discovery, live publisher adapters, and edition integration remain separate gates |
-| 7. Editorial production | **In progress:** language-specific learning-object contracts and variant groups, sentence-to-claim traceability, question answer-claim links, controlled bilingual glossary entries, vocabulary-to-glossary consistency, independent review states, optimistic revisions, immutable revision history, and deterministic editorial quality reports | Deterministic editorial templates, question answerability/distractor benchmarks, and bilingual language-quality fixtures remain |
+| 7. Editorial production | **In progress:** learning-object persistence and quality gates; bilingual glossary; human benchmark governance/scoring/study/acceptance records; story snapshot integration; separate Bangla/English coverage and quality report (latest implementation under verification) | Reviewed three-level summary workflows, independent language-quality review, multi-source editorial output, full learning workflow, genuine human benchmark evaluation, and daily briefing inputs remain |
 | 8. Edition assembly | Not started | Depends on Section 7 |
 | 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |
 | 10. End-to-end handover | Not started | Depends on all prior sections |
