@@ -1764,6 +1764,16 @@ def test_benchmark_readiness_requires_adjudication_even_for_two_human_classified
                 actor=review["reviewer"]["reviewer_id"],
                 reason="test trusted provider assertion",
             )
+        with pytest.raises(sqlite3.IntegrityError, match="identity attestations are immutable"):
+            registry._connection.execute(
+                "UPDATE benchmark_review_identity_attestations SET subject = 'forged' WHERE review_id = ?",
+                (first["review_id"],),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="identity attestations are immutable"):
+            registry._connection.execute(
+                "DELETE FROM benchmark_review_identity_attestations WHERE review_id = ?",
+                (first["review_id"],),
+            )
         report = registry.benchmark_readiness_report(first["benchmark_id"])
         assert report["status"] == "ready_for_adjudication"
         assert report["distinct_eligible_reviewer_count"] == 2
