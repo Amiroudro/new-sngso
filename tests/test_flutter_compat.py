@@ -193,7 +193,6 @@ def test_staging_candidate_verifies_exact_records_and_current_permission():
     ]
 
 
-@pytest.mark.parametrize("count_value", [True, -1, 1.5, "1"])
 def test_staging_candidate_rejects_boolean_revision_values():
     registry, client, manifest = _candidate()
     manifest["edition_revision"] = True
@@ -211,6 +210,7 @@ def test_staging_candidate_rejects_boolean_revision_values():
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
 
 
+@pytest.mark.parametrize("count_value", [True, -1, 1.5, "1"])
 def test_staging_candidate_rejects_non_integer_or_negative_counts(count_value):
     registry, client, manifest = _candidate()
     client["counts"]["stories"] = count_value
