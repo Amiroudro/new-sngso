@@ -141,6 +141,25 @@
               }
             },
             "allOf": [
+    {
+      "if": {
+        "required": [
+          "language_review"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "approved"
+          }
+        },
+        "required": [
+          "reviewed_at",
+          "reviewed_by",
+          "review_note"
+        ]
+      }
+    },
               {
                 "if": {
                   "properties": {
@@ -296,6 +315,89 @@
     },
     "variant_group_id": {
       "$ref": "common.schema.json#/$defs/id"
+    },
+    "language_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language",
+        "reviewer_id",
+        "reviewed_at",
+        "dimensions",
+        "note"
+      ],
+      "properties": {
+        "language": {
+          "enum": [
+            "bn",
+            "en"
+          ]
+        },
+        "reviewer_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "reviewed_at": {
+          "$ref": "common.schema.json#/$defs/dateTime"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "language_accuracy",
+            "clarity",
+            "factual_fidelity",
+            "attribution",
+            "omissions",
+            "translation_fidelity"
+          ],
+          "properties": {
+            "language_accuracy": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "clarity": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "factual_fidelity": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "attribution": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "omissions": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "translation_fidelity": {
+              "enum": [
+                "pass",
+                "needs_revision",
+                "not_applicable"
+              ]
+            }
+          }
+        }
+      }
     }
   },
   "allOf": [
