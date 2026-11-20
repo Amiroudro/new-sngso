@@ -277,7 +277,7 @@ def test_endpoint_coverage_rejects_ambiguous_or_unsafe_urls(
 
 
 @pytest.mark.parametrize("article_url", [
-    "https://publisher.example/news\\\\..\\\\admin",
+    "https://publisher.example/news\\..\\admin",
     "https://publisher.example/news/%2e%2e/admin",
     "https://publisher.example/news%2f..%2fadmin",
     "https://publisher.example/news%5c..%5cadmin",
