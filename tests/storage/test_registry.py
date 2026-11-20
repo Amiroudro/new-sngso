@@ -1579,6 +1579,23 @@ def test_benchmark_artifact_rejects_unstructured_or_incomplete_items():
             )
 
 
+def test_benchmark_artifact_rejects_duplicate_item_ids():
+    with SQLiteRegistry() as registry:
+        item = {
+            "item_id": "duplicate-1",
+            "task_type": "headline",
+            "input": "Input",
+            "expected_output": "Output",
+            "scoring_criteria": ["Accurate"],
+        }
+        with pytest.raises(RegistryIntegrityError, match="item IDs must be unique"):
+            registry.register_benchmark_artifact(
+                "benchmark:duplicate-en-v1", language="en",
+                content={"schema_version": "1.0.0", "items": [item, dict(item)]},
+                actor="curator", reason="duplicate fixture",
+            )
+
+
 def test_benchmark_artifacts_cannot_be_updated_or_deleted():
     with SQLiteRegistry() as registry:
         artifact = registry.register_benchmark_artifact(
