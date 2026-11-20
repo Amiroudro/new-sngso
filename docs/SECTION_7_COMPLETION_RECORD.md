@@ -101,12 +101,12 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - The check establishes source traceability only. It does not prove logical entailment, pedagogical quality, or that a distractor is unambiguously wrong. Human review remains required.
 - Section 7 remains in progress; Sections 8–10 remain future phases.
 
-## Section 7.35: vocabulary source-evidence binding (implementation added; verification pending)
+## Section 7.35: vocabulary source-evidence binding (verified)
 
 - Vocabulary objects now require a `source_evidence_id` and exact `source_evidence_revision` pointing to a registered evidence record and its locator.
 - Create and revision validate that the evidence belongs to an object claim, remains linked from that claim, and matches current source/article/observation provenance and evidence revision.
 - A read-only quality report repeats the check and blocks missing, stale, or mismatched references. SQLite migration 24 adds insert/update guards for direct writes.
 - The contract and tests cover missing IDs, unknown evidence, stale evidence revisions, stale claim links, direct-SQL bypass, and migration 23→24.
 - The vocabulary object stores an evidence reference, not a copied source sentence. Linkage gives traceability; glossary correctness and contextual meaning still need qualified human review.
-- Full-suite CI verification is pending on the current code head. Section 7 remains in progress; this slice does not close its production/security gates.
+- GitHub Actions [run #44720406104](https://github.com/Amiroudro/new-sngso/actions/runs/44720406104) passed the full Python 3.12 suite: **681 passed in 8.15 seconds** on code head `c2401950927a9ba26b5f7d05678a213543405940`. Section 7 remains in progress; this slice does not close its production/security gates.
 

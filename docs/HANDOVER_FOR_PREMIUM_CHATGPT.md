@@ -6,7 +6,7 @@
 **Repository:** `Amiroudro/new-sngso`  
 **Working branch:** `feat/section-7-human-benchmark-review-contract`  
 **Open pull request:** [PR #7](https://github.com/Amiroudro/new-sngso/pull/7)  
-**Latest verified branch head:** Recheck PR #7; Section 7.35 code is awaiting CI verification.
+**Latest full-suite-verified code head:** `c2401950927a9ba26b5f7d05678a213543405940` — [run #44720406104](https://github.com/Amiroudro/new-sngso/actions/runs/44720406104), 681 passed in 8.15 seconds. Recheck the live PR head before further edits.
 
 ---
 
@@ -71,7 +71,7 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 10. **End-to-end verification and controlled handover**  
     Verify the complete system, document limitations and operations, and hand over without unauthorized publication.
 
-**Current position:** Section 7 remains in progress. Section 7.35 vocabulary evidence binding is implemented and awaiting CI verification. Sections 8, 9, and 10 have not started. Do not describe Section 7 as complete.
+**Current position:** Section 7 remains in progress. Section 7.35 vocabulary evidence binding is implemented and verified on the code head above. Sections 8, 9, and 10 have not started. Do not describe Section 7 as complete.
 
 ## 4. Verified repository and PR state
 
@@ -79,7 +79,7 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 - PR #7 is a draft and is not merged.
 - Base branch: `feat/section-7-editorial-benchmarks`.
 - Head branch: `feat/section-7-human-benchmark-review-contract`.
-- Latest verified head and workflow status: check PR #7 directly; the current Section 7.35 commit has not completed CI verification.
+- Latest full-suite-verified code head: `c2401950927a9ba26b5f7d05678a213543405940`; GitHub Actions run [#44720406104](https://github.com/Amiroudro/new-sngso/actions/runs/44720406104) passed with **681 tests in 8.15 seconds**. Recheck PR #7 for any later docs-only head.
 - Final-head GitHub Actions run: [#44708874613](https://github.com/Amiroudro/new-sngso/actions/runs/44708874613).
 - Final-head Python 3.12 test result: **677 passed in 6.94 seconds**.
 - PR has 65 changed files at the last check.
@@ -135,11 +135,12 @@ The branch includes a substantial set of contracts, registry workflows, SQLite m
 - Unsupported or unassessed rationale claims block the quality gate.
 - This checks traceability, not logical entailment or pedagogical quality.
 
-**7.35: Vocabulary source-evidence binding (implementation added; CI pending)**
+**7.35: Vocabulary source-evidence binding (verified)**
 - Vocabulary objects require a registered evidence ID and exact evidence revision whose locator points to the source context.
 - The evidence must belong to an object claim, remain linked from that claim, and match current source/article/observation provenance.
 - Create, revision, quality-report, and SQLite boundaries recheck the binding. Tests cover missing/unknown/stale references, direct-SQL guards, and migration 23→24.
 - Source text is not copied into the learning object. Human review remains necessary to judge contextual meaning and glossary correctness.
+- GitHub Actions run [#44720406104](https://github.com/Amiroudro/new-sngso/actions/runs/44720406104) passed **681 tests in 8.15 seconds** on code head `c2401950927a9ba26b5f7d05678a213543405940`.
 
 ### What these checks do not prove
 
@@ -235,7 +236,7 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 >
 > Start with a fresh audit of the live repository, current branches, PRs, changed files, tests, and latest GitHub Actions results. Verify the current commit before editing. Do not assume the handover's dated SHA or test count is still current.
 >
-> Continue from the actual state of the code. Section 7.35 vocabulary evidence binding is implemented pending CI. Inspect the implementation and verification before selecting the next Section 7 slice; remaining priorities include source-grounded comprehension questions and revision cards, MCQ validity review, bilingual consistency, genuine human evidence, and Section 7 exit gates. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
+> Continue from the actual state of the code. Section 7.35 vocabulary evidence binding is implemented and verified. Inspect the live implementation before selecting the next Section 7 slice; remaining priorities include source-grounded comprehension questions and revision cards, MCQ validity review, bilingual consistency, genuine human evidence, and Section 7 exit gates. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
 >
 > Follow the original ten-section sequence exactly. Do not begin Section 8 until Section 7 exit criteria are actually met. Do not claim that synthetic tests prove editorial quality, that different publishers prove independent reporting, or that passing tests establish production readiness. Preserve uncertainty, attribution, source permissions, and human review.
 >
