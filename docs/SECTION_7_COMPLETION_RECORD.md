@@ -151,3 +151,12 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - This deterministic gate checks rubric completeness only. It does not authenticate the reviewer or prove editorial truth; the trusted review facade and operational acceptance remain separate requirements.
 - GitHub Actions [run #44731019456](https://github.com/Amiroudro/new-sngso/actions/runs/44731019456) passed **689 tests in 8.59 seconds** on code head `1ecf6a9345c996366363d5f8a08191485f6db66e`.
 - Section 7 remains in progress.
+
+
+## Section 7.40: authenticated MCQ pedagogical review rubric (CI verified)
+
+- Added the optional mcq_review contract with version mcq-editorial-v1 and eight required dimensions for MCQ pedagogy.
+- The authenticated reviewer facade requires the full rubric for MCQ approvals/rejections, records provider-backed attestation, and disallows approval with any needs_revision finding.
+- Registry validation checks reviewer, timestamp, language, version, and rubric structure. The quality report blocks approved MCQs lacking a complete all-pass rubric.
+- GitHub Actions [run #44732795832](https://github.com/Amiroudro/new-sngso/actions/runs/44732795832) passed 689 tests in 7.70 seconds on code head 4b14a10705ab4352b8c4c915179c3b564d601086.
+- No dedicated tests were added for the new MCQ route in this slice. Treat this as implemented but awaiting targeted regression coverage and real human use; it is not an editorial-quality certification. Section 7 remains in progress.
