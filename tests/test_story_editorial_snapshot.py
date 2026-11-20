@@ -172,6 +172,8 @@ def test_editorial_snapshot_collects_story_evidence_and_views_consistently():
         assert len(first["learning_objects"]) == 2
         assert len(first["glossary_entries"]) == 1
         assert first["story_decisions"] == []
+        assert first["benchmark_reviews"] == []
+        assert first["benchmark_acceptance_reviews"] == []
         assert first["fingerprint"].startswith("sha256:")
         assert first["fingerprint"] == second["fingerprint"]
         assert before == after
