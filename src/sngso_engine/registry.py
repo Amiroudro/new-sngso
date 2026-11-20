@@ -6030,7 +6030,7 @@ class SQLiteRegistry:
               "Exact registered execution and protocol linkage are verified." if execution_ok else
               "Registered execution is missing, changed, or not bound to the accepted protocol.")
         artifact_row = connection.execute(
-            "SELECT content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+            "SELECT language, content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
             (row["benchmark_id"],),
         ).fetchone()
         artifact_ok = bool(
@@ -6089,6 +6089,9 @@ class SQLiteRegistry:
             exact_binding = bool(
                 source_review.get("benchmark_id") == row["benchmark_id"]
                 and source_review.get("benchmark_fingerprint") == row["benchmark_fingerprint"]
+                and artifact_row is not None
+                and source_review.get("language") == artifact_row["language"]
+                and source_review.get("reviewer", {}).get("language") == artifact_row["language"]
             )
             permission_report = self._benchmark_review_quality_report(source_review, connection)
             attestation = connection.execute(
