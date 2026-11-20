@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .canonical import sha256_fingerprint
-from .registry import RegistryIntegrityError
 
 
 class FlutterCompatibilityError(ValueError):
@@ -75,12 +74,13 @@ def verify_flutter_staging_candidate(
         raise FlutterCompatibilityError("unsupported provenance manifest schema")
     if provenance_manifest.get("target_contract") != "flutter-edition-v1":
         raise FlutterCompatibilityError("unsupported Flutter client contract")
-    if provenance_manifest.get("edition_id") is None:
-        raise FlutterCompatibilityError("manifest edition_id is required")
+    _required_text(provenance_manifest.get("edition_id"), "manifest edition_id")
     if provenance_manifest.get("payload_sha256") != sha256_fingerprint(client_edition):
         raise FlutterCompatibilityError("client payload fingerprint does not match the manifest")
 
     edition_date = _required_text(client_edition.get("edition_date"), "edition_date")
+    if provenance_manifest.get("edition_date") != edition_date:
+        raise FlutterCompatibilityError("client edition date does not match the manifest")
     if not isinstance(client_edition.get("stories"), list) or not client_edition["stories"]:
         raise FlutterCompatibilityError("staging candidate must contain at least one story")
     for collection in ("words", "revision_words", "phrases", "mcqs"):
@@ -133,32 +133,56 @@ def verify_flutter_staging_candidate(
         permission_by_source[source_id] = permission
 
     used_sources: set[str] = set()
+    verified_source_refs: dict[str, list[dict[str, Any]]] = {}
     verified_learning_objects: set[str] = set()
     verified_story_ids: list[str] = []
     for story_id, client_story in client_stories.items():
         snapshot = registry.story_editorial_snapshot(story_id)
         if snapshot.get("story_id") != story_id:
             raise FlutterCompatibilityError("registry story snapshot identity mismatch")
-        if snapshot.get("story", {}).get("status") != "active":
-            raise FlutterCompatibilityError("only active stories can enter a staging candidate")
-        article_sources = {
-            article["record"].get("source_id")
-            for article in snapshot.get("articles", [])
-            if isinstance(article, dict) and isinstance(article.get("record"), dict)
-        }
-        if not article_sources:
-            raise FlutterCompatibilityError(f"story {story_id} has no registered source articles")
+        if snapshot.get("story", {}).get("status") in {"archived", "contested"}:
+            raise FlutterCompatibilityError("archived or contested stories cannot enter this client contract")
+        articles_by_source: dict[str, list[dict[str, Any]]] = {}
+        for article in snapshot.get("articles", []):
+            if not isinstance(article, dict) or not isinstance(article.get("record"), dict):
+                continue
+            article_record = article["record"]
+            if article_record.get("record_status") != "active":
+                continue
+            articles_by_source.setdefault(article_record.get("source_id"), []).append(article_record)
+        if not articles_by_source:
+            raise FlutterCompatibilityError(f"story {story_id} has no active registered source articles")
         source_ids = []
         for source_ref in client_story["sources"]:
             if not isinstance(source_ref, dict):
                 raise FlutterCompatibilityError("client source references must be objects")
             source_id = _required_text(source_ref.get("id"), "client source id")
-            if source_id not in article_sources:
+            articles = articles_by_source.get(source_id, [])
+            if not articles:
                 raise FlutterCompatibilityError(
-                    f"client source {source_id} is not linked to story {story_id}"
+                    f"client source {source_id} is not linked to an active article in story {story_id}"
                 )
+            source_record = registry.get_source(source_id)
+            if source_record is None:
+                raise FlutterCompatibilityError(f"client source is not registered: {source_id}")
+            source_payload = source_record.to_payload() if hasattr(source_record, "to_payload") else source_record
+            if source_ref.get("publication") != source_payload.get("publisher_name"):
+                raise FlutterCompatibilityError(f"client publisher name mismatch for {source_id}")
+            matching_article = next((article for article in articles
+                if article.get("title") == source_ref.get("headline")
+                and article.get("canonical_uri") == source_ref.get("url")), None)
+            if matching_article is None:
+                raise FlutterCompatibilityError(
+                    f"client source headline or URL does not match a registered article for {source_id}"
+                )
+            published_at = matching_article.get("published_at")
+            source_date = source_ref.get("date")
+            if published_at:
+                if not isinstance(source_date, str) or source_date[:10] != published_at[:10]:
+                    raise FlutterCompatibilityError(f"client publication date mismatch for {source_id}")
             source_ids.append(source_id)
             used_sources.add(source_id)
+            verified_source_refs.setdefault(source_id, []).append(source_ref)
         if not source_ids:
             raise FlutterCompatibilityError(f"story {story_id} must display at least one source")
         binding = bindings_by_story[story_id]
@@ -216,6 +240,15 @@ def verify_flutter_staging_candidate(
             verified_learning_objects.add(object_id)
         verified_story_ids.append(story_id)
 
+    edition_sources = client_edition.get("sources", [])
+    if not isinstance(edition_sources, list):
+        raise FlutterCompatibilityError("edition sources must be a list")
+    for source_ref in edition_sources:
+        if not isinstance(source_ref, dict):
+            raise FlutterCompatibilityError("edition source references must be objects")
+        source_id = source_ref.get("id")
+        if source_id not in used_sources or source_ref not in verified_source_refs.get(source_id, []):
+            raise FlutterCompatibilityError("edition source is not bound to a verified story source")
     if used_sources != set(permission_by_source):
         raise FlutterCompatibilityError(
             "source permission bindings must exactly cover the client source references"
