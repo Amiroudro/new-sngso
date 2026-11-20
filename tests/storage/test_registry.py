@@ -1952,6 +1952,45 @@ def test_benchmark_adjudication_rejects_multiple_final_decisions_for_one_artifac
         assert report["adjudication"]["outcome"] == "reject_benchmark_item"
 
 
+def test_final_adjudication_freezes_review_revision_for_that_artifact():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Experienced English editor with independent verification experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second review")
+        adjudication = {
+            "schema_version": "1.0.0",
+            "adjudication_id": "adjudication:freeze-review",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": "reject_benchmark_item",
+            "rationale": "The benchmark item is rejected because its expected output cannot be justified by the supplied source evidence.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+        }
+        registry.add_benchmark_adjudication(adjudication, actor="adjudicator:senior", reason="Final rejection")
+        revised = dict(first)
+        revised["status"] = "rejected"
+        revised["adjudication_note"] = "The adjudicator rejected this item."
+        with pytest.raises(RegistryIntegrityError, match="finally adjudicated"):
+            registry.revise_benchmark_review(
+                first["review_id"], revised, expected_revision=1,
+                actor="editor:lead", reason="Attempt revision after final adjudication",
+            )
+
+
 def test_uphold_existing_only_preserves_the_explicitly_selected_approved_review():
     with SQLiteRegistry() as registry:
         _populate_benchmark_review_sources(registry)
