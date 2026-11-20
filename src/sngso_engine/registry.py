@@ -5807,6 +5807,8 @@ class SQLiteRegistry:
         attested_at = _aware_datetime(attestation["attested_at"], "attested_at")
         if expires_at <= authenticated_at or attested_at < authenticated_at or attested_at >= expires_at:
             raise RegistryIntegrityError("identity attestation timestamps are inconsistent")
+        if (attested_at - authenticated_at).total_seconds() > 900:
+            raise RegistryIntegrityError("identity attestation must be captured within 15 minutes of authentication")
         if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
             raise RegistryIntegrityError("identity attestation actor and reason are required")
         payload_json = _json_text(attestation)
