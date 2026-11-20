@@ -862,3 +862,51 @@ def test_approved_language_review_rejects_needs_revision_dimension():
     with pytest.raises(RegistryIntegrityError, match="approved language review cannot contain"):
         from sngso_engine.registry import _validate_learning_object_language_review
         _validate_learning_object_language_review(payload)
+
+
+
+def test_language_review_identity_attestation_is_bound_to_reviewer_and_timestamp():
+    from sngso_engine.registry import _validate_learning_object_language_review
+
+    payload = _summary()
+    payload.update({
+        "status": "approved",
+        "reviewed_at": "2026-11-20T01:00:00Z",
+        "reviewed_by": "reviewer:bn",
+        "review_note": "Authenticated review.",
+        "language_review": {
+            "language": "bn",
+            "rubric_version": "bn-editorial-v1",
+            "reviewer_id": "reviewer:bn",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "note": "Reviewed.",
+            "dimensions": {
+                "grammar_and_spelling": "pass",
+                "naturalness_and_register": "pass",
+                "terminology_consistency": "pass",
+                "factual_fidelity": "pass",
+                "attribution": "pass",
+                "omissions": "pass",
+                "translation_fidelity": "not_applicable",
+            },
+            "identity_attestation": {
+                "principal_id": "reviewer:bn",
+                "issuer": "https://login.example.test/",
+                "subject": "oidc-subject-bn",
+                "provider_key_id": "key-1",
+                "provider_adapter": "oidc-adapter/1",
+                "authenticated_at": "2026-11-20T00:59:00Z",
+                "attested_at": "2026-11-20T01:00:00Z",
+                "authentication_methods": ["pwd", "mfa"],
+                "authentication_context": "urn:example:loa:2",
+            },
+        },
+    })
+    _validate_learning_object_language_review(payload)
+    payload["language_review"]["identity_attestation"]["principal_id"] = "reviewer:other"
+    with pytest.raises(RegistryIntegrityError, match="principal mismatch"):
+        _validate_learning_object_language_review(payload)
+    payload["language_review"]["identity_attestation"]["principal_id"] = "reviewer:bn"
+    payload["language_review"]["identity_attestation"]["attested_at"] = "2026-11-20T01:01:00Z"
+    with pytest.raises(RegistryIntegrityError, match="timestamp mismatch"):
+        _validate_learning_object_language_review(payload)
