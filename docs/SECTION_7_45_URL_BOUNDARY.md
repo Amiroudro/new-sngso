@@ -1,6 +1,6 @@
 # Section 7.45: staging URL boundary validation
 
-**Status:** Implemented with regression tests; GitHub Actions verification is pending. This is a defensive improvement to the Section 7.42/7.43 staging-only Flutter adapter, not a publication authorization.
+**Status:** Implemented with regression tests; GitHub Actions contract validation passed on the latest PR head (`7eee3c18`). The full Python test suite has not yet been run on this exact head. This is a defensive improvement to the Section 7.42/7.43 staging-only Flutter adapter, not a publication authorization.
 
 ## Change
 
