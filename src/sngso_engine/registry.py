@@ -5186,6 +5186,39 @@ class SQLiteRegistry:
             "last_actor": row["last_actor"], "last_reason": row["last_reason"],
         }
 
+    def list_benchmark_review_assignments(
+        self, *, reviewer_id: str | None = None, status: str | None = None,
+        language: str | None = None
+    ) -> list[dict[str, Any]]:
+        """List assignment queue entries using explicit optional filters."""
+        if status is not None and status not in {"assigned", "accepted", "submitted", "cancelled", "expired"}:
+            raise ValueError("unsupported assignment status filter")
+        if language is not None and language not in {"bn", "en"}:
+            raise ValueError("unsupported assignment language filter")
+        clauses = []
+        values: list[Any] = []
+        if reviewer_id is not None:
+            clauses.append("reviewer_id = ?")
+            values.append(reviewer_id)
+        if status is not None:
+            clauses.append("status = ?")
+            values.append(status)
+        if language is not None:
+            clauses.append("language = ?")
+            values.append(language)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self._connection.execute(
+            "SELECT revision, created_at, updated_at, last_actor, last_reason, payload_json "
+            "FROM benchmark_review_assignments" + where + " ORDER BY due_at, assignment_id",
+            values,
+        ).fetchall()
+        return [
+            {**json.loads(row["payload_json"]), "revision": row["revision"],
+             "created_at": row["created_at"], "updated_at": row["updated_at"],
+             "last_actor": row["last_actor"], "last_reason": row["last_reason"]}
+            for row in rows
+        ]
+
     def benchmark_review_assignment_history(self, assignment_id: str) -> list[dict[str, Any]]:
         rows = self._connection.execute(
             """SELECT revision, created_at, actor, reason, payload_json
