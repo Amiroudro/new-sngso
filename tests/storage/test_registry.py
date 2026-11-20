@@ -1860,3 +1860,50 @@ def test_benchmark_adjudication_rejects_reviewers_and_wrong_artifact_binding():
             registry.add_benchmark_adjudication(
                 payload, actor="editor:lead", reason="Invalid self-adjudication",
             )
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_eligible"),
+    [
+        ("uphold_existing", True),
+        ("return_for_revision", False),
+        ("reject_benchmark_item", False),
+        ("split_accepted_answers", False),
+    ],
+)
+def test_adjudication_outcome_controls_current_use_eligibility(outcome, expected_eligible):
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Experienced English editor with independent verification experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second review")
+        adjudication = {
+            "schema_version": "1.0.0",
+            "adjudication_id": f"adjudication:policy-{outcome}",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": outcome,
+            "rationale": "The adjudicator compared both independent reviews against the registered evidence and resolved their disagreement.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+        }
+        registry.add_benchmark_adjudication(
+            adjudication, actor="adjudicator:senior", reason="Apply adjudication policy",
+        )
+        report = registry.benchmark_review_quality_report(first["review_id"])
+        assert report["eligible_for_current_use"] is expected_eligible
+        policy_check = next(item for item in report["checks"] if item["name"] == "adjudication_policy")
+        assert policy_check["passed"] is expected_eligible
+        assert report["adjudication"]["outcome"] == outcome
