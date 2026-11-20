@@ -131,8 +131,24 @@ class OIDCIdentityProvider:
                 raise RegistryIntegrityError("OIDC authorized-party claim is missing or mismatched")
             if isinstance(auth_time, bool) or not isinstance(auth_time, (int, float)) or not math.isfinite(auth_time):
                 raise RegistryIntegrityError("OIDC authentication time is invalid")
+            issued_at = claims.get("iat")
+            if isinstance(issued_at, bool) or not isinstance(issued_at, (int, float)) or not math.isfinite(issued_at):
+                raise RegistryIntegrityError("OIDC issued-at claim is invalid")
             if isinstance(expires_at, bool) or not isinstance(expires_at, (int, float)) or not math.isfinite(expires_at):
                 raise RegistryIntegrityError("OIDC expiry claim is invalid")
+            now_epoch = now.timestamp()
+            if expires_at <= now_epoch - self.config.clock_skew_seconds:
+                raise RegistryIntegrityError("OIDC token is expired")
+            if issued_at > now_epoch + self.config.clock_skew_seconds:
+                raise RegistryIntegrityError("OIDC issued-at claim is in the future")
+            not_before = claims.get("nbf")
+            if not_before is not None and (
+                isinstance(not_before, bool)
+                or not isinstance(not_before, (int, float))
+                or not math.isfinite(not_before)
+                or not_before > now_epoch + self.config.clock_skew_seconds
+            ):
+                raise RegistryIntegrityError("OIDC not-before claim is invalid or in the future")
             authenticated_at = datetime.fromtimestamp(auth_time, timezone.utc)
             expiry = datetime.fromtimestamp(expires_at, timezone.utc)
             age = (now - authenticated_at).total_seconds()
