@@ -6,7 +6,7 @@
 **Repository:** `Amiroudro/new-sngso`  
 **Working branch:** `feat/section-7-human-benchmark-review-contract`  
 **Open pull request:** [PR #7](https://github.com/Amiroudro/new-sngso/pull/7)  
-**Latest full-suite-verified code head:** `cc7f4f5e7e3d38a4d6709a9c0b5fdee4c3fe1abe` — [run #44749250816](https://github.com/Amiroudro/new-sngso/actions/runs/44749250816), 693 passed in 6.24 seconds. Recheck the live PR head before further edits.
+**Latest full-suite-verified code head:** `ec06daf4d3abba0b8034d56c1f84bb470d63229d` — [run #44752476466](https://github.com/Amiroudro/new-sngso/actions/runs/44752476466), 701 passed in 6.38 seconds. Recheck the live PR head before further edits.
 
 ---
 
@@ -174,13 +174,13 @@ Continue Section 7. Do not jump to Section 8 until Section 7 exit criteria are d
 
 ### Remaining Section 7 work
 
-The source-evidence bindings, revision-card segment checks, bilingual claim-coverage diagnostic, language-rubric quality gate, and authenticated MCQ rubric capture are implemented. The latest full Python suite passed; the new MCQ paths still lack dedicated regression cases and remain unproven with real reviewers. Continue in Section 7 while these exit blockers remain:
+The source-evidence bindings, revision-card segment checks, bilingual claim-coverage diagnostic, language-rubric quality gate, authenticated MCQ rubric capture, and staging-only Flutter compatibility verifier are implemented and covered by synthetic regression tests. Real reviewers, source evidence, and Flutter integration remain unproven. Continue in Section 7 while these exit blockers remain:
 
-1. The authenticated MCQ pedagogical-review capture and fail-closed quality gate are now implemented (Section 7.40). Real qualified reviewers still need to use the workflow, and targeted rubric regression coverage plus review evidence must be added before claiming the control is fully validated.
+1. The authenticated MCQ review gate and direct regression coverage are implemented (Section 7.40). Qualified human reviewers still need to use it; calibration and independent acceptance evidence remain outstanding.
 2. Obtain genuine, qualified Bangla and English human review data, prespecified calibration evidence, and independent acceptance evidence. Keep synthetic tests clearly separate.
 3. Collect actual reporting-lineage evidence and current permission evidence for each intended source operation. Do not infer independence or rights from publisher counts.
 4. Finish production identity-provider, protected administrator bootstrap, database/host controls, backup/restore drills, and the Section 7.18 operational sign-off.
-5. A design-only compatibility boundary is documented in docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md. Still implement and test the staging adapter, manifest validator, and cross-repository golden contract. Do not assume interchangeability with the older Engine v2 format.
+5. A fail-closed staging-candidate verifier now checks exact approved English text, current registry revisions, citation metadata, and current republication permissions. Implement the serializer and validate against the actual Flutter parser with cross-repository golden tests. Keep bilingual and study-object export blocked until separately mapped and tested.
 6. Verify realistic daily briefing inputs through the editorial workflow without invented sources or claims.
 
 The engineering workflow can continue while external evidence is gathered. Keep Section 7 open until every exit criterion is evidenced or explicitly recorded as unresolved; do not start Section 8 ahead of it.
@@ -296,3 +296,13 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 - The document records that the current Flutter model does not consume a claim-level permission/evidence manifest and that no shared executable contract or cross-repository golden test exists.
 - This is a design checkpoint only. No integrated repo files or bundled editions were modified; no adapter was implemented or tested with Flutter. The compatibility exit gate remains open.
 - Section 7 remains in progress; Sections 8–10 remain future work.
+
+
+## Section 7.42: staging-only Flutter compatibility verifier (CI verified)
+
+- Added a read-only verifier for the current legacy Flutter edition shape. It binds an approved registered edition revision to an exact story set and exact approved English headline/summary object revisions.
+- It verifies registered publisher/article citation fields; active human reviewer classification and language qualification; current source republication grants; and that each article URL is covered by the permitted endpoint.
+- It rejects published status, unbound display metadata, unsupported story fields and content collections, stale revisions, mismatched source/citation records, and denied or wrong-source permissions. The return value explicitly says publication is not authorized.
+- Added synthetic regression coverage for tampering, stale records, wrong source grants, denied permissions, unsupported collections, reviewer qualifications, timestamps, and source endpoint scope.
+- GitHub Actions [run #44752476466](https://github.com/Amiroudro/new-sngso/actions/runs/44752476466) passed the full Python 3.12 suite: **701 tests in 6.38 seconds** on code head ec06daf4d3abba0b8034d56c1f84bb470d63229d.
+- This does not serialize editions or run Flutter. The integrated client cannot validate the provenance sidecar, there is no cross-repository golden test, and no source currently has confirmed republication permission. Section 7 remains open.
