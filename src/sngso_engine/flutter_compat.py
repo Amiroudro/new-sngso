@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from .canonical import sha256_fingerprint
 
@@ -68,6 +69,12 @@ def verify_flutter_staging_candidate(
 
     if not isinstance(client_edition, dict) or not isinstance(provenance_manifest, dict):
         raise FlutterCompatibilityError("edition and provenance manifest must be JSON objects")
+    supported_edition_fields = {
+        "edition_date", "edition_day", "coverage", "status", "counts",
+        "stories", "words", "revision_words", "phrases", "mcqs", "sources",
+    }
+    if set(client_edition) - supported_edition_fields:
+        raise FlutterCompatibilityError("client edition contains unsupported fields")
     if client_edition.get("status") not in {"draft", "staging"}:
         raise FlutterCompatibilityError("candidate must remain draft or staging")
     if provenance_manifest.get("schema_version") != "1.0.0":
@@ -114,8 +121,12 @@ def verify_flutter_staging_candidate(
     counts = client_edition.get("counts", {})
     if not isinstance(counts, dict):
         raise FlutterCompatibilityError("counts must be an object")
-    if "stories" in counts and counts["stories"] != len(client_edition["stories"]):
-        raise FlutterCompatibilityError("story count does not match the stories array")
+    for count_key, collection in (
+        ("stories", "stories"), ("words", "words"), ("revision_words", "revision_words"),
+        ("phrases", "phrases"), ("mcqs", "mcqs"), ("sources", "sources"),
+    ):
+        if count_key in counts and counts[count_key] != len(client_edition.get(collection, [])):
+            raise FlutterCompatibilityError(f"{count_key} count does not match its client array")
 
     story_bindings = provenance_manifest.get("story_bindings")
     if not isinstance(story_bindings, list) or not story_bindings:
@@ -127,6 +138,8 @@ def verify_flutter_staging_candidate(
         story_id = _required_text(story.get("id"), "client story id")
         if story_id in client_stories:
             raise FlutterCompatibilityError("client story IDs must be unique")
+        if set(story) != {"id", "headline", "summary", "category", "sources"}:
+            raise FlutterCompatibilityError("client story contains unsupported or unbound fields")
         if set(story) != {"id", "headline", "summary", "category", "sources"}:
             raise FlutterCompatibilityError("client story contains unsupported or unbound fields")
         for field in ("headline", "summary", "category"):
@@ -150,18 +163,23 @@ def verify_flutter_staging_candidate(
     permissions = provenance_manifest.get("source_permissions")
     if not isinstance(permissions, list):
         raise FlutterCompatibilityError("manifest source_permissions must be a list")
-    permission_by_source: dict[str, dict[str, Any]] = {}
+    permission_bindings: list[dict[str, Any]] = []
+    permission_keys: set[tuple[str, str]] = set()
     for permission in permissions:
         if not isinstance(permission, dict):
             raise FlutterCompatibilityError("each source permission binding must be an object")
         if set(permission) != {"source_id", "endpoint_id", "grant_id", "operation"}:
             raise FlutterCompatibilityError("source permission binding contains unsupported fields")
         source_id = _required_text(permission.get("source_id"), "permission source_id")
-        if source_id in permission_by_source:
-            raise FlutterCompatibilityError("source permission bindings must be unique by source")
-        permission_by_source[source_id] = permission
+        endpoint_id = _required_text(permission.get("endpoint_id"), "permission endpoint_id")
+        key = (source_id, endpoint_id)
+        if key in permission_keys:
+            raise FlutterCompatibilityError("source permission bindings must be unique by source and endpoint")
+        permission_keys.add(key)
+        permission_bindings.append(permission)
 
     used_sources: set[str] = set()
+    used_article_urls: dict[str, set[str]] = {}
     verified_source_refs: dict[str, list[dict[str, Any]]] = {}
     verified_learning_objects: set[str] = set()
     verified_story_ids: list[str] = []
@@ -186,6 +204,8 @@ def verify_flutter_staging_candidate(
         for source_ref in client_story["sources"]:
             if not isinstance(source_ref, dict):
                 raise FlutterCompatibilityError("client source references must be objects")
+            if set(source_ref) != {"id", "publication", "headline", "date", "url"}:
+                raise FlutterCompatibilityError("client source reference contains unsupported fields")
             source_id = _required_text(source_ref.get("id"), "client source id")
             articles = articles_by_source.get(source_id, [])
             if not articles:
@@ -210,11 +230,16 @@ def verify_flutter_staging_candidate(
             if published_at:
                 if not isinstance(source_date, str) or source_date[:10] != published_at[:10]:
                     raise FlutterCompatibilityError(f"client publication date mismatch for {source_id}")
+            elif source_date not in (None, ""):
+                raise FlutterCompatibilityError(f"client publication date has no registered basis for {source_id}")
             source_ids.append(source_id)
             used_sources.add(source_id)
+            used_article_urls.setdefault(source_id, set()).add(matching_article["canonical_uri"])
             verified_source_refs.setdefault(source_id, []).append(source_ref)
         if not source_ids:
             raise FlutterCompatibilityError(f"story {story_id} must display at least one source")
+        if client_story["category"] and client_story["category"] not in story_payload.get("topic_tags", []):
+            raise FlutterCompatibilityError(f"client category is not a registered story topic tag: {story_id}")
         if client_story["category"] and client_story["category"] not in story_payload.get("topic_tags", []):
             raise FlutterCompatibilityError(f"client category is not a registered story topic tag: {story_id}")
         binding = bindings_by_story[story_id]
@@ -277,21 +302,47 @@ def verify_flutter_staging_candidate(
     edition_sources = client_edition.get("sources", [])
     if not isinstance(edition_sources, list):
         raise FlutterCompatibilityError("edition sources must be a list")
+    if not isinstance(edition_sources, list):
+        raise FlutterCompatibilityError("edition sources must be a list")
+    edition_ref_fingerprints = set()
     for source_ref in edition_sources:
         if not isinstance(source_ref, dict):
             raise FlutterCompatibilityError("edition source references must be objects")
         source_id = source_ref.get("id")
         if source_id not in used_sources or source_ref not in verified_source_refs.get(source_id, []):
             raise FlutterCompatibilityError("edition source is not bound to a verified story source")
-    if used_sources != set(permission_by_source):
+        edition_ref_fingerprints.add(sha256_fingerprint(source_ref))
+    story_ref_fingerprints = {
+        sha256_fingerprint(source_ref)
+        for refs in verified_source_refs.values()
+        for source_ref in refs
+    }
+    if edition_ref_fingerprints != story_ref_fingerprints:
+        raise FlutterCompatibilityError("edition sources must exactly match the verified story source set")
+    permission_sources = {item["source_id"] for item in permission_bindings}
+    if used_sources != permission_sources:
         raise FlutterCompatibilityError(
             "source permission bindings must exactly cover the client source references"
         )
-    for source_id, permission in permission_by_source.items():
+    endpoint_urls: dict[str, list[str]] = {}
+    for permission in permission_bindings:
+        source_id = permission["source_id"]
+        endpoint_id = permission["endpoint_id"]
+        grant_id = _required_text(permission.get("grant_id"), "permission grant_id")
         if permission.get("operation") != "republication":
             raise FlutterCompatibilityError("Flutter export requires republication permission")
-        endpoint_id = _required_text(permission.get("endpoint_id"), "permission endpoint_id")
-        grant_id = _required_text(permission.get("grant_id"), "permission grant_id")
+        endpoint_record = registry.get_endpoint(endpoint_id)
+        grant_record = registry.get_permission_grant(grant_id)
+        if endpoint_record is None or grant_record is None:
+            raise FlutterCompatibilityError("source endpoint or republication grant is not registered")
+        endpoint_payload = endpoint_record.to_payload() if hasattr(endpoint_record, "to_payload") else endpoint_record
+        grant_payload = grant_record.to_payload() if hasattr(grant_record, "to_payload") else grant_record
+        if endpoint_payload.get("source_id") != source_id or grant_payload.get("source_id") != source_id:
+            raise FlutterCompatibilityError("republication grant and endpoint must match the exact source")
+        endpoint_url = endpoint_payload.get("endpoint_uri")
+        if not isinstance(endpoint_url, str):
+            raise FlutterCompatibilityError("registered endpoint URI is missing")
+        endpoint_urls.setdefault(source_id, []).append(endpoint_url)
         decision = registry.evaluate_grant(
             grant_id, "republication", endpoint_id=endpoint_id, now=evaluation_time
         )
@@ -299,6 +350,29 @@ def verify_flutter_staging_candidate(
             raise FlutterCompatibilityError(
                 f"current republication permission denied for {source_id}: {decision.reason}"
             )
+    for source_id, article_urls in used_article_urls.items():
+        for article_url in article_urls:
+            article_parts = urlsplit(article_url)
+            covered = False
+            for endpoint_url in endpoint_urls.get(source_id, []):
+                endpoint_parts = urlsplit(endpoint_url)
+                base_path = endpoint_parts.path.rstrip("/")
+                path_matches = (
+                    article_parts.path == base_path
+                    or article_parts.path.startswith(base_path + "/")
+                    or base_path == ""
+                )
+                if (
+                    article_parts.scheme == endpoint_parts.scheme
+                    and article_parts.netloc.casefold() == endpoint_parts.netloc.casefold()
+                    and path_matches
+                ):
+                    covered = True
+                    break
+            if not covered:
+                raise FlutterCompatibilityError(
+                    f"no permitted endpoint covers article URL for {source_id}"
+                )
 
     return {
         "status": "verified_for_staging_only",
