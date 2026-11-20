@@ -17,6 +17,16 @@
     "resolved_at",
     "reviewer_ids"
   ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {"outcome": {"const": "uphold_existing"}},
+        "required": ["outcome"]
+      },
+      "then": {"required": ["upheld_review_ids"]},
+      "else": {"not": {"required": ["upheld_review_ids"]}}
+    }
+  ],
   "properties": {
     "schema_version": {
       "const": "1.0.0"
