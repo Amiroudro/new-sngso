@@ -106,3 +106,39 @@ class AuthenticatedBenchmarkAccess:
         if payload.get("adjudicator", {}).get("principal_id") != actor:
             raise RegistryIntegrityError("authenticated adjudicator must match the adjudication declaration")
         return self._registry.add_benchmark_adjudication(payload, actor=actor, reason=reason)
+
+    def assign_review(
+        self, request_context: Any, payload: dict[str, Any], *, reason: str
+    ) -> dict[str, Any]:
+        actor = self._principal(request_context, "benchmark_curator")
+        if payload.get("assigned_by") != actor:
+            raise RegistryIntegrityError("authenticated curator must match the declared assigner")
+        return self._registry.create_benchmark_review_assignment(
+            payload, actor=actor, reason=reason
+        )
+
+    def transition_review_assignment(
+        self, request_context: Any, assignment_id: str, *, event: str,
+        at: str, reason: str, submitted_review_id: str | None = None
+    ) -> dict[str, Any]:
+        assignment = self._registry.get_benchmark_review_assignment(assignment_id)
+        if assignment is None:
+            raise RegistryIntegrityError(f"unknown benchmark review assignment: {assignment_id}")
+        if event in {"accept", "submit"}:
+            required_role = "benchmark_reviewer"
+        elif event == "expire":
+            required_role = "benchmark_curator"
+        elif event == "cancel":
+            identity = self._identity_provider.authenticate(request_context)
+            principal_id = identity.principal_id if isinstance(identity, AuthenticatedIdentity) else ""
+            required_role = (
+                "benchmark_curator" if principal_id == assignment["assigned_by"]
+                else "benchmark_reviewer"
+            )
+        else:
+            raise RegistryIntegrityError("unsupported assignment transition")
+        actor = self._principal(request_context, required_role)
+        return self._registry.transition_benchmark_review_assignment(
+            assignment_id, event=event, actor=actor, at=at, reason=reason,
+            submitted_review_id=submitted_review_id,
+        )
