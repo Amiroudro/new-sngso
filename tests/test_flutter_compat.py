@@ -99,6 +99,19 @@ class FakeRegistry:
             "principal_kind": "human",
         }
 
+    def get_endpoint(self, endpoint_id):
+        if endpoint_id != "endpoint:one":
+            return None
+        return FakeRecord({
+            "id": endpoint_id, "source_id": "source:one",
+            "endpoint_uri": "https://publisher.example/",
+        })
+
+    def get_permission_grant(self, grant_id):
+        if grant_id != "grant:republication":
+            return None
+        return FakeRecord({"id": grant_id, "source_id": "source:one"})
+
     def evaluate_grant(self, grant_id, operation, *, endpoint_id, now):
         self.permission_calls.append((grant_id, operation, endpoint_id, now))
         return PermissionDecision(
