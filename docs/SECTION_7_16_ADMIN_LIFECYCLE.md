@@ -70,3 +70,6 @@ off-site backups, or a production database access-control service. The first
 administrator bootstrap and the OIDC key/revocation infrastructure remain
 deployment-specific. Do not claim production readiness until those controls
 are configured and tested in the actual hosting environment.
+
+
+Section 7.24 adds the `benchmark_methodologist` role. It must be provisioned by a security administrator through the same trusted identity lifecycle, and the principal must be human-classified. The role is separate from curator, reviewer, and adjudicator permissions; methodologists cannot also evaluate the blind items in the study they review.
