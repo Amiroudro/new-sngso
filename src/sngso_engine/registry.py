@@ -4936,6 +4936,7 @@ class SQLiteRegistry:
             "warnings": [
                 "Reviewer identity and authorization are not authenticated by this registry.",
                 "This report does not assess factual correctness or general editorial quality.",
+                "The benchmark fingerprint is a declared immutable reference; no benchmark artifact is stored and independently re-hashed by this registry yet.",
             ],
         }
 
