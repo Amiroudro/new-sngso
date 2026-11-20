@@ -658,3 +658,78 @@ def test_story_summary_tier_report_detects_missing_and_duplicate_tiers():
         ]
     finally:
         registry.close()
+
+
+def test_structured_language_review_is_bound_to_language_reviewer_and_timestamp():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary(), actor="editor", reason="Create language review fixture."
+        )
+        approved = _summary()
+        approved.update({
+            "status": "approved",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "reviewed_by": "reviewer:bn",
+            "review_note": "Independent Bangla review completed.",
+            "language_review": {
+                "language": "bn",
+                "reviewer_id": "reviewer:bn",
+                "reviewed_at": "2026-11-20T01:00:00Z",
+                "note": "Checked language, fidelity, attribution and omissions.",
+                "dimensions": {
+                    "language_accuracy": "pass",
+                    "clarity": "pass",
+                    "factual_fidelity": "pass",
+                    "attribution": "pass",
+                    "omissions": "pass",
+                    "translation_fidelity": "not_applicable"
+                }
+            }
+        })
+        registry.revise_learning_object(
+            draft.id, approved, expected_revision=1,
+            actor="reviewer:bn", reason="Record structured Bangla review."
+        )
+        report = registry.story_summary_tier_report("story:one")
+        tier = report["languages"]["bn"]["tiers"]["brief_summary"]
+        assert tier["language_review_pass"] is True
+        assert tier["artifacts"][0]["language_review"]["reviewer_id"] == "reviewer:bn"
+    finally:
+        registry.close()
+
+
+def test_structured_language_review_rejects_language_mismatch():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary(), actor="editor", reason="Create language review fixture."
+        )
+        approved = _summary()
+        approved.update({
+            "status": "approved",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "reviewed_by": "reviewer:bn",
+            "review_note": "Review.",
+            "language_review": {
+                "language": "en",
+                "reviewer_id": "reviewer:bn",
+                "reviewed_at": "2026-11-20T01:00:00Z",
+                "note": "Incorrect language binding.",
+                "dimensions": {
+                    "language_accuracy": "pass",
+                    "clarity": "pass",
+                    "factual_fidelity": "pass",
+                    "attribution": "pass",
+                    "omissions": "pass",
+                    "translation_fidelity": "not_applicable"
+                }
+            }
+        })
+        with pytest.raises(RegistryIntegrityError, match="language review language mismatch"):
+            registry.revise_learning_object(
+                draft.id, approved, expected_revision=1,
+                actor="reviewer:bn", reason="Reject mismatched language review."
+            )
+    finally:
+        registry.close()
