@@ -3,7 +3,8 @@ import pytest
 from sngso_engine.benchmark_acceptance_review import BenchmarkAcceptanceReviewError, validate_benchmark_acceptance_review
 from test_benchmark_study import _protocol
 from test_benchmark_study_execution import _execution
-from sngso_engine.canonical import sha256_fingerprint
+from sngso_engine.benchmark_study import validate_benchmark_study_protocol
+from sngso_engine.benchmark_study_execution import validate_benchmark_study_execution
 from sngso_engine.contracts import ContractValidationError
 
 def _review():
@@ -28,9 +29,9 @@ def _review():
 def _validate(review=None, protocol=None, execution=None):
     protocol=protocol or _protocol(); execution=execution or _execution(); review=review or _review()
     if review["protocol_fingerprint"] == "sha256:" + "0" * 64:
-        review["protocol_fingerprint"] = sha256_fingerprint(protocol)
+        review["protocol_fingerprint"] = validate_benchmark_study_protocol(protocol)["protocol_fingerprint"]
     if review["execution_fingerprint"] == "sha256:" + "0" * 64:
-        review["execution_fingerprint"] = sha256_fingerprint(execution)
+        review["execution_fingerprint"] = validate_benchmark_study_execution(execution)["execution_fingerprint"]
     return validate_benchmark_acceptance_review(review,protocol=protocol,execution=execution)
 
 def test_acceptance_review_binds_exact_evidence_and_never_grants_production():
