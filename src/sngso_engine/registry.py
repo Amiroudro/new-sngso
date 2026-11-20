@@ -6011,9 +6011,7 @@ class SQLiteRegistry:
             ).fetchone()
             if final is not None:
                 raise RegistryIntegrityError("cannot add a score after final artifact adjudication")
-            score_id = score.get("score_id")
-            if not isinstance(score_id, str) or not score_id.strip():
-                raise RegistryIntegrityError("score_id is required for durable score history")
+            score_id = f"score:{assignment_id}:{score['item_id']}"
             payload_json = _json_text(score)
             score_fingerprint = sha256_fingerprint(score)
             created_at = _utc_now()
