@@ -6143,10 +6143,15 @@ class SQLiteRegistry:
         """Compare Bangla and English editorial coverage without averaging away language failures."""
         snapshot = self.story_editorial_snapshot(story_id)
         objects_by_language: dict[str, list[dict[str, Any]]] = {"bn": [], "en": []}
+        variant_groups: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
         for item in snapshot["learning_objects"]:
             language = item["record"].get("language")
             if language not in objects_by_language:
                 continue
+            record = item["record"]
+            variant_group_id = record.get("variant_group_id")
+            if isinstance(variant_group_id, str) and variant_group_id:
+                variant_groups.setdefault((record["kind"], variant_group_id), {})[language] = record
             quality = self.learning_object_quality_report(item["id"])
             if quality["revision"] != item["revision"]:
                 raise RegistryIntegrityError(
@@ -6156,6 +6161,8 @@ class SQLiteRegistry:
                 "learning_object_id": item["id"],
                 "revision": item["revision"],
                 "kind": item["record"]["kind"],
+                "variant_group_id": item["record"].get("variant_group_id"),
+                "claim_ids": sorted(item["record"].get("claim_ids", [])),
                 "status": quality["status"],
                 "meets_registry_quality_gates": quality["meets_registry_quality_gates"],
                 "blockers": quality["blockers"],
@@ -6191,6 +6198,30 @@ class SQLiteRegistry:
                 "artifacts": items,
             }
 
+        variant_claim_coverage = []
+        for (kind, variant_group_id), members in sorted(variant_groups.items()):
+            bangla = members.get("bn")
+            english = members.get("en")
+            bangla_claims = set(bangla.get("claim_ids", [])) if bangla else set()
+            english_claims = set(english.get("claim_ids", [])) if english else set()
+            both_present = bangla is not None and english is not None
+            variant_claim_coverage.append({
+                "kind": kind,
+                "variant_group_id": variant_group_id,
+                "bangla_learning_object_id": bangla.get("id") if bangla else None,
+                "english_learning_object_id": english.get("id") if english else None,
+                "bangla_claim_ids": sorted(bangla_claims),
+                "english_claim_ids": sorted(english_claims),
+                "bangla_only_claim_ids": sorted(bangla_claims - english_claims),
+                "english_only_claim_ids": sorted(english_claims - bangla_claims),
+                "claim_sets_match": both_present and bangla_claims == english_claims,
+                "status": (
+                    "matched" if both_present and bangla_claims == english_claims
+                    else "claim_set_mismatch" if both_present
+                    else "missing_language_counterpart"
+                ),
+            })
+
         confirmed_snapshot = self.story_editorial_snapshot(story_id)
         if confirmed_snapshot["fingerprint"] != snapshot["fingerprint"]:
             raise RegistryIntegrityError(
@@ -6205,6 +6236,7 @@ class SQLiteRegistry:
                 {"kind": item["kind"], "missing_language": "en" if item["bangla_present"] else "bn"}
                 for item in coverage if not item["paired"]
             ],
+            "variant_claim_coverage": variant_claim_coverage,
             "overall_quality_score": None,
             "interpretation": (
                 "Bangla and English are reported independently. Counts describe registered artifacts "

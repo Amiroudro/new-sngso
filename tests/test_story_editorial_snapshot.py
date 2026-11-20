@@ -331,3 +331,43 @@ def test_editorial_snapshot_rejects_unknown_story():
             registry.story_editorial_snapshot("story:missing")
     finally:
         registry.close()
+
+
+
+def test_bilingual_report_surfaces_variant_claim_set_mismatches():
+    registry = _prepared()
+    try:
+        def add_variant(identifier, language, group_id, claim_id, text):
+            registry.add_learning_object({
+                "schema_version": "1.0.0",
+                "id": identifier,
+                "story_id": "story:one",
+                "kind": "brief_summary",
+                "language": language,
+                "variant_group_id": group_id,
+                "status": "draft",
+                "content": {"text": text, "segments": [{
+                    "text": text,
+                    "claim_ids": [claim_id],
+                    "role": "fact",
+                }]},
+                "claim_ids": [claim_id],
+                "created_at": STAMP,
+            }, actor="editor", reason="Create a paired language variant.")
+
+        add_variant("learning:matched-bn", "bn", "variant:matched", "claim:a", "বাংলা দাবি।")
+        add_variant("learning:matched-en", "en", "variant:matched", "claim:a", "English claim.")
+        add_variant("learning:mismatch-bn", "bn", "variant:mismatch", "claim:a", "বাংলা দাবি।")
+        add_variant("learning:mismatch-en", "en", "variant:mismatch", "claim:b", "Different English claim.")
+
+        report = registry.bilingual_editorial_quality_report("story:one")
+        variants = {item["variant_group_id"]: item for item in report["variant_claim_coverage"]}
+        assert variants["variant:matched"]["status"] == "matched"
+        assert variants["variant:matched"]["claim_sets_match"] is True
+        assert variants["variant:mismatch"]["status"] == "claim_set_mismatch"
+        assert variants["variant:mismatch"]["bangla_only_claim_ids"] == ["claim:a"]
+        assert variants["variant:mismatch"]["english_only_claim_ids"] == ["claim:b"]
+        assert report["production_ready"] is False
+        assert report["authorization_granted"] is False
+    finally:
+        registry.close()
