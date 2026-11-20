@@ -674,6 +674,7 @@ def test_structured_language_review_is_bound_to_language_reviewer_and_timestamp(
             "review_note": "Independent Bangla review completed.",
             "language_review": {
                 "language": "bn",
+                "rubric_version": "bn-editorial-v1",
                 "reviewer_id": "reviewer:bn",
                 "reviewed_at": "2026-11-20T01:00:00Z",
                 "note": "Checked language, fidelity, attribution and omissions.",
@@ -713,6 +714,7 @@ def test_structured_language_review_rejects_language_mismatch():
             "review_note": "Review.",
             "language_review": {
                 "language": "en",
+                "rubric_version": "en-editorial-v1",
                 "reviewer_id": "reviewer:bn",
                 "reviewed_at": "2026-11-20T01:00:00Z",
                 "note": "Incorrect language binding.",
@@ -733,3 +735,123 @@ def test_structured_language_review_rejects_language_mismatch():
             )
     finally:
         registry.close()
+
+
+
+def test_language_review_uses_distinct_versioned_bangla_and_english_rubrics():
+    registry = _prepared()
+    try:
+        for language, reviewer, version, dimensions in (
+            ("bn", "reviewer:bn", "bn-editorial-v1", {
+                "grammar_and_spelling": "pass",
+                "naturalness_and_register": "pass",
+                "terminology_consistency": "pass",
+                "factual_fidelity": "pass",
+                "attribution": "pass",
+                "omissions": "pass",
+                "translation_fidelity": "not_applicable",
+            }),
+            ("en", "reviewer:en", "en-editorial-v1", {
+                "grammar_and_style": "pass",
+                "clarity_and_readability": "pass",
+                "terminology_consistency": "pass",
+                "factual_fidelity": "pass",
+                "attribution": "pass",
+                "omissions": "pass",
+                "translation_fidelity": "not_applicable",
+            }),
+        ):
+            payload = _summary(f"learning:language-review-{language}", language)
+            payload.update({
+                "status": "approved",
+                "reviewed_at": "2026-11-20T01:00:00Z",
+                "reviewed_by": reviewer,
+                "review_note": "Independent language review completed.",
+                "language_review": {
+                    "language": language,
+                    "rubric_version": version,
+                    "reviewer_id": reviewer,
+                    "reviewed_at": "2026-11-20T01:00:00Z",
+                    "note": "Language-specific editorial checks completed.",
+                    "dimensions": dimensions,
+                },
+            })
+            validate_payload("learning-object", payload)
+            record = registry.add_learning_object(
+                payload, actor="editor", reason="Record independent language review."
+            )
+            report = registry.learning_object_quality_report(record.id)
+            assert report["status"] == "approved"
+    finally:
+        registry.close()
+
+
+def test_rejected_language_review_must_record_a_revision_finding():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary(), actor="editor", reason="Create review fixture."
+        )
+        rejected = _summary()
+        rejected.update({
+            "status": "rejected",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "reviewed_by": "reviewer:bn",
+            "review_note": "A material Bangla wording issue remains.",
+            "language_review": {
+                "language": "bn",
+                "rubric_version": "bn-editorial-v1",
+                "reviewer_id": "reviewer:bn",
+                "reviewed_at": "2026-11-20T01:00:00Z",
+                "note": "Revise the wording before approval.",
+                "dimensions": {
+                    "grammar_and_spelling": "pass",
+                    "naturalness_and_register": "needs_revision",
+                    "terminology_consistency": "pass",
+                    "factual_fidelity": "pass",
+                    "attribution": "pass",
+                    "omissions": "pass",
+                    "translation_fidelity": "not_applicable",
+                },
+            },
+        })
+        revised = registry.revise_learning_object(
+            draft.id, rejected, expected_revision=1,
+            actor="reviewer:bn", reason="Record a language-specific rejection."
+        )
+        assert revised.status == "rejected"
+        report = registry.story_summary_tier_report("story:one")
+        tier = report["languages"]["bn"]["tiers"]["brief_summary"]
+        assert tier["language_review_pass"] is False
+        assert tier["approved"] is False
+    finally:
+        registry.close()
+
+
+def test_approved_language_review_rejects_needs_revision_dimension():
+    payload = _summary()
+    payload.update({
+        "status": "approved",
+        "reviewed_at": "2026-11-20T01:00:00Z",
+        "reviewed_by": "reviewer:bn",
+        "review_note": "Review.",
+        "language_review": {
+            "language": "bn",
+            "rubric_version": "bn-editorial-v1",
+            "reviewer_id": "reviewer:bn",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "note": "A finding remains.",
+            "dimensions": {
+                "grammar_and_spelling": "pass",
+                "naturalness_and_register": "needs_revision",
+                "terminology_consistency": "pass",
+                "factual_fidelity": "pass",
+                "attribution": "pass",
+                "omissions": "pass",
+                "translation_fidelity": "not_applicable",
+            },
+        },
+    })
+    with pytest.raises(RegistryIntegrityError, match="approved language review cannot contain"):
+        from sngso_engine.registry import _validate_learning_object_language_review
+        _validate_learning_object_language_review(payload)
