@@ -138,3 +138,14 @@ def test_transition_does_not_mutate_prior_record_and_records_actor_reason():
     assert changed["last_transition"] == {
         "event": "accept", "actor": "reviewer:bn:1", "at": NOW, "reason": "accepted",
     }
+
+
+def test_accepted_assignment_cannot_be_cancelled_before_acceptance():
+    accepted = assignment(
+        status="accepted", accepted_at="2026-11-20T02:00:00+00:00",
+    )
+    with pytest.raises(BenchmarkAssignmentError, match="cannot predate acceptance"):
+        transition_benchmark_assignment(
+            accepted, event="cancel", actor="curator:1",
+            at=NOW, reason="invalid chronology",
+        )
