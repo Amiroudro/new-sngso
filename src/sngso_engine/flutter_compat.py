@@ -270,6 +270,10 @@ def verify_flutter_staging_candidate(
         raise FlutterCompatibilityError("unsupported provenance manifest schema")
     if provenance_manifest.get("target_contract") != "flutter-edition-v1":
         raise FlutterCompatibilityError("unsupported Flutter client contract")
+    manifest_date = _required_text(provenance_manifest.get("edition_date"), "manifest edition_date")
+    payload_digest = provenance_manifest.get("payload_sha256")
+    if not isinstance(payload_digest, str) or re.fullmatch(r"[0-9a-f]{64}", payload_digest) is None:
+        raise FlutterCompatibilityError("manifest payload_sha256 must be a lowercase SHA-256 hex digest")
     edition_id = _required_text(provenance_manifest.get("edition_id"), "manifest edition_id")
     edition_revision = provenance_manifest.get("edition_revision")
     if isinstance(edition_revision, bool) or not isinstance(edition_revision, int) or edition_revision < 1:
@@ -284,7 +288,7 @@ def verify_flutter_staging_candidate(
         raise FlutterCompatibilityError("manifest edition revision is stale")
     if edition_payload.get("status") != "approved":
         raise FlutterCompatibilityError("only an approved registered edition can be staged")
-    if provenance_manifest.get("edition_date") != edition_payload.get("edition_key"):
+    if manifest_date != edition_payload.get("edition_key"):
         raise FlutterCompatibilityError("manifest date does not match the registered edition")
     approved_languages = {
         item.get("language") for item in edition_payload.get("language_variants", [])
@@ -296,7 +300,7 @@ def verify_flutter_staging_candidate(
         raise FlutterCompatibilityError("client payload fingerprint does not match the manifest")
 
     edition_date = _required_text(client_edition.get("edition_date"), "edition_date")
-    if provenance_manifest.get("edition_date") != edition_date:
+    if manifest_date != edition_date:
         raise FlutterCompatibilityError("client edition date does not match the manifest")
     try:
         expected_day = date.fromisoformat(edition_date).strftime("%A")
