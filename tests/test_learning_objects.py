@@ -525,6 +525,29 @@ def test_mcq_learning_object_stores_one_keyed_correct_option_and_claim_links():
         registry.close()
 
 
+def test_mcq_quality_report_exposes_rationale_coverage_and_human_review_limit():
+    registry = _prepared()
+    try:
+        payload = _mcq()
+        registry.add_learning_object(
+            payload, actor="question-editor", reason="Create MCQ for quality report."
+        )
+        report = registry.learning_object_quality_report(payload["id"])
+        coverage = next(
+            item for item in report["checks"]
+            if item["name"] == "mcq_distractor_rationale_coverage"
+        )
+        assert coverage["passed"] is True
+        warning = next(
+            item for item in report["warnings"]
+            if item["check"] == "mcq_human_distractor_review"
+        )
+        assert "plausible" in warning["detail"]
+        assert "does not prove distractor quality" in warning["detail"]
+    finally:
+        registry.close()
+
+
 def test_mcq_learning_object_rejects_duplicate_option_ids_and_unknown_answer_key():
     registry = _prepared()
     try:
