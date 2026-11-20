@@ -1015,6 +1015,8 @@ _MIGRATION_13 = (
         revision INTEGER NOT NULL CHECK (revision >= 1),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        last_actor TEXT NOT NULL CHECK (length(trim(last_actor)) > 0),
+        last_reason TEXT NOT NULL CHECK (length(trim(last_reason)) > 0),
         payload_json TEXT NOT NULL CHECK (json_valid(payload_json))
     )""",
     """CREATE TABLE benchmark_review_revisions (
@@ -1043,10 +1045,26 @@ _MIGRATION_13 = (
                 THEN RAISE(ABORT, 'benchmark review revision must increment by one') END;
             SELECT CASE WHEN julianday(NEW.updated_at) < julianday(OLD.updated_at)
                 THEN RAISE(ABORT, 'benchmark review update time cannot move backwards') END;
+            SELECT CASE WHEN trim(NEW.last_actor) = '' OR trim(NEW.last_reason) = ''
+                THEN RAISE(ABORT, 'benchmark review revision requires actor and reason') END;
         END""",
     """CREATE TRIGGER benchmark_reviews_no_delete
         BEFORE DELETE ON benchmark_reviews
         BEGIN SELECT RAISE(ABORT, 'benchmark reviews cannot be deleted'); END""",
+    """CREATE TRIGGER benchmark_reviews_record_insert
+        AFTER INSERT ON benchmark_reviews
+        BEGIN
+            INSERT INTO benchmark_review_revisions
+            (review_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.review_id, NEW.revision, NEW.created_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
+    """CREATE TRIGGER benchmark_reviews_record_update
+        AFTER UPDATE ON benchmark_reviews
+        BEGIN
+            INSERT INTO benchmark_review_revisions
+            (review_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.review_id, NEW.revision, NEW.updated_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
     """CREATE TRIGGER benchmark_review_revisions_validate_insert
         BEFORE INSERT ON benchmark_review_revisions
         BEGIN
@@ -4709,16 +4727,10 @@ class SQLiteRegistry:
             connection.execute(
                 """INSERT INTO benchmark_reviews
                 (review_id, benchmark_id, benchmark_fingerprint, language, status,
-                 revision, created_at, updated_at, payload_json)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                 revision, created_at, updated_at, last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
                 (review["review_id"], review["benchmark_id"], review["benchmark_fingerprint"],
-                 review["language"], review["status"], now, now, payload_json),
-            )
-            connection.execute(
-                """INSERT INTO benchmark_review_revisions
-                (review_id, revision, created_at, actor, reason, payload_json)
-                VALUES (?, 1, ?, ?, ?, ?)""",
-                (review["review_id"], now, actor, reason, payload_json),
+                 review["language"], review["status"], now, now, actor, reason, payload_json),
             )
             self._append_audit(
                 connection, event_type="benchmark_review.created",
@@ -4788,16 +4800,11 @@ class SQLiteRegistry:
             next_revision = expected_revision + 1
             connection.execute(
                 """UPDATE benchmark_reviews SET benchmark_id = ?, benchmark_fingerprint = ?,
-                language = ?, status = ?, revision = ?, updated_at = ?, payload_json = ?
+                language = ?, status = ?, revision = ?, updated_at = ?, last_actor = ?,
+                last_reason = ?, payload_json = ?
                 WHERE review_id = ? AND revision = ?""",
                 (review["benchmark_id"], review["benchmark_fingerprint"], review["language"],
-                 review["status"], next_revision, now, payload_json, review_id, expected_revision),
-            )
-            connection.execute(
-                """INSERT INTO benchmark_review_revisions
-                (review_id, revision, created_at, actor, reason, payload_json)
-                VALUES (?, ?, ?, ?, ?, ?)""",
-                (review_id, next_revision, now, actor, reason, payload_json),
+                 review["status"], next_revision, now, actor, reason, payload_json, review_id, expected_revision),
             )
             self._append_audit(
                 connection, event_type="benchmark_review.revised",
