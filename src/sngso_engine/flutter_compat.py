@@ -74,7 +74,28 @@ def verify_flutter_staging_candidate(
         raise FlutterCompatibilityError("unsupported provenance manifest schema")
     if provenance_manifest.get("target_contract") != "flutter-edition-v1":
         raise FlutterCompatibilityError("unsupported Flutter client contract")
-    _required_text(provenance_manifest.get("edition_id"), "manifest edition_id")
+    edition_id = _required_text(provenance_manifest.get("edition_id"), "manifest edition_id")
+    edition_revision = provenance_manifest.get("edition_revision")
+    if not isinstance(edition_revision, int) or edition_revision < 1:
+        raise FlutterCompatibilityError("manifest edition_revision must be a positive integer")
+    edition_record = registry.get_domain_record("edition", edition_id)
+    if edition_record is None:
+        raise FlutterCompatibilityError(f"registered edition not found: {edition_id}")
+    edition_payload = edition_record.to_payload()
+    history = registry.domain_record_history("edition", edition_id)
+    current_revision = history[-1]["revision"] if history else None
+    if current_revision != edition_revision:
+        raise FlutterCompatibilityError("manifest edition revision is stale")
+    if edition_payload.get("status") != "approved":
+        raise FlutterCompatibilityError("only an approved registered edition can be staged")
+    if provenance_manifest.get("edition_date") != edition_payload.get("edition_key"):
+        raise FlutterCompatibilityError("manifest date does not match the registered edition")
+    approved_languages = {
+        item.get("language") for item in edition_payload.get("language_variants", [])
+        if isinstance(item, dict) and item.get("status") == "approved"
+    }
+    if "en" not in approved_languages:
+        raise FlutterCompatibilityError("registered edition lacks an approved English variant")
     if provenance_manifest.get("payload_sha256") != sha256_fingerprint(client_edition):
         raise FlutterCompatibilityError("client payload fingerprint does not match the manifest")
 
@@ -83,6 +104,10 @@ def verify_flutter_staging_candidate(
         raise FlutterCompatibilityError("client edition date does not match the manifest")
     if not isinstance(client_edition.get("stories"), list) or not client_edition["stories"]:
         raise FlutterCompatibilityError("staging candidate must contain at least one story")
+    if set(edition_payload.get("story_ids", [])) != {
+        story.get("id") for story in client_edition["stories"] if isinstance(story, dict)
+    }:
+        raise FlutterCompatibilityError("client story set must match the approved edition exactly")
     for collection in ("words", "revision_words", "phrases", "mcqs"):
         if client_edition.get(collection, []) not in ([], None):
             raise FlutterCompatibilityError(f"unsupported client collection must be empty: {collection}")
@@ -102,6 +127,8 @@ def verify_flutter_staging_candidate(
         story_id = _required_text(story.get("id"), "client story id")
         if story_id in client_stories:
             raise FlutterCompatibilityError("client story IDs must be unique")
+        if set(story) != {"id", "headline", "summary", "category", "sources"}:
+            raise FlutterCompatibilityError("client story contains unsupported or unbound fields")
         for field in ("headline", "summary", "category"):
             if not isinstance(story.get(field), str):
                 raise FlutterCompatibilityError(f"client story {field} must be a string")
@@ -127,6 +154,8 @@ def verify_flutter_staging_candidate(
     for permission in permissions:
         if not isinstance(permission, dict):
             raise FlutterCompatibilityError("each source permission binding must be an object")
+        if set(permission) != {"source_id", "endpoint_id", "grant_id", "operation"}:
+            raise FlutterCompatibilityError("source permission binding contains unsupported fields")
         source_id = _required_text(permission.get("source_id"), "permission source_id")
         if source_id in permission_by_source:
             raise FlutterCompatibilityError("source permission bindings must be unique by source")
@@ -140,7 +169,8 @@ def verify_flutter_staging_candidate(
         snapshot = registry.story_editorial_snapshot(story_id)
         if snapshot.get("story_id") != story_id:
             raise FlutterCompatibilityError("registry story snapshot identity mismatch")
-        if snapshot.get("story", {}).get("status") in {"archived", "contested"}:
+        story_payload = snapshot.get("story", {})
+        if story_payload.get("status") in {"archived", "contested"}:
             raise FlutterCompatibilityError("archived or contested stories cannot enter this client contract")
         articles_by_source: dict[str, list[dict[str, Any]]] = {}
         for article in snapshot.get("articles", []):
@@ -185,7 +215,11 @@ def verify_flutter_staging_candidate(
             verified_source_refs.setdefault(source_id, []).append(source_ref)
         if not source_ids:
             raise FlutterCompatibilityError(f"story {story_id} must display at least one source")
+        if client_story["category"] and client_story["category"] not in story_payload.get("topic_tags", []):
+            raise FlutterCompatibilityError(f"client category is not a registered story topic tag: {story_id}")
         binding = bindings_by_story[story_id]
+        if set(binding) != {"story_id", "fields"}:
+            raise FlutterCompatibilityError("story binding contains unsupported fields")
         fields = binding.get("fields")
         if not isinstance(fields, dict) or set(fields) != {"headline", "summary"}:
             raise FlutterCompatibilityError(
@@ -193,8 +227,8 @@ def verify_flutter_staging_candidate(
             )
         for field, expected_kind in (("headline", "headline_summary"), ("summary", "brief_summary")):
             item_binding = fields[field]
-            if not isinstance(item_binding, dict):
-                raise FlutterCompatibilityError(f"{story_id}.{field} binding must be an object")
+            if not isinstance(item_binding, dict) or set(item_binding) != {"learning_object_id", "revision"}:
+                raise FlutterCompatibilityError(f"{story_id}.{field} binding must contain only object ID and revision")
             object_id = _required_text(item_binding.get("learning_object_id"), "learning object id")
             revision = item_binding.get("revision")
             if not isinstance(revision, int) or revision < 1:
@@ -269,7 +303,8 @@ def verify_flutter_staging_candidate(
     return {
         "status": "verified_for_staging_only",
         "publication_authorized": False,
-        "edition_id": provenance_manifest["edition_id"],
+        "edition_id": edition_id,
+        "edition_revision": edition_revision,
         "edition_date": edition_date,
         "client_payload_sha256": sha256_fingerprint(client_edition),
         "story_ids": sorted(verified_story_ids),
