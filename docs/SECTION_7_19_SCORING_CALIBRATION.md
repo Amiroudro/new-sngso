@@ -17,7 +17,9 @@ The benchmark content contract requires scoring criteria, but free-text criteria
 
 Before operational use, evaluators should independently score the same calibration items, discuss disagreements against source evidence, revise ambiguous anchors, and then repeat a blind scoring round. Retain both pre-discussion and post-discussion scores. Report criterion-level distributions and disagreement, not only a single average. A small sample or a high weighted score does not establish inter-rater reliability.
 
-The current validator checks contract shape, unique criterion IDs, weight totals, and deterministic aggregation. It does not authenticate evaluators, verify evidence references, establish rubric validity, calculate a statistically defensible reliability coefficient, or persist score sheets in the registry. Those require later integration and real independent human data. Synthetic fixtures only test code paths.
+The validator checks contract shape, unique criterion IDs, weight totals, and deterministic aggregation. Section 7.20 adds durable, append-only score records. Scores are accepted only through the authenticated application facade for a recently authenticated, human-classified reviewer whose active language-qualified assignment is accepted. The registry independently verifies the exact immutable artifact fingerprint and item/task binding. Score rows retain provider identity metadata and a content fingerprint; they cannot be updated or deleted. The database does not retain raw session tokens.
+
+The score store does not authenticate people by itself: the configured identity provider and deployment must still verify real sessions, signatures, revocation, issuer/subject mapping, and provider metadata. The registry also does not verify that evidence references prove the rationale, validate rubric quality, or establish inter-rater reliability. Synthetic fixtures only test code paths.
 
 ## Production boundary
 
