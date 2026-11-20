@@ -31,14 +31,14 @@ def test_principal_revocation_and_reinstatement_are_explicit_and_audited():
             "reviewer:one", actor="admin:one", reason="Annual access review",
         )
         assert revoked["active"] is False
-        with pytest.raises(RegistryIntegrityError, match="already active"):
-            registry.reinstate_benchmark_principal(
-                "reviewer:one", actor="admin:one", reason="Duplicate restore",
-            )
         restored = registry.reinstate_benchmark_principal(
             "reviewer:one", actor="admin:one", reason="Qualification reconfirmed",
         )
         assert restored["active"] is True
+        with pytest.raises(RegistryIntegrityError, match="already active"):
+            registry.reinstate_benchmark_principal(
+                "reviewer:one", actor="admin:one", reason="Duplicate restore",
+            )
         assert restored["roles"] == ["benchmark_reviewer"]
         assert restored["languages"] == ["bn"]
 
