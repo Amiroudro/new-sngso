@@ -235,3 +235,9 @@ Remaining work includes collecting and reviewing actual reporting-lineage eviden
 Narrative assembly now checks the shared language-review pass criteria against the exact Bangla or English rubric instead of treating any review object as sufficient. Missing reviews, rejected reviews, and any needs-revision rubric dimension block that language's assembly report. Per-language summaries expose object/segment counts, factual and traceable coverage, unsupported factual segments, passing language reviews, blocker counts, and a blocked/review-required status. No publication authorization is granted.
 
 Remaining Section 7 work includes real human review evidence, actual reporting-lineage evidence, source-grounded learning workflows, and daily briefing inputs.
+
+### Section 7.33 implementation update
+
+MCQs now require exact option-ID keyed rationales for every incorrect option. Registry validation rejects incomplete, duplicate, or incorrectly assigned rationale coverage. The quality report checks this structural coverage and always records that human review is still required for plausibility, unambiguous incorrectness, misconception alignment, parallel option construction, and accidental clues. Rationale presence is not treated as proof of item quality.
+
+Remaining Section 7 work includes genuine human review of MCQs and other learning objects, source-grounded vocabulary/comprehension workflows, reporting-lineage evidence, and daily briefing inputs.
