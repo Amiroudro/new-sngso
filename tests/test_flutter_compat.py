@@ -57,10 +57,22 @@ class FakeRegistry:
         }
         self.permission_calls = []
 
+    def get_domain_record(self, record_type, record_id):
+        if record_type != "edition" or record_id != "edition:staging-one":
+            return None
+        return FakeRecord({
+            "id": record_id, "edition_key": "2026-11-20", "status": "approved",
+            "story_ids": ["story:one"],
+            "language_variants": [{"language": "en", "status": "approved"}],
+        })
+
+    def domain_record_history(self, record_type, record_id):
+        return [{"revision": 1}] if record_type == "edition" and record_id == "edition:staging-one" else []
+
     def story_editorial_snapshot(self, story_id):
         return {
             "story_id": story_id,
-            "story": {"id": story_id, "status": "ongoing"},
+            "story": {"id": story_id, "status": "ongoing", "topic_tags": []},
             "articles": [{
                 "id": "article:one",
                 "record": {
@@ -123,6 +135,7 @@ def _candidate(registry=None):
         "schema_version": "1.0.0",
         "target_contract": "flutter-edition-v1",
         "edition_id": "edition:staging-one",
+        "edition_revision": 1,
         "edition_date": "2026-11-20",
         "payload_sha256": sha256_fingerprint(client),
         "story_bindings": [{
