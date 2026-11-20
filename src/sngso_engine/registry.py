@@ -160,6 +160,26 @@ _MIGRATION_17 = (
               OR NEW.due_at != OLD.due_at
            THEN RAISE(ABORT, 'assignment identity and artifact binding are immutable') END;
        END""",
+    """CREATE TRIGGER benchmark_review_assignment_payload_guard_insert
+       BEFORE INSERT ON benchmark_review_assignments
+       WHEN json_extract(NEW.payload_json, '$.assignment_id') != NEW.assignment_id
+         OR json_extract(NEW.payload_json, '$.artifact_id') != NEW.artifact_id
+         OR json_extract(NEW.payload_json, '$.artifact_fingerprint') != NEW.artifact_fingerprint
+         OR json_extract(NEW.payload_json, '$.language') != NEW.language
+         OR json_extract(NEW.payload_json, '$.reviewer_id') != NEW.reviewer_id
+         OR json_extract(NEW.payload_json, '$.assigned_by') != NEW.assigned_by
+         OR json_extract(NEW.payload_json, '$.status') != NEW.status
+       BEGIN SELECT RAISE(ABORT, 'assignment payload does not match indexed fields'); END""",
+    """CREATE TRIGGER benchmark_review_assignment_payload_guard_update
+       BEFORE UPDATE ON benchmark_review_assignments
+       WHEN json_extract(NEW.payload_json, '$.assignment_id') != NEW.assignment_id
+         OR json_extract(NEW.payload_json, '$.artifact_id') != NEW.artifact_id
+         OR json_extract(NEW.payload_json, '$.artifact_fingerprint') != NEW.artifact_fingerprint
+         OR json_extract(NEW.payload_json, '$.language') != NEW.language
+         OR json_extract(NEW.payload_json, '$.reviewer_id') != NEW.reviewer_id
+         OR json_extract(NEW.payload_json, '$.assigned_by') != NEW.assigned_by
+         OR json_extract(NEW.payload_json, '$.status') != NEW.status
+       BEGIN SELECT RAISE(ABORT, 'assignment payload does not match indexed fields'); END""",
     """CREATE TRIGGER benchmark_review_assignments_no_delete
        BEFORE DELETE ON benchmark_review_assignments
        BEGIN SELECT RAISE(ABORT, 'benchmark review assignments cannot be deleted'); END""",
@@ -5257,18 +5277,18 @@ class SQLiteRegistry:
             next_revision = row["revision"] + 1
             payload_json = _json_text(updated)
             connection.execute(
+                """INSERT INTO benchmark_review_assignment_revisions
+                   (assignment_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (assignment_id, next_revision, now, actor, reason, payload_json),
+            )
+            connection.execute(
                 """UPDATE benchmark_review_assignments
                    SET status = ?, revision = ?, payload_json = ?, updated_at = ?,
                        last_actor = ?, last_reason = ?
                    WHERE assignment_id = ? AND revision = ?""",
                 (updated["status"], next_revision, payload_json, now, actor, reason,
                  assignment_id, row["revision"]),
-            )
-            connection.execute(
-                """INSERT INTO benchmark_review_assignment_revisions
-                   (assignment_id, revision, created_at, actor, reason, payload_json)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (assignment_id, next_revision, now, actor, reason, payload_json),
             )
             self._append_audit(
                 connection, event_type=f"benchmark_review_assignment.{event}",
