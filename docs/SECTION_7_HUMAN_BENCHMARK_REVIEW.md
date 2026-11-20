@@ -43,9 +43,18 @@ A human review must now reference a registered artifact by its artifact ID. On r
 
 This stage also defines a versioned benchmark-content contract. Each artifact contains one or more uniquely identified items with a task type, input, expected output, and explicit scoring criteria. The contract supports headline, summary, translation, claim extraction, fact-checking, vocabulary, and editorial-judgment tasks. Curator/reviewer identity authentication remains outside this stage. Canonicalization is explicitly versioned so a future change cannot silently reinterpret old fingerprints.
 
+## 7.8 Registry-managed benchmark roles
+
+Schema migration 15 adds registry-managed benchmark principals with the explicit roles `benchmark_curator`, `benchmark_reviewer`, and `benchmark_adjudicator`. Artifact registration requires an active curator principal. Review creation and revision require an active reviewer principal, and the acting principal ID must match the reviewer ID declared in the review. Unknown principals, inactive principals, and principals without the required role are rejected. Revocation is soft and audited; historical review and artifact records remain intact.
+
+Provisioning is an administrative operation and must be performed only by a trusted deployment operator. The local SQLite registry does not authenticate that operator or the human behind a principal ID. A production deployment must bind the principal ID to a trusted login/session and restrict provisioning to an authenticated administrator. Role checks are a registry authorization control, not proof of real-world identity.
+
+Adjudicator role registration is available, but adjudication is not yet persisted or connected to review approval. That remains the next integration gate.
+
 ## Next gates
 
-- Add stronger curator/reviewer identity and role authorization, plus adjudication workflows for disagreements.
+- Persist adjudication decisions and enforce adjudicator role plus reviewer independence in the SQLite lifecycle.
+- Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
 - Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
 
 ## 7.4 Operation-scoped permission enforcement
