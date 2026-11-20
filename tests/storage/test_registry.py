@@ -2192,6 +2192,19 @@ def test_benchmark_adjudication_is_persisted_against_two_stored_reviews():
             "rationale": "Both answers preserve the verified facts while representing distinct acceptable editorial choices.",
             "evidence_references": ["permission-evidence:publisher-a-001"],
             "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
         }
         saved = registry.add_benchmark_adjudication(
             adjudication, actor="adjudicator:senior", reason="Resolve reviewer disagreement",
@@ -2233,6 +2246,19 @@ def test_benchmark_adjudication_rejects_reviewers_and_wrong_artifact_binding():
             "rationale": "The first review is supported by the registered source evidence and the second review is resolved.",
             "evidence_references": ["permission-evidence:publisher-a-001"],
             "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
         }
         payload["reviewer_ids"] = ["editor:lead", "editor:second"]
         payload["adjudicator"]["principal_id"] = "editor:lead"
@@ -2278,6 +2304,19 @@ def test_adjudication_outcome_controls_current_use_eligibility(outcome, expected
             "rationale": "The adjudicator compared both independent reviews against the registered evidence and resolved their disagreement.",
             "evidence_references": ["permission-evidence:publisher-a-001"],
             "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
         }
         if outcome == "uphold_existing":
             adjudication["upheld_review_ids"] = [first["review_id"]]
@@ -2318,6 +2357,19 @@ def test_benchmark_adjudication_rejects_multiple_final_decisions_for_one_artifac
             "rationale": "The benchmark item contains a material ambiguity that cannot be accepted in its current form.",
             "evidence_references": ["permission-evidence:publisher-a-001"],
             "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
         }
         registry.add_benchmark_adjudication(payload, actor="adjudicator:senior", reason="Final decision")
         second_decision = dict(payload)
@@ -2359,6 +2411,19 @@ def test_final_adjudication_freezes_review_revision_for_that_artifact():
             "rationale": "The benchmark item is rejected because its expected output cannot be justified by the supplied source evidence.",
             "evidence_references": ["permission-evidence:publisher-a-001"],
             "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
         }
         registry.add_benchmark_adjudication(adjudication, actor="adjudicator:senior", reason="Final rejection")
         revised = dict(first)
@@ -2399,6 +2464,19 @@ def test_uphold_existing_only_preserves_the_explicitly_selected_approved_review(
             "rationale": "The first approved review correctly applies the evidence while the second review is not accepted.",
             "evidence_references": ["permission-evidence:publisher-a-001"],
             "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
         }
         registry.add_benchmark_adjudication(payload, actor="adjudicator:senior", reason="Select accepted review")
         assert registry.benchmark_review_quality_report(first["review_id"])["eligible_for_current_use"] is True
