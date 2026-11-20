@@ -1525,6 +1525,18 @@ def test_assignment_requires_curator_and_prevents_duplicate_active_assignment():
             registry.create_benchmark_review_assignment(duplicate, actor="curator", reason="duplicate active assignment")
 
 
+def test_assignment_queue_filters_by_reviewer_status_and_language():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="assign")
+        assert len(registry.list_benchmark_review_assignments(reviewer_id="editor:lead")) == 1
+        assert len(registry.list_benchmark_review_assignments(status="assigned", language="en")) == 1
+        assert registry.list_benchmark_review_assignments(reviewer_id="editor:second") == []
+        with pytest.raises(ValueError, match="unsupported assignment status"):
+            registry.list_benchmark_review_assignments(status="approved")
+
+
 def test_assignment_acceptance_and_cancellation_are_persisted_as_revisions():
     with SQLiteRegistry() as registry:
         _populate_benchmark_review_sources(registry)
