@@ -1521,9 +1521,9 @@ def test_assignment_requires_exact_artifact_and_current_language_qualified_revie
 def test_assignment_requires_curator_and_prevents_duplicate_active_assignment():
     with SQLiteRegistry() as registry:
         _populate_benchmark_review_sources(registry)
-        payload = _benchmark_assignment_payload()
+        payload = _benchmark_assignment_payload(assigned_by="editor:second")
         with pytest.raises(RegistryIntegrityError, match="lacks required role"):
-            registry.create_benchmark_review_assignment(payload, actor="editor:lead", reason="not curator")
+            registry.create_benchmark_review_assignment(payload, actor="editor:second", reason="not curator")
         registry.create_benchmark_review_assignment(payload, actor="curator", reason="first assignment")
         duplicate = _benchmark_assignment_payload(assignment_id="assignment:duplicate")
         with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
