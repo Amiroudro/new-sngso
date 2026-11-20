@@ -193,6 +193,23 @@ def test_staging_candidate_verifies_exact_records_and_current_permission():
     ]
 
 
+@pytest.mark.parametrize("count_value", [True, -1, 1.5, "1"])
+def test_staging_candidate_rejects_non_integer_or_negative_counts(count_value):
+    registry, client, manifest = _candidate()
+    client["counts"]["stories"] = count_value
+    manifest["payload_sha256"] = sha256_fingerprint(client)
+    with pytest.raises(FlutterCompatibilityError, match="non-negative integer"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+
+def test_staging_candidate_rejects_unknown_count_keys():
+    registry, client, manifest = _candidate()
+    client["counts"]["unreviewed_metric"] = 0
+    manifest["payload_sha256"] = sha256_fingerprint(client)
+    with pytest.raises(FlutterCompatibilityError, match="unsupported keys"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+
 def test_staging_candidate_rejects_published_status_and_payload_tampering():
     registry, client, manifest = _candidate()
     client["status"] = "published"
