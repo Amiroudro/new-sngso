@@ -481,7 +481,10 @@ def verify_flutter_staging_candidate(
         source_id = source_ref.get("id")
         if source_id not in used_sources or source_ref not in verified_source_refs.get(source_id, []):
             raise FlutterCompatibilityError("edition source is not bound to a verified story source")
-        edition_ref_fingerprints.add(sha256_fingerprint(source_ref))
+        source_fingerprint = sha256_fingerprint(source_ref)
+        if source_fingerprint in edition_ref_fingerprints:
+            raise FlutterCompatibilityError("edition source references must be unique")
+        edition_ref_fingerprints.add(source_fingerprint)
     story_ref_fingerprints = {
         sha256_fingerprint(source_ref)
         for refs in verified_source_refs.values()
@@ -554,5 +557,5 @@ def verify_flutter_staging_candidate(
         "story_ids": sorted(verified_story_ids),
         "learning_object_ids": sorted(verified_learning_objects),
         "source_ids": sorted(used_sources),
-        "permission_checks": len(used_sources),
+        "permission_checks": len(permission_bindings),
     }
