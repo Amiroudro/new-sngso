@@ -27,8 +27,10 @@ def _review():
 
 def _validate(review=None, protocol=None, execution=None):
     protocol=protocol or _protocol(); execution=execution or _execution(); review=review or _review()
-    review.setdefault("protocol_fingerprint",sha256_fingerprint(protocol))
-    review.setdefault("execution_fingerprint",sha256_fingerprint(execution))
+    if review["protocol_fingerprint"] == "sha256:" + "0" * 64:
+        review["protocol_fingerprint"] = sha256_fingerprint(protocol)
+    if review["execution_fingerprint"] == "sha256:" + "0" * 64:
+        review["execution_fingerprint"] = sha256_fingerprint(execution)
     return validate_benchmark_acceptance_review(review,protocol=protocol,execution=execution)
 
 def test_acceptance_review_binds_exact_evidence_and_never_grants_production():
