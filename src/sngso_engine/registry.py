@@ -5018,7 +5018,6 @@ class SQLiteRegistry:
             }
             snapshot["narrative_assembly_report"] = self._story_narrative_assembly_from_snapshot(snapshot)
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
-            snapshot["narrative_assembly_report"]["snapshot_fingerprint"] = snapshot["fingerprint"]
             return snapshot
 
     def add_glossary_entry(
