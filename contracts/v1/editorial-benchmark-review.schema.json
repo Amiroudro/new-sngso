@@ -62,9 +62,7 @@
       "then": {
         "properties": {
           "source_materials": {"minItems": 1},
-          "adjudication_note": {"minLength": 1}
-        },
-        "properties": {
+          "adjudication_note": {"minLength": 1},
           "reviewer": {
             "properties": {
               "qualification_basis": {"minLength": 20}
