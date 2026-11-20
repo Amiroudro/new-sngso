@@ -325,4 +325,4 @@ The staging-only Flutter compatibility verifier received an additional defensive
 - Removes duplicate validation branches.
 - Adds focused regression tests for these cases.
 
-Implementation and tests are committed on the existing draft PR branch. The current full-suite result is **pending**: the GitHub Actions interface has not reported a run for the new head, and no local test environment was available in this session. Do not infer a pass from the earlier 703-test run, which was on the prior code head. Keep PR #7 draft and unmerged. No app, website, or published-edition repository was changed.
+Implementation and tests are committed on the existing draft PR branch. GitHub Actions run [#44767401224](https://github.com/Amiroudro/new-sngso/actions/runs/44767401224) passed the full Python 3.12 suite: **709 passed in 6.09 seconds** on code-bearing head `d3d055099d10630b16db12ca2f0f56b2f2f16e0d`. The latest PR head is `db56d3c33a0541a406f54bf053c01220d86da234`; the commits after the tested code head update documentation only. Keep PR #7 draft and unmerged. No app, website, or published-edition repository was changed.
