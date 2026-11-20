@@ -15,16 +15,33 @@
     "rationale",
     "evidence_references",
     "resolved_at",
-    "reviewer_ids"
+    "reviewer_ids",
+    "issue_resolutions"
   ],
   "allOf": [
     {
       "if": {
-        "properties": {"outcome": {"const": "uphold_existing"}},
-        "required": ["outcome"]
+        "properties": {
+          "outcome": {
+            "const": "uphold_existing"
+          }
+        },
+        "required": [
+          "outcome"
+        ]
       },
-      "then": {"required": ["upheld_review_ids"]},
-      "else": {"not": {"required": ["upheld_review_ids"]}}
+      "then": {
+        "required": [
+          "upheld_review_ids"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "upheld_review_ids"
+          ]
+        }
+      }
     }
   ],
   "properties": {
@@ -113,7 +130,11 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": {"type": "string", "minLength": 1, "maxLength": 160}
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160
+      }
     },
     "reviewer_ids": {
       "type": "array",
@@ -123,6 +144,92 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 160
+      }
+    },
+    "issue_resolutions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "issue_id",
+          "category",
+          "severity",
+          "description",
+          "reviewer_positions",
+          "disposition",
+          "resolution",
+          "evidence_references"
+        ],
+        "properties": {
+          "issue_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "category": {
+            "enum": [
+              "factual_accuracy",
+              "source_support",
+              "claim_scope",
+              "translation_meaning",
+              "language_quality",
+              "accepted_answer",
+              "scoring_criteria",
+              "other"
+            ]
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "major",
+              "minor"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 2000
+          },
+          "reviewer_positions": {
+            "type": "object",
+            "minProperties": 2,
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "disposition": {
+            "enum": [
+              "reviewer_one_upheld",
+              "reviewer_two_upheld",
+              "both_partially_upheld",
+              "both_rejected",
+              "not_material"
+            ]
+          },
+          "resolution": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 3000
+          },
+          "evidence_references": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          }
+        }
       }
     }
   }
