@@ -48,6 +48,18 @@ class FakeRegistry:
     def get_benchmark_principal(self, principal_id):
         return self.principal if principal_id == self.principal["principal_id"] else None
 
+    def register_benchmark_study_protocol(self, payload, **kwargs):
+        self.calls.append(("study_protocol", payload, kwargs))
+        return {"study_id": payload["study_id"], **kwargs}
+
+    def get_benchmark_study_protocol(self, study_id, study_version=None):
+        self.calls.append(("get_study_protocol", study_id, study_version))
+        return {"study_id": study_id, "study_version": study_version}
+
+    def benchmark_study_protocol_history(self, study_id):
+        self.calls.append(("study_protocol_history", study_id))
+        return [{"study_id": study_id, "study_version": 1}]
+
     def register_benchmark_artifact(self, artifact_id, **kwargs):
         self.calls.append(("artifact", artifact_id, kwargs))
         return {"artifact_id": artifact_id, **kwargs}
@@ -399,3 +411,33 @@ def test_score_submission_rejects_synthetic_or_unverified_evaluator():
             {"evaluator_id": "person:42"}, reason="synthetic",
         )
     assert registry.calls == []
+
+
+def test_study_protocol_registration_uses_authenticated_curator_identity():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    payload = {"study_id": "study:bn:one", "study_version": 1}
+    result = access(registry).register_study_protocol(
+        "trusted-request", payload, reason="Register prespecified study",
+    )
+    assert result["study_id"] == payload["study_id"]
+    assert registry.calls[-1][0] == "study_protocol"
+    assert registry.calls[-1][2]["actor"] == "person:42"
+
+
+def test_reviewer_cannot_register_or_read_study_protocols():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    facade = access(registry)
+    with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+        facade.register_study_protocol(
+            "trusted-request", {"study_id": "study:bn:one"}, reason="Unauthorized",
+        )
+    with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+        facade.get_study_protocol("trusted-request", "study:bn:one")
+    assert registry.calls == []
+
+
+def test_curator_can_read_protocol_history_through_facade():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    result = access(registry).study_protocol_history("trusted-request", "study:bn:one")
+    assert result == [{"study_id": "study:bn:one", "study_version": 1}]
+    assert registry.calls == [("study_protocol_history", "study:bn:one")]
