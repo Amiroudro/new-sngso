@@ -23,6 +23,9 @@ def _review():
             "content_fingerprint": "sha256:" + "b" * 64,
             "checked_at": "2026-11-19T18:00:00Z",
             "approved_use_reference": "permission-evidence:notice-1",
+            "permission_grant_id": "permission:notice-1",
+            "endpoint_id": "endpoint:notice-rss",
+            "permission_operation": "excerpt_storage",
         }],
         "corrections": [{
             "field": "expected.segments[1].text",
