@@ -37,7 +37,7 @@ from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as 
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 12
+_SCHEMA_VERSION = 13
 
 
 class RegistryIntegrityError(ValueError):
@@ -1004,6 +1004,72 @@ _MIGRATION_12 = (
 )
 
 
+_MIGRATION_13 = (
+    """CREATE TABLE benchmark_reviews (
+        review_id TEXT PRIMARY KEY,
+        benchmark_id TEXT NOT NULL,
+        benchmark_fingerprint TEXT NOT NULL CHECK (benchmark_fingerprint GLOB 'sha256:*'),
+        language TEXT NOT NULL CHECK (language IN ('bn', 'en')),
+        status TEXT NOT NULL CHECK (status IN ('draft', 'approved', 'rejected')),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json))
+    )""",
+    """CREATE TABLE benchmark_review_revisions (
+        review_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (review_id, revision),
+        FOREIGN KEY (review_id) REFERENCES benchmark_reviews(review_id) ON DELETE RESTRICT
+    )""",
+    """CREATE TRIGGER benchmark_reviews_validate_insert
+        BEFORE INSERT ON benchmark_reviews
+        BEGIN
+            SELECT CASE WHEN NEW.revision != 1
+                THEN RAISE(ABORT, 'benchmark review must start at revision one') END;
+        END""",
+    """CREATE TRIGGER benchmark_reviews_validate_update
+        BEFORE UPDATE ON benchmark_reviews
+        BEGIN
+            SELECT CASE WHEN NEW.review_id != OLD.review_id
+                OR NEW.created_at != OLD.created_at
+                THEN RAISE(ABORT, 'benchmark review identity is immutable') END;
+            SELECT CASE WHEN NEW.revision != OLD.revision + 1
+                THEN RAISE(ABORT, 'benchmark review revision must increment by one') END;
+            SELECT CASE WHEN julianday(NEW.updated_at) < julianday(OLD.updated_at)
+                THEN RAISE(ABORT, 'benchmark review update time cannot move backwards') END;
+        END""",
+    """CREATE TRIGGER benchmark_reviews_no_delete
+        BEFORE DELETE ON benchmark_reviews
+        BEGIN SELECT RAISE(ABORT, 'benchmark reviews cannot be deleted'); END""",
+    """CREATE TRIGGER benchmark_reviews_record_insert
+        AFTER INSERT ON benchmark_reviews
+        BEGIN
+            INSERT INTO benchmark_review_revisions
+            (review_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.review_id, NEW.revision, NEW.created_at, 'system', 'review created', NEW.payload_json);
+        END""",
+    """CREATE TRIGGER benchmark_reviews_record_update
+        AFTER UPDATE ON benchmark_reviews
+        BEGIN
+            INSERT INTO benchmark_review_revisions
+            (review_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.review_id, NEW.revision, NEW.updated_at, 'system', 'review revised', NEW.payload_json);
+        END""",
+    """CREATE TRIGGER benchmark_review_revisions_no_update
+        BEFORE UPDATE ON benchmark_review_revisions
+        BEGIN SELECT RAISE(ABORT, 'benchmark review revisions are append-only'); END""",
+    """CREATE TRIGGER benchmark_review_revisions_no_delete
+        BEFORE DELETE ON benchmark_review_revisions
+        BEGIN SELECT RAISE(ABORT, 'benchmark review revisions are append-only'); END""",
+    "CREATE INDEX idx_benchmark_reviews_benchmark ON benchmark_reviews(benchmark_id, language, status)",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -1220,6 +1286,19 @@ class SQLiteRegistry:
                     version = 12
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 12 failed; transaction rolled back") from exc
+
+            if version == 12 and _SCHEMA_VERSION >= 13:
+                try:
+                    for statement in _MIGRATION_13:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (13, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 13")
+                    version = 13
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 13 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
