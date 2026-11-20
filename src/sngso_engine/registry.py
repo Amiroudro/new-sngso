@@ -5017,6 +5017,7 @@ class SQLiteRegistry:
                     for row in glossary_rows
                 ]
             reporting_independence = self.story_reporting_independence(story_id)
+            source_independence_evidence_report = self.story_source_independence_evidence_report(story_id)
             benchmark_reviews = []
             if article_ids:
                 review_rows = connection.execute(
@@ -5080,6 +5081,7 @@ class SQLiteRegistry:
                 "benchmark_reviews": benchmark_reviews,
                 "benchmark_acceptance_reviews": acceptance_reviews,
                 "reporting_independence": reporting_independence,
+                "source_independence_evidence_report": source_independence_evidence_report,
             }
             snapshot["narrative_assembly_report"] = self._story_narrative_assembly_from_snapshot(snapshot)
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
