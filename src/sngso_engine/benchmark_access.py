@@ -183,6 +183,14 @@ class AuthenticatedBenchmarkAccess:
             reason=reason,
         )
 
+
+    def evaluator_agreement_report(
+        self, request_context: Any, artifact_id: str, item_id: str
+    ) -> dict[str, Any]:
+        """Expose peer-score comparisons to curators/adjudicators, not reviewers."""
+        self._principal(request_context, ("benchmark_curator", "benchmark_adjudicator"))
+        return self._registry.benchmark_evaluator_agreement_report(artifact_id, item_id)
+
     def adjudicate(
         self, request_context: Any, payload: dict[str, Any], *, reason: str
     ) -> dict[str, Any]:
