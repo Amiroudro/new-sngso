@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 from datetime import datetime, timedelta, timezone
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from .registry import RegistryIntegrityError
 
@@ -56,6 +56,7 @@ class AuthenticatedBenchmarkAccess:
         *,
         expected_issuer: str,
         expected_audience: str,
+        subject_to_principal: Callable[[str, str], str | None],
         clock: Any = None,
     ) -> None:
         if not expected_issuer.strip() or not expected_audience.strip():
@@ -64,6 +65,9 @@ class AuthenticatedBenchmarkAccess:
         self._identity_provider = identity_provider
         self._expected_issuer = expected_issuer
         self._expected_audience = expected_audience
+        if not callable(subject_to_principal):
+            raise ValueError("a trusted issuer-and-subject mapping is required")
+        self._subject_to_principal = subject_to_principal
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def _identity(self, request_context: Any) -> AuthenticatedIdentity:
@@ -76,6 +80,11 @@ class AuthenticatedBenchmarkAccess:
             raise RegistryIntegrityError("authenticated identity issuer mismatch")
         if identity.audience != self._expected_audience:
             raise RegistryIntegrityError("authenticated identity audience mismatch")
+        if not identity.subject.strip():
+            raise RegistryIntegrityError("authenticated identity subject is missing")
+        mapped_principal = self._subject_to_principal(identity.issuer, identity.subject)
+        if mapped_principal != identity.principal_id:
+            raise RegistryIntegrityError("provider issuer/subject is not bound to the authenticated registry principal")
         now = self._clock()
         if identity.authenticated_at.tzinfo is None or identity.expires_at.tzinfo is None:
             raise RegistryIntegrityError("identity timestamps must be timezone-aware")
