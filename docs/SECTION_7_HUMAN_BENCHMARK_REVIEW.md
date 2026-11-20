@@ -27,9 +27,14 @@ Before a review is stored, its declared article, publisher, permission-evidence,
 
 This is not reviewer authentication or authorization. A reviewer ID is a recorded declaration, not proof of identity. The registry does not independently establish that an editorial judgement is correct. Synthetic fixtures are not a substitute for a real, bilingual, human-reviewed benchmark set. Do not present metadata validation as proof of factual correctness.
 
+## 7.5 Quality reporting and story snapshot integration
+
+The registry exposes a read-only benchmark review quality report. It separates the recorded review decision and metadata validation from a fresh check that each source still has verified evidence and a currently usable grant for its declared endpoint and operation. A suspended, revoked, expired, or otherwise unusable grant blocks current-use eligibility even when the historical review remains approved.
+
+The story editorial snapshot includes benchmark review records whose declared source articles belong to that story. Each included record carries its current revision, append-only review history, and a current-use quality report. This is provenance visibility, not an editorial quality score. The report explicitly warns that reviewer identity is not authenticated and that it does not determine factual correctness.
+
 ## Next gates
 
-- Add a read-only benchmark quality report and expose eligible review provenance in the story editorial snapshot.
 - Add a controlled reviewer identity and role authorization mechanism.
 - Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
 
