@@ -10,6 +10,7 @@ from .benchmark_assignments import (
 )
 from .benchmark_adjudication import validate_benchmark_adjudication
 from .benchmark_scoring import validate_benchmark_scoring
+from .benchmark_agreement import BenchmarkAgreementError, benchmark_evaluator_agreement
 from .benchmarks import evaluate_editorial_benchmark
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .collection import (
@@ -105,6 +106,8 @@ __all__ = [
     "transition_benchmark_assignment",
     "validate_benchmark_adjudication",
     "validate_benchmark_scoring",
+    "BenchmarkAgreementError",
+    "benchmark_evaluator_agreement",
     "ingest_observation",
     "normalize_language_tag",
     "normalize_observation",
