@@ -5,7 +5,7 @@ registry records. It does not serialize, write, publish, or authorize an edition
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -109,6 +109,14 @@ def verify_flutter_staging_candidate(
     edition_date = _required_text(client_edition.get("edition_date"), "edition_date")
     if provenance_manifest.get("edition_date") != edition_date:
         raise FlutterCompatibilityError("client edition date does not match the manifest")
+    try:
+        expected_day = date.fromisoformat(edition_date).strftime("%A")
+    except ValueError as exc:
+        raise FlutterCompatibilityError("edition_date must be an ISO calendar date") from exc
+    if client_edition.get("edition_day") != expected_day:
+        raise FlutterCompatibilityError("edition day does not match edition_date")
+    if client_edition.get("coverage") not in (None, ""):
+        raise FlutterCompatibilityError("coverage text is unsupported until it has a reviewed source binding")
     if not isinstance(client_edition.get("stories"), list) or not client_edition["stories"]:
         raise FlutterCompatibilityError("staging candidate must contain at least one story")
     if set(edition_payload.get("story_ids", [])) != {
@@ -201,11 +209,16 @@ def verify_flutter_staging_candidate(
         if not articles_by_source:
             raise FlutterCompatibilityError(f"story {story_id} has no active registered source articles")
         source_ids = []
+        story_source_refs: set[str] = set()
         for source_ref in client_story["sources"]:
             if not isinstance(source_ref, dict):
                 raise FlutterCompatibilityError("client source references must be objects")
             if set(source_ref) != {"id", "publication", "headline", "date", "url"}:
                 raise FlutterCompatibilityError("client source reference contains unsupported fields")
+            source_fingerprint = sha256_fingerprint(source_ref)
+            if source_fingerprint in story_source_refs:
+                raise FlutterCompatibilityError("duplicate source reference in client story")
+            story_source_refs.add(source_fingerprint)
             source_id = _required_text(source_ref.get("id"), "client source id")
             articles = articles_by_source.get(source_id, [])
             if not articles:
@@ -288,6 +301,7 @@ def verify_flutter_staging_candidate(
                 principal is None
                 or not principal.get("active")
                 or principal.get("principal_kind") != "human"
+                or payload.get("language") not in principal.get("languages", [])
             ):
                 raise FlutterCompatibilityError(
                     f"learning-object reviewer is not an active human principal: {object_id}"
@@ -305,6 +319,8 @@ def verify_flutter_staging_candidate(
     if not isinstance(edition_sources, list):
         raise FlutterCompatibilityError("edition sources must be a list")
     edition_ref_fingerprints = set()
+    if not isinstance(edition_sources, list):
+        raise FlutterCompatibilityError("edition sources must be a list")
     for source_ref in edition_sources:
         if not isinstance(source_ref, dict):
             raise FlutterCompatibilityError("edition source references must be objects")
