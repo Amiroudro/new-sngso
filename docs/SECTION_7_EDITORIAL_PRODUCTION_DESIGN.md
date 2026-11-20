@@ -152,3 +152,8 @@ This is a conservative evidence-link check, not proof that the rationale logical
 ## Section 7.39: language-rubric quality gate
 
 Every learning object must pass its language-specific editorial rubric before the deterministic registry quality report can return a passing quality gate. Generic approval metadata alone is insufficient. Bangla and English use their exact rubric versions and dimension sets. This check establishes recorded rubric completeness only; trusted reviewer authentication, factual correctness, question pedagogy, genuine human evidence, and production authorization remain separate requirements.
+
+
+## Section 7.40: authenticated MCQ pedagogical rubric
+
+The authenticated review facade captures a versioned mcq-editorial-v1 rubric for MCQs: single_defensible_key, stem_clarity_and_precision, distractor_plausibility, distractors_unambiguously_incorrect, misconception_alignment, option_parallelism, no_accidental_clues, and explanation_fidelity. Every dimension must be pass or needs_revision; an approval cannot contain a revision finding. Reviewer identity attestation is captured from the configured trusted-provider adapter. The registry quality report requires the complete all-pass rubric for an approved MCQ. This is a deterministic control only: human judgement, calibration, independent acceptance, and actual review evidence are still required. Dedicated regression tests for the new path remain outstanding.
