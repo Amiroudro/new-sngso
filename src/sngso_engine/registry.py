@@ -1305,6 +1305,15 @@ def _validate_learning_object_answer_links(payload: dict[str, Any]) -> None:
             raise RegistryIntegrityError("MCQ must provide exactly one rationale for every incorrect option and none for the correct option")
         if any(not isinstance(item.get("rationale"), str) or not item["rationale"].strip() for item in rationales):
             raise RegistryIntegrityError("MCQ distractor rationales must be non-empty")
+        object_claims = set(payload.get("claim_ids", []))
+        if any(
+            not item.get("basis_claim_ids")
+            or not set(item["basis_claim_ids"]).issubset(object_claims)
+            for item in rationales
+        ):
+            raise RegistryIntegrityError(
+                "MCQ distractor rationale basis claims must be a non-empty subset of the object's claims"
+            )
 
 
 _MIGRATION_12 = (
