@@ -1296,6 +1296,15 @@ def _validate_learning_object_answer_links(payload: dict[str, Any]) -> None:
             raise RegistryIntegrityError("MCQ option text must be unique")
         if content.get("correct_option_id") not in set(option_ids):
             raise RegistryIntegrityError("MCQ correct option must reference one of its options")
+        rationales = content.get("distractor_rationales", [])
+        rationale_ids = [item.get("option_id") for item in rationales]
+        expected_distractors = set(option_ids) - {content.get("correct_option_id")}
+        if len(rationale_ids) != len(set(rationale_ids)):
+            raise RegistryIntegrityError("MCQ distractor rationale option IDs must be unique")
+        if set(rationale_ids) != expected_distractors:
+            raise RegistryIntegrityError("MCQ must provide exactly one rationale for every incorrect option and none for the correct option")
+        if any(not isinstance(item.get("rationale"), str) or not item["rationale"].strip() for item in rationales):
+            raise RegistryIntegrityError("MCQ distractor rationales must be non-empty")
 
 
 _MIGRATION_12 = (
