@@ -1660,8 +1660,14 @@ def test_schema_17_migrates_principals_to_unverified_classification(tmp_path, mo
     database = tmp_path / "registry-v17.sqlite"
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 17)
     with SQLiteRegistry(database) as old_registry:
-        _register_benchmark_test_principals(old_registry)
         assert old_registry.schema_version() == 17
+        old_registry._connection.execute(
+            """INSERT INTO benchmark_principals
+            (principal_id, display_name, roles_json, active, created_at, created_by, reason, languages_json)
+            VALUES (?, ?, ?, 1, ?, ?, ?, ?)""",
+            ("legacy:reviewer", "Legacy reviewer", '["benchmark_reviewer"]',
+             STAMP, "legacy-bootstrap", "Pre-migration reviewer", '["en"]'),
+        )
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 18)
     with SQLiteRegistry(database) as migrated:
         assert migrated.schema_version() == 18
@@ -1721,7 +1727,7 @@ def test_synthetic_only_benchmark_is_never_reported_as_human_ready():
         second = _benchmark_review_payload()
         second["review_id"] = "review:benchmark-en-002"
         second["reviewer"]["reviewer_id"] = "editor:second"
-        second["reviewer"]["qualification_basis"] = "Synthetic fixture."
+        second["reviewer"]["qualification_basis"] = "Synthetic test fixture reviewer with no verified human identity."
         registry.add_benchmark_review(second, actor="editor:second", reason="second synthetic fixture review")
         report = registry.benchmark_readiness_report(first["benchmark_id"])
         assert report["status"] == "synthetic_only"
