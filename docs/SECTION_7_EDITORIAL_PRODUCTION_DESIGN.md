@@ -124,3 +124,9 @@ The story dossier now includes a source-independence evidence report alongside t
 - The report is embedded in the story snapshot and is explicitly non-authorizing.
 
 This report exposes evidence gaps; it does not manufacture lineage evidence or infer independence from publisher count, URL, or wording.
+
+## Section 7.32: language-review enforcement in narrative assembly
+
+Narrative assembly now evaluates the actual language-specific review rubric, not merely the presence of a review record. Each language report exposes per-object language_review_pass, an aggregate assembly status, and counts for learning objects, segments, factual segments, traceable segments, unsupported factual segments, passing language reviews, and blockers.
+
+A review passes this gate only when its language and rubric version match the relevant language and every required rubric dimension passes (with translation fidelity allowed to be marked not applicable). Missing, rejected, or needs-revision language reviews remain blockers. Bangla and English are calculated independently. review_required means the deterministic blockers are absent but human editorial workflow remains; it is not a publication approval. Production authorization remains false.
