@@ -33,3 +33,12 @@ An accepted decision is limited to its declared intended use and limitations. It
 The repository implementation for the Section 7 human-benchmark governance workflow is complete through the durable acceptance-decision boundary. This means the contracts, persistence, authorization checks, audit records, and regression tests are represented in code. It does not mean a real human study has been conducted, a benchmark has passed independent review, statistical reliability has been established, or production infrastructure has been accepted.
 
 Synthetic tests validate software behavior only. Production use remains blocked pending genuine Bangla/English human evidence, independent statistical and editorial review, current publisher permissions, real provider infrastructure, host/database controls, backup/restore drills, and formal completion of the Section 7.18 go/no-go checklist.
+
+
+## Section 8.1: benchmark-to-story evidence integration
+
+- Story editorial snapshots now include acceptance decisions linked through registered benchmark source articles.
+- A current acceptance-quality report rechecks protocol, execution, artifact, decision, provider-attested human source reviews, and operation-scoped source permissions.
+- Expired, suspended, revoked, or otherwise unusable source permissions block scoped reference without rewriting historical reviews.
+- The report exposes intended use, scope limitations, named checks, and blockers. It never grants publication or production authorization.
+- See `docs/SECTION_8_1_STORY_BENCHMARK_EVIDENCE.md`.
