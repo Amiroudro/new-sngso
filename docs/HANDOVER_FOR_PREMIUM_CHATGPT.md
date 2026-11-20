@@ -282,8 +282,8 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 
 ## Section 7.40: authenticated MCQ pedagogical review rubric (CI verified)
 
-- The learning-object contract now defines a versioned mcq-editorial-v1 review with eight dimensions: single defensible key, stem clarity, distractor plausibility, unambiguous incorrectness, misconception alignment, option parallelism, absence of accidental clues, and explanation fidelity.
-- The trusted review facade requires those dimensions for MCQ decisions, restricts values to pass/needs_revision, requires all-pass findings for approval, and records provider-backed identity attestation with the review.
-- The registry rejects malformed or mismatched MCQ review metadata. The quality report blocks an approved MCQ without a complete all-pass pedagogical review. Existing human-review warnings remain; automated completeness does not judge pedagogical quality.
-- Full Python 3.12 CI run [#44732795832](https://github.com/Amiroudro/new-sngso/actions/runs/44732795832) passed **689 tests in 7.70 seconds** on head 4b14a10705ab4352b8c4c915179c3b564d601086. This run contains no new dedicated MCQ-rubric regression cases, so the newly added paths need targeted coverage before they are treated as fully validated.
+- The learning-object contract defines mcq-editorial-v1 with ten review dimensions: single defensible key, stem clarity and precision, distractor plausibility, unambiguous incorrectness, rationale quality, learner-level fit, misconception alignment, option parallelism, absence of accidental clues, and explanation fidelity.
+- The trusted review facade requires all ten dimensions for MCQ decisions, restricts values to pass/needs_revision, requires all-pass findings for approval, and records provider-backed identity attestation.
+- Registry validation rejects malformed or mismatched MCQ review metadata. The quality report blocks an approved MCQ without a complete all-pass pedagogical rubric. Automated completeness does not judge pedagogical quality.
+- GitHub Actions [run #44733507721](https://github.com/Amiroudro/new-sngso/actions/runs/44733507721) passed the full Python 3.12 suite: **689 tests in 7.56 seconds** on code head d6921b020e92355a5117910babf88430b514c44b. This run contains no dedicated regression cases for the new MCQ rubric path.
 - Section 7 remains open. Real human review records, calibration/independent acceptance, source lineage and permission evidence, production operations sign-off, Flutter compatibility, and realistic daily inputs remain outstanding.
