@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 12
+        assert registry.schema_version() == 13
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 12
+        assert reopened.schema_version() == 13
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -1360,9 +1360,101 @@ def test_existing_schema_v11_database_migrates_to_v12(tmp_path, monkeypatch) -> 
 
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 12)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 12
+        assert migrated.schema_version() == 13
         assert migrated._connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'glossary_entries'"
         ).fetchone() is not None
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_reviews'"
+        ).fetchone() is not None
         migrated.migrate()
-        assert migrated.schema_version() == 12
+        assert migrated.schema_version() == 13
+
+
+def _benchmark_review_payload() -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "review_id": "review:benchmark-en-001",
+        "benchmark_id": "benchmark:headline-en-v1",
+        "benchmark_fingerprint": "sha256:" + "c" * 64,
+        "language": "en",
+        "status": "approved",
+        "reviewer": {
+            "reviewer_id": "editor:en-01",
+            "role": "English editor",
+            "language": "en",
+            "qualification_basis": "Professional English copy-editing and newsroom experience.",
+        },
+        "reviewed_at": "2026-11-20T00:00:00Z",
+        "source_materials": [{
+            "article_id": "article:publisher-a-001",
+            "source_id": "source:publisher-a",
+            "canonical_uri": "https://publisher-a.example.org/news/001",
+            "content_fingerprint": "sha256:" + "d" * 64,
+            "checked_at": "2026-11-19T18:00:00Z",
+            "approved_use_reference": "permission-evidence:publisher-a-001",
+        }],
+        "corrections": [],
+        "adjudication_note": "Checked against the registered article and source evidence.",
+    }
+
+
+def _populate_benchmark_review_sources(registry: SQLiteRegistry) -> None:
+    registry.add_source(source_record())
+    registry.add_permission_evidence(evidence_record())
+    registry.add_domain_record("article", article_record())
+
+
+def test_benchmark_review_persists_with_registered_source_references_and_history():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        saved = registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+        assert saved["revision"] == 1
+        assert registry.get_benchmark_review(payload["review_id"])["status"] == "approved"
+        history = registry.benchmark_review_history(payload["review_id"])
+        assert len(history) == 1
+        assert history[0]["actor"] == "editor:lead"
+        assert history[0]["reason"] == "initial review"
+
+
+def test_benchmark_review_revision_is_append_only_and_optimistically_locked():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+        revised = {**payload, "status": "rejected", "adjudication_note": "Source attribution needs correction."}
+        result = registry.revise_benchmark_review(
+            payload["review_id"], revised, expected_revision=1,
+            actor="editor:second", reason="independent challenge",
+        )
+        assert result["revision"] == 2
+        history = registry.benchmark_review_history(payload["review_id"])
+        assert [item["revision"] for item in history] == [1, 2]
+        assert history[1]["actor"] == "editor:second"
+        with pytest.raises(RegistryIntegrityError, match="revision conflict"):
+            registry.revise_benchmark_review(
+                payload["review_id"], revised, expected_revision=1,
+                actor="editor:second", reason="stale update",
+            )
+
+
+def test_benchmark_review_rejects_unregistered_or_mismatched_source_material():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        payload["source_materials"][0]["source_id"] = "source:unknown"
+        with pytest.raises(RegistryIntegrityError, match="registered article"):
+            registry.add_benchmark_review(payload, actor="editor:lead", reason="bad source")
+
+
+def test_benchmark_review_history_cannot_be_updated_or_deleted():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "DELETE FROM benchmark_review_revisions WHERE review_id = ?",
+                (payload["review_id"],),
+            )
