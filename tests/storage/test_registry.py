@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 21
+        assert registry.schema_version() == 22
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 21
+        assert reopened.schema_version() == 22
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -2502,9 +2502,9 @@ def test_schema_v15_migrates_to_v16_with_single_final_adjudication_guard(tmp_pat
 
 
 
-def test_migrations_20_and_21_create_append_only_score_and_study_stores():
+def test_migrations_20_to_22_create_append_only_score_study_and_execution_stores():
     with SQLiteRegistry() as registry:
-        assert registry.schema_version() == 21
+        assert registry.schema_version() == 22
         tables = {
             row["name"] for row in registry._connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
@@ -2521,6 +2521,9 @@ def test_migrations_20_and_21_create_append_only_score_and_study_stores():
         assert "benchmark_study_protocols" in tables
         assert "benchmark_study_protocols_no_update" in triggers
         assert "benchmark_study_protocols_no_delete" in triggers
+        assert "benchmark_study_executions" in tables
+        assert "benchmark_study_executions_no_update" in triggers
+        assert "benchmark_study_executions_no_delete" in triggers
 
 
 def test_existing_schema_v20_database_migrates_to_v21(tmp_path, monkeypatch):
@@ -2539,3 +2542,21 @@ def test_existing_schema_v20_database_migrates_to_v21(tmp_path, monkeypatch):
         ).fetchone() is not None
         migrated.migrate()
         assert migrated.schema_version() == 21
+
+
+def test_existing_schema_v21_database_migrates_to_v22(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v21.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 21)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 21
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_study_executions'"
+        ).fetchone() is None
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 22)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 22
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_study_executions'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 22
