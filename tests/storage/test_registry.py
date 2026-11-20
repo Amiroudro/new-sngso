@@ -1401,7 +1401,7 @@ def _benchmark_review_payload() -> dict:
 
 
 
-def _register_benchmark_test_principals(registry: SQLiteRegistry) -> None:
+def _register_benchmark_test_principals(registry: SQLiteRegistry, *, reviewer_kind: str = "unverified") -> None:
     registry.register_benchmark_principal(
         "benchmark-curator", display_name="Test curator",
         roles=["benchmark_curator"], provisioned_by="test-bootstrap",
@@ -1416,7 +1416,7 @@ def _register_benchmark_test_principals(registry: SQLiteRegistry) -> None:
         registry.register_benchmark_principal(
             principal, display_name=principal,
             roles=["benchmark_reviewer"], provisioned_by="test-bootstrap",
-            reason="Provision test reviewer", languages=["en"],
+            reason="Provision test reviewer", languages=["en"], principal_kind=reviewer_kind,
         )
     registry.register_benchmark_principal(
         "adjudicator:senior", display_name="Senior adjudicator",
@@ -1425,8 +1425,8 @@ def _register_benchmark_test_principals(registry: SQLiteRegistry) -> None:
     )
 
 
-def _populate_benchmark_review_sources(registry: SQLiteRegistry) -> None:
-    _register_benchmark_test_principals(registry)
+def _populate_benchmark_review_sources(registry: SQLiteRegistry, *, reviewer_kind: str = "unverified") -> None:
+    _register_benchmark_test_principals(registry, reviewer_kind=reviewer_kind)
     registry.add_source(source_record())
     registry.add_endpoint(endpoint_record())
     registry.add_permission_evidence(evidence_record())
@@ -1690,10 +1690,7 @@ def test_benchmark_readiness_never_confuses_test_principals_with_verified_humans
 
 def test_benchmark_readiness_requires_adjudication_even_for_two_human_classified_reviewers():
     with SQLiteRegistry() as registry:
-        _populate_benchmark_review_sources(registry)
-        registry._connection.execute(
-            "UPDATE benchmark_principals SET principal_kind = 'human' WHERE principal_id IN ('editor:lead', 'editor:second')"
-        )
+        _populate_benchmark_review_sources(registry, reviewer_kind="human")
         first = _benchmark_review_payload()
         registry.add_benchmark_review(first, actor="editor:lead", reason="human-classified review")
         second = _benchmark_review_payload()
@@ -1710,10 +1707,7 @@ def test_benchmark_readiness_requires_adjudication_even_for_two_human_classified
 
 def test_synthetic_only_benchmark_is_never_reported_as_human_ready():
     with SQLiteRegistry() as registry:
-        _populate_benchmark_review_sources(registry)
-        registry._connection.execute(
-            "UPDATE benchmark_principals SET principal_kind = 'synthetic' WHERE principal_id IN ('editor:lead', 'editor:second')"
-        )
+        _populate_benchmark_review_sources(registry, reviewer_kind="synthetic")
         first = _benchmark_review_payload()
         registry.add_benchmark_review(first, actor="editor:lead", reason="synthetic fixture review")
         second = _benchmark_review_payload()
