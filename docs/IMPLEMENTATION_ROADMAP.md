@@ -289,12 +289,14 @@ Added a read-only staging compatibility verifier for the English story subset un
 
 Added an explicit English story-only Flutter staging builder. Callers select exact headline_summary and brief_summary learning-object IDs for every story in an approved edition and supply the current source grants. The builder creates a draft client payload and provenance manifest in memory, pins edition/story/object revisions and fingerprints, rechecks reviewer qualification and source republication permission, and then verifies endpoint coverage. It does not write or publish. Synthetic tests cover successful construction and incomplete-selection rejection. GitHub Actions [run #44753534682](https://github.com/Amiroudro/new-sngso/actions/runs/44753534682) passed the full Python 3.12 suite: **703 tests in 6.68 seconds** on code head f7889295a9ca329852b518f96af68fb0b2b4b315. Flutter runtime validation, cross-repository golden tests, actual republication grants, bilingual output, and other client collections remain open.
 
-### Section 7.44 implementation update (verification pending)
+### Section 7.44 implementation update (verified)
 
 The staging-only Flutter compatibility boundary now rejects malformed manifest metadata more strictly:
 - Edition, story, and learning-object revision values must be positive integers; booleans are explicitly rejected even though Python treats booleans as integers.
 - Supplied collection counts must be non-negative integers, not booleans, floats, or strings, and must match the corresponding arrays.
 - Unknown count keys are rejected rather than silently ignored.
+- Duplicate edition-level source references are rejected instead of being silently accepted.
+- Permission-check reporting now counts the actual permission bindings rechecked, including multiple endpoints for one source.
 - Removed repeated duplicate validation branches in the verifier.
 
-Regression tests were added for boolean revisions, malformed/negative counts, and unknown count keys. GitHub Actions run [#44767401224](https://github.com/Amiroudro/new-sngso/actions/runs/44767401224) completed successfully: **709 tests passed in 6.09 seconds** on code-bearing head `d3d055099d10630b16db12ca2f0f56b2f2f16e0d`. The latest PR head is `db56d3c33a0541a406f54bf053c01220d86da234`; subsequent changes are documentation-only. This is defensive input validation only; it does not establish Flutter runtime compatibility, editorial correctness, or publication authorization. Section 7 remains open.
+Regression tests cover boolean revisions, malformed/negative counts, unknown count keys, and duplicate edition-level source references. GitHub Actions run [#44767670067](https://github.com/Amiroudro/new-sngso/actions/runs/44767670067) passed the full Python 3.12 suite: **710 tests in 8.42 seconds** on code head `e3d7a6bb7f8baba5dd6e4660b8705a1c9d065130`. This is defensive input validation only; it does not establish Flutter runtime compatibility, editorial correctness, or publication authorization. Section 7 remains open.
