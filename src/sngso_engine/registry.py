@@ -5604,6 +5604,32 @@ class SQLiteRegistry:
                     answer_supported,
                     "Every answer claim must be supported or partially supported and have linked evidence.",
                 )
+                if payload["kind"] == "mcq_question":
+                    options = payload["content"].get("options", [])
+                    correct_option_id = payload["content"].get("correct_option_id")
+                    distractor_ids = {item["id"] for item in options} - {correct_option_id}
+                    rationale_ids = [
+                        item.get("option_id")
+                        for item in payload["content"].get("distractor_rationales", [])
+                    ]
+                    rationale_coverage = (
+                        len(rationale_ids) == len(set(rationale_ids))
+                        and set(rationale_ids) == distractor_ids
+                    )
+                    check(
+                        "mcq_distractor_rationale_coverage",
+                        rationale_coverage,
+                        "Every incorrect option must have exactly one rationale; the correct option must not have a distractor rationale.",
+                    )
+                    warnings.append({
+                        "check": "mcq_human_distractor_review",
+                        "detail": (
+                            "Human review is still required to judge whether distractors are plausible, "
+                            "unambiguously incorrect under the question wording, misconception-based, "
+                            "parallel in form, and free of accidental clues. Rationale presence does not "
+                            "prove distractor quality."
+                        ),
+                    })
 
             if payload["kind"] == "vocabulary":
                 glossary_id = payload["content"]["glossary_entry_id"]
