@@ -4907,6 +4907,26 @@ class SQLiteRegistry:
             report["unresolved_contradiction_ids"] = [
                 item["relation_id"] for item in unresolved_contradictions
             ]
+            factual_segments = [
+                item for item in report["segments"] if item["role"] == "fact"
+            ]
+            report["summary"] = {
+                "learning_object_count": len(report["objects"]),
+                "segment_count": len(report["segments"]),
+                "factual_segment_count": len(factual_segments),
+                "traceable_segment_count": sum(
+                    1 for item in report["segments"] if item["traceable"]
+                ),
+                "unsupported_factual_segment_count": sum(
+                    1 for item in factual_segments
+                    if item["support_state"] != "supported"
+                ),
+                "language_review_pass_count": sum(
+                    1 for item in report["objects"] if item["language_review_pass"]
+                ),
+                "blocker_count": len(report["blockers"]),
+            }
+            report["assembly_status"] = "blocked" if report["blockers"] else "review_required"
             report["production_ready"] = False
             report["authorization_granted"] = False
             languages[language] = report
