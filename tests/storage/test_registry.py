@@ -1684,6 +1684,31 @@ def test_schema_17_migrates_principals_to_unverified_classification(tmp_path, mo
         assert migrated.schema_version() == 18
 
 
+def test_schema_18_migrates_to_19_identity_attestation_ledger(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v18.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 18)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 18
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 19)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 19
+        tables = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "benchmark_review_identity_attestations" in tables
+        triggers = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert "benchmark_review_identity_attestations_no_update" in triggers
+        assert "benchmark_review_identity_attestations_no_delete" in triggers
+        migrated.migrate()
+        assert migrated.schema_version() == 19
+
+
 def _identity_attestation(review: dict, actor: str) -> dict:
     return {
         "attestation_id": f"identity-attestation:{review['review_id']}:1",
