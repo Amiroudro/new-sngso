@@ -52,3 +52,10 @@ The report deliberately has no overall quality score and never averages Bangla a
 ## Three-tier summary-set reporting
 
 The story-level `story_summary_tier_report(story_id)` reports the headline, brief, and detailed summary tiers separately for Bangla and English. It identifies missing tiers, duplicate artifacts, unapproved or ambiguous tiers, and artifacts blocked by existing deterministic registry quality checks. A complete set requires exactly one approved, quality-gate-passing artifact for each tier in that language. It does not infer prose quality, source completeness, or factual truth, and it never authorizes production. The report rechecks the story snapshot fingerprint after collecting per-artifact reports to avoid returning a mixed-revision view.
+
+
+## Structured independent language-review evidence
+
+The learning-object contract now supports an optional structured `language_review` record, bound to the object's language, recorded approver, and approval timestamp. It records separate verdicts for language accuracy, clarity, factual fidelity, attribution, omissions, and translation fidelity. Translation fidelity may be marked not applicable when no paired-language comparison is intended. The registry rejects a review record whose language, reviewer, or timestamp conflicts with the approved learning object.
+
+The story summary-tier report exposes this evidence per tier. A tier is not considered fully reviewed unless the structured record is present and all six dimensions pass, with translation fidelity explicitly allowed to be not applicable. Older approved artifacts remain historically approved, but do not count as fully language-reviewed in this report. These are declared review findings, not proof that the reviewer is qualified, independent, correct, or authenticated.
