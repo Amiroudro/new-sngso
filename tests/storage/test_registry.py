@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 16
+        assert registry.schema_version() == 17
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 16
+        assert reopened.schema_version() == 17
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -1416,7 +1416,7 @@ def _register_benchmark_test_principals(registry: SQLiteRegistry) -> None:
         registry.register_benchmark_principal(
             principal, display_name=principal,
             roles=["benchmark_reviewer"], provisioned_by="test-bootstrap",
-            reason="Provision test reviewer",
+            reason="Provision test reviewer", languages=["en"],
         )
     registry.register_benchmark_principal(
         "adjudicator:senior", display_name="Senior adjudicator",
@@ -1439,6 +1439,181 @@ def _populate_benchmark_review_sources(registry: SQLiteRegistry) -> None:
         actor="benchmark-curator",
         reason="register immutable test artifact",
     )
+
+
+def _benchmark_assignment_payload(**overrides):
+    payload = {
+        "schema_version": "1.0.0",
+        "assignment_id": "assignment:headline-en-001",
+        "artifact_id": "benchmark:headline-en-v1",
+        "artifact_fingerprint": registry_module.sha256_fingerprint({
+            "schema_version": "1.0.0",
+            "items": [{
+                "item_id": "headline-en-001",
+                "task_type": "headline",
+                "input": "A report about a verified event",
+                "expected_output": "Verified event report",
+                "scoring_criteria": ["Preserves the central fact", "Does not add unsupported detail"],
+            }],
+        }),
+        "language": "en",
+        "reviewer_id": "editor:lead",
+        "assigned_by": "curator",
+        "assigned_at": "2026-11-20T00:00:00Z",
+        "due_at": "2026-11-21T00:00:00Z",
+        "status": "assigned",
+        "reason": "Independent English benchmark review",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_assignment_persists_with_immutable_revision_history_and_audit():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        saved = registry.create_benchmark_review_assignment(
+            payload, actor="curator", reason="Assign independent English review",
+        )
+        assert saved["status"] == "assigned"
+        assert saved["revision"] == 1
+        history = registry.benchmark_review_assignment_history(payload["assignment_id"])
+        assert len(history) == 1
+        assert history[0]["actor"] == "curator"
+        assert history[0]["assignment"]["artifact_fingerprint"] == payload["artifact_fingerprint"]
+        assert registry.audit_events(entity_id=payload["assignment_id"])[0]["event_type"] == "benchmark_review_assignment.created"
+        with pytest.raises(sqlite3.IntegrityError, match="cannot be deleted"):
+            registry._connection.execute(
+                "DELETE FROM benchmark_review_assignments WHERE assignment_id = ?",
+                (payload["assignment_id"],),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "UPDATE benchmark_review_assignment_revisions SET reason = 'tampered' WHERE assignment_id = ?",
+                (payload["assignment_id"],),
+            )
+
+
+def test_assignment_requires_exact_artifact_and_current_language_qualified_reviewer():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload(artifact_fingerprint="sha256:" + "f" * 64)
+        with pytest.raises(RegistryIntegrityError, match="exact artifact"):
+            registry.create_benchmark_review_assignment(payload, actor="curator", reason="wrong fingerprint")
+        registry.register_benchmark_principal(
+            "editor:bangla-only", display_name="Bangla reviewer",
+            roles=["benchmark_reviewer"], languages=["bn"],
+            provisioned_by="test-bootstrap", reason="Bangla qualification",
+        )
+        payload = _benchmark_assignment_payload(
+            assignment_id="assignment:wrong-language-reviewer",
+            reviewer_id="editor:bangla-only",
+        )
+        with pytest.raises(RegistryIntegrityError, match="not qualified"):
+            registry.create_benchmark_review_assignment(payload, actor="curator", reason="wrong language")
+
+
+def test_assignment_requires_curator_and_prevents_duplicate_active_assignment():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+            registry.create_benchmark_review_assignment(payload, actor="editor:lead", reason="not curator")
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="first assignment")
+        duplicate = _benchmark_assignment_payload(assignment_id="assignment:duplicate")
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
+            registry.create_benchmark_review_assignment(duplicate, actor="curator", reason="duplicate active assignment")
+
+
+def test_assignment_acceptance_and_cancellation_are_persisted_as_revisions():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="assign")
+        accepted = registry.transition_benchmark_review_assignment(
+            payload["assignment_id"], event="accept", actor="editor:lead",
+            at="2026-11-20T01:00:00Z", reason="Reviewer accepted",
+        )
+        assert accepted["status"] == "accepted"
+        cancelled = registry.transition_benchmark_review_assignment(
+            payload["assignment_id"], event="cancel", actor="curator",
+            at="2026-11-20T02:00:00Z", reason="Reassigned by curator",
+        )
+        assert cancelled["status"] == "cancelled"
+        assert [entry["revision"] for entry in registry.benchmark_review_assignment_history(payload["assignment_id"])] == [1, 2, 3]
+
+
+def test_assignment_submission_requires_stored_review_for_same_reviewer_and_artifact():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="assign")
+        registry.transition_benchmark_review_assignment(
+            payload["assignment_id"], event="accept", actor="editor:lead",
+            at="2026-11-20T01:00:00Z", reason="accepted",
+        )
+        with pytest.raises(RegistryIntegrityError, match="stored human review"):
+            registry.transition_benchmark_review_assignment(
+                payload["assignment_id"], event="submit", actor="editor:lead",
+                at="2026-11-20T02:00:00Z", reason="submit missing review",
+                submitted_review_id="review:missing",
+            )
+        review = _benchmark_review_payload()
+        registry.add_benchmark_review(review, actor="editor:lead", reason="complete assigned review")
+        submitted = registry.transition_benchmark_review_assignment(
+            payload["assignment_id"], event="submit", actor="editor:lead",
+            at="2026-11-20T03:00:00Z", reason="submit actual review",
+            submitted_review_id=review["review_id"],
+        )
+        assert submitted["status"] == "submitted"
+        assert submitted["submitted_review_id"] == review["review_id"]
+        assert len(registry.benchmark_review_assignment_history(payload["assignment_id"])) == 3
+
+
+def test_assignment_submission_rejects_review_for_different_reviewer():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="assign")
+        registry.transition_benchmark_review_assignment(
+            payload["assignment_id"], event="accept", actor="editor:lead",
+            at="2026-11-20T01:00:00Z", reason="accepted",
+        )
+        review = _benchmark_review_payload()
+        review["review_id"] = "review:benchmark-en-other"
+        review["reviewer"]["reviewer_id"] = "editor:second"
+        registry.add_benchmark_review(review, actor="editor:second", reason="other review")
+        with pytest.raises(RegistryIntegrityError, match="exact artifact"):
+            registry.transition_benchmark_review_assignment(
+                payload["assignment_id"], event="submit", actor="editor:lead",
+                at="2026-11-20T03:00:00Z", reason="wrong reviewer",
+                submitted_review_id=review["review_id"],
+            )
+
+
+def test_schema_v16_migrates_to_v17_assignment_ledger(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v16.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 16)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 16
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 17)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 17
+        tables = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "benchmark_review_assignments" in tables
+        assert "benchmark_review_assignment_revisions" in tables
+        columns = {
+            row["name"] for row in migrated._connection.execute(
+                "PRAGMA table_info(benchmark_principals)"
+            )
+        }
+        assert "languages_json" in columns
+        migrated.migrate()
+        assert migrated.schema_version() == 17
 
 
 def test_benchmark_review_persists_with_registered_source_references_and_history():
