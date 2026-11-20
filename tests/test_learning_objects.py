@@ -1232,3 +1232,66 @@ def test_quality_report_blocks_approved_learning_object_without_language_rubric(
         assert any(item["check"] == "language_review" for item in report["blockers"])
     finally:
         registry.close()
+
+
+def test_approved_mcq_quality_gate_requires_complete_all_pass_pedagogical_review():
+    registry = _prepared()
+    try:
+        _support_claim_with_evidence(registry)
+        approved = _approve_learning_object(registry, _mcq("learning:mcq-review-gate"))
+        report = registry.learning_object_quality_report(approved.id)
+        check = next(
+            item for item in report["checks"]
+            if item["name"] == "mcq_pedagogical_review"
+        )
+        assert check["passed"] is False
+        assert any(
+            item["check"] == "mcq_pedagogical_review"
+            for item in report["blockers"]
+        )
+
+        payload = approved.to_payload()
+        reviewed_at = payload["reviewed_at"]
+        payload["mcq_review"] = {
+            "language": "en",
+            "rubric_version": "mcq-editorial-v1",
+            "reviewer_id": payload["reviewed_by"],
+            "reviewed_at": reviewed_at,
+            "note": "All ten pedagogical dimensions pass.",
+            "dimensions": {
+                "single_defensible_key": "pass",
+                "stem_clarity_and_precision": "pass",
+                "distractor_plausibility": "pass",
+                "distractors_unambiguously_incorrect": "pass",
+                "distractor_rationale_quality": "pass",
+                "learner_level_fit": "pass",
+                "misconception_alignment": "pass",
+                "option_parallelism": "pass",
+                "no_accidental_clues": "pass",
+                "explanation_fidelity": "pass",
+            },
+            "identity_attestation": {
+                "principal_id": payload["reviewed_by"],
+                "issuer": "https://login.example.org/",
+                "subject": "reviewer-subject",
+                "provider_key_id": "test-key-1",
+                "provider_adapter": "test-oidc-adapter/1.0",
+                "authenticated_at": reviewed_at,
+                "attested_at": reviewed_at,
+                "authentication_methods": ["pwd", "mfa"],
+                "authentication_context": "urn:test:loa:2",
+            },
+        }
+        registry.revise_learning_object(
+            approved.id, payload, expected_revision=2,
+            actor=payload["reviewed_by"],
+            reason="Record the structured MCQ pedagogical review.",
+        )
+        report = registry.learning_object_quality_report(approved.id)
+        check = next(
+            item for item in report["checks"]
+            if item["name"] == "mcq_pedagogical_review"
+        )
+        assert check["passed"] is True
+    finally:
+        registry.close()
