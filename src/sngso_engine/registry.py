@@ -1231,6 +1231,23 @@ def _validate_learning_object_language_review(payload: dict[str, Any]) -> None:
     if review.get("reviewed_at") != payload.get("reviewed_at"):
         raise RegistryIntegrityError("language review timestamp mismatch")
     _aware_datetime(review["reviewed_at"], "language_review.reviewed_at")
+    attestation = review.get("identity_attestation")
+    if attestation is not None:
+        required_attestation = {
+            "principal_id", "issuer", "subject", "provider_key_id",
+            "provider_adapter", "authenticated_at", "attested_at",
+            "authentication_methods", "authentication_context",
+        }
+        if set(attestation) != required_attestation:
+            raise RegistryIntegrityError("language review identity attestation is incomplete")
+        if attestation["principal_id"] != review["reviewer_id"]:
+            raise RegistryIntegrityError("language review identity attestation principal mismatch")
+        if attestation["attested_at"] != review["reviewed_at"]:
+            raise RegistryIntegrityError("language review identity attestation timestamp mismatch")
+        _aware_datetime(attestation["authenticated_at"], "language_review.identity_attestation.authenticated_at")
+        _aware_datetime(attestation["attested_at"], "language_review.identity_attestation.attested_at")
+        if not attestation["authentication_methods"] or not attestation["subject"].strip():
+            raise RegistryIntegrityError("language review identity attestation lacks provider evidence")
     needs_revision = any(value == "needs_revision" for value in review["dimensions"].values())
     if payload.get("status") == "approved" and needs_revision:
         raise RegistryIntegrityError("approved language review cannot contain needs_revision findings")
