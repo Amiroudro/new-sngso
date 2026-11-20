@@ -1856,7 +1856,7 @@ def test_benchmark_adjudication_rejects_reviewers_and_wrong_artifact_binding():
         }
         payload["reviewer_ids"] = ["editor:lead", "editor:second"]
         payload["adjudicator"]["principal_id"] = "editor:lead"
-        with pytest.raises(RegistryIntegrityError, match="lacks required role|independent"):
+        with pytest.raises(RegistryIntegrityError, match="contract or independence|lacks required role|independent"):
             registry.add_benchmark_adjudication(
                 payload, actor="editor:lead", reason="Invalid self-adjudication",
             )
