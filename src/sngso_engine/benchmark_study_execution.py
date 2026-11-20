@@ -35,6 +35,9 @@ def validate_benchmark_study_execution(payload: dict[str, Any]) -> dict[str, Any
         raise BenchmarkStudyExecutionError("missing item/evaluator pairs must be unique")
     if set(score_pairs).intersection(missing_pairs):
         raise BenchmarkStudyExecutionError("an item/evaluator pair cannot be both scored and missing")
+    excluded_score_ids = [row["score_id"] for row in missing if row.get("score_id")]
+    if len(excluded_score_ids) != len(set(excluded_score_ids)) or set(score_ids).intersection(excluded_score_ids):
+        raise BenchmarkStudyExecutionError("score IDs must be unique across scored and excluded evidence")
     analysis = payload["analysis"]
     if analysis["scored_pair_count"] != len(scores) or analysis["missing_pair_count"] != len(missing):
         raise BenchmarkStudyExecutionError("analysis counts must match the execution evidence")
