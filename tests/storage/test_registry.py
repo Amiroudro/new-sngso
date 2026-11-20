@@ -1566,7 +1566,7 @@ def test_benchmark_artifact_fingerprint_is_computed_from_canonical_content():
             {"schema_version": "1.0.0", "items": [{"item_id": "canonical-1", "task_type": "summary", "input": {"a": [1], "z": 2}, "expected_output": "Short accurate summary", "scoring_criteria": ["Faithful"]}]}
         )
         assert second["fingerprint_verified"] is True
-        assert second["content"] == {"a": [1, {"b": True}], "z": 2}
+        assert second["content"] == {"schema_version": "1.0.0", "items": [{"item_id": "canonical-1", "task_type": "summary", "input": {"a": [1], "z": 2}, "expected_output": "Short accurate summary", "scoring_criteria": ["Faithful"]}]}
 
 
 def test_benchmark_artifact_rejects_unstructured_or_incomplete_items():
