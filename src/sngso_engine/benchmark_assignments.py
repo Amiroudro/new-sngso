@@ -145,6 +145,8 @@ def transition_benchmark_assignment(
     elif event == "cancel":
         if state not in {"assigned", "accepted"} or actor not in {assignment["reviewer_id"], assignment["assigned_by"]}:
             raise BenchmarkAssignmentError("only the assignee or assigner may cancel an open assignment")
+        if state == "accepted" and moment < _timestamp(assignment["accepted_at"], "accepted_at"):
+            raise BenchmarkAssignmentError("cancellation cannot predate acceptance")
         result.update(status="cancelled", closed_at=at, closure_reason=reason)
     elif event == "expire":
         if state not in {"assigned", "accepted"} or moment < due:
