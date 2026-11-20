@@ -406,3 +406,18 @@ def test_staging_candidate_rejects_unrecognized_manifest_fields():
     manifest["unreviewed_extension"] = {"publication_authorized": True}
     with pytest.raises(FlutterCompatibilityError, match="missing or unsupported fields"):
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+
+@pytest.mark.parametrize("digest", [None, "", "A" * 64, "g" * 64, 123, True])
+def test_staging_candidate_rejects_malformed_manifest_payload_digest(digest):
+    registry, client, manifest = _candidate()
+    manifest["payload_sha256"] = digest
+    with pytest.raises(FlutterCompatibilityError, match="lowercase SHA-256 hex digest"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+
+def test_staging_candidate_rejects_empty_manifest_edition_date():
+    registry, client, manifest = _candidate()
+    manifest["edition_date"] = " "
+    with pytest.raises(FlutterCompatibilityError, match="manifest edition_date must be a non-empty string"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
