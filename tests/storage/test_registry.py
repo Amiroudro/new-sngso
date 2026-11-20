@@ -1490,7 +1490,7 @@ def test_direct_review_head_update_also_creates_history_via_trigger():
             SET status = 'rejected', revision = 2, updated_at = ?,
                 last_actor = ?, last_reason = ?, payload_json = ?
             WHERE review_id = ?""",
-            (STAMP, "editor:second", "direct SQL revision", __import__("json").dumps(changed)),
+            (registry_module._utc_now(), "editor:second", "direct SQL revision", __import__("json").dumps(changed)),
         )
         history = registry.benchmark_review_history(payload["review_id"])
         assert [item["revision"] for item in history] == [1, 2]
