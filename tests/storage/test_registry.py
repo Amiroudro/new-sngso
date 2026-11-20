@@ -1374,7 +1374,7 @@ def _benchmark_review_payload() -> dict:
         "schema_version": "1.0.0",
         "review_id": "review:benchmark-en-001",
         "benchmark_id": "benchmark:headline-en-v1",
-        "benchmark_fingerprint": registry_module.sha256_fingerprint({"items": [{"prompt": "Sample English headline", "expected": "A verified report"}]}),
+        "benchmark_fingerprint": registry_module.sha256_fingerprint({"schema_version": "1.0.0", "items": [{"item_id": "headline-en-001", "task_type": "headline", "input": "A report about a verified event", "expected_output": "Verified event report", "scoring_criteria": ["Preserves the central fact", "Does not add unsupported detail"]}]}),
         "language": "en",
         "status": "approved",
         "reviewer": {
@@ -1409,7 +1409,7 @@ def _populate_benchmark_review_sources(registry: SQLiteRegistry) -> None:
     registry.register_benchmark_artifact(
         "benchmark:headline-en-v1",
         language="en",
-        content={"items": [{"prompt": "Sample English headline", "expected": "A verified report"}]},
+        content={"schema_version": "1.0.0", "items": [{"item_id": "headline-en-001", "task_type": "headline", "input": "A report about a verified event", "expected_output": "Verified event report", "scoring_criteria": ["Preserves the central fact", "Does not add unsupported detail"]}]},
         actor="benchmark-curator",
         reason="register immutable test artifact",
     )
@@ -1558,22 +1558,32 @@ def test_benchmark_artifact_fingerprint_is_computed_from_canonical_content():
     with SQLiteRegistry() as registry:
         first = registry.register_benchmark_artifact(
             "benchmark:canonical-en-v1", language="en",
-            content={"z": 2, "a": [1, {"b": True}]},
+            content={"schema_version": "1.0.0", "items": [{"item_id": "canonical-1", "task_type": "summary", "input": {"z": 2, "a": [1]}, "expected_output": "Short accurate summary", "scoring_criteria": ["Faithful"]}]},
             actor="curator", reason="initial registration",
         )
         second = registry.get_benchmark_artifact("benchmark:canonical-en-v1")
         assert first["content_fingerprint"] == registry_module.sha256_fingerprint(
-            {"a": [1, {"b": True}], "z": 2}
+            {"schema_version": "1.0.0", "items": [{"item_id": "canonical-1", "task_type": "summary", "input": {"a": [1], "z": 2}, "expected_output": "Short accurate summary", "scoring_criteria": ["Faithful"]}]}
         )
         assert second["fingerprint_verified"] is True
         assert second["content"] == {"a": [1, {"b": True}], "z": 2}
+
+
+def test_benchmark_artifact_rejects_unstructured_or_incomplete_items():
+    with SQLiteRegistry() as registry:
+        with pytest.raises(RegistryIntegrityError, match="canonical editorial benchmark contract"):
+            registry.register_benchmark_artifact(
+                "benchmark:invalid-en-v1", language="en",
+                content={"items": [{"prompt": "Only a prompt"}]},
+                actor="curator", reason="invalid item fixture",
+            )
 
 
 def test_benchmark_artifacts_cannot_be_updated_or_deleted():
     with SQLiteRegistry() as registry:
         artifact = registry.register_benchmark_artifact(
             "benchmark:immutable-en-v1", language="en",
-            content={"items": ["one"]}, actor="curator", reason="initial registration",
+            content={"schema_version": "1.0.0", "items": [{"item_id": "item-1", "task_type": "headline", "input": "Input", "expected_output": "Output", "scoring_criteria": ["Accurate"]}]}, actor="curator", reason="initial registration",
         )
         with pytest.raises(sqlite3.IntegrityError, match="immutable"):
             registry._connection.execute(
