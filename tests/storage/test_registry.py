@@ -1497,3 +1497,16 @@ def test_direct_review_head_update_also_creates_history_via_trigger():
                 "UPDATE benchmark_review_revisions SET reason = 'tampered' WHERE review_id = ? AND revision = 1",
                 (payload["review_id"],),
             )
+
+
+def test_benchmark_review_cannot_be_rebound_to_a_different_fingerprint():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+        changed = {**payload, "benchmark_fingerprint": "sha256:" + "e" * 64}
+        with pytest.raises(sqlite3.IntegrityError, match="fingerprint binding are immutable"):
+            registry.revise_benchmark_review(
+                payload["review_id"], changed, expected_revision=1,
+                actor="editor:second", reason="attempt to rebind old review",
+            )
