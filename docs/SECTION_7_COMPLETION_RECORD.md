@@ -158,8 +158,8 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - Added the optional mcq_review contract with version mcq-editorial-v1 and ten required dimensions covering key defensibility, stem clarity, distractor plausibility and rationale quality, learner-level fit, misconception alignment, option construction, accidental clues, and explanation fidelity.
 - The authenticated reviewer facade requires the complete rubric for MCQ approvals/rejections, records provider-backed attestation, and rejects approval with any needs_revision finding.
 - Registry validation checks reviewer, timestamp, language, version, and rubric structure. The quality report blocks approved MCQs lacking a complete all-pass rubric.
-- GitHub Actions [run #44733507721](https://github.com/Amiroudro/new-sngso/actions/runs/44733507721) passed the full Python 3.12 suite: **689 tests in 7.56 seconds** on code head d6921b020e92355a5117910babf88430b514c44b. This run contains no dedicated regression cases for the new MCQ rubric path.
-- No dedicated tests were added for the new MCQ route in this slice. Treat this as implemented but awaiting targeted regression coverage and real human use; it is not an editorial-quality certification. Section 7 remains in progress.
+- Added direct tests for authenticated rubric capture, identity attestation, missing/failed rubric rejection, non-MCQ misuse, and quality-gate enforcement. GitHub Actions [run #44749250816](https://github.com/Amiroudro/new-sngso/actions/runs/44749250816) passed the full Python 3.12 suite: **693 tests in 6.24 seconds** on code head cc7f4f5e7e3d38a4d6709a9c0b5fdee4c3fe1abe.
+- The tests verify deterministic control behavior only; they are not editorial-quality certification. Real human use and benchmark evidence remain outstanding. Section 7 remains in progress.
 
 
 ## Section 7.41: engine-to-Flutter compatibility boundary (design only)
