@@ -5630,6 +5630,21 @@ class SQLiteRegistry:
                         rationale_coverage,
                         "Every incorrect option must have exactly one rationale; the correct option must not have a distractor rationale.",
                     )
+                    rationale_claim_ids = {
+                        claim_id
+                        for item in payload["content"].get("distractor_rationales", [])
+                        for claim_id in item.get("basis_claim_ids", [])
+                    }
+                    rationale_claims_supported = bool(rationale_claim_ids) and all(
+                        claim_assessments.get(claim_id) in {"supported", "partially_supported"}
+                        and bool(claim_evidence.get(claim_id))
+                        for claim_id in rationale_claim_ids
+                    )
+                    check(
+                        "mcq_distractor_rationale_source_support",
+                        rationale_claims_supported,
+                        "Every distractor rationale must link to story claims assessed as supported or partially supported with evidence.",
+                    )
                     warnings.append({
                         "check": "mcq_human_distractor_review",
                         "detail": (
