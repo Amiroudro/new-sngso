@@ -499,6 +499,11 @@ def _mcq(identifier="learning:mcq"):
                 {"id": "D", "text": "Delegating all responsibility"},
             ],
             "correct_option_id": "A",
+            "distractor_rationales": [
+                {"option_id": "B", "rationale": "This describes withholding transparency, not accountability."},
+                {"option_id": "C", "rationale": "Oversight is a separate control and does not define answerability."},
+                {"option_id": "D", "rationale": "Delegation does not remove the institution's accountability."},
+            ],
             "difficulty": "moderate",
         },
         "claim_ids": ["claim:one"],
@@ -542,6 +547,33 @@ def test_mcq_learning_object_rejects_duplicate_option_ids_and_unknown_answer_key
         with pytest.raises(RegistryIntegrityError, match="correct option must reference"):
             registry.add_learning_object(
                 unknown_key, actor="editor", reason="Reject unknown answer key."
+            )
+    finally:
+        registry.close()
+
+
+def test_mcq_requires_exactly_one_explanation_for_each_distractor():
+    registry = _prepared()
+    try:
+        missing = _mcq("learning:mcq-missing-rationale")
+        missing["content"]["distractor_rationales"].pop()
+        with pytest.raises(RegistryIntegrityError, match="exactly one rationale"):
+            registry.add_learning_object(
+                missing, actor="editor", reason="Reject incomplete distractor rationale coverage."
+            )
+
+        includes_key = _mcq("learning:mcq-rationale-for-key")
+        includes_key["content"]["distractor_rationales"][0]["option_id"] = "A"
+        with pytest.raises(RegistryIntegrityError, match="exactly one rationale"):
+            registry.add_learning_object(
+                includes_key, actor="editor", reason="Reject rationale assigned to correct option."
+            )
+
+        duplicate = _mcq("learning:mcq-duplicate-rationale")
+        duplicate["content"]["distractor_rationales"][1]["option_id"] = "B"
+        with pytest.raises(RegistryIntegrityError, match="rationale option IDs must be unique"):
+            registry.add_learning_object(
+                duplicate, actor="editor", reason="Reject duplicate distractor rationale IDs."
             )
     finally:
         registry.close()
