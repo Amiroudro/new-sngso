@@ -40,10 +40,12 @@ def validate_benchmark_adjudication(payload: dict[str, Any]) -> dict[str, Any]:
         {"name": "each_disagreement_resolved_with_evidence", "passed": complete_resolutions},
         {"name": "evidence_and_rationale_present", "passed": bool(payload["evidence_references"]) and len(payload["rationale"].strip()) >= 30},
     ]
-    valid = all(check["passed"] for check in checks)
+    quality_checks = [check for check in checks if check["name"] != "adjudicator_not_a_reviewer"]
+    valid = all(check["passed"] for check in quality_checks)
+    eligible = valid and independent
     return {
         "valid": valid,
-        "eligible_for_adjudication": valid,
+        "eligible_for_adjudication": eligible,
         "checks": checks,
         "issue_count": len(issues),
         "scope_note": (
