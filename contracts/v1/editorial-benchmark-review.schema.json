@@ -29,14 +29,17 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["article_id", "source_id", "canonical_uri", "content_fingerprint", "checked_at", "approved_use_reference"],
+        "required": ["article_id", "source_id", "canonical_uri", "content_fingerprint", "checked_at", "approved_use_reference", "permission_grant_id", "endpoint_id", "permission_operation"],
         "properties": {
           "article_id": {"type": "string", "minLength": 1, "maxLength": 160},
           "source_id": {"type": "string", "minLength": 1, "maxLength": 160},
           "canonical_uri": {"type": "string", "format": "uri"},
           "content_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
           "checked_at": {"type": "string", "format": "date-time"},
-          "approved_use_reference": {"type": "string", "minLength": 1, "maxLength": 1000}
+          "approved_use_reference": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "permission_grant_id": {"type": "string", "minLength": 1, "maxLength": 160},
+          "endpoint_id": {"type": "string", "minLength": 1, "maxLength": 160},
+          "permission_operation": {"enum": ["excerpt_storage", "full_text_storage", "translation"]}
         }
       }
     },
