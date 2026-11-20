@@ -222,7 +222,7 @@ def verify_flutter_staging_candidate(
         raise FlutterCompatibilityError("unsupported Flutter client contract")
     edition_id = _required_text(provenance_manifest.get("edition_id"), "manifest edition_id")
     edition_revision = provenance_manifest.get("edition_revision")
-    if not isinstance(edition_revision, int) or edition_revision < 1:
+    if isinstance(edition_revision, bool) or not isinstance(edition_revision, int) or edition_revision < 1:
         raise FlutterCompatibilityError("manifest edition_revision must be a positive integer")
     edition_record = registry.get_domain_record("edition", edition_id)
     if edition_record is None:
@@ -405,7 +405,10 @@ def verify_flutter_staging_candidate(
         binding = bindings_by_story[story_id]
         if set(binding) != {"story_id", "story_revision", "snapshot_sha256", "fields"}:
             raise FlutterCompatibilityError("story binding contains unsupported fields")
-        if binding.get("story_revision") != snapshot.get("story_revision"):
+        story_revision = binding.get("story_revision")
+        if isinstance(story_revision, bool) or not isinstance(story_revision, int) or story_revision < 1:
+            raise FlutterCompatibilityError("story binding revision must be a positive integer")
+        if story_revision != snapshot.get("story_revision"):
             raise FlutterCompatibilityError(f"story revision is stale: {story_id}")
         if binding.get("snapshot_sha256") != snapshot.get("fingerprint"):
             raise FlutterCompatibilityError(f"story snapshot fingerprint is stale: {story_id}")
@@ -422,7 +425,7 @@ def verify_flutter_staging_candidate(
                 raise FlutterCompatibilityError(f"{story_id}.{field} binding must contain object ID, revision, and fingerprint")
             object_id = _required_text(item_binding.get("learning_object_id"), "learning object id")
             revision = item_binding.get("revision")
-            if not isinstance(revision, int) or revision < 1:
+            if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
                 raise FlutterCompatibilityError("learning-object revision must be a positive integer")
             record = registry.get_learning_object(object_id)
             if record is None or record.revision != revision:
