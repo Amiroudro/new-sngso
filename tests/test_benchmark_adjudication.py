@@ -29,6 +29,19 @@ def _payload():
         "rationale": "Both submissions preserve the verified facts, but each captures a distinct valid interpretation.",
         "evidence_references": ["source:article-1", "evidence:claim-map-1"],
         "resolved_at": "2026-11-20T00:00:00Z",
+        "issue_resolutions": [{
+            "issue_id": "claim-1",
+            "category": "factual_accuracy",
+            "severity": "major",
+            "description": "The reviewers disagree about whether the stated figure is supported by the source.",
+            "reviewer_positions": {
+                "review:one": "The figure is directly supported by the cited source.",
+                "review:two": "The source reports a different figure and does not support this claim."
+            },
+            "disposition": "reviewer_two_upheld",
+            "resolution": "The primary source table reports the second figure; the first review relied on a secondary paraphrase.",
+            "evidence_references": ["source:article-1#table-2"]
+        }],
     }
 
 
@@ -84,3 +97,27 @@ def test_adjudication_requires_explicit_rationale_and_evidence():
     payload["evidence_references"] = []
     with pytest.raises(ValueError):
         validate_payload("editorial-benchmark-adjudication", payload)
+
+
+def test_each_material_disagreement_requires_exact_positions_for_both_reviews():
+    payload = _payload()
+    payload["issue_resolutions"][0]["reviewer_positions"].pop("review:two")
+    result = validate_benchmark_adjudication(payload)
+    assert result["valid"] is False
+    assert "every_review_position_recorded" in {x["name"] for x in result["checks"] if not x["passed"]}
+
+
+def test_each_disagreement_requires_evidence_backed_resolution():
+    payload = _payload()
+    payload["issue_resolutions"][0]["evidence_references"] = []
+    result = validate_benchmark_adjudication(payload)
+    assert result["valid"] is False
+    assert "each_disagreement_resolved_with_evidence" in {x["name"] for x in result["checks"] if not x["passed"]}
+
+
+def test_duplicate_disagreement_ids_fail_quality_validation():
+    payload = _payload()
+    payload["issue_resolutions"].append(dict(payload["issue_resolutions"][0]))
+    result = validate_benchmark_adjudication(payload)
+    assert result["valid"] is False
+    assert "unique_disagreement_ids" in {x["name"] for x in result["checks"] if not x["passed"]}
