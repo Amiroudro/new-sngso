@@ -1458,3 +1458,45 @@ def test_benchmark_review_history_cannot_be_updated_or_deleted():
                 "DELETE FROM benchmark_review_revisions WHERE review_id = ?",
                 (payload["review_id"],),
             )
+
+
+def test_existing_schema_v12_database_migrates_to_v13(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v12.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 12)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 12
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_reviews'"
+        ).fetchone() is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 13)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 13
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'benchmark_reviews_record_update'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 13
+
+
+def test_direct_review_head_update_also_creates_history_via_trigger():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+        changed = {**payload, "status": "rejected", "adjudication_note": "Second review required."}
+        registry._connection.execute(
+            """UPDATE benchmark_reviews
+            SET status = 'rejected', revision = 2, updated_at = ?,
+                last_actor = ?, last_reason = ?, payload_json = ?
+            WHERE review_id = ?""",
+            (STAMP, "editor:second", "direct SQL revision", __import__("json").dumps(changed)),
+        )
+        history = registry.benchmark_review_history(payload["review_id"])
+        assert [item["revision"] for item in history] == [1, 2]
+        assert history[1]["actor"] == "editor:second"
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "UPDATE benchmark_review_revisions SET reason = 'tampered' WHERE review_id = ? AND revision = 1",
+                (payload["review_id"],),
+            )
