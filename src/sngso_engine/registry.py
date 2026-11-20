@@ -44,7 +44,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 17
+_SCHEMA_VERSION = 18
 
 
 _MIGRATION_14 = (
@@ -205,6 +205,13 @@ _MIGRATION_17 = (
     """CREATE TRIGGER benchmark_review_assignment_revisions_no_delete
        BEFORE DELETE ON benchmark_review_assignment_revisions
        BEGIN SELECT RAISE(ABORT, 'assignment revisions are append-only'); END""",
+)
+
+
+_MIGRATION_18 = (
+    """ALTER TABLE benchmark_principals
+       ADD COLUMN principal_kind TEXT NOT NULL DEFAULT 'unverified'
+       CHECK (principal_kind IN ('human', 'synthetic', 'automation', 'unverified'))""",
 )
 
 
@@ -1537,6 +1544,19 @@ class SQLiteRegistry:
                     version = 17
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 17 failed; transaction rolled back") from exc
+
+            if version == 17 and _SCHEMA_VERSION >= 18:
+                try:
+                    for statement in _MIGRATION_18:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (18, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 18")
+                    version = 18
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 18 failed; transaction rolled back") from exc
 
 
     def _append_audit(
@@ -4957,11 +4977,14 @@ class SQLiteRegistry:
 
     def register_benchmark_principal(
         self, principal_id: str, *, display_name: str, roles: list[str],
-        provisioned_by: str, reason: str, languages: list[str] | None = None
+        provisioned_by: str, reason: str, languages: list[str] | None = None,
+        principal_kind: str = "unverified"
     ) -> dict[str, Any]:
         """Provision a registry principal; caller must be a trusted operator."""
         allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator"}
         supported_languages = {"bn", "en"}
+        if principal_kind not in {"human", "synthetic", "automation", "unverified"}:
+            raise ValueError("principal_kind must be human, synthetic, automation, or unverified")
         languages = [] if languages is None else languages
         if not isinstance(languages, list) or len(languages) != len(set(languages)) or not set(languages) <= supported_languages:
             raise ValueError("languages must be a unique subset of bn and en")
@@ -4979,9 +5002,9 @@ class SQLiteRegistry:
         with self._transaction() as connection:
             connection.execute(
                 """INSERT INTO benchmark_principals
-                (principal_id, display_name, roles_json, active, created_at, created_by, reason, languages_json)
-                VALUES (?, ?, ?, 1, ?, ?, ?, ?)""",
-                (principal_id, display_name, _json_text(sorted(roles)), now, provisioned_by, reason, _json_text(sorted(languages))),
+                (principal_id, display_name, roles_json, active, created_at, created_by, reason, languages_json, principal_kind)
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (principal_id, display_name, _json_text(sorted(roles)), now, provisioned_by, reason, _json_text(sorted(languages)), principal_kind),
             )
             self._append_audit(
                 connection, event_type="benchmark_principal.provisioned",
@@ -4999,7 +5022,7 @@ class SQLiteRegistry:
         return {
             "principal_id": row["principal_id"], "display_name": row["display_name"],
             "roles": json.loads(row["roles_json"]), "active": bool(row["active"]),
-            "languages": json.loads(row["languages_json"]),
+            "languages": json.loads(row["languages_json"]), "principal_kind": row["principal_kind"],
             "created_at": row["created_at"], "created_by": row["created_by"], "reason": row["reason"],
         }
 
@@ -5702,6 +5725,107 @@ class SQLiteRegistry:
                 "This report does not assess factual correctness or general editorial quality.",
             ],
         }
+
+    def benchmark_readiness_report(self, artifact_id: str) -> dict[str, Any]:
+        """Report evidence readiness without treating declared principal types as identity proof."""
+        with self._transaction("DEFERRED") as connection:
+            artifact_row = connection.execute(
+                "SELECT language, content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+                (artifact_id,),
+            ).fetchone()
+            if artifact_row is None:
+                raise RegistryIntegrityError(f"unknown benchmark artifact: {artifact_id}")
+            artifact = {
+                "artifact_id": artifact_id,
+                "language": artifact_row["language"],
+                "content_fingerprint": artifact_row["content_fingerprint"],
+                "fingerprint_verified": sha256_fingerprint(json.loads(artifact_row["content_json"])) == artifact_row["content_fingerprint"],
+            }
+            rows = connection.execute(
+                "SELECT revision, payload_json FROM benchmark_reviews WHERE benchmark_id = ? ORDER BY review_id",
+                (artifact_id,),
+            ).fetchall()
+            reviews = [json.loads(row["payload_json"]) for row in rows]
+            principals = {}
+            for review in reviews:
+                reviewer_id = review.get("reviewer", {}).get("reviewer_id")
+                if reviewer_id and reviewer_id not in principals:
+                    row = connection.execute(
+                        "SELECT active, roles_json, languages_json, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                        (reviewer_id,),
+                    ).fetchone()
+                    principals[reviewer_id] = None if row is None else {
+                        "active": bool(row["active"]), "roles": json.loads(row["roles_json"]),
+                        "languages": json.loads(row["languages_json"]), "principal_kind": row["principal_kind"],
+                    }
+            eligible = []
+            review_checks = []
+            for review in reviews:
+                reviewer_id = review.get("reviewer", {}).get("reviewer_id")
+                principal = principals.get(reviewer_id)
+                quality = self._benchmark_review_quality_report(review, connection)
+                principal_ok = bool(
+                    principal and principal["active"]
+                    and "benchmark_reviewer" in principal["roles"]
+                    and artifact["language"] in principal["languages"]
+                )
+                binding_ok = (
+                    review.get("benchmark_fingerprint") == artifact["content_fingerprint"]
+                    and review.get("language") == artifact["language"]
+                )
+                current = bool(
+                    review.get("status") == "approved"
+                    and quality["eligible_for_current_use"]
+                    and principal_ok and binding_ok
+                )
+                if current:
+                    eligible.append((review, principal))
+                review_checks.append({
+                    "review_id": review.get("review_id"), "reviewer_id": reviewer_id,
+                    "status": review.get("status"), "principal_kind": principal["principal_kind"] if principal else "missing",
+                    "active_qualified_principal": principal_ok, "exact_artifact_binding": binding_ok,
+                    "current_review_policy_eligible": quality["eligible_for_current_use"],
+                    "eligible_approved_review": current,
+                })
+            distinct_reviewers = {review["reviewer"]["reviewer_id"] for review, _ in eligible}
+            kinds = {principal["principal_kind"] for _, principal in eligible}
+            adjudication_rows = connection.execute(
+                "SELECT adjudication_id, payload_json FROM benchmark_adjudications WHERE benchmark_id = ?",
+                (artifact_id,),
+            ).fetchall()
+            blockers = []
+            if not artifact["fingerprint_verified"]:
+                blockers.append("Artifact fingerprint verification failed.")
+            if len(distinct_reviewers) < 2:
+                blockers.append("At least two distinct active, language-qualified reviewers with currently eligible approved reviews are required.")
+            if any(kind != "human" for kind in kinds):
+                blockers.append("Eligible reviews include synthetic, automated, or unverified principals.")
+            if len(adjudication_rows) == 0:
+                blockers.append("No independent final adjudication is recorded.")
+            if len(adjudication_rows) > 1:
+                blockers.append("Conflicting final adjudications exist.")
+            # A principal_kind value is an administrative classification, not identity proof.
+            blockers.append("No production identity-provider attestation is stored with these reviews; human identity remains unverified.")
+            if not reviews and not eligible:
+                status = "human_review_pending"
+            elif eligible and kinds <= {"synthetic", "automation"}:
+                status = "synthetic_only"
+            elif len(distinct_reviewers) >= 2 and kinds == {"human"} and not adjudication_rows:
+                status = "ready_for_adjudication"
+            else:
+                status = "human_review_pending"
+            return {
+                "artifact": artifact, "status": status, "eligible_approved_review_count": len(eligible),
+                "distinct_eligible_reviewer_count": len(distinct_reviewers),
+                "reviewer_classifications": sorted(kinds), "reviews": review_checks,
+                "adjudication_count": len(adjudication_rows), "blockers": blockers,
+                "production_ready": False,
+                "warnings": [
+                    "principal_kind is an administrative classification and does not authenticate a real person.",
+                    "This report does not compare review content to determine whether reviewers disagree.",
+                    "Only the existing review, permission, and adjudication policy gates can authorize current use; this report grants no approval.",
+                ],
+            }
 
     def benchmark_review_quality_report(self, review_id: str) -> dict[str, Any]:
         """Return a read-only report of review eligibility and current permission state."""
