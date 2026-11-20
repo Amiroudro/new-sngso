@@ -330,14 +330,14 @@ def test_perspective_attribution_report_exposes_unreviewed_and_contradictory_con
             "schema_version": "1.0.0", "id": "relation:contradiction",
             "story_id": "story:one", "claim_id": "claim:one",
             "related_claim_id": "claim:two", "relationship": "contradicts",
-            "review_status": "proposed", "created_at": STAMP,
+            "review_status": "unreviewed", "created_at": STAMP,
         })
         report = registry.story_perspective_attribution_report("story:one")
         assert report["unreviewed_perspective_ids"] == ["perspective:one"]
         assert report["contradictions"] == [{
             "relation_id": "relation:contradiction",
             "claim_id": "claim:one", "related_claim_id": "claim:two",
-            "review_status": "proposed", "reviewed_by": None,
+            "review_status": "unreviewed", "reviewed_by": None,
             "reviewed_at": None, "resolution_note": None,
         }]
         assert "do not establish independent reporting" in report["independence_caveat"]
