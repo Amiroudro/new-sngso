@@ -38,7 +38,7 @@ from .benchmark_reviews import validate_human_benchmark_review
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 14
+_SCHEMA_VERSION = 15
 
 
 _MIGRATION_14 = (
@@ -60,6 +60,35 @@ _MIGRATION_14 = (
         BEGIN SELECT RAISE(ABORT, 'benchmark artifacts are immutable'); END""",
 )
 
+
+_MIGRATION_15 = (
+    """CREATE TABLE benchmark_principals (
+        principal_id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL CHECK (length(trim(display_name)) > 0),
+        roles_json TEXT NOT NULL CHECK (json_valid(roles_json)),
+        active INTEGER NOT NULL CHECK (active IN (0, 1)),
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL CHECK (length(trim(created_by)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0)
+    )""",
+    """CREATE TABLE benchmark_adjudications (
+        adjudication_id TEXT PRIMARY KEY,
+        benchmark_id TEXT NOT NULL,
+        benchmark_fingerprint TEXT NOT NULL,
+        adjudicator_id TEXT NOT NULL,
+        resolved_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL
+    )""",
+    """CREATE TRIGGER benchmark_adjudications_no_update
+        BEFORE UPDATE ON benchmark_adjudications
+        BEGIN SELECT RAISE(ABORT, 'benchmark adjudications are immutable'); END""",
+    """CREATE TRIGGER benchmark_adjudications_no_delete
+        BEFORE DELETE ON benchmark_adjudications
+        BEGIN SELECT RAISE(ABORT, 'benchmark adjudications are immutable'); END""",
+)
 
 class RegistryIntegrityError(ValueError):
     """Raised when a record references missing or incompatible registry data."""
@@ -1351,6 +1380,19 @@ class SQLiteRegistry:
                     version = 14
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 14 failed; transaction rolled back") from exc
+
+            if version == 14 and _SCHEMA_VERSION >= 15:
+                try:
+                    for statement in _MIGRATION_15:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (15, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 15")
+                    version = 15
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 15 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -4767,6 +4809,81 @@ class SQLiteRegistry:
         ]
 
 
+
+    def register_benchmark_principal(
+        self, principal_id: str, *, display_name: str, roles: list[str],
+        provisioned_by: str, reason: str
+    ) -> dict[str, Any]:
+        """Provision a registry principal; caller must be a trusted operator."""
+        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator"}
+        if not isinstance(principal_id, str) or not principal_id.strip():
+            raise ValueError("principal_id is required")
+        if not isinstance(display_name, str) or not display_name.strip():
+            raise ValueError("display_name is required")
+        if not isinstance(roles, list) or not roles or len(roles) != len(set(roles)) or not set(roles) <= allowed:
+            raise ValueError("roles must be a non-empty unique subset of the benchmark roles")
+        if not isinstance(provisioned_by, str) or not provisioned_by.strip() or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("provisioning actor and reason are required")
+        now = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO benchmark_principals
+                (principal_id, display_name, roles_json, active, created_at, created_by, reason)
+                VALUES (?, ?, ?, 1, ?, ?, ?)""",
+                (principal_id, display_name, _json_text(sorted(roles)), now, provisioned_by, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_principal.provisioned",
+                entity_type="benchmark_principal", entity_id=principal_id,
+                payload={"roles": sorted(roles), "provisioned_by": provisioned_by, "reason": reason},
+            )
+        return self.get_benchmark_principal(principal_id) or {}
+
+    def get_benchmark_principal(self, principal_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_principals WHERE principal_id = ?", (principal_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "principal_id": row["principal_id"], "display_name": row["display_name"],
+            "roles": json.loads(row["roles_json"]), "active": bool(row["active"]),
+            "created_at": row["created_at"], "created_by": row["created_by"], "reason": row["reason"],
+        }
+
+    def revoke_benchmark_principal(self, principal_id: str, *, actor: str, reason: str) -> dict[str, Any]:
+        if not actor.strip() or not reason.strip():
+            raise ValueError("actor and reason are required")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT active FROM benchmark_principals WHERE principal_id = ?", (principal_id,)
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot revoke an unknown benchmark principal")
+            if row["active"]:
+                connection.execute(
+                    "UPDATE benchmark_principals SET active = 0 WHERE principal_id = ?", (principal_id,)
+                )
+                self._append_audit(
+                    connection, event_type="benchmark_principal.revoked",
+                    entity_type="benchmark_principal", entity_id=principal_id,
+                    payload={"actor": actor, "reason": reason},
+                )
+        return self.get_benchmark_principal(principal_id) or {}
+
+    @staticmethod
+    def _require_benchmark_role(
+        connection: sqlite3.Connection, principal_id: str, role: str
+    ) -> None:
+        row = connection.execute(
+            "SELECT roles_json, active FROM benchmark_principals WHERE principal_id = ?",
+            (principal_id,),
+        ).fetchone()
+        if row is None or not row["active"]:
+            raise RegistryIntegrityError("benchmark action requires an active registered principal")
+        if role not in json.loads(row["roles_json"]):
+            raise RegistryIntegrityError(f"benchmark principal lacks required role: {role}")
+
     def register_benchmark_artifact(
         self, artifact_id: str, *, language: str, content: Any,
         actor: str, reason: str
@@ -4794,6 +4911,7 @@ class SQLiteRegistry:
             raise RegistryIntegrityError("benchmark item IDs must be unique within an artifact")
         created_at = _utc_now()
         with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_curator")
             connection.execute(
                 """INSERT INTO benchmark_artifacts
                 (artifact_id, language, canonicalization, content_fingerprint,
@@ -4870,6 +4988,10 @@ class SQLiteRegistry:
         now = _utc_now()
         payload_json = _json_text(review)
         with self._transaction() as connection:
+            reviewer_id = review["reviewer"]["reviewer_id"]
+            if actor != reviewer_id:
+                raise RegistryIntegrityError("review actor must match the declared reviewer principal")
+            self._require_benchmark_role(connection, actor, "benchmark_reviewer")
             connection.execute(
                 """INSERT INTO benchmark_reviews
                 (review_id, benchmark_id, benchmark_fingerprint, language, status,
@@ -4968,6 +5090,10 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("cannot revise an unknown benchmark review")
             if row["revision"] != expected_revision:
                 raise RegistryIntegrityError("benchmark review revision conflict")
+            reviewer_id = review["reviewer"]["reviewer_id"]
+            if actor != reviewer_id:
+                raise RegistryIntegrityError("review actor must match the declared reviewer principal")
+            self._require_benchmark_role(connection, actor, "benchmark_reviewer")
             self._validate_benchmark_review_sources(review, connection=connection)
             next_revision = expected_revision + 1
             connection.execute(
