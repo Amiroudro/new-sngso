@@ -39,6 +39,7 @@ The project has progressed beyond the initial foundation. The current engineerin
 - docs/DOMAIN_MODEL.md
 - docs/IMPLEMENTATION_ROADMAP.md
 - docs/HANDOVER_FOR_PREMIUM_CHATGPT.md
+- docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md
 - docs/BASELINE_AUDIT.md
 - docs/SOURCE_GOVERNANCE.md
 - docs/PERSISTENCE.md
