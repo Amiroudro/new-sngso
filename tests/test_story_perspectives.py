@@ -331,6 +331,8 @@ def test_perspective_attribution_report_exposes_unreviewed_and_contradictory_con
             "story_id": "story:one", "claim_id": "claim:one",
             "related_claim_id": "claim:two", "relationship": "contradicts",
             "review_status": "unreviewed", "created_at": STAMP,
+            "created_by": "editor:one",
+            "rationale": "Preserve the unresolved disagreement for editorial review.",
         })
         report = registry.story_perspective_attribution_report("story:one")
         assert report["unreviewed_perspective_ids"] == ["perspective:one"]
