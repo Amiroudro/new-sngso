@@ -1,6 +1,7 @@
 from copy import deepcopy
 import pytest
 from sngso_engine.benchmark_study import BenchmarkStudyError, validate_benchmark_study_protocol
+from sngso_engine.contracts import ContractValidationError
 
 def _protocol():
     return {
@@ -50,4 +51,4 @@ def test_protocol_rejects_reviewer_substitution_and_strata_mismatch():
 
 def test_protocol_rejects_missing_reviewer_blind_independence():
     payload=_protocol(); payload["blind_assignment_plan"][0]["reviewer_ids"]=["human:one","human:one"]
-    with pytest.raises(BenchmarkStudyError,match="at least two"): validate_benchmark_study_protocol(payload)
+    with pytest.raises(ContractValidationError,match="non-unique elements"): validate_benchmark_study_protocol(payload)
