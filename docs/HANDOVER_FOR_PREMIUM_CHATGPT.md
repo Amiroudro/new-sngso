@@ -180,7 +180,7 @@ The source-evidence bindings, revision-card segment checks, bilingual claim-cove
 2. Obtain genuine, qualified Bangla and English human review data, prespecified calibration evidence, and independent acceptance evidence. Keep synthetic tests clearly separate.
 3. Collect actual reporting-lineage evidence and current permission evidence for each intended source operation. Do not infer independence or rights from publisher counts.
 4. Finish production identity-provider, protected administrator bootstrap, database/host controls, backup/restore drills, and the Section 7.18 operational sign-off.
-5. Define and test the compatibility boundary from the evidence-first engine to the integrated Flutter app. Do not assume its contracts are interchangeable with the older Engine v2 format.
+5. A design-only compatibility boundary is documented in docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md. Still implement and test the staging adapter, manifest validator, and cross-repository golden contract. Do not assume interchangeability with the older Engine v2 format.
 6. Verify realistic daily briefing inputs through the editorial workflow without invented sources or claims.
 
 The engineering workflow can continue while external evidence is gathered. Keep Section 7 open until every exit criterion is evidenced or explicitly recorded as unresolved; do not start Section 8 ahead of it.
@@ -287,3 +287,12 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 - Registry validation rejects malformed or mismatched MCQ review metadata. The quality report blocks an approved MCQ without a complete all-pass pedagogical rubric. Automated completeness does not judge pedagogical quality.
 - GitHub Actions [run #44733507721](https://github.com/Amiroudro/new-sngso/actions/runs/44733507721) passed the full Python 3.12 suite: **689 tests in 7.56 seconds** on code head d6921b020e92355a5117910babf88430b514c44b. This run contains no dedicated regression cases for the new MCQ rubric path.
 - Section 7 remains open. Real human review records, calibration/independent acceptance, source lineage and permission evidence, production operations sign-off, Flutter compatibility, and realistic daily inputs remain outstanding.
+
+
+## Section 7.41: engine-to-Flutter compatibility boundary (design only)
+
+- Audited the current Flutter Edition/Story/MCQ parser and the Engine v2 converter and integration status in Amiroudro/Sngs-plus.
+- Added docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md to define the legacy consumer shape, candidate mapping, provenance sidecar requirements, fail-closed staging gates, and explicit blockers.
+- The document records that the current Flutter model does not consume a claim-level permission/evidence manifest and that no shared executable contract or cross-repository golden test exists.
+- This is a design checkpoint only. No integrated repo files or bundled editions were modified; no adapter was implemented or tested with Flutter. The compatibility exit gate remains open.
+- Section 7 remains in progress; Sections 8–10 remain future work.
