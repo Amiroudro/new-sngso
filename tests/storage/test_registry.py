@@ -120,7 +120,7 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 22
+        assert registry.schema_version() == 23
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
         assert reopened.schema_version() == 22
@@ -2502,7 +2502,7 @@ def test_schema_v15_migrates_to_v16_with_single_final_adjudication_guard(tmp_pat
 
 
 
-def test_migrations_20_to_22_create_append_only_score_study_and_execution_stores():
+def test_migrations_20_to_23_create_append_only_score_study_execution_and_acceptance_stores():
     with SQLiteRegistry() as registry:
         assert registry.schema_version() == 22
         tables = {
@@ -2544,7 +2544,7 @@ def test_existing_schema_v20_database_migrates_to_v21(tmp_path, monkeypatch):
         assert migrated.schema_version() == 21
 
 
-def test_existing_schema_v21_database_migrates_to_v22(tmp_path, monkeypatch):
+def test_existing_schema_v21_database_migrates_to_v23(tmp_path, monkeypatch):
     database = tmp_path / "registry-v21.sqlite"
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 21)
     with SQLiteRegistry(database) as old_registry:
@@ -2552,11 +2552,31 @@ def test_existing_schema_v21_database_migrates_to_v22(tmp_path, monkeypatch):
         assert old_registry._connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_study_executions'"
         ).fetchone() is None
-    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 22)
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 23)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 22
+        assert migrated.schema_version() == 23
         assert migrated._connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_study_executions'"
         ).fetchone() is not None
         migrated.migrate()
         assert migrated.schema_version() == 22
+
+
+def test_existing_schema_v22_database_migrates_to_v23(tmp_path, monkeypatch):
+    import sngso_engine.registry as registry_module
+
+    database = tmp_path / "schema-v22.sqlite"
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 23
+        old_registry._connection.execute("PRAGMA user_version = 22")
+        old_registry._connection.execute("DELETE FROM schema_migrations WHERE version = 23")
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 22)
+    with SQLiteRegistry(database) as v22_registry:
+        assert v22_registry.schema_version() == 22
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 23)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 23
+        tables = {row[0] for row in migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
+        assert "benchmark_acceptance_reviews" in tables
