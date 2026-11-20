@@ -4784,14 +4784,14 @@ class SQLiteRegistry:
             raise ValueError("reason is required")
         try:
             validate_payload("editorial-benchmark-content", content)
-            item_ids = [item["item_id"] for item in content["items"]]
-            if len(item_ids) != len(set(item_ids)):
-                raise RegistryIntegrityError("benchmark item IDs must be unique within an artifact")
             content_json = _json_text(content)
             canonical_content = json.loads(content_json)
             fingerprint = sha256_fingerprint(canonical_content)
         except (TypeError, ValueError) as exc:
             raise RegistryIntegrityError("benchmark content must satisfy the canonical editorial benchmark contract") from exc
+        item_ids = [item["item_id"] for item in canonical_content["items"]]
+        if len(item_ids) != len(set(item_ids)):
+            raise RegistryIntegrityError("benchmark item IDs must be unique within an artifact")
         created_at = _utc_now()
         with self._transaction() as connection:
             connection.execute(
