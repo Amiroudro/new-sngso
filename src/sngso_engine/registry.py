@@ -3788,6 +3788,72 @@ class SQLiteRegistry:
             "independence_claim": "not_established_by_publisher_count_or_no_candidate",
         }
 
+    def story_source_independence_evidence_report(self, story_id: str) -> dict[str, Any]:
+        """Expose article-identity review separately from evidence of independent reporting."""
+        independence = self.story_reporting_independence(story_id)
+        story = self.get_domain_record("story", story_id)
+        if story is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        article_map = {}
+        for article_id in story.to_payload().get("article_ids", []):
+            article = self.get_domain_record("article", article_id)
+            if article is None:
+                raise RegistryIntegrityError(f"story references a missing article: {article_id}")
+            article_map[article_id] = article.to_payload()
+
+        articles = []
+        for item in independence["articles"]:
+            article = article_map[item["article_id"]]
+            duplicate_status = item["duplicate_status"]
+            if duplicate_status == "confirmed_duplicate":
+                duplicate_review = "confirmed_duplicate"
+            elif duplicate_status == "distinct":
+                duplicate_review = "reviewed_distinct_article_only"
+            elif duplicate_status == "possible_duplicate":
+                duplicate_review = "unresolved_duplicate_candidate"
+            else:
+                duplicate_review = "not_reviewed"
+
+            articles.append({
+                "article_id": item["article_id"],
+                "source_id": item["source_id"],
+                "title": article.get("title"),
+                "canonical_uri": article.get("canonical_uri"),
+                "duplicate_review_status": duplicate_review,
+                "duplicate_of_article_id": item["duplicate_of_article_id"],
+                "independent_reporting_status": "not_established",
+                "independence_evidence": {
+                    "original_reporting_provenance": "not_assessed",
+                    "syndication_or_republication": "not_assessed",
+                    "shared_source_or_common_origin": "not_assessed",
+                    "direct_interview_or_primary_document": "not_assessed",
+                },
+            })
+
+        return {
+            "story_id": story_id,
+            "article_count": len(articles),
+            "publisher_count": independence["publisher_count"],
+            "articles": articles,
+            "confirmed_duplicate_groups": independence["confirmed_duplicate_groups"],
+            "unresolved_duplicate_candidates": independence["unresolved_candidates"],
+            "independent_reporting_count": None,
+            "independence_status": "not_established",
+            "interpretation": (
+                "A distinct-article review addresses whether two article records are duplicates; "
+                "it does not establish independent reporting. Publisher identity, article count, "
+                "different wording, and absence of a duplicate candidate are insufficient evidence."
+            ),
+            "evidence_required_before_independence_claim": [
+                "reviewed original-reporting provenance for each article",
+                "syndication and republication checks",
+                "shared-source and common-origin checks",
+                "where relevant, direct interviews or primary-document evidence",
+            ],
+            "production_ready": False,
+            "authorization_granted": False,
+        }
+
     def _preview_story_decision_application(
         self, connection: sqlite3.Connection, decision_id: str
     ) -> dict[str, Any]:
