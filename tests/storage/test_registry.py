@@ -67,7 +67,7 @@ def evidence_record(
         "evidence_uri": f"https://{name}.example.org/permissions/letter",
         "captured_at": STAMP,
         "content_fingerprint": "sha256:" + "a" * 64,
-        "scope_description": "Written permission for discovery of the named RSS endpoint.",
+        "scope_description": "Written permission for discovery and benchmark excerpt storage at the named RSS endpoint.",
         "review_status": review_status,
     }
     if review_status != "unreviewed":
@@ -568,11 +568,12 @@ def test_pending_grant_requires_verified_evidence_before_approval() -> None:
         registry.add_permission_evidence(evidence_record(review_status="unreviewed"))
         pending = grant_record()
         pending["status"] = "pending"
-        pending["operations"]["discovery"] = {
-            "allowed": False,
-            "status": "denied",
-            "conditions": [],
-        }
+        for operation in ("discovery", "excerpt_storage"):
+            pending["operations"][operation] = {
+                "allowed": False,
+                "status": "denied",
+                "conditions": [],
+            }
         pending.pop("reviewed_at")
         pending.pop("reviewed_by")
         registry.add_permission_grant(pending)
