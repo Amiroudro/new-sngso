@@ -149,6 +149,40 @@ class AuthenticatedBenchmarkAccess:
         )
         return result
 
+
+    def submit_score(
+        self, request_context: Any, assignment_id: str,
+        score: dict[str, Any], *, reason: str
+    ) -> dict[str, Any]:
+        """Record a score only for the authenticated, recently verified assignee."""
+        identity = self._identity(request_context)
+        actor = identity.principal_id
+        principal = self._registry.get_benchmark_principal(actor)
+        if (
+            principal is None or not principal["active"]
+            or "benchmark_reviewer" not in principal["roles"]
+            or principal.get("principal_kind") != "human"
+        ):
+            raise RegistryIntegrityError("scoring requires an active human-classified benchmark reviewer")
+        if self._clock() - identity.authenticated_at > timedelta(minutes=15):
+            raise RegistryIntegrityError("score submission requires recent authentication within 15 minutes")
+        if not identity.subject.strip() or not identity.authentication_methods or not identity.authentication_context.strip():
+            raise RegistryIntegrityError("identity provider must supply subject and authentication context for scoring")
+        if not identity.provider_key_id.strip() or not identity.provider_adapter.strip():
+            raise RegistryIntegrityError("identity provider must identify its verification key and adapter")
+        if score.get("evaluator_id") != actor:
+            raise RegistryIntegrityError("score evaluator must match the authenticated principal")
+        return self._registry.add_benchmark_score(
+            score, assignment_id=assignment_id, actor=actor,
+            identity={
+                "issuer": identity.issuer, "subject": identity.subject,
+                "provider_key_id": identity.provider_key_id,
+                "provider_adapter": identity.provider_adapter,
+                "authenticated_at": identity.authenticated_at.isoformat(),
+            },
+            reason=reason,
+        )
+
     def adjudicate(
         self, request_context: Any, payload: dict[str, Any], *, reason: str
     ) -> dict[str, Any]:
