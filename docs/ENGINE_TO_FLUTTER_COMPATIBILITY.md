@@ -1,7 +1,7 @@
 # Evidence-First Engine to Flutter Compatibility Boundary
 
-**Status:** Design checkpoint only. No publisher or app output is approved by this document.  
-**Observed repositories:** `Amiroudro/new-sngso` PR #7 head `5a63cd37ce87d5e4097616cac087daffc7206783`; `Amiroudro/Sngs-plus` main inspected 20 November 2026.  
+**Status:** Staging-candidate verifier implemented and tested; serializer and app integration remain unapproved. No publisher or app output is approved by this document.  
+**Observed repositories:** `Amiroudro/new-sngso` PR #7 code head `ec06daf4d3abba0b8034d56c1f84bb470d63229d`; `Amiroudro/Sngs-plus` main inspected 20 November 2026.  
 **Purpose:** Specify what must be proven before the new evidence-first engine can feed the existing Flutter app.
 
 ## Current consumer contract
@@ -40,9 +40,13 @@ The existing v2 converter describes its output as the legacy v1 app contract. Th
 ## Current blockers
 
 - The new engine has no reviewed, accepted production benchmark or real-world edition acceptance evidence.
-- The Flutter parser currently exposes summary-level source references and does not consume a claim-level evidence/permission manifest. A consumer-side manifest validator and UI path have not been implemented.
-- There is no shared executable schema, adapter package, or cross-repository golden test between the evidence-first contracts and the Flutter models.
+- The Flutter parser currently exposes summary-level source references and does not consume a claim-level evidence/permission manifest. A read-only manifest verifier exists in new-sngso. The Flutter client still has no consumer-side manifest validation or UI path.
+- There is no shared executable schema or full serializer between the evidence-first contracts and the Flutter models, and no cross-repository golden test. The new verifier supports only English headline/summary stories and checks candidates against current registry records.
 - The integrated repository's Engine v2 integration status is recorded as draft, not live. Its current formats must not be treated as the new engine's target contract without tests.
 - No compatibility check has been run with Flutter in this environment.
 
-This document defines a boundary and a work plan; it does not satisfy the compatibility exit gate by itself. Implement the staging adapter and cross-repository golden tests only after the Section 7 evidence and consumer design are ready. Until then, keep the engines and edition feeds separate.
+## Section 7.42: staging-only verifier
+
+The new-sngso verifier checks an already-prepared English story-only client candidate against an approved edition revision, exact approved learning-object text, current article/source records, human reviewer qualification, and current republication grants scoped to the exact endpoint. It returns a staging-only verification result and never writes to or publishes any feed. Its synthetic regression suite passed as part of GitHub Actions [run #44752476466](https://github.com/Amiroudro/new-sngso/actions/runs/44752476466) passed the full Python 3.12 suite: **701 tests in 6.38 seconds** on code head ec06daf4d3abba0b8034d56c1f84bb470d63229d.
+
+The verifier is not a serializer and has not run against Flutter. It deliberately rejects bilingual overlays, vocabulary, phrases, MCQs, learning modules, and unbound client fields. The integrated app does not consume the provenance sidecar, and no cross-repository golden test or confirmed republication grant exists. The compatibility exit gate remains open; keep the engines and edition feeds separate.
