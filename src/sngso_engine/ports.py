@@ -102,6 +102,12 @@ class EditorialRepository(Protocol):
 class BenchmarkReviewRepository(Protocol):
     """Versioned human review records with append-only decision history."""
 
+    def register_benchmark_principal(
+        self, principal_id: str, *, display_name: str, roles: list[str],
+        provisioned_by: str, reason: str
+    ) -> dict[str, Any]: ...
+    def get_benchmark_principal(self, principal_id: str) -> dict[str, Any] | None: ...
+    def revoke_benchmark_principal(self, principal_id: str, *, actor: str, reason: str) -> dict[str, Any]: ...
     def register_benchmark_artifact(
         self, artifact_id: str, *, language: str, content: Any,
         actor: str, reason: str
