@@ -4783,11 +4783,12 @@ class SQLiteRegistry:
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("reason is required")
         try:
+            validate_payload("editorial-benchmark-content", content)
             content_json = _json_text(content)
             canonical_content = json.loads(content_json)
             fingerprint = sha256_fingerprint(canonical_content)
         except (TypeError, ValueError) as exc:
-            raise RegistryIntegrityError("benchmark content must be canonical JSON data") from exc
+            raise RegistryIntegrityError("benchmark content must satisfy the canonical editorial benchmark contract") from exc
         created_at = _utc_now()
         with self._transaction() as connection:
             connection.execute(
