@@ -43,7 +43,7 @@ def _url_parts(value: Any, label: str, *, endpoint: bool = False):
     except ValueError as exc:
         raise FlutterCompatibilityError(f"{label} is malformed") from exc
     unsafe_path = (
-        any(ord(char) <= 32 or ord(char) == 127 or char == "\\\\" for char in parts.path)
+        any(ord(char) <= 32 or ord(char) == 127 or char == "\\" for char in parts.path)
         or re.search(r"%(?:2e|2f|5c)", parts.path, flags=re.IGNORECASE) is not None
     )
     if (
