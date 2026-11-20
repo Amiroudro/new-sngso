@@ -56,3 +56,14 @@ Sections 8, 9, and 10 remain future ordered phases:
 - **10. End-to-end verification and controlled handover:** complete engine verification, real editorial evaluation, reproducibility, security review, and safe downstream integration readiness.
 
 The Section 7 benchmark acceptance integration is not a substitute for any of those deliverables.
+
+## Section 7.30: reviewed narrative assembly report
+
+- Added a read-only story narrative assembly report and embedded it in story editorial snapshots.
+- Bangla and English are kept separate, with no cross-language quality score.
+- Each sentence-level segment retains its role, language, claim IDs, claim text, assessment, provenance, and evidence locators.
+- Factual segments are marked supported only when all linked claims are assessed as supported and each has at least one supporting evidence record. Other factual segments remain unverified/disputed and block readiness.
+- Publisher framing and other attributed positions remain separate from facts; editorial analysis remains explicitly labelled.
+- Contradictory claims and both claim texts remain visible. A reviewed/accepted contradiction is not silently treated as resolved.
+- Missing language review and non-approved learning objects are blockers. The report never grants production authorization.
+- This is traceability logic, not a truth engine, linguistic quality certification, or proof of independent reporting. Section 7 remains in progress; Sections 8–10 remain future phases.
