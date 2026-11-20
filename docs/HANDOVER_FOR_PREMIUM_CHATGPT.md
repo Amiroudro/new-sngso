@@ -27,24 +27,30 @@ The goal is a reliable product, not merely a large codebase or a green test suit
 
 ## 2. Repository boundaries and safety rules
 
-### Current authorized engineering scope
+### Current authorized project scope
 
-Work on the Python editorial-intelligence engine in **`Amiroudro/new-sngso`**.
+On 20 November 2026, the user explicitly authorized engineering changes across Sarangsho Plus repositories, including the engine, app UI, intelligence workflows, documentation, and tests. Use this repository map to avoid duplicating or confusing components:
 
-The Android frontend is a separate project and must remain separate from this Python engine. Existing website code and already-published editions are also separate and must remain untouched.
+| Repository | Current role | Working assumption |
+|---|---|---|
+| `Amiroudro/Sngs-plus` | Integrated Flutter app, Engine v2, web frontend, backend, and working edition snapshots | Current integrated product repository. Its README says the external daily job has not yet been switched to Engine v2. |
+| `Amiroudro/new-sngso` | Evidence-first Python editorial engine and contracts | The current work repository. PR #7 is open and draft; this engine is not yet shown as integrated into the Flutter app. |
+| `Amiroudro/Sngso-app-all` | Kotlin/Compose Android screen prototype with a documented 47-destination inventory | UX and implementation reference; do not assume it replaces the Flutter app. |
+| `Amiroudro/Engine` | Earlier/standalone Engine v2 scripts, outputs, and operating notes | Compare with the copy in `Sngs-plus/engine-v2` before changing or copying either version. |
+| `Amiroudro/sarangsho-plus-editions` | Public edition feed consumed by the app | Treat existing editions as published records; use the repository's validation and release process for additions or corrections. |
 
-Do not:
-- Merge PR #7 or any other PR without the user's explicit permission.
-- Mark PR #7 ready for review without explicit permission.
-- Change Android, website, or published-edition repositories as part of engine work.
-- Overwrite existing published editions or change live schedules.
-- expose secrets, tokens, credentials, private source material, or personal data.
-- add paid infrastructure or services without approval.
-- claim that synthetic fixtures demonstrate real-world editorial quality.
-- claim production readiness merely because tests pass.
-- bypass source permission checks, human review, or publication controls to make a demo appear complete.
+The user has authorized changes in these repositories. Coordinate cross-repository contracts and keep each change reviewable. Do not infer that the two Python engines are interchangeable or that the Compose prototype is the shipped client; establish the integration path from current code and tests before joining or replacing components.
 
-If work genuinely requires a change outside this repository, explain the dependency and request permission before changing it.
+### Safety and release controls
+
+- Keep PR #7 open and draft while its dependency and cross-repository integration status are unresolved. The user's broad code-change authorization does not itself publish an edition or switch a live schedule.
+- Preserve existing published edition history. Make corrections or new releases through the established validation and review path; do not alter live schedules as an implementation side effect.
+- Do not expose secrets, tokens, credentials, private source material, or personal data.
+- Do not add paid infrastructure or services without approval.
+- Do not claim that synthetic fixtures demonstrate real-world editorial quality.
+- Do not claim production readiness merely because tests pass.
+- Do not bypass source permission checks, human review, or publication controls to make a demo appear complete.
+- When GitHub Actions is unavailable, report the exact blocker and use available local/static verification; never report unrun checks as passing.
 
 ## 3. Original ten-section master plan
 
@@ -79,10 +85,10 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 - PR #7 is a draft and is not merged.
 - Base branch: `feat/section-7-editorial-benchmarks`.
 - Head branch: `feat/section-7-human-benchmark-review-contract`.
-- Latest full-suite-verified code head: `872e422460af970d85a87d2bfb7f55d376b36d91`; GitHub Actions run [#44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090) passed with **687 tests in 8.63 seconds**. Recheck PR #7 for any later docs-only head.
-- Final-head GitHub Actions run: [#44708874613](https://github.com/Amiroudro/new-sngso/actions/runs/44708874613).
-- Final-head Python 3.12 test result: **677 passed in 6.94 seconds**.
-- PR has 65 changed files at the last check.
+- Latest full-suite-verified code head: `bf1559f352455055070303177a051eed357d38ac`; GitHub Actions run [#44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064) passed with **688 tests in 7.75 seconds**. Documentation-only PR head `f1a265adb722e16575b675b0ab0918f1516061d8` also passed [run #44725377085](https://github.com/Amiroudro/new-sngso/actions/runs/44725377085), 688 tests in 4.55 seconds. Recheck PR #7 for any later commits.
+- PR #7 is based on the benchmark branch from PR #6, which remains open and draft. Keep PR #7 draft until the dependency is integrated or the target branch is deliberately changed.
+- Previous historical checkpoint: run [#44708874613](https://github.com/Amiroudro/new-sngso/actions/runs/44708874613), 677 Python 3.12 tests in 6.94 seconds.
+- PR has 68 changed files at the latest check.
 - No Android, website, or published-edition paths are included in PR #7.
 
 Always re-check the live PR head, changed-file list, and latest workflow run before reporting status. The figures above are a dated checkpoint, not a promise that the branch has not changed since.
@@ -234,13 +240,13 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 >
 > Your job is to **continue implementing and completing the product**, not merely explain how I could do it. I am a beginner, so handle the engineering work yourself wherever access permits, use plain language when reporting, and tell me exactly what action you need from me only when something genuinely requires my permission, credentials, account, human judgment, or decision.
 >
-> Start with a fresh audit of the live repository, current branches, PRs, changed files, tests, and latest GitHub Actions results. Verify the current commit before editing. Do not assume the handover's dated SHA or test count is still current.
+> Start with a fresh audit of the live repositories, current branches, relevant PRs, changed files, tests, and latest GitHub Actions results. Treat `Sngs-plus` as the integrated Flutter product and `new-sngso` as the evidence-first engine under active development. Verify exact commits before editing. Do not assume the handover's dated SHA or test counts are current.
 >
-> Continue from the actual state of the code. Sections 7.35–7.38 are verified. After verifying the current code head, continue auditing MCQ validity, genuine human evidence, and Section 7 exit gates before selecting the next slice. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
+> Continue from the actual state of the code. Sections 7.35–7.38 are verified. After checking the current engine head, audit MCQ validity, genuine human evidence, Section 7 exit gates, and the interface between the evidence-first engine and the integrated Flutter app. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
 >
 > Follow the original ten-section sequence exactly. Do not begin Section 8 until Section 7 exit criteria are actually met. Do not claim that synthetic tests prove editorial quality, that different publishers prove independent reporting, or that passing tests establish production readiness. Preserve uncertainty, attribution, source permissions, and human review.
 >
-> **Non-negotiable boundaries:** work only in the authorized Python engine repository unless I explicitly authorize another repository. Keep the Android frontend separate. Do not modify the existing website or published editions. Keep PR #7 draft and unmerged. Never merge, publish, overwrite editions, alter schedules, expose secrets, or create paid services/usage without my explicit permission.
+> **Non-negotiable boundaries:** the user has explicitly authorized cross-repository engineering changes in the listed app, engine, and prototype repositories. Keep PR #7 draft while its dependencies and integration remain unresolved. Do not publish editions or change the live schedule as a side effect of code work. Preserve source rights, human review, evidence integrity, and secret protection. Paid infrastructure still requires approval.
 >
 > Do not stop after planning. Make the next safe, meaningful implementation change, test it, inspect the CI result, document it, and continue in coherent steps. If blocked, identify the exact missing permission or input rather than guessing. At each checkpoint, tell me what is genuinely complete, what is not, what the tests prove, what they do not prove, and what you will implement next.
 >
