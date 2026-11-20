@@ -142,3 +142,17 @@ class AuthenticatedBenchmarkAccess:
             assignment_id, event=event, actor=actor, at=at, reason=reason,
             submitted_review_id=submitted_review_id,
         )
+
+
+    def reviewer_assignment_queue(
+        self, request_context: Any, *, status: str | None = None,
+        language: str | None = None
+    ) -> list[dict[str, Any]]:
+        actor = self._principal(request_context, "benchmark_reviewer")
+        principal = self._registry.get_benchmark_principal(actor)
+        qualified = principal.get("languages", []) if principal else []
+        if language is not None and language not in qualified:
+            raise RegistryIntegrityError("reviewer is not qualified for the requested assignment language")
+        return self._registry.list_benchmark_review_assignments(
+            reviewer_id=actor, status=status, language=language,
+        )
