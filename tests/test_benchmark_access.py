@@ -27,6 +27,7 @@ class FakeRegistry:
         self.principal = {
             "principal_id": "person:42",
             "roles": list(roles),
+            "languages": ["en", "bn"],
             "active": active,
         }
         self.calls = []
@@ -56,6 +57,10 @@ class FakeRegistry:
     def transition_benchmark_review_assignment(self, assignment_id, **kwargs):
         self.calls.append(("assignment_transition", assignment_id, kwargs))
         return {"assignment_id": assignment_id, **kwargs}
+
+    def list_benchmark_review_assignments(self, **kwargs):
+        self.calls.append(("assignment_queue", kwargs))
+        return [{"reviewer_id": kwargs.get("reviewer_id"), "status": kwargs.get("status")}]
 
 
 def identity(**overrides):
@@ -185,3 +190,21 @@ def test_assignment_expiry_requires_authenticated_curator():
         at="2026-11-21T12:00:00Z", reason="Deadline passed",
     )
     assert registry.calls[-1][2]["actor"] == "person:42"
+
+
+def test_reviewer_queue_is_scoped_to_authenticated_principal():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    result = access(registry).reviewer_assignment_queue(
+        "trusted-request", status="assigned", language="en",
+    )
+    assert result[0]["reviewer_id"] == "person:42"
+    assert registry.calls[-1][1]["reviewer_id"] == "person:42"
+
+
+def test_reviewer_queue_rejects_unqualified_language():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.principal["languages"] = ["bn"]
+    with pytest.raises(RegistryIntegrityError, match="not qualified"):
+        access(registry).reviewer_assignment_queue(
+            "trusted-request", language="en",
+        )
