@@ -163,6 +163,17 @@ def test_review_submission_persists_provider_identity_attestation_without_raw_se
     assert attestation["review_revision"] == 1
 
 
+def test_review_submission_rejects_stale_authentication():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    stale = identity(authenticated_at=NOW - timedelta(minutes=16))
+    with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+        access(registry, stale).submit_review(
+            "trusted-request", {"reviewer": {"reviewer_id": "person:42"}},
+            reason="stale session",
+        )
+    assert registry.calls == []
+
+
 def test_review_submission_rejects_identity_without_provider_verification_metadata():
     registry = FakeRegistry(roles=("benchmark_reviewer",))
     session = identity(provider_key_id="", provider_adapter="")
