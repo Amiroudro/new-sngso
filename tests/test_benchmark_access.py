@@ -52,7 +52,7 @@ class FakeRegistry:
         return payload
 
     def get_benchmark_review_assignment(self, assignment_id):
-        return {"assignment_id": assignment_id, "assigned_by": "person:42", "reviewer_id": "person:reviewer"}
+        return {"assignment_id": assignment_id, "assigned_by": "person:42", "reviewer_id": "person:42"}
 
     def transition_benchmark_review_assignment(self, assignment_id, **kwargs):
         self.calls.append(("assignment_transition", assignment_id, kwargs))
@@ -208,3 +208,18 @@ def test_reviewer_queue_rejects_unqualified_language():
         access(registry).reviewer_assignment_queue(
             "trusted-request", language="en",
         )
+
+
+def test_assignment_transition_rejects_authenticated_non_assignee():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.get_benchmark_review_assignment = lambda assignment_id: {
+        "assignment_id": assignment_id,
+        "assigned_by": "person:curator",
+        "reviewer_id": "person:someone-else",
+    }
+    with pytest.raises(RegistryIntegrityError, match="must match the assigned reviewer"):
+        access(registry).transition_review_assignment(
+            "trusted-request", "assignment:001", event="accept",
+            at="2026-11-20T12:00:00Z", reason="wrong reviewer",
+        )
+    assert not any(call[0] == "assignment_transition" for call in registry.calls)
