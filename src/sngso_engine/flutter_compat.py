@@ -252,6 +252,12 @@ def verify_flutter_staging_candidate(
 
     if not isinstance(client_edition, dict) or not isinstance(provenance_manifest, dict):
         raise FlutterCompatibilityError("edition and provenance manifest must be JSON objects")
+    supported_manifest_fields = {
+        "schema_version", "target_contract", "edition_id", "edition_revision",
+        "edition_date", "payload_sha256", "story_bindings", "source_permissions",
+    }
+    if set(provenance_manifest) != supported_manifest_fields:
+        raise FlutterCompatibilityError("provenance manifest contains missing or unsupported fields")
     supported_edition_fields = {
         "edition_date", "edition_day", "coverage", "status", "counts",
         "stories", "words", "revision_words", "phrases", "mcqs", "sources",
