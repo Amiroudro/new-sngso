@@ -101,7 +101,7 @@ The first assignment-workflow slice adds a versioned assignment record and a pur
 
 The lifecycle is assigned → accepted → submitted, with cancellation or expiry available only while the assignment remains open. Only the named reviewer may accept or submit; submission must reference a review ID and cannot happen before acceptance or at/after the deadline. The assigner or reviewer may cancel an open assignment. Only the assigner may record expiry, and only at/after the deadline. Every transition returns an actor, timestamp, and reason receipt; callers must persist each transition as append-only history rather than overwrite prior states.
 
-This slice deliberately does not claim durable assignment persistence, verify a reviewer's language qualification, authenticate actors, or prove that the submitted review is approved. Those require the next registry migration and trusted-session application methods. Submission is a workflow handoff only; the existing review validator, artifact binding, source-permission checks, and adjudication gates remain authoritative.
+The initial 7.10 commit introduced only the pure state machine. Section 7.11 now supplies durable SQLite persistence, language-qualified reviewer checks, authenticated application operations, and exact stored-review binding. Submission remains a workflow handoff only; it never approves the review. The existing review validator, artifact binding, source-permission checks, and adjudication gates remain authoritative.
 
 
 ## 7.11 Durable assignment ledger and language-qualified workflow
