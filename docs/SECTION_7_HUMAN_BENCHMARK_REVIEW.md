@@ -156,3 +156,8 @@ This is a completeness and auditability gate, not an automated truth detector. T
 ## 7.18 Operational security review and acceptance gate
 
 The operational review concludes **NOT ACCEPTED FOR PRODUCTION**. The repository controls are tested, but real OIDC issuer/JWKS/revocation infrastructure, protected administrator bootstrap, production database and host access controls, backup/restore drills, publisher permission evidence, and genuine independent Bangla/English human reviews remain deployment evidence requirements. The full threat/control matrix and mandatory go/no-go checklist are in `docs/SECTION_7_18_OPERATIONAL_SECURITY_REVIEW.md`. A passing test suite is not a deployment security certification or editorial quality proof.
+
+
+## 7.19 Criterion-level scoring and calibration
+
+A versioned scoring contract and deterministic validator now require item-bound score sheets, criterion IDs, explicit weights, anchored 0–4 scores, evaluator rationale, and evidence references. Weights must sum to one; a declared critical failure requires a reason and blocks comparison eligibility regardless of the weighted score. The validator computes a decimal weighted score to four decimal places. This is a reproducible aggregation of declared judgments, not an automated measure of editorial truth. Score sheets are not yet persisted in the registry, evaluator identity is not authenticated by this module, and no real inter-rater reliability has been established. See `docs/SECTION_7_19_SCORING_CALIBRATION.md`.
