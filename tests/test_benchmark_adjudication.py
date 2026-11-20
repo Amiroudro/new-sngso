@@ -74,7 +74,8 @@ def test_uphold_existing_requires_an_explicit_subset_of_review_ids():
 def test_non_uphold_outcomes_cannot_select_upheld_reviews():
     payload = _payload()
     payload["upheld_review_ids"] = ["review:one"]
-    assert validate_benchmark_adjudication(payload)["valid"] is False
+    with pytest.raises(ValueError):
+        validate_benchmark_adjudication(payload)
 
 
 def test_adjudication_requires_explicit_rationale_and_evidence():
