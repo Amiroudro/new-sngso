@@ -6,7 +6,7 @@
 **Repository:** `Amiroudro/new-sngso`  
 **Working branch:** `feat/section-7-human-benchmark-review-contract`  
 **Open pull request:** [PR #7](https://github.com/Amiroudro/new-sngso/pull/7)  
-**Latest full-suite-verified code head:** `4b14a10705ab4352b8c4c915179c3b564d601086` — [run #44732795832](https://github.com/Amiroudro/new-sngso/actions/runs/44732795832), 689 passed in 7.70 seconds. Recheck the live PR head before further edits.
+**Latest full-suite-verified code head:** `cc7f4f5e7e3d38a4d6709a9c0b5fdee4c3fe1abe` — [run #44749250816](https://github.com/Amiroudro/new-sngso/actions/runs/44749250816), 693 passed in 6.24 seconds. Recheck the live PR head before further edits.
 
 ---
 
@@ -285,7 +285,7 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 - The learning-object contract defines mcq-editorial-v1 with ten review dimensions: single defensible key, stem clarity and precision, distractor plausibility, unambiguous incorrectness, rationale quality, learner-level fit, misconception alignment, option parallelism, absence of accidental clues, and explanation fidelity.
 - The trusted review facade requires all ten dimensions for MCQ decisions, restricts values to pass/needs_revision, requires all-pass findings for approval, and records provider-backed identity attestation.
 - Registry validation rejects malformed or mismatched MCQ review metadata. The quality report blocks an approved MCQ without a complete all-pass pedagogical rubric. Automated completeness does not judge pedagogical quality.
-- GitHub Actions [run #44733507721](https://github.com/Amiroudro/new-sngso/actions/runs/44733507721) passed the full Python 3.12 suite: **689 tests in 7.56 seconds** on code head d6921b020e92355a5117910babf88430b514c44b. This run contains no dedicated regression cases for the new MCQ rubric path.
+- Added direct regression cases for authenticated MCQ review capture and provider attestation, missing/failed rubric rejection, non-MCQ misuse, and the approved-MCQ quality gate. GitHub Actions [run #44749250816](https://github.com/Amiroudro/new-sngso/actions/runs/44749250816) passed the full Python 3.12 suite: **693 tests in 6.24 seconds** on code head cc7f4f5e7e3d38a4d6709a9c0b5fdee4c3fe1abe.
 - Section 7 remains open. Real human review records, calibration/independent acceptance, source lineage and permission evidence, production operations sign-off, Flutter compatibility, and realistic daily inputs remain outstanding.
 
 
