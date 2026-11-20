@@ -1424,6 +1424,77 @@ def _language_review_passes(review: dict[str, Any] | None, language: str) -> boo
         for name, value in dimensions.items()
     )
 
+_MCQ_REVIEW_RUBRIC = {
+    "version": "mcq-editorial-v1",
+    "dimensions": {
+        "single_defensible_key",
+        "stem_clarity_and_precision",
+        "distractor_plausibility",
+        "distractors_unambiguously_incorrect",
+        "misconception_alignment",
+        "option_parallelism",
+        "no_accidental_clues",
+        "explanation_fidelity",
+    },
+}
+
+
+def _mcq_review_passes(review: dict[str, Any] | None, language: str) -> bool:
+    if not isinstance(review, dict):
+        return False
+    dimensions = review.get("dimensions")
+    return (
+        review.get("language") == language
+        and review.get("rubric_version") == _MCQ_REVIEW_RUBRIC["version"]
+        and isinstance(dimensions, dict)
+        and set(dimensions) == _MCQ_REVIEW_RUBRIC["dimensions"]
+        and all(value == "pass" for value in dimensions.values())
+    )
+
+
+def _validate_learning_object_mcq_review(payload: dict[str, Any]) -> None:
+    review = payload.get("mcq_review")
+    if review is None:
+        return
+    if payload.get("kind") != "mcq_question":
+        raise RegistryIntegrityError("MCQ pedagogical review requires an MCQ learning object")
+    if payload.get("status") not in {"approved", "rejected"}:
+        raise RegistryIntegrityError("MCQ pedagogical review requires an approved or rejected decision")
+    if review.get("language") != payload.get("language"):
+        raise RegistryIntegrityError("MCQ pedagogical review language mismatch")
+    if review.get("rubric_version") != _MCQ_REVIEW_RUBRIC["version"]:
+        raise RegistryIntegrityError("MCQ pedagogical review rubric version mismatch")
+    dimensions = review.get("dimensions")
+    if not isinstance(dimensions, dict) or set(dimensions) != _MCQ_REVIEW_RUBRIC["dimensions"]:
+        raise RegistryIntegrityError("MCQ pedagogical review dimensions do not match the rubric")
+    if review.get("reviewer_id") != payload.get("reviewed_by"):
+        raise RegistryIntegrityError("MCQ pedagogical reviewer mismatch")
+    if review.get("reviewed_at") != payload.get("reviewed_at"):
+        raise RegistryIntegrityError("MCQ pedagogical review timestamp mismatch")
+    _aware_datetime(review["reviewed_at"], "mcq_review.reviewed_at")
+    attestation = review.get("identity_attestation")
+    if attestation is not None:
+        required_attestation = {
+            "principal_id", "issuer", "subject", "provider_key_id",
+            "provider_adapter", "authenticated_at", "attested_at",
+            "authentication_methods", "authentication_context",
+        }
+        if set(attestation) != required_attestation:
+            raise RegistryIntegrityError("MCQ review identity attestation is incomplete")
+        if attestation["principal_id"] != review["reviewer_id"]:
+            raise RegistryIntegrityError("MCQ review identity attestation principal mismatch")
+        if attestation["attested_at"] != review["reviewed_at"]:
+            raise RegistryIntegrityError("MCQ review identity attestation timestamp mismatch")
+        _aware_datetime(attestation["authenticated_at"], "mcq_review.identity_attestation.authenticated_at")
+        _aware_datetime(attestation["attested_at"], "mcq_review.identity_attestation.attested_at")
+        if not attestation["authentication_methods"] or not attestation["subject"].strip():
+            raise RegistryIntegrityError("MCQ review identity attestation lacks provider evidence")
+    needs_revision = any(value == "needs_revision" for value in dimensions.values())
+    if payload.get("status") == "approved" and needs_revision:
+        raise RegistryIntegrityError("approved MCQ review cannot contain needs_revision findings")
+    if payload.get("status") == "rejected" and not needs_revision:
+        raise RegistryIntegrityError("rejected MCQ review must identify at least one needs_revision finding")
+
 
 def _validate_learning_object_language_review(payload: dict[str, Any]) -> None:
     review = payload.get("language_review")
@@ -5726,6 +5797,7 @@ class SQLiteRegistry:
         """Create a language-specific learning object in a non-approved state."""
         validate_payload("learning-object", payload)
         _validate_learning_object_language_review(payload)
+        _validate_learning_object_mcq_review(payload)
         _validate_learning_object_traceability(payload)
         _validate_learning_object_answer_links(payload)
         if not isinstance(actor, str) or not actor.strip():
@@ -5809,6 +5881,7 @@ class SQLiteRegistry:
         """Revise an editorial object with optimistic concurrency and immutable history."""
         validate_payload("learning-object", payload)
         _validate_learning_object_language_review(payload)
+        _validate_learning_object_mcq_review(payload)
         _validate_learning_object_traceability(payload)
         _validate_learning_object_answer_links(payload)
         if payload.get("id") != learning_object_id:
@@ -5943,6 +6016,15 @@ class SQLiteRegistry:
                 "language_review",
                 language_review_valid,
                 "A complete language-specific rubric review must pass before a learning object can pass the registry quality gate.",
+            )
+            mcq_review_valid = _mcq_review_passes(
+                payload.get("mcq_review"), payload.get("language")
+            )
+            check(
+                "mcq_pedagogical_review",
+                payload.get("kind") != "mcq_question"
+                or (payload.get("status") != "approved" or mcq_review_valid),
+                "An approved MCQ requires a complete all-pass pedagogical review rubric.",
             )
             claim_ids = payload.get("claim_ids", [])
             placeholders = ",".join("?" for _ in claim_ids)
