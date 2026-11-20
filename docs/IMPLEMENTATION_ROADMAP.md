@@ -223,3 +223,9 @@ Complete Section 1 baseline first, then Sections 2–10 in order. A later sectio
 A read-only bilingual narrative assembly report is now embedded in each story editorial snapshot. It preserves sentence roles (fact, attributed position, editorial analysis), exact claim links, claim provenance and evidence locators; it separates Bangla and English; keeps publisher accounts individually attributed; and preserves unresolved contradictions. A factual sentence is considered supported only when all linked claims are assessed as supported and each has supporting evidence. Draft/unapproved objects, missing language review, missing claims, and unsupported factual segments remain blockers. The report is non-authorizing and does not establish source independence or editorial truth.
 
 Remaining Section 7 work includes real human review evidence, stronger source-independence evidence, bilingual learning-object workflows, and daily briefing inputs.
+
+### Section 7.31 implementation update
+
+The story snapshot now includes a source-independence evidence gap report. It distinguishes confirmed/possible duplicate article relationships from independent reporting, marks no-candidate and reviewed-distinct articles as not establishing independence, and lists the provenance checks still required (original reporting, syndication/republication, shared sources/common origin, and primary-source evidence). It never computes an independent-reporting count from publisher IDs or article counts.
+
+Remaining work includes collecting and reviewing actual reporting-lineage evidence, real human editorial review, source-grounded learning workflows, and daily briefing inputs.
