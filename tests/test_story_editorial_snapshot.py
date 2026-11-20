@@ -1,5 +1,7 @@
 """Single-snapshot story editorial dossier tests."""
 
+import json
+
 import pytest
 
 from sngso_engine import RegistryIntegrityError, SQLiteRegistry
@@ -73,6 +75,15 @@ def _prepared():
         "locator": {"uri": f"https://{host}/one"},
         "assessed_at": STAMP,
     })
+    claim_row = registry._connection.execute(
+        "SELECT payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:a'"
+    ).fetchone()
+    claim = json.loads(claim_row["payload_json"])
+    claim["evidence_ids"] = ["evidence:one"]
+    registry.revise_domain_record(
+        "claim", "claim:a", claim, expected_revision=1,
+        actor="editor", reason="Attach the registered evidence locator.",
+    )
     registry.add_timeline_event({
         "schema_version": "1.0.0",
         "id": "event:one",
@@ -142,6 +153,8 @@ def _prepared():
         "content": {
             "term": "accountability",
             "glossary_entry_id": "glossary:accountability",
+            "source_evidence_id": "evidence:one",
+            "source_evidence_revision": 1,
             "term_language": "en",
             "part_of_speech": "noun",
             "meaning": "দায়বদ্ধতা",

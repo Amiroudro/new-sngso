@@ -5571,6 +5571,7 @@ class SQLiteRegistry:
                     json.loads(item["payload_json"])["story_id"] != record.story_id for item in claims
                 ):
                     raise RegistryIntegrityError("learning object claims must belong to its story")
+            self._validate_learning_object_source_evidence_reference(connection, payload)
             self._validate_learning_object_glossary_reference(connection, payload)
             now = _utc_now()
             updated = connection.execute(
