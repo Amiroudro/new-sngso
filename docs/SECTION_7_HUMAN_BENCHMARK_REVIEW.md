@@ -51,6 +51,12 @@ Provisioning is an administrative operation and must be performed only by a trus
 
 Adjudicator role registration is enforced when an adjudication is written. The registry requires the adjudicator principal to be active, to hold `benchmark_adjudicator`, and to match the declared adjudicator ID. The two referenced reviews must exist, bind to the same exact artifact fingerprint, and have reviewer IDs matching the stored review records. The adjudicator cannot be one of those reviewers. Adjudication records are immutable and audited. The record documents the resolution; it does not automatically rewrite review decisions or grant current-use approval. The read-only current-use quality report now applies an explicit fail-closed outcome policy: `uphold_existing` can preserve eligibility only for a referenced approved review; `return_for_revision` blocks use until a revised artifact is registered and reviewed; `reject_benchmark_item` blocks use; and `split_accepted_answers` blocks use until distinct accepted-answer items are represented in a revised artifact and freshly reviewed. The policy does not rewrite reviewers' historical decisions or grant approval to new artifact versions.
 
+### Final adjudication and immutable artifact policy
+
+Schema migration 16 makes the final adjudication unique per immutable benchmark artifact. A second adjudication for the same artifact is rejected at the SQLite boundary; a changed decision requires a newly registered artifact version with new reviews, preserving the old artifact's decision history. The current-use report also fails closed if legacy data contains multiple adjudications for one artifact.
+
+For `uphold_existing`, the adjudicator must name `upheld_review_ids`. The list must be a non-empty subset of the two or more referenced reviews, and every selected review must be approved in the registry. Only those exact selected reviews can remain eligible. Other outcomes must not include an upheld-review selection. This prevents an ambiguous “uphold” from preserving every approved review by default.
+
 ## Next gates
 
 - Connect principal IDs to a trusted authentication/session provider and restrict provisioning to authenticated administrators.
