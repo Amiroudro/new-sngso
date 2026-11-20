@@ -36,6 +36,11 @@ from .models import (
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
 from .benchmark_reviews import validate_human_benchmark_review
 from .benchmark_adjudication import validate_benchmark_adjudication
+from .benchmark_assignments import (
+    BenchmarkAssignmentError,
+    transition_benchmark_assignment,
+    validate_benchmark_assignment,
+)
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
@@ -5079,6 +5084,200 @@ class SQLiteRegistry:
             raise RegistryIntegrityError("benchmark artifact language does not match the review language")
         if row["content_fingerprint"] != review["benchmark_fingerprint"]:
             raise RegistryIntegrityError("benchmark review fingerprint does not match registered artifact content")
+
+    def create_benchmark_review_assignment(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Create an immutable-artifact assignment for a language-qualified reviewer."""
+        report = validate_benchmark_assignment(payload)
+        if not report["valid"] or payload.get("status") != "assigned":
+            raise RegistryIntegrityError("assignment contract invalid; new assignments must start as assigned")
+        if not actor.strip() or not reason.strip() or actor != payload["assigned_by"]:
+            raise RegistryIntegrityError("assignment actor must match the declared assigner and include a reason")
+        now = _utc_now()
+        assigned_at = _aware_datetime(payload["assigned_at"], "assigned_at")
+        due_at = _aware_datetime(payload["due_at"], "due_at")
+        if assigned_at > _aware_datetime(now, "now"):
+            raise RegistryIntegrityError("assignment cannot be created in the future")
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_curator")
+            artifact = connection.execute(
+                "SELECT language, content_fingerprint FROM benchmark_artifacts WHERE artifact_id = ?",
+                (payload["artifact_id"],),
+            ).fetchone()
+            if artifact is None:
+                raise RegistryIntegrityError("assignment must reference a registered benchmark artifact")
+            if artifact["language"] != payload["language"] or artifact["content_fingerprint"] != payload["artifact_fingerprint"]:
+                raise RegistryIntegrityError("assignment must bind to the exact artifact fingerprint and language")
+            reviewer = connection.execute(
+                "SELECT roles_json, languages_json, active FROM benchmark_principals WHERE principal_id = ?",
+                (payload["reviewer_id"],),
+            ).fetchone()
+            if reviewer is None or not reviewer["active"]:
+                raise RegistryIntegrityError("assigned reviewer must be active")
+            if "benchmark_reviewer" not in json.loads(reviewer["roles_json"]):
+                raise RegistryIntegrityError("assigned principal lacks benchmark_reviewer role")
+            if payload["language"] not in json.loads(reviewer["languages_json"]):
+                raise RegistryIntegrityError("assigned reviewer is not qualified for the benchmark language")
+            if payload["reviewer_id"] == actor:
+                raise RegistryIntegrityError("curators cannot assign benchmark reviews to themselves")
+            payload_json = _json_text(payload)
+            connection.execute(
+                """INSERT INTO benchmark_review_assignments
+                (assignment_id, artifact_id, artifact_fingerprint, language, reviewer_id,
+                 assigned_by, assigned_at, due_at, status, revision, payload_json,
+                 updated_at, last_actor, last_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'assigned', 1, ?, ?, ?, ?)""",
+                (payload["assignment_id"], payload["artifact_id"], payload["artifact_fingerprint"],
+                 payload["language"], payload["reviewer_id"], actor, assigned_at.isoformat(),
+                 due_at.isoformat(), payload_json, now, actor, reason),
+            )
+            connection.execute(
+                """INSERT INTO benchmark_review_assignment_revisions
+                (assignment_id, revision, created_at, actor, reason, payload_json)
+                VALUES (?, 1, ?, ?, ?, ?)""",
+                (payload["assignment_id"], now, actor, reason, payload_json),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_review_assignment.created",
+                entity_type="benchmark_review_assignment", entity_id=payload["assignment_id"],
+                payload={"artifact_id": payload["artifact_id"], "artifact_fingerprint": payload["artifact_fingerprint"],
+                         "language": payload["language"], "reviewer_id": payload["reviewer_id"],
+                         "due_at": payload["due_at"], "actor": actor, "reason": reason},
+            )
+        return self.get_benchmark_review_assignment(payload["assignment_id"]) or {}
+
+    def get_benchmark_review_assignment(self, assignment_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT revision, created_at, updated_at, last_actor, last_reason, payload_json "
+            "FROM benchmark_review_assignments WHERE assignment_id = ?", (assignment_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            **json.loads(row["payload_json"]), "revision": row["revision"],
+            "created_at": row["created_at"], "updated_at": row["updated_at"],
+            "last_actor": row["last_actor"], "last_reason": row["last_reason"],
+        }
+
+    def benchmark_review_assignment_history(self, assignment_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            """SELECT revision, created_at, actor, reason, payload_json
+               FROM benchmark_review_assignment_revisions
+               WHERE assignment_id = ? ORDER BY revision""", (assignment_id,)
+        ).fetchall()
+        return [
+            {"revision": row["revision"], "created_at": row["created_at"],
+             "actor": row["actor"], "reason": row["reason"],
+             "assignment": json.loads(row["payload_json"])}
+            for row in rows
+        ]
+
+    def transition_benchmark_review_assignment(
+        self, assignment_id: str, *, event: str, actor: str, at: str,
+        reason: str, submitted_review_id: str | None = None
+    ) -> dict[str, Any]:
+        """Apply one authorized transition and append its immutable revision."""
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("transition actor and reason are required")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM benchmark_review_assignments WHERE assignment_id = ?",
+                (assignment_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError(f"unknown benchmark review assignment: {assignment_id}")
+            current = json.loads(row["payload_json"])
+            reviewer_id = current["reviewer_id"]
+            assigner_id = current["assigned_by"]
+            language = current["language"]
+
+            if event in {"accept", "submit"}:
+                if actor != reviewer_id:
+                    raise RegistryIntegrityError("only the assigned reviewer may accept or submit")
+                self._require_benchmark_role(connection, actor, "benchmark_reviewer")
+                principal = connection.execute(
+                    "SELECT languages_json FROM benchmark_principals WHERE principal_id = ?",
+                    (actor,),
+                ).fetchone()
+                if principal is None or language not in json.loads(principal["languages_json"]):
+                    raise RegistryIntegrityError("reviewer is not currently qualified for the assignment language")
+            elif event == "expire":
+                if actor != assigner_id:
+                    raise RegistryIntegrityError("only the assigning curator may expire an assignment")
+                self._require_benchmark_role(connection, actor, "benchmark_curator")
+            elif event == "cancel":
+                if actor == assigner_id:
+                    self._require_benchmark_role(connection, actor, "benchmark_curator")
+                elif actor == reviewer_id:
+                    self._require_benchmark_role(connection, actor, "benchmark_reviewer")
+                    principal = connection.execute(
+                        "SELECT languages_json FROM benchmark_principals WHERE principal_id = ?",
+                        (actor,),
+                    ).fetchone()
+                    if principal is None or language not in json.loads(principal["languages_json"]):
+                        raise RegistryIntegrityError("reviewer is not currently qualified for the assignment language")
+                else:
+                    raise RegistryIntegrityError("only the assigned reviewer or assigning curator may cancel")
+            else:
+                raise RegistryIntegrityError("unsupported assignment transition")
+
+            try:
+                updated = transition_benchmark_assignment(
+                    current, event=event, actor=actor, at=at, reason=reason,
+                    submitted_review_id=submitted_review_id,
+                )
+            except (TypeError, ValueError) as exc:
+                raise RegistryIntegrityError(f"invalid benchmark assignment transition: {exc}") from exc
+
+            if event == "submit":
+                review_row = connection.execute(
+                    """SELECT benchmark_id, benchmark_fingerprint, language, payload_json
+                       FROM benchmark_reviews WHERE review_id = ?""",
+                    (submitted_review_id,),
+                ).fetchone()
+                if review_row is None:
+                    raise RegistryIntegrityError("submitted assignment must reference a stored human review")
+                review_payload = json.loads(review_row["payload_json"])
+                if (
+                    review_row["benchmark_id"] != current["artifact_id"]
+                    or review_row["benchmark_fingerprint"] != current["artifact_fingerprint"]
+                    or review_row["language"] != current["language"]
+                    or review_payload["reviewer"]["reviewer_id"] != reviewer_id
+                ):
+                    raise RegistryIntegrityError("submitted review must match the assigned reviewer, language, and exact artifact")
+                final = connection.execute(
+                    "SELECT 1 FROM benchmark_adjudications WHERE benchmark_id = ?",
+                    (current["artifact_id"],),
+                ).fetchone()
+                if final is not None:
+                    raise RegistryIntegrityError("cannot submit a review after final artifact adjudication")
+
+            now = _utc_now()
+            next_revision = row["revision"] + 1
+            payload_json = _json_text(updated)
+            connection.execute(
+                """UPDATE benchmark_review_assignments
+                   SET status = ?, revision = ?, payload_json = ?, updated_at = ?,
+                       last_actor = ?, last_reason = ?
+                   WHERE assignment_id = ? AND revision = ?""",
+                (updated["status"], next_revision, payload_json, now, actor, reason,
+                 assignment_id, row["revision"]),
+            )
+            connection.execute(
+                """INSERT INTO benchmark_review_assignment_revisions
+                   (assignment_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (assignment_id, next_revision, now, actor, reason, payload_json),
+            )
+            self._append_audit(
+                connection, event_type=f"benchmark_review_assignment.{event}",
+                entity_type="benchmark_review_assignment", entity_id=assignment_id,
+                payload={"revision": next_revision, "status": updated["status"],
+                         "actor": actor, "reason": reason,
+                         "submitted_review_id": submitted_review_id},
+            )
+        return self.get_benchmark_review_assignment(assignment_id) or {}
 
     def add_benchmark_review(
         self, review: dict[str, Any], *, actor: str, reason: str
