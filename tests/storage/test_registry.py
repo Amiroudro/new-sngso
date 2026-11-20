@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 19
+        assert registry.schema_version() == 20
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 19
+        assert reopened.schema_version() == 20
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -2499,3 +2499,22 @@ def test_schema_v15_migrates_to_v16_with_single_final_adjudication_guard(tmp_pat
         assert migrated.schema_version() == 16
 
 
+
+
+
+def test_migration_20_creates_append_only_benchmark_score_store():
+    with SQLiteRegistry() as registry:
+        assert registry.schema_version() == 20
+        tables = {
+            row["name"] for row in registry._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        triggers = {
+            row["name"] for row in registry._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert "benchmark_scores" in tables
+        assert "benchmark_scores_no_update" in triggers
+        assert "benchmark_scores_no_delete" in triggers
