@@ -76,3 +76,11 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - Confirmed duplicate groups and unresolved duplicate candidates remain visible.
 - The report exposes missing evidence requirements and never authorizes production.
 - Actual reporting-lineage evidence and human review remain outstanding. Section 7 remains in progress; Sections 8–10 remain future phases.
+
+## Section 7.32: language-review enforcement in narrative assembly
+
+- Narrative assembly now checks the full language-specific rubric using the same pass criteria as the registry quality workflow.
+- A present but rejected language review no longer slips through as sufficient evidence. Missing reviews and any needs-revision dimension remain blockers.
+- Per-language reports include object/segment counts, factual and traceable coverage, unsupported factual segments, passing review counts, blocker counts, and a deterministic blocked/review-required state.
+- Bangla and English remain independently assessed. review_required is not publication approval, and production authorization remains false.
+- Regression tests cover a rejected review record and the resulting language-level blocker summary. Section 7 remains in progress; Sections 8–10 remain future phases.
