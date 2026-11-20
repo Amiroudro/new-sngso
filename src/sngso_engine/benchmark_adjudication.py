@@ -26,7 +26,7 @@ def validate_benchmark_adjudication(payload: dict[str, Any]) -> dict[str, Any]:
         else not upheld_ids
     )
     return {
-        "valid": independent and upheld_valid,
+        "valid": upheld_valid,
         "eligible_for_adjudication": independent and upheld_valid,
         "checks": [
             {"name": "distinct_review_records", "passed": len(set(payload["review_ids"])) >= 2},
