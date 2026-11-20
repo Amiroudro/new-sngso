@@ -1773,20 +1773,6 @@ class SQLiteRegistry:
                     raise RegistryMigrationError("Migration 20 failed; transaction rolled back") from exc
 
 
-            if version == 21 and _SCHEMA_VERSION >= 22:
-                try:
-                    for statement in _MIGRATION_22:
-                        connection.execute(statement)
-                    connection.execute(
-                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-                        (22, _utc_now()),
-                    )
-                    connection.execute("PRAGMA user_version = 22")
-                    version = 22
-                except sqlite3.Error as exc:
-                    raise RegistryMigrationError("Migration 22 failed; transaction rolled back") from exc
-
-
             if version == 20 and _SCHEMA_VERSION >= 21:
                 try:
                     for statement in _MIGRATION_21:
@@ -1799,6 +1785,20 @@ class SQLiteRegistry:
                     version = 21
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 21 failed; transaction rolled back") from exc
+
+
+            if version == 21 and _SCHEMA_VERSION >= 22:
+                try:
+                    for statement in _MIGRATION_22:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (22, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 22")
+                    version = 22
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 22 failed; transaction rolled back") from exc
 
 
 
