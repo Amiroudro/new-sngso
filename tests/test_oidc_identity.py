@@ -128,7 +128,9 @@ def test_unapproved_algorithm_is_rejected_before_key_lookup(signing_key):
     [
         ({"iss": "https://attacker.example/"}, "failed closed"),
         ({"aud": "another-client"}, "failed closed"),
-        ({"exp": int(NOW.timestamp()) - 60}, "failed closed"),
+        ({"exp": int(NOW.timestamp()) - 60}, "token is expired"),
+        ({"iat": int(NOW.timestamp()) + 60}, "issued-at claim is in the future"),
+        ({"nbf": int(NOW.timestamp()) + 60}, "not-before claim is invalid or in the future"),
         ({"sub": ""}, "subject is missing"),
         ({"sid": ""}, "identifier is invalid"),
         ({"amr": ["pwd"]}, "methods do not meet policy"),
