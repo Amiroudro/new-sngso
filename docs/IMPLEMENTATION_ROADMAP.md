@@ -241,3 +241,7 @@ Remaining Section 7 work includes real human review evidence, actual reporting-l
 MCQs now require exact option-ID keyed rationales for every incorrect option. Registry validation rejects incomplete, duplicate, or incorrectly assigned rationale coverage. The quality report checks this structural coverage and always records that human review is still required for plausibility, unambiguous incorrectness, misconception alignment, parallel option construction, and accidental clues. Rationale presence is not treated as proof of item quality.
 
 Remaining Section 7 work includes genuine human review of MCQs and other learning objects, source-grounded vocabulary/comprehension workflows, reporting-lineage evidence, and daily briefing inputs.
+
+### Section 7.34 implementation update
+
+MCQ distractor rationales now require one or more source claim IDs drawn from the same learning object's claim set. The quality report verifies that every rationale basis claim exists, is assessed as supported/partially supported, and has linked evidence. Unsupported or unassessed rationale claims block the registry quality gate. This checks evidence traceability, not logical entailment or distractor quality; human review remains mandatory.
