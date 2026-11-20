@@ -49,11 +49,11 @@ Schema migration 15 adds registry-managed benchmark principals with the explicit
 
 Provisioning is an administrative operation and must be performed only by a trusted deployment operator. The local SQLite registry does not authenticate that operator or the human behind a principal ID. A production deployment must bind the principal ID to a trusted login/session and restrict provisioning to an authenticated administrator. Role checks are a registry authorization control, not proof of real-world identity.
 
-Adjudicator role registration is available, but adjudication is not yet persisted or connected to review approval. That remains the next integration gate.
+Adjudicator role registration is enforced when an adjudication is written. The registry requires the adjudicator principal to be active, to hold `benchmark_adjudicator`, and to match the declared adjudicator ID. The two referenced reviews must exist, bind to the same exact artifact fingerprint, and have reviewer IDs matching the stored review records. The adjudicator cannot be one of those reviewers. Adjudication records are immutable and audited. The record documents the resolution; it does not automatically rewrite review decisions or grant current-use approval. A downstream policy must interpret each outcome before changing benchmark eligibility.
 
 ## Next gates
 
-- Persist adjudication decisions and enforce adjudicator role plus reviewer independence in the SQLite lifecycle.
+- Define and implement the policy that maps adjudication outcomes to review status/current-use eligibility without silently rewriting reviewers' historical decisions.
 - Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
 - Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
 
