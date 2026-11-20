@@ -1378,7 +1378,7 @@ def _benchmark_review_payload() -> dict:
         "language": "en",
         "status": "approved",
         "reviewer": {
-            "reviewer_id": "editor:en-01",
+            "reviewer_id": "editor:lead",
             "role": "English editor",
             "language": "en",
             "qualification_basis": "Professional English copy-editing and newsroom experience.",
@@ -1455,6 +1455,7 @@ def test_benchmark_review_revision_is_append_only_and_optimistically_locked():
         payload = _benchmark_review_payload()
         registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
         revised = {**payload, "status": "rejected", "adjudication_note": "Source attribution needs correction."}
+        revised["reviewer"]["reviewer_id"] = "editor:second"
         result = registry.revise_benchmark_review(
             payload["review_id"], revised, expected_revision=1,
             actor="editor:second", reason="independent challenge",
