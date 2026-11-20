@@ -300,3 +300,8 @@ The staging-only Flutter compatibility boundary now rejects malformed manifest m
 - Removed repeated duplicate validation branches in the verifier.
 
 Regression tests cover boolean revisions, malformed/negative counts, unknown count keys, and duplicate edition-level source references. GitHub Actions run [#44767670067](https://github.com/Amiroudro/new-sngso/actions/runs/44767670067) passed the full Python 3.12 suite: **710 tests in 8.42 seconds** on code head `e3d7a6bb7f8baba5dd6e4660b8705a1c9d065130`. This is defensive input validation only; it does not establish Flutter runtime compatibility, editorial correctness, or publication authorization. Section 7 remains open.
+
+
+### Section 7.45–7.47 implementation update
+
+The staging-only Flutter boundary rejects ambiguous URL path/origin forms, unknown provenance manifest fields, malformed payload digests, and empty manifest edition dates. Section 7.46 rejects unrecognized manifest extensions; Section 7.47 validates the SHA-256 digest representation and date metadata. Regression cases cover the new rejection paths. Contract validation passed on PR head `39de19f9` (GitHub Actions run [#44769400562](https://github.com/Amiroudro/new-sngso/actions/runs/44769400562)); that workflow validates repository contracts only. The subsequent Section 7.47 code and tests are newer and have not yet been validated by CI or the full Python test suite. No Flutter runtime, real publisher permission, or production publication verification is claimed.
