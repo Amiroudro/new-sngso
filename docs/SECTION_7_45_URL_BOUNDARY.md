@@ -28,3 +28,10 @@ The changes are on `feat/section-7-human-benchmark-review-contract`. The GitHub 
 ## Safety boundary
 
 No Flutter app, website, published edition, live schedule, or production feed was changed. PR #7 remains draft and unmerged. The adapter remains staging-only. Real source permission evidence, real human editorial review, and actual Flutter parser/runtime compatibility remain separate outstanding requirements.
+
+
+## Section 7.46: strict provenance manifest shape
+
+The staging verifier now requires the provenance manifest to contain exactly the supported top-level fields. Unknown fields and missing required fields fail closed, rather than being silently ignored. This prevents callers from attaching unverified claims or control flags to a manifest and having them appear to be part of the accepted contract.
+
+A regression test covers an injected `publication_authorized` extension. The builder still emits the same supported manifest shape. The change is committed on the feature branch; **CI and the full Python suite have not yet reported a result for this exact head**.
