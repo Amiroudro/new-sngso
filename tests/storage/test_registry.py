@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 14
+        assert registry.schema_version() == 15
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 14
+        assert reopened.schema_version() == 15
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -1400,7 +1400,23 @@ def _benchmark_review_payload() -> dict:
     }
 
 
+
+def _register_benchmark_test_principals(registry: SQLiteRegistry) -> None:
+    registry.register_benchmark_principal(
+        "benchmark-curator", display_name="Test curator",
+        roles=["benchmark_curator"], provisioned_by="test-bootstrap",
+        reason="Provision test curator",
+    )
+    for principal in ("editor:lead", "editor:second", "editor:en-01"):
+        registry.register_benchmark_principal(
+            principal, display_name=principal,
+            roles=["benchmark_reviewer"], provisioned_by="test-bootstrap",
+            reason="Provision test reviewer",
+        )
+
+
 def _populate_benchmark_review_sources(registry: SQLiteRegistry) -> None:
+    _register_benchmark_test_principals(registry)
     registry.add_source(source_record())
     registry.add_endpoint(endpoint_record())
     registry.add_permission_evidence(evidence_record())
@@ -1546,16 +1562,17 @@ def test_existing_schema_v13_database_migrates_to_v14(tmp_path, monkeypatch):
 
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 14)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 14
+        assert migrated.schema_version() == 15
         assert migrated._connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'benchmark_artifacts_no_update'"
         ).fetchone() is not None
         migrated.migrate()
-        assert migrated.schema_version() == 14
+        assert migrated.schema_version() == 15
 
 
 def test_benchmark_artifact_fingerprint_is_computed_from_canonical_content():
     with SQLiteRegistry() as registry:
+        _register_benchmark_test_principals(registry)
         first = registry.register_benchmark_artifact(
             "benchmark:canonical-en-v1", language="en",
             content={"schema_version": "1.0.0", "items": [{"item_id": "canonical-1", "task_type": "summary", "input": {"z": 2, "a": [1]}, "expected_output": "Short accurate summary", "scoring_criteria": ["Faithful"]}]},
@@ -1581,6 +1598,7 @@ def test_benchmark_artifact_rejects_unstructured_or_incomplete_items():
 
 def test_benchmark_artifact_rejects_duplicate_item_ids():
     with SQLiteRegistry() as registry:
+        _register_benchmark_test_principals(registry)
         item = {
             "item_id": "duplicate-1",
             "task_type": "headline",
@@ -1598,6 +1616,7 @@ def test_benchmark_artifact_rejects_duplicate_item_ids():
 
 def test_benchmark_artifacts_cannot_be_updated_or_deleted():
     with SQLiteRegistry() as registry:
+        _register_benchmark_test_principals(registry)
         artifact = registry.register_benchmark_artifact(
             "benchmark:immutable-en-v1", language="en",
             content={"schema_version": "1.0.0", "items": [{"item_id": "item-1", "task_type": "headline", "input": "Input", "expected_output": "Output", "scoring_criteria": ["Accurate"]}]}, actor="curator", reason="initial registration",
