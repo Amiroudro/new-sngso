@@ -34,6 +34,7 @@ from .models import (
     GlossaryEntryRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
+from .benchmark_reviews import validate_human_benchmark_review
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
@@ -1052,13 +1053,6 @@ _MIGRATION_13 = (
             INSERT INTO benchmark_review_revisions
             (review_id, revision, created_at, actor, reason, payload_json)
             VALUES (NEW.review_id, NEW.revision, NEW.created_at, 'system', 'review created', NEW.payload_json);
-        END""",
-    """CREATE TRIGGER benchmark_reviews_record_update
-        AFTER UPDATE ON benchmark_reviews
-        BEGIN
-            INSERT INTO benchmark_review_revisions
-            (review_id, revision, created_at, actor, reason, payload_json)
-            VALUES (NEW.review_id, NEW.revision, NEW.updated_at, 'system', 'review revised', NEW.payload_json);
         END""",
     """CREATE TRIGGER benchmark_review_revisions_no_update
         BEFORE UPDATE ON benchmark_review_revisions
@@ -4688,6 +4682,146 @@ class SQLiteRegistry:
             }
             for row in rows
         ]
+
+
+    def add_benchmark_review(
+        self, review: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Store a validated review and its immutable initial revision."""
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        validate_payload("editorial-benchmark-review", review)
+        report = validate_human_benchmark_review(review)
+        if not report["valid"]:
+            raise RegistryIntegrityError("benchmark review metadata is invalid")
+        self._validate_benchmark_review_sources(review)
+        if review["status"] == "approved" and not report["approval_eligible"]:
+            raise RegistryIntegrityError("benchmark review is not eligible for approval")
+        now = _utc_now()
+        payload_json = _json_text(review)
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO benchmark_reviews
+                (review_id, benchmark_id, benchmark_fingerprint, language, status,
+                 revision, created_at, updated_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                (review["review_id"], review["benchmark_id"], review["benchmark_fingerprint"],
+                 review["language"], review["status"], now, now, payload_json),
+            )
+            connection.execute(
+                """UPDATE benchmark_review_revisions
+                SET actor = ?, reason = ? WHERE review_id = ? AND revision = 1""",
+                (actor, reason, review["review_id"]),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_review.created",
+                entity_type="benchmark_review", entity_id=review["review_id"],
+                payload={"revision": 1, "actor": actor, "reason": reason, "record": review},
+            )
+        return {**review, "revision": 1, "created_at": now, "updated_at": now}
+
+    def _validate_benchmark_review_sources(
+        self, review: dict[str, Any], *, connection: sqlite3.Connection | None = None
+    ) -> None:
+        """Resolve every declared source reference against registered records."""
+        conn = connection or self._connection
+        for source in review.get("source_materials", []):
+            article_row = conn.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = 'article' AND id = ?",
+                (source["article_id"],),
+            ).fetchone()
+            publisher_row = conn.execute(
+                "SELECT id FROM sources WHERE id = ?", (source["source_id"],)
+            ).fetchone()
+            permission_row = conn.execute(
+                "SELECT source_id, review_status FROM permission_evidence WHERE id = ?",
+                (source["approved_use_reference"],),
+            ).fetchone()
+            if article_row is None or publisher_row is None or permission_row is None:
+                raise RegistryIntegrityError("benchmark source material must reference a registered article, publisher, and permission evidence record")
+            article = json.loads(article_row["payload_json"])
+            if article.get("source_id") != source["source_id"] or permission_row["source_id"] != source["source_id"]:
+                raise RegistryIntegrityError("benchmark article, publisher, and permission evidence must belong to the same publisher")
+            if permission_row["review_status"] != "verified":
+                raise RegistryIntegrityError("benchmark source permission evidence must be verified")
+            if article.get("canonical_uri") != source["canonical_uri"]:
+                raise RegistryIntegrityError("benchmark source URI must match the registered article")
+            if article.get("content_fingerprint") and article["content_fingerprint"] != source["content_fingerprint"]:
+                raise RegistryIntegrityError("benchmark source fingerprint must match the registered article")
+
+    def revise_benchmark_review(
+        self, review_id: str, review: dict[str, Any], *,
+        expected_revision: int, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Append a new review decision revision with optimistic concurrency."""
+        if review.get("review_id") != review_id:
+            raise RegistryIntegrityError("benchmark review identity cannot change")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        validate_payload("editorial-benchmark-review", review)
+        report = validate_human_benchmark_review(review)
+        if not report["valid"]:
+            raise RegistryIntegrityError("benchmark review metadata is invalid")
+        if review["status"] == "approved" and not report["approval_eligible"]:
+            raise RegistryIntegrityError("benchmark review is not eligible for approval")
+        now = _utc_now()
+        payload_json = _json_text(review)
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, created_at FROM benchmark_reviews WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot revise an unknown benchmark review")
+            if row["revision"] != expected_revision:
+                raise RegistryIntegrityError("benchmark review revision conflict")
+            self._validate_benchmark_review_sources(review, connection=connection)
+            next_revision = expected_revision + 1
+            connection.execute(
+                """UPDATE benchmark_reviews SET benchmark_id = ?, benchmark_fingerprint = ?,
+                language = ?, status = ?, revision = ?, updated_at = ?, payload_json = ?
+                WHERE review_id = ? AND revision = ?""",
+                (review["benchmark_id"], review["benchmark_fingerprint"], review["language"],
+                 review["status"], next_revision, now, payload_json, review_id, expected_revision),
+            )
+            connection.execute(
+                """INSERT INTO benchmark_review_revisions
+                (review_id, revision, created_at, actor, reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (review_id, next_revision, now, actor, reason, payload_json),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_review.revised",
+                entity_type="benchmark_review", entity_id=review_id,
+                payload={"revision": next_revision, "actor": actor, "reason": reason, "record": review},
+            )
+        return {**review, "revision": next_revision, "created_at": row["created_at"], "updated_at": now}
+
+    def get_benchmark_review(self, review_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT revision, created_at, updated_at, payload_json FROM benchmark_reviews WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {**json.loads(row["payload_json"]), "revision": row["revision"],
+                "created_at": row["created_at"], "updated_at": row["updated_at"]}
+
+    def benchmark_review_history(self, review_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, created_at, actor, reason, payload_json
+                FROM benchmark_review_revisions WHERE review_id = ? ORDER BY revision""",
+                (review_id,),
+            ).fetchall()
+        return [{"revision": row["revision"], "created_at": row["created_at"],
+                 "actor": row["actor"], "reason": row["reason"],
+                 "record": json.loads(row["payload_json"])} for row in rows]
 
     def schema_version(self) -> int:
         with self._lock:
