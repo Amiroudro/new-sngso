@@ -615,3 +615,46 @@ def test_sqlite_boundary_rejects_variant_group_kind_mismatch():
             )
     finally:
         registry.close()
+
+
+def test_story_summary_tier_report_keeps_bangla_and_english_review_independent():
+    registry = _prepared()
+    try:
+        bn = _summary("learning:headline-bn", "bn")
+        bn["kind"] = "headline_summary"
+        bn["variant_group_id"] = "variant:headline"
+        en = _summary("learning:headline-en", "en")
+        en["kind"] = "headline_summary"
+        en["content"] = {"text": "The authority issued a public notice.", "segments": [
+            {"text": "The authority issued a public notice.", "claim_ids": ["claim:one"], "role": "fact"}
+        ]}
+        en["variant_group_id"] = "variant:headline"
+        for payload, actor in ((bn, "editor:bn"), (en, "editor:en")):
+            registry.add_learning_object(payload, actor=actor, reason="Create a language-specific headline.")
+        report = registry.story_summary_tier_report("story:one")
+        assert report["languages"]["bn"]["tiers"]["headline_summary"]["artifact_count"] == 1
+        assert report["languages"]["en"]["tiers"]["headline_summary"]["artifact_count"] == 1
+        assert report["languages"]["bn"]["complete_reviewed_set"] is False
+        assert report["languages"]["en"]["complete_reviewed_set"] is False
+        assert report["production_ready"] is False
+    finally:
+        registry.close()
+
+
+def test_story_summary_tier_report_detects_missing_and_duplicate_tiers():
+    registry = _prepared()
+    try:
+        first = _summary("learning:brief-bn-a", "bn")
+        second = _summary("learning:brief-bn-b", "bn")
+        registry.add_learning_object(first, actor="editor", reason="Create first brief summary.")
+        registry.add_learning_object(second, actor="editor", reason="Create duplicate brief summary.")
+        report = registry.story_summary_tier_report("story:one")
+        bn = report["languages"]["bn"]
+        assert bn["missing_tiers"] == ["headline_summary", "detailed_summary"]
+        assert bn["duplicate_tiers"] == ["brief_summary"]
+        assert bn["complete_reviewed_set"] is False
+        assert report["languages"]["en"]["missing_tiers"] == [
+            "headline_summary", "brief_summary", "detailed_summary"
+        ]
+    finally:
+        registry.close()
