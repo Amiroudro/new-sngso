@@ -63,6 +63,7 @@ def _prepared():
         }],
         "created_at": STAMP,
     })
+    _link_claim_evidence(registry)
     return registry
 
 
@@ -159,6 +160,7 @@ def test_vocabulary_and_question_content_require_kind_specific_fields():
             "answer": "A public notice.",
             "explanation": "The linked claim records the notice.",
             "answer_claim_ids": ["claim:one"],
+            "answer_evidence": [{"claim_id": "claim:one", "evidence_id": "evidence:one", "evidence_revision": 1}],
         },
     })
     validate_payload("learning-object", question)
@@ -365,6 +367,7 @@ def test_question_answer_claim_links_must_be_in_the_learning_object_claim_set():
                 "answer": "A public notice.",
                 "explanation": "The answer is supported by a claim.",
                 "answer_claim_ids": ["claim:outside"],
+                "answer_evidence": [{"claim_id": "claim:outside", "evidence_id": "evidence:one", "evidence_revision": 1}],
             },
         })
         with pytest.raises(RegistryIntegrityError, match="answer claim links must be a non-empty subset"):
@@ -389,20 +392,159 @@ def test_question_schema_requires_answer_claim_links():
         validate_payload("learning-object", question)
 
 
-def _support_claim_with_evidence(registry):
-    registry.add_domain_record("evidence", {
-        "schema_version": "1.0.0",
-        "id": "evidence:one",
-        "claim_id": "claim:one",
-        "source_id": "source:publisher",
-        "article_id": "article:one",
-        "relationship": "supports",
-        "locator": {"uri": "https://publisher.example.org/one"},
-        "assessed_at": "2026-11-19T01:00:00Z",
-        "assessed_by": "reviewer",
-    })
+
+
+def test_question_requires_evidence_for_each_answer_claim_and_rejects_unknown_or_stale_refs():
+    registry = _prepared()
+    try:
+        question = _summary("learning:question-without-evidence")
+        question.update({
+            "kind": "comprehension_question",
+            "content": {
+                "question": "What did the authority issue?",
+                "answer": "A public notice.",
+                "explanation": "The claim records the notice.",
+                "answer_claim_ids": ["claim:one"],
+            },
+        })
+        with pytest.raises(ValueError):
+            validate_payload("learning-object", question)
+
+        question = _summary("learning:question-unknown-evidence")
+        question.update({
+            "kind": "comprehension_question",
+            "content": {
+                "question": "What did the authority issue?",
+                "answer": "A public notice.",
+                "explanation": "The claim records the notice.",
+                "answer_claim_ids": ["claim:one"],
+                "answer_evidence": [{
+                    "claim_id": "claim:one",
+                    "evidence_id": "evidence:missing",
+                    "evidence_revision": 1,
+                }],
+            },
+        })
+        with pytest.raises(RegistryIntegrityError, match="unknown claim or evidence"):
+            registry.add_learning_object(
+                question, actor="editor", reason="Reject a missing answer evidence record."
+            )
+
+        question["id"] = "learning:question-stale-evidence"
+        question["content"]["answer_evidence"][0].update({
+            "evidence_id": "evidence:one",
+            "evidence_revision": 2,
+        })
+        with pytest.raises(RegistryIntegrityError, match="evidence revision is stale"):
+            registry.add_learning_object(
+                question, actor="editor", reason="Reject a stale answer evidence revision."
+            )
+    finally:
+        registry.close()
+
+
+def test_question_quality_report_fails_closed_after_answer_evidence_is_unlinked():
+    registry = _prepared()
+    try:
+        question = _summary("learning:question-stale-link")
+        question.update({
+            "kind": "comprehension_question",
+            "content": {
+                "question": "What did the authority issue?",
+                "answer": "A public notice.",
+                "explanation": "The claim records the notice.",
+                "answer_claim_ids": ["claim:one"],
+                "answer_evidence": [{
+                    "claim_id": "claim:one",
+                    "evidence_id": "evidence:one",
+                    "evidence_revision": 1,
+                }],
+            },
+        })
+        item = registry.add_learning_object(
+            question, actor="editor", reason="Create a source-grounded question."
+        )
+        claim_row = registry._connection.execute(
+            "SELECT revision, payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:one'"
+        ).fetchone()
+        claim = json.loads(claim_row["payload_json"])
+        claim["evidence_ids"] = []
+        registry.revise_domain_record(
+            "claim", "claim:one", claim, expected_revision=claim_row["revision"],
+            actor="editor", reason="Remove the stale answer evidence link.",
+        )
+        report = registry.learning_object_quality_report(item.id)
+        assert report["meets_registry_quality_gates"] is False
+        assert any(blocker["check"] == "answer_evidence" for blocker in report["blockers"])
+    finally:
+        registry.close()
+
+
+def test_sqlite_boundary_rejects_question_with_stale_answer_evidence_revision():
+    registry = _prepared()
+    try:
+        payload = _summary("learning:question-direct-stale-evidence")
+        payload.update({
+            "kind": "comprehension_question",
+            "content": {
+                "question": "What did the authority issue?",
+                "answer": "A public notice.",
+                "explanation": "The claim records the notice.",
+                "answer_claim_ids": ["claim:one"],
+                "answer_evidence": [{
+                    "claim_id": "claim:one",
+                    "evidence_id": "evidence:one",
+                    "evidence_revision": 2,
+                }],
+            },
+        })
+        with pytest.raises(sqlite3.IntegrityError, match="question answer evidence"):
+            registry._connection.execute(
+                """INSERT INTO learning_objects
+                (id, story_id, kind, language, status, revision, created_at, updated_at,
+                 last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (
+                    payload["id"], payload["story_id"], payload["kind"], payload["language"],
+                    payload["status"], payload["created_at"], payload["created_at"],
+                    "editor", "Direct SQL stale answer evidence test.", json.dumps(payload),
+                ),
+            )
+    finally:
+        registry.close()
+
+def _link_claim_evidence(registry):
+    exists = registry._connection.execute(
+        "SELECT 1 FROM domain_records WHERE record_type = 'evidence' AND id = 'evidence:one'"
+    ).fetchone()
+    if exists is None:
+        registry.add_domain_record("evidence", {
+            "schema_version": "1.0.0",
+            "id": "evidence:one",
+            "claim_id": "claim:one",
+            "source_id": "source:publisher",
+            "article_id": "article:one",
+            "relationship": "supports",
+            "locator": {"uri": "https://publisher.example.org/one"},
+            "assessed_at": "2026-11-19T01:00:00Z",
+            "assessed_by": "reviewer",
+        })
     claim_row = registry._connection.execute(
-        "SELECT payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:one'"
+        "SELECT revision, payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:one'"
+    ).fetchone()
+    claim = json.loads(claim_row["payload_json"])
+    if "evidence:one" not in claim.get("evidence_ids", []):
+        claim["evidence_ids"] = [*claim.get("evidence_ids", []), "evidence:one"]
+        registry.revise_domain_record(
+            "claim", "claim:one", claim, expected_revision=claim_row["revision"],
+            actor="editor", reason="Attach the answer's source evidence locator.",
+        )
+
+
+def _support_claim_with_evidence(registry):
+    _link_claim_evidence(registry)
+    claim_row = registry._connection.execute(
+        "SELECT revision, payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:one'"
     ).fetchone()
     claim = json.loads(claim_row["payload_json"])
     claim.update({
@@ -412,7 +554,7 @@ def _support_claim_with_evidence(registry):
         "review_note": "The linked evidence directly supports this proposition.",
     })
     registry.revise_domain_record(
-        "claim", "claim:one", claim, expected_revision=1,
+        "claim", "claim:one", claim, expected_revision=claim_row["revision"],
         actor="reviewer", reason="Assess the claim against linked evidence.",
     )
 
@@ -472,6 +614,7 @@ def test_quality_report_requires_supported_claims_for_question_answers():
                 "answer": "A public notice.",
                 "explanation": "The linked claim records the notice.",
                 "answer_claim_ids": ["claim:one"],
+                "answer_evidence": [{"claim_id": "claim:one", "evidence_id": "evidence:one", "evidence_revision": 1}],
             },
         })
         _approve_learning_object(registry, question)
@@ -494,6 +637,7 @@ def _mcq(identifier="learning:mcq"):
             "question": "Which statement best describes public accountability?",
             "explanation": "The linked claim provides the factual basis for the answer.",
             "answer_claim_ids": ["claim:one"],
+            "answer_evidence": [{"claim_id": "claim:one", "evidence_id": "evidence:one", "evidence_revision": 1}],
             "options": [
                 {"id": "A", "text": "Being answerable for decisions and actions"},
                 {"id": "B", "text": "Avoiding public disclosure"},

@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 24
+        assert registry.schema_version() == 25
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 24
+        assert reopened.schema_version() == 25
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -2502,9 +2502,9 @@ def test_schema_v15_migrates_to_v16_with_single_final_adjudication_guard(tmp_pat
 
 
 
-def test_migrations_20_to_24_create_append_only_score_study_execution_and_acceptance_stores():
+def test_migrations_20_to_25_create_append_only_score_study_execution_and_acceptance_stores():
     with SQLiteRegistry() as registry:
-        assert registry.schema_version() == 24
+        assert registry.schema_version() == 25
         tables = {
             row["name"] for row in registry._connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
@@ -2564,6 +2564,29 @@ def test_existing_schema_v21_database_migrates_to_v23(tmp_path, monkeypatch):
         migrated.migrate()
         assert migrated.schema_version() == 23
 
+
+def test_existing_schema_v24_database_migrates_to_v25(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v24.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 24)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 24
+        trigger = old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND name='learning_object_question_answer_evidence_insert'"
+        ).fetchone()
+        assert trigger is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 25)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 25
+        trigger_names = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger'"
+            )
+        }
+        assert "learning_object_question_answer_evidence_insert" in trigger_names
+        assert "learning_object_question_answer_evidence_update" in trigger_names
+        migrated.migrate()
+        assert migrated.schema_version() == 25
 
 
 def test_existing_schema_v23_database_migrates_to_v24(tmp_path, monkeypatch):

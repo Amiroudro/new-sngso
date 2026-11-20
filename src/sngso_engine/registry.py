@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 24
+_SCHEMA_VERSION = 25
 
 
 _MIGRATION_14 = (
@@ -536,6 +536,145 @@ _MIGRATION_24 = (
        END""",
 )
 
+
+_MIGRATION_25 = (
+    """CREATE TRIGGER learning_object_question_answer_evidence_insert
+       BEFORE INSERT ON learning_objects
+       WHEN json_extract(NEW.payload_json, '$.kind') IN (
+           'comprehension_question', 'analysis_question', 'mcq_question'
+       )
+       BEGIN
+         SELECT CASE WHEN json_array_length(NEW.payload_json, '$.content.answer_evidence') IS NULL
+           OR json_array_length(NEW.payload_json, '$.content.answer_evidence') = 0
+         THEN RAISE(ABORT, 'question answer evidence is required') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_ref
+           GROUP BY json_extract(answer_ref.value, '$.claim_id'),
+                    json_extract(answer_ref.value, '$.evidence_id')
+           HAVING COUNT(*) > 1
+         ) THEN RAISE(ABORT, 'question answer evidence references must be unique') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_claim_ids') answer_claim
+           WHERE NOT EXISTS (
+             SELECT 1 FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_evidence
+             WHERE json_extract(answer_evidence.value, '$.claim_id') = answer_claim.value
+           )
+         ) THEN RAISE(ABORT, 'question answer evidence must cover every answer claim') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_ref
+           LEFT JOIN domain_records claim_record
+             ON claim_record.record_type = 'claim'
+            AND claim_record.id = json_extract(answer_ref.value, '$.claim_id')
+           LEFT JOIN domain_records evidence_record
+             ON evidence_record.record_type = 'evidence'
+            AND evidence_record.id = json_extract(answer_ref.value, '$.evidence_id')
+           WHERE claim_record.id IS NULL OR evidence_record.id IS NULL
+             OR json_type(answer_ref.value, '$.evidence_revision') IS NOT 'integer'
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(NEW.payload_json, '$.content.answer_claim_ids') answer_claim
+               WHERE answer_claim.value = claim_record.id
+             )
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(NEW.payload_json, '$.claim_ids') object_claim
+               WHERE object_claim.value = claim_record.id
+             )
+             OR json_extract(evidence_record.payload_json, '$.claim_id') IS NOT claim_record.id
+             OR evidence_record.revision IS NOT json_extract(answer_ref.value, '$.evidence_revision')
+             OR json_extract(evidence_record.payload_json, '$.relationship') IS NOT 'supports'
+             OR json_extract(evidence_record.payload_json, '$.locator.uri') IS NULL
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.evidence_ids') claim_evidence
+               WHERE claim_evidence.value = evidence_record.id
+             )
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.provenance') provenance
+               WHERE json_extract(provenance.value, '$.source_id') =
+                     json_extract(evidence_record.payload_json, '$.source_id')
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.article_id') IS NULL
+                   OR json_extract(provenance.value, '$.article_id') =
+                      json_extract(evidence_record.payload_json, '$.article_id')
+                 )
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.observation_id') IS NULL
+                   OR json_extract(provenance.value, '$.observation_id') =
+                      json_extract(evidence_record.payload_json, '$.observation_id')
+                 )
+             )
+         ) THEN RAISE(ABORT, 'question answer evidence must be current and linked to its answer claim') END;
+       END""",
+    """CREATE TRIGGER learning_object_question_answer_evidence_update
+       BEFORE UPDATE OF payload_json ON learning_objects
+       WHEN json_extract(NEW.payload_json, '$.kind') IN (
+           'comprehension_question', 'analysis_question', 'mcq_question'
+       )
+       BEGIN
+         SELECT CASE WHEN json_array_length(NEW.payload_json, '$.content.answer_evidence') IS NULL
+           OR json_array_length(NEW.payload_json, '$.content.answer_evidence') = 0
+         THEN RAISE(ABORT, 'question answer evidence is required') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_ref
+           GROUP BY json_extract(answer_ref.value, '$.claim_id'),
+                    json_extract(answer_ref.value, '$.evidence_id')
+           HAVING COUNT(*) > 1
+         ) THEN RAISE(ABORT, 'question answer evidence references must be unique') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_claim_ids') answer_claim
+           WHERE NOT EXISTS (
+             SELECT 1 FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_evidence
+             WHERE json_extract(answer_evidence.value, '$.claim_id') = answer_claim.value
+           )
+         ) THEN RAISE(ABORT, 'question answer evidence must cover every answer claim') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_ref
+           LEFT JOIN domain_records claim_record
+             ON claim_record.record_type = 'claim'
+            AND claim_record.id = json_extract(answer_ref.value, '$.claim_id')
+           LEFT JOIN domain_records evidence_record
+             ON evidence_record.record_type = 'evidence'
+            AND evidence_record.id = json_extract(answer_ref.value, '$.evidence_id')
+           WHERE claim_record.id IS NULL OR evidence_record.id IS NULL
+             OR json_type(answer_ref.value, '$.evidence_revision') IS NOT 'integer'
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(NEW.payload_json, '$.content.answer_claim_ids') answer_claim
+               WHERE answer_claim.value = claim_record.id
+             )
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(NEW.payload_json, '$.claim_ids') object_claim
+               WHERE object_claim.value = claim_record.id
+             )
+             OR json_extract(evidence_record.payload_json, '$.claim_id') IS NOT claim_record.id
+             OR evidence_record.revision IS NOT json_extract(answer_ref.value, '$.evidence_revision')
+             OR json_extract(evidence_record.payload_json, '$.relationship') IS NOT 'supports'
+             OR json_extract(evidence_record.payload_json, '$.locator.uri') IS NULL
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.evidence_ids') claim_evidence
+               WHERE claim_evidence.value = evidence_record.id
+             )
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.provenance') provenance
+               WHERE json_extract(provenance.value, '$.source_id') =
+                     json_extract(evidence_record.payload_json, '$.source_id')
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.article_id') IS NULL
+                   OR json_extract(provenance.value, '$.article_id') =
+                      json_extract(evidence_record.payload_json, '$.article_id')
+                 )
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.observation_id') IS NULL
+                   OR json_extract(provenance.value, '$.observation_id') =
+                      json_extract(evidence_record.payload_json, '$.observation_id')
+                 )
+             )
+         ) THEN RAISE(ABORT, 'question answer evidence must be current and linked to its answer claim') END;
+       END""",
+)
 class RegistryIntegrityError(ValueError):
     """Raised when a record references missing or incompatible registry data."""
 
@@ -1360,6 +1499,24 @@ def _validate_learning_object_answer_links(payload: dict[str, Any]) -> None:
     object_claims = set(payload.get("claim_ids", []))
     if not answer_claims or not answer_claims.issubset(object_claims):
         raise RegistryIntegrityError("question answer claim links must be a non-empty subset of the object's claims")
+    evidence_refs = content.get("answer_evidence", [])
+    evidence_claims = {item.get("claim_id") for item in evidence_refs}
+    evidence_pairs = [(item.get("claim_id"), item.get("evidence_id")) for item in evidence_refs]
+    if (
+        not evidence_refs
+        or evidence_claims != answer_claims
+        or len(evidence_pairs) != len(set(evidence_pairs))
+    ):
+        raise RegistryIntegrityError(
+            "question answer evidence must uniquely cover every answer claim and no unrelated claim"
+        )
+    if any(
+        not isinstance(item.get("evidence_revision"), int)
+        or isinstance(item.get("evidence_revision"), bool)
+        or item["evidence_revision"] < 1
+        for item in evidence_refs
+    ):
+        raise RegistryIntegrityError("question answer evidence must pin a positive evidence revision")
     if kind == "mcq_question":
         options = content.get("options", [])
         option_ids = [item["id"] for item in options]
@@ -2057,6 +2214,19 @@ class SQLiteRegistry:
                     version = 24
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 24 failed; transaction rolled back") from exc
+
+            if version == 24 and _SCHEMA_VERSION >= 25:
+                try:
+                    for statement in _MIGRATION_25:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (25, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 25")
+                    version = 25
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 25 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -5357,6 +5527,111 @@ class SQLiteRegistry:
             for row in rows
         ]
 
+    def _validate_learning_object_answer_evidence(
+        self, connection: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        if payload.get("kind") not in {
+            "comprehension_question", "analysis_question", "mcq_question"
+        }:
+            return
+        content = payload.get("content", {})
+        raw_answer_claim_ids = content.get("answer_claim_ids", [])
+        raw_object_claim_ids = payload.get("claim_ids", [])
+        references = content.get("answer_evidence", [])
+        if (
+            not isinstance(raw_answer_claim_ids, list)
+            or not raw_answer_claim_ids
+            or any(not isinstance(item, str) or not item for item in raw_answer_claim_ids)
+            or not isinstance(raw_object_claim_ids, list)
+            or any(not isinstance(item, str) or not item for item in raw_object_claim_ids)
+            or not isinstance(references, list)
+            or any(not isinstance(item, dict) for item in references)
+        ):
+            raise RegistryIntegrityError("question answer evidence references are malformed")
+        answer_claim_ids = set(raw_answer_claim_ids)
+        object_claim_ids = set(raw_object_claim_ids)
+        if not answer_claim_ids or not references:
+            raise RegistryIntegrityError("question answer evidence is required")
+        if any(
+            not isinstance(item.get("claim_id"), str)
+            or not item.get("claim_id")
+            or not isinstance(item.get("evidence_id"), str)
+            or not item.get("evidence_id")
+            for item in references
+        ):
+            raise RegistryIntegrityError("question answer evidence IDs are malformed")
+        reference_claim_ids = {item["claim_id"] for item in references}
+        reference_pairs = [
+            (item["claim_id"], item["evidence_id"]) for item in references
+        ]
+        if (
+            len(raw_answer_claim_ids) != len(answer_claim_ids)
+            or reference_claim_ids != answer_claim_ids
+            or not answer_claim_ids.issubset(object_claim_ids)
+            or len(reference_pairs) != len(set(reference_pairs))
+        ):
+            raise RegistryIntegrityError(
+                "question answer evidence must uniquely cover every answer claim"
+            )
+        for item in references:
+            claim_id = item.get("claim_id")
+            evidence_id = item.get("evidence_id")
+            expected_revision = item.get("evidence_revision")
+            if (
+                not isinstance(expected_revision, int)
+                or isinstance(expected_revision, bool)
+                or expected_revision < 1
+            ):
+                raise RegistryIntegrityError(
+                    "question answer evidence must pin a positive evidence revision"
+                )
+            claim_row = connection.execute(
+                """SELECT payload_json FROM domain_records
+                WHERE record_type = 'claim' AND id = ?""",
+                (claim_id,),
+            ).fetchone()
+            evidence_row = connection.execute(
+                """SELECT revision, payload_json FROM domain_records
+                WHERE record_type = 'evidence' AND id = ?""",
+                (evidence_id,),
+            ).fetchone()
+            if claim_row is None or evidence_row is None:
+                raise RegistryIntegrityError(
+                    "question answer evidence references an unknown claim or evidence record"
+                )
+            if evidence_row["revision"] != expected_revision:
+                raise RegistryIntegrityError("question answer evidence revision is stale")
+            claim = json.loads(claim_row["payload_json"])
+            evidence = json.loads(evidence_row["payload_json"])
+            if evidence.get("claim_id") != claim_id:
+                raise RegistryIntegrityError(
+                    "question answer evidence must belong to its referenced answer claim"
+                )
+            if evidence_id not in claim.get("evidence_ids", []):
+                raise RegistryIntegrityError(
+                    "question answer evidence is no longer linked from its claim"
+                )
+            if evidence.get("relationship") != "supports":
+                raise RegistryIntegrityError(
+                    "question answer evidence must support its referenced answer claim"
+                )
+            provenance_matches = any(
+                item.get("source_id") == evidence.get("source_id")
+                and (
+                    evidence.get("article_id") is None
+                    or item.get("article_id") == evidence.get("article_id")
+                )
+                and (
+                    evidence.get("observation_id") is None
+                    or item.get("observation_id") == evidence.get("observation_id")
+                )
+                for item in claim.get("provenance", [])
+            )
+            if not provenance_matches or not evidence.get("locator", {}).get("uri"):
+                raise RegistryIntegrityError(
+                    "question answer evidence locator must match current claim provenance"
+                )
+
     def _validate_learning_object_source_evidence_reference(
         self, connection: sqlite3.Connection, payload: dict[str, Any]
     ) -> None:
@@ -5496,6 +5771,7 @@ class SQLiteRegistry:
                     raise RegistryIntegrityError("learning object claims must belong to its story")
             self._validate_learning_object_source_evidence_reference(connection, payload)
             self._validate_learning_object_glossary_reference(connection, payload)
+            self._validate_learning_object_answer_evidence(connection, payload)
             connection.execute(
                 """INSERT INTO learning_objects
                 (id, story_id, kind, language, variant_group_id, status, revision, created_at, updated_at,
@@ -5573,6 +5849,7 @@ class SQLiteRegistry:
                     raise RegistryIntegrityError("learning object claims must belong to its story")
             self._validate_learning_object_source_evidence_reference(connection, payload)
             self._validate_learning_object_glossary_reference(connection, payload)
+            self._validate_learning_object_answer_evidence(connection, payload)
             now = _utc_now()
             updated = connection.execute(
                 """UPDATE learning_objects
@@ -5801,6 +6078,18 @@ class SQLiteRegistry:
                             "prove distractor quality."
                         ),
                     })
+
+            if payload["kind"] in {"comprehension_question", "analysis_question", "mcq_question"}:
+                try:
+                    self._validate_learning_object_answer_evidence(connection, payload)
+                    answer_evidence_valid = True
+                    answer_evidence_detail = (
+                        "Every answer claim has a current supporting evidence locator."
+                    )
+                except RegistryIntegrityError as exc:
+                    answer_evidence_valid = False
+                    answer_evidence_detail = str(exc)
+                check("answer_evidence", answer_evidence_valid, answer_evidence_detail)
 
             if payload["kind"] == "vocabulary":
                 try:

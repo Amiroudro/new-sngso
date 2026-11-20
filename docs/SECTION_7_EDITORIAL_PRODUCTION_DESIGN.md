@@ -33,7 +33,7 @@ Every vocabulary object must identify a registered evidence record and the exact
 
 - Every factual learning object should link to the claims it uses. Summary segments must each link to one or more claims, and the object-level claim list must exactly match the segment links. Empty claim lists remain representable for non-factual learning material, but they must not be used to disguise factual assertions without provenance.
 - Vocabulary entries must preserve the sentence or context in which the word appeared. A dictionary meaning without source context is insufficient.
-- Questions must have an answer and explanation. The answer must be supported by linked claims.
+- Questions must have an answer and explanation. Every comprehension, analysis, and MCQ answer claim must map to a registered supporting evidence record and exact evidence revision. The registry verifies the evidence still belongs to that claim, is linked from it, and has a locator matching current source/article provenance. Quality reports recheck this binding and block missing, stale, unrelated, or non-supporting evidence. This is traceability; it does not prove that answer wording logically follows from the source, so qualified human review remains required.
 - Bangla and English outputs are reviewed independently. A reviewed English artifact does not approve a Bangla counterpart.
 - Corrections create a new revision. Previously approved content is not silently overwritten.
 - This stage persists and reviews editorial artifacts; it does not generate summaries, translate content, invent exam questions, or publish editions automatically.

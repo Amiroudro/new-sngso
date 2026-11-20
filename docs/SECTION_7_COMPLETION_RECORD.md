@@ -110,3 +110,11 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - The vocabulary object stores an evidence reference, not a copied source sentence. Linkage gives traceability; glossary correctness and contextual meaning still need qualified human review.
 - GitHub Actions [run #44720406104](https://github.com/Amiroudro/new-sngso/actions/runs/44720406104) passed the full Python 3.12 suite: **681 passed in 8.15 seconds** on code head `c2401950927a9ba26b5f7d05678a213543405940`. Section 7 remains in progress; this slice does not close its production/security gates.
 
+## Section 7.36: question answer-evidence binding (implementation added; verification pending)
+
+- Comprehension, analysis, and MCQ objects require a structured `answer_evidence` mapping for each `answer_claim_id`.
+- Each mapping pins a registered evidence record and revision. Registry creation/revision checks the claim link, supporting relationship, exact revision, locator, and current source/article/observation provenance.
+- The quality report rechecks each mapping and blocks missing, unrelated, stale, or non-supporting references. SQLite migration 25 enforces the same binding for direct inserts and updates.
+- Tests cover missing/unknown/stale references, stale claim links, migration 24→25, and direct-SQL bypass.
+- The evidence link establishes traceability, not logical entailment or question quality. Human review remains necessary to judge whether the answer is defensible and preserves uncertainty and attribution.
+- Full-suite CI verification is pending on the current code head. Section 7 remains in progress; no production or publication authorization is added.

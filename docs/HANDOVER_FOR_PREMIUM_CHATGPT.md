@@ -71,7 +71,7 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 10. **End-to-end verification and controlled handover**  
     Verify the complete system, document limitations and operations, and hand over without unauthorized publication.
 
-**Current position:** Section 7 remains in progress. Section 7.35 vocabulary evidence binding is implemented and verified on the code head above. Sections 8, 9, and 10 have not started. Do not describe Section 7 as complete.
+**Current position:** Section 7 remains in progress. Section 7.35 vocabulary evidence binding is verified; Section 7.36 question answer-evidence binding is implemented pending CI. Sections 8, 9, and 10 have not started. Do not describe Section 7 as complete.
 
 ## 4. Verified repository and PR state
 
@@ -236,7 +236,7 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 >
 > Start with a fresh audit of the live repository, current branches, PRs, changed files, tests, and latest GitHub Actions results. Verify the current commit before editing. Do not assume the handover's dated SHA or test count is still current.
 >
-> Continue from the actual state of the code. Section 7.35 vocabulary evidence binding is implemented and verified. Inspect the live implementation before selecting the next Section 7 slice; remaining priorities include source-grounded comprehension questions and revision cards, MCQ validity review, bilingual consistency, genuine human evidence, and Section 7 exit gates. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
+> Continue from the actual state of the code. Section 7.35 vocabulary evidence binding is verified; Section 7.36 question answer-evidence binding is implemented pending CI. After verifying the current code head, audit remaining revision-card traceability, MCQ validity, bilingual consistency, genuine human evidence, and Section 7 exit gates before selecting the next slice. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
 >
 > Follow the original ten-section sequence exactly. Do not begin Section 8 until Section 7 exit criteria are actually met. Do not claim that synthetic tests prove editorial quality, that different publishers prove independent reporting, or that passing tests establish production readiness. Preserve uncertainty, attribution, source permissions, and human review.
 >
@@ -245,3 +245,10 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 > Do not stop after planning. Make the next safe, meaningful implementation change, test it, inspect the CI result, document it, and continue in coherent steps. If blocked, identify the exact missing permission or input rather than guessing. At each checkpoint, tell me what is genuinely complete, what is not, what the tests prove, what they do not prove, and what you will implement next.
 >
 > My goal is a complete, reliable Sarangsho Plus product: accurate bilingual daily briefings, transparent source and evidence trails, useful exam-oriented learning material, a safe edition workflow, a maintainable frontend/backend boundary, and dependable low-cost operations. Optimize for correctness, safety, usability, and maintainability rather than speed or impressive-looking feature counts.
+
+**7.36: Question answer-evidence binding (implementation added; CI pending)**
+- Comprehension, analysis, and MCQ answer claims must each map to supporting evidence with an exact evidence revision.
+- The registry, quality report, and SQLite migration recheck claim ownership, source provenance, evidence relationship, locator, and staleness.
+- Test coverage includes missing/unknown/stale references, unlinked evidence, direct-SQL guards, and migration 24→25.
+- These checks establish traceability only. Human review still needs to judge answer defensibility, uncertainty, attribution, and question quality.
+- Full-suite CI verification is pending on the current code head. Section 7 remains in progress; Sections 8–10 are not started.
