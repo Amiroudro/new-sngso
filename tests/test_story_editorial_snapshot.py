@@ -244,6 +244,22 @@ def test_narrative_assembly_is_embedded_in_snapshot_without_changing_source_evid
         registry.close()
 
 
+def test_source_independence_report_does_not_confuse_distinct_articles_with_independent_reporting():
+    registry = _prepared()
+    try:
+        report = registry.story_source_independence_evidence_report("story:one")
+        assert report["independence_status"] == "not_established"
+        assert report["independent_reporting_count"] is None
+        assert report["articles"][0]["duplicate_review_status"] == "not_reviewed"
+        assert report["articles"][0]["independent_reporting_status"] == "not_established"
+        assert report["articles"][0]["independence_evidence"]["syndication_or_republication"] == "not_assessed"
+        assert report["production_ready"] is False
+        snapshot = registry.story_editorial_snapshot("story:one")
+        assert snapshot["source_independence_evidence_report"]["independence_status"] == "not_established"
+    finally:
+        registry.close()
+
+
 def test_editorial_snapshot_rejects_unknown_story():
     registry = _prepared()
     try:
