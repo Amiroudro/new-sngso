@@ -5053,7 +5053,7 @@ class SQLiteRegistry:
             "review_id": review.get("review_id"),
             "benchmark_id": review.get("benchmark_id"),
             "status": review.get("status"),
-            "eligible_for_current_use": approved and metadata["approval_eligible"] and permission_ok,
+            "eligible_for_current_use": approved and metadata["approval_eligible"] and artifact_ok and permission_ok,
             "blockers": blockers,
             "checks": checks,
             "warnings": [
