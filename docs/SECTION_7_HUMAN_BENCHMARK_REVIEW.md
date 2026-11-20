@@ -61,3 +61,10 @@ At registry write time, the grant must:
 - pass the fail-closed permission evaluator, including its handling of unimplemented conditions.
 
 This check is performed when a review is created or revised. It does not authenticate the reviewer, prove that the grantor had legal authority, or make a legal determination about copyright. Permission can also be suspended or revoked after a review is recorded; downstream publication and use workflows must re-evaluate the grant at the point of use rather than treating an old review as permanent authorization.
+
+
+## 7.7 Disagreement adjudication contract
+
+A separate Draft 2020-12 adjudication record now captures the benchmark artifact fingerprint, at least two distinct review IDs, an adjudicator declaration, a controlled outcome, a reasoned decision, evidence references, and a timezone-aware resolution timestamp. Outcomes distinguish upholding an existing decision, returning work for revision, rejecting a benchmark item, and splitting multiple acceptable answers.
+
+The validator rejects an adjudicator whose declared principal ID is also listed among the reviewers. This is a workflow-level independence check, not proof of identity or actual independence. Authentication, role provisioning, durable adjudication history, and enforced reviewer-role separation remain explicit integration gates. The adjudication record is not yet wired into the SQLite review lifecycle, so it must not be treated as a production approval mechanism.
