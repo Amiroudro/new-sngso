@@ -2,7 +2,8 @@
 
 __version__ = "0.1.0"
 
-from .benchmark_reviews import validate_human_benchmark_review\nfrom .benchmark_adjudication import validate_benchmark_adjudication
+from .benchmark_reviews import validate_human_benchmark_review
+from .benchmark_adjudication import validate_benchmark_adjudication
 from .benchmarks import evaluate_editorial_benchmark
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .collection import (
