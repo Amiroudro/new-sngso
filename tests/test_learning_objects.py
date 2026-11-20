@@ -679,8 +679,9 @@ def test_structured_language_review_is_bound_to_language_reviewer_and_timestamp(
                 "reviewed_at": "2026-11-20T01:00:00Z",
                 "note": "Checked language, fidelity, attribution and omissions.",
                 "dimensions": {
-                    "language_accuracy": "pass",
-                    "clarity": "pass",
+                    "grammar_and_spelling": "pass",
+                    "naturalness_and_register": "pass",
+                    "terminology_consistency": "pass",
                     "factual_fidelity": "pass",
                     "attribution": "pass",
                     "omissions": "pass",
@@ -719,8 +720,9 @@ def test_structured_language_review_rejects_language_mismatch():
                 "reviewed_at": "2026-11-20T01:00:00Z",
                 "note": "Incorrect language binding.",
                 "dimensions": {
-                    "language_accuracy": "pass",
-                    "clarity": "pass",
+                    "grammar_and_style": "pass",
+                    "clarity_and_readability": "pass",
+                    "terminology_consistency": "pass",
                     "factual_fidelity": "pass",
                     "attribution": "pass",
                     "omissions": "pass",
@@ -777,8 +779,13 @@ def test_language_review_uses_distinct_versioned_bangla_and_english_rubrics():
                 },
             })
             validate_payload("learning-object", payload)
-            record = registry.add_learning_object(
-                payload, actor="editor", reason="Record independent language review."
+            draft_payload = _summary(payload["id"], language)
+            registry.add_learning_object(
+                draft_payload, actor="editor", reason="Create language-specific draft."
+            )
+            record = registry.revise_learning_object(
+                payload["id"], payload, expected_revision=1,
+                actor=reviewer, reason="Record independent language review."
             )
             report = registry.learning_object_quality_report(record.id)
             assert report["status"] == "approved"
