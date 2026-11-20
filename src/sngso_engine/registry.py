@@ -4967,6 +4967,7 @@ class SQLiteRegistry:
     ) -> LearningObjectRecord:
         """Revise an editorial object with optimistic concurrency and immutable history."""
         validate_payload("learning-object", payload)
+        _validate_learning_object_language_review(payload)
         _validate_learning_object_traceability(payload)
         _validate_learning_object_answer_links(payload)
         if payload.get("id") != learning_object_id:
