@@ -1047,12 +1047,16 @@ _MIGRATION_13 = (
     """CREATE TRIGGER benchmark_reviews_no_delete
         BEFORE DELETE ON benchmark_reviews
         BEGIN SELECT RAISE(ABORT, 'benchmark reviews cannot be deleted'); END""",
-    """CREATE TRIGGER benchmark_reviews_record_insert
-        AFTER INSERT ON benchmark_reviews
+    """CREATE TRIGGER benchmark_review_revisions_validate_insert
+        BEFORE INSERT ON benchmark_review_revisions
         BEGIN
-            INSERT INTO benchmark_review_revisions
-            (review_id, revision, created_at, actor, reason, payload_json)
-            VALUES (NEW.review_id, NEW.revision, NEW.created_at, 'system', 'review created', NEW.payload_json);
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM benchmark_reviews
+                WHERE review_id = NEW.review_id AND revision = NEW.revision
+                  AND payload_json = NEW.payload_json
+            ) THEN RAISE(ABORT, 'benchmark review revision must match the current review') END;
+            SELECT CASE WHEN trim(NEW.actor) = '' OR trim(NEW.reason) = ''
+                THEN RAISE(ABORT, 'benchmark review revision requires actor and reason') END;
         END""",
     """CREATE TRIGGER benchmark_review_revisions_no_update
         BEFORE UPDATE ON benchmark_review_revisions
@@ -4711,9 +4715,10 @@ class SQLiteRegistry:
                  review["language"], review["status"], now, now, payload_json),
             )
             connection.execute(
-                """UPDATE benchmark_review_revisions
-                SET actor = ?, reason = ? WHERE review_id = ? AND revision = 1""",
-                (actor, reason, review["review_id"]),
+                """INSERT INTO benchmark_review_revisions
+                (review_id, revision, created_at, actor, reason, payload_json)
+                VALUES (?, 1, ?, ?, ?, ?)""",
+                (review["review_id"], now, actor, reason, payload_json),
             )
             self._append_audit(
                 connection, event_type="benchmark_review.created",
