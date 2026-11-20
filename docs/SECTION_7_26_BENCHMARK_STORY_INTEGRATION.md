@@ -40,3 +40,10 @@ The latest verified CI run for this work is [#44679603028](https://github.com/Am
 This integration is a governance/evidence hand-off, not completion of editorial production. Section 7 still needs practical production workflows for reviewed three-level summaries, independent Bangla and English editorial/language review, multi-source perspectives, controlled bilingual terminology, source-grounded vocabulary and exam-learning objects, and daily briefing assembly inputs. Genuine human evaluation remains required; synthetic fixtures are not proof of editorial quality.
 
 Section 8 must begin only after Section 7's editorial outputs and quality gates are sufficiently complete. Section 8 will then own immutable edition assembly, publication approval, correction/supersession, last-known-good protection, and staging-only export.
+
+
+## Bilingual coverage and quality reporting
+
+The repository now exposes `bilingual_editorial_quality_report(story_id)`. It reports Bangla and English separately, including artifact counts, approval counts, deterministic registry quality-gate results, blockers, warnings, and per-kind coverage. Missing language counterparts are explicit. A language with no artifacts is reported as unassessed, not as a zero-quality language.
+
+The report deliberately has no overall quality score and never averages Bangla and English into one number. It checks snapshot stability while collecting per-artifact quality reports and fails if the story dossier changes during assembly. This remains a deterministic registry report, not a substitute for native-speaker linguistic review or human editorial judgment.
