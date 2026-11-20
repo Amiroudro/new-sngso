@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 18
+        assert registry.schema_version() == 19
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 18
+        assert reopened.schema_version() == 19
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -1684,6 +1684,26 @@ def test_schema_17_migrates_principals_to_unverified_classification(tmp_path, mo
         assert migrated.schema_version() == 18
 
 
+def _identity_attestation(review: dict, actor: str) -> dict:
+    return {
+        "attestation_id": f"identity-attestation:{review['review_id']}:1",
+        "review_id": review["review_id"],
+        "review_revision": 1,
+        "principal_id": actor,
+        "issuer": "https://login.example.test/",
+        "audience": "sngso-benchmark",
+        "subject": f"oidc:{actor}",
+        "authenticated_at": "2026-11-20T00:00:00Z",
+        "expires_at": "2026-11-20T01:00:00Z",
+        "authentication_methods": ["pwd", "mfa"],
+        "authentication_context": "urn:example:loa:2",
+        "provider_key_id": "key-2026-01",
+        "provider_adapter": "example-oidc-adapter/1.0",
+        "session_fingerprint": "sha256:" + "b" * 64,
+        "attested_at": "2026-11-20T00:01:00Z",
+    }
+
+
 def test_benchmark_readiness_never_confuses_test_principals_with_verified_humans():
     with SQLiteRegistry() as registry:
         _populate_benchmark_review_sources(registry)
@@ -1713,10 +1733,17 @@ def test_benchmark_readiness_requires_adjudication_even_for_two_human_classified
         second["reviewer"]["qualification_basis"] = "Independent editorial experience."
         registry.add_benchmark_review(second, actor="editor:second", reason="second human-classified review")
         report = registry.benchmark_readiness_report(first["benchmark_id"])
+        for review in (first, second):
+            registry.record_benchmark_review_identity_attestation(
+                _identity_attestation(review, review["reviewer"]["reviewer_id"]),
+                actor=review["reviewer"]["reviewer_id"],
+                reason="test trusted provider assertion",
+            )
+        report = registry.benchmark_readiness_report(first["benchmark_id"])
         assert report["status"] == "ready_for_adjudication"
         assert report["distinct_eligible_reviewer_count"] == 2
         assert report["production_ready"] is False
-        assert any("identity-provider attestation" in item for item in report["blockers"])
+        assert report["blockers"] == ["No independent final adjudication is recorded."]
 
 
 def test_synthetic_only_benchmark_is_never_reported_as_human_ready():
