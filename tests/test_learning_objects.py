@@ -1127,3 +1127,45 @@ def test_language_review_identity_attestation_is_bound_to_reviewer_and_timestamp
     payload["language_review"]["identity_attestation"]["attested_at"] = "2026-11-20T01:01:00Z"
     with pytest.raises(RegistryIntegrityError, match="timestamp mismatch"):
         _validate_learning_object_language_review(payload)
+
+
+
+def test_revision_card_segments_must_map_exactly_to_claims_and_text():
+    registry = _prepared()
+    try:
+        revision_card = _summary("learning:revision-card-traceability")
+        revision_card["kind"] = "revision_card"
+        revision_card["content"]["segments"][0]["claim_ids"] = ["claim:outside"]
+        with pytest.raises(RegistryIntegrityError, match="claim outside the learning object"):
+            registry.add_learning_object(
+                revision_card, actor="editor", reason="Reject an unlinked revision-card claim."
+            )
+
+        revision_card = _summary("learning:revision-card-text")
+        revision_card["kind"] = "revision_card"
+        revision_card["content"]["text"] = "Text omitted from the revision-card segments."
+        with pytest.raises(RegistryIntegrityError, match="exactly match its claim-mapped segments"):
+            registry.add_learning_object(
+                revision_card, actor="editor", reason="Reject untraceable revision-card text."
+            )
+    finally:
+        registry.close()
+
+
+def test_revision_card_quality_report_blocks_unassessed_factual_claims():
+    registry = _prepared()
+    try:
+        revision_card = _summary("learning:revision-card-unassessed")
+        revision_card["kind"] = "revision_card"
+        item = registry.add_learning_object(
+            revision_card, actor="editor", reason="Create a revision-card draft."
+        )
+        report = registry.learning_object_quality_report(item.id)
+        assert report["meets_registry_quality_gates"] is False
+        assert any(
+            blocker["check"] == "factual_segment_assessment"
+            and "unassessed" in blocker["detail"]
+            for blocker in report["blockers"]
+        )
+    finally:
+        registry.close()

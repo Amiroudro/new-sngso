@@ -1469,8 +1469,8 @@ def _validate_learning_object_language_review(payload: dict[str, Any]) -> None:
 
 
 def _validate_learning_object_traceability(payload: dict[str, Any]) -> None:
-    """Require every summary segment to map exactly to the object's claim set."""
-    if payload.get("kind") not in {"headline_summary", "brief_summary", "detailed_summary"}:
+    """Require summary and revision-card segments to map exactly to object claims."""
+    if payload.get("kind") not in {"headline_summary", "brief_summary", "detailed_summary", "revision_card"}:
         return
     content = payload.get("content", {})
     segments = content.get("segments", [])
@@ -5991,7 +5991,7 @@ class SQLiteRegistry:
             )
 
             factual_claims: set[str] = set()
-            if payload["kind"] in {"headline_summary", "brief_summary", "detailed_summary"}:
+            if payload["kind"] in {"headline_summary", "brief_summary", "detailed_summary", "revision_card"}:
                 for segment in payload["content"].get("segments", []):
                     if segment["role"] == "fact":
                         factual_claims.update(segment["claim_ids"])
