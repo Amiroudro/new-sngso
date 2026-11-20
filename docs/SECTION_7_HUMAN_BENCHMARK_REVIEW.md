@@ -84,3 +84,12 @@ This check is performed when a review is created or revised. It does not authent
 A separate Draft 2020-12 adjudication record now captures the benchmark artifact fingerprint, at least two distinct review IDs, an adjudicator declaration, a controlled outcome, a reasoned decision, evidence references, and a timezone-aware resolution timestamp. Outcomes distinguish upholding an existing decision, returning work for revision, rejecting a benchmark item, and splitting multiple acceptable answers.
 
 The validator rejects an adjudicator whose declared principal ID is also listed among the reviewers. This is a workflow-level independence check, not proof of identity or actual independence. The validator's declared-independence check is supplemented by registry role enforcement and checks against the stored reviewer records. Durable adjudication history is immutable and audited. Current-use eligibility applies the explicit outcome policy described in Section 7.8. The adjudication workflow still does not authenticate the human behind a principal ID.
+
+
+## 7.9 Trusted-session application boundary
+
+`src/sngso_engine/benchmark_access.py` adds an application-facing facade for artifact registration, review submission, and adjudication. It obtains the actor exclusively from a `BenchmarkIdentityProvider`, then checks issuer, audience, timezone-aware session validity, active registry principal, and the required registry role. Reviewer and adjudicator declarations must match the authenticated principal. The facade does not accept a client-supplied actor ID.
+
+The identity provider is an infrastructure trust boundary, not a mock authentication mechanism. A production adapter must validate the actual OIDC token signature or server-side session, exact issuer and audience, expiry, session revocation, and authentication freshness before returning `AuthenticatedIdentity`. The local facade cannot prove that an arbitrary Python object came from a trustworthy provider. Application handlers must expose this facade rather than raw registry mutation methods, and provider construction/configuration must remain inside trusted server code. Principal provisioning remains a separate administrator-only deployment operation; this facade intentionally does not expose provisioning or revocation.
+
+Tests use a fake provider only to verify the facade's enforcement behavior. They do not authenticate real users or constitute production identity integration.
