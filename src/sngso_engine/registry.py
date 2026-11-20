@@ -4478,6 +4478,85 @@ class SQLiteRegistry:
             if not item["is_superseded"]
         ]
 
+    def story_perspective_attribution_report(self, story_id: str) -> dict[str, Any]:
+        """Return a read-only, source-attributed view of current perspectives and reviewed claim conflicts."""
+        perspectives = self.story_perspectives(story_id)
+        relations = [
+            item for item in self.claim_relation_history(story_id)
+            if not item["is_superseded"]
+        ]
+        reporting = self.story_reporting_independence(story_id)
+        by_kind: dict[str, int] = {}
+        by_language: dict[str, int] = {}
+        by_source: dict[str, list[str]] = {}
+        entries: list[dict[str, Any]] = []
+        unreviewed: list[str] = []
+        unattributed: list[str] = []
+        claim_coverage: set[str] = set()
+        for item in perspectives:
+            record = item["record"]
+            kind = record["kind"]
+            language = record["language"]
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+            by_language[language] = by_language.get(language, 0) + 1
+            source_id = item["source_id"]
+            article_id = item["article_id"]
+            if source_id:
+                by_source.setdefault(source_id, []).append(item["perspective_id"])
+            else:
+                unattributed.append(item["perspective_id"])
+            if record.get("review_status") != "approved":
+                unreviewed.append(item["perspective_id"])
+            claim_coverage.update(record.get("claim_ids", []))
+            entries.append({
+                "perspective_id": item["perspective_id"],
+                "kind": kind,
+                "attribution": record["attribution"],
+                "source_id": source_id,
+                "article_id": article_id,
+                "language": language,
+                "text": record["text"],
+                "claim_ids": sorted(record.get("claim_ids", [])),
+                "review_status": record.get("review_status", "unreviewed"),
+                "reviewed_by": record.get("reviewed_by"),
+                "reviewed_at": record.get("reviewed_at"),
+            })
+        contradictions = [
+            {
+                "relation_id": item["relation_id"],
+                "claim_id": item["claim_id"],
+                "related_claim_id": item["related_claim_id"],
+                "review_status": item["record"]["review_status"],
+                "reviewed_by": item["record"].get("reviewed_by"),
+                "reviewed_at": item["record"].get("reviewed_at"),
+                "resolution_note": item["record"].get("review_note"),
+            }
+            for item in relations if item["relationship"] == "contradicts"
+        ]
+        return {
+            "story_id": story_id,
+            "perspective_count": len(entries),
+            "reviewed_count": sum(1 for item in entries if item["review_status"] == "approved"),
+            "unreviewed_perspective_ids": sorted(unreviewed),
+            "unattributed_perspective_ids": sorted(unattributed),
+            "by_kind": dict(sorted(by_kind.items())),
+            "by_language": dict(sorted(by_language.items())),
+            "source_attributions": [
+                {"source_id": source_id, "perspective_ids": sorted(ids)}
+                for source_id, ids in sorted(by_source.items())
+            ],
+            "perspectives": entries,
+            "claim_ids_with_perspectives": sorted(claim_coverage),
+            "contradictions": contradictions,
+            "reporting_independence": reporting,
+            "independence_caveat": (
+                "Distinct publisher IDs and distinct articles do not establish independent reporting; "
+                "syndication, shared sourcing, and common-origin material require separate evidence."
+            ),
+            "production_ready": False,
+            "authorization_granted": False,
+        }
+
     def add_claim_relation(self, payload: dict[str, Any]) -> ClaimRelationRecord:
         """Append an explicit relationship between two claims in one story."""
         validate_payload("claim-relation", payload)
@@ -4637,6 +4716,7 @@ class SQLiteRegistry:
             timeline_history = self.timeline_event_history(story_id)
             perspective_history = self.perspective_history(story_id)
             claim_relation_history = self.claim_relation_history(story_id)
+            perspective_attribution_report = self.story_perspective_attribution_report(story_id)
             decisions = self.story_decision_history(story_id)
             learning_object_rows = connection.execute(
                 """SELECT id, revision, updated_at, payload_json FROM learning_objects
@@ -4721,6 +4801,7 @@ class SQLiteRegistry:
                 "timeline": [item for item in timeline_history if not item["is_superseded"]],
                 "perspective_history": perspective_history,
                 "perspectives": [item for item in perspective_history if not item["is_superseded"]],
+                "perspective_attribution_report": perspective_attribution_report,
                 "claim_relation_history": claim_relation_history,
                 "claim_relations": [item for item in claim_relation_history if not item["is_superseded"]],
                 "story_decisions": decisions,
