@@ -60,7 +60,7 @@ class AuthenticatedBenchmarkAccess:
         self._expected_audience = expected_audience
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
-    def _principal(self, request_context: Any, required_role: str) -> str:
+    def _principal(self, request_context: Any, required_role: str | tuple[str, ...]) -> str:
         identity = self._identity_provider.authenticate(request_context)
         if not isinstance(identity, AuthenticatedIdentity):
             raise RegistryIntegrityError("identity provider returned an invalid identity")
@@ -78,8 +78,9 @@ class AuthenticatedBenchmarkAccess:
         principal = self._registry.get_benchmark_principal(identity.principal_id)
         if principal is None or not principal["active"]:
             raise RegistryIntegrityError("authenticated principal is not active in the benchmark registry")
-        if required_role not in principal["roles"]:
-            raise RegistryIntegrityError(f"authenticated principal lacks required role: {required_role}")
+        allowed_roles = (required_role,) if isinstance(required_role, str) else required_role
+        if not any(role in principal["roles"] for role in allowed_roles):
+            raise RegistryIntegrityError(f"authenticated principal lacks required role: {allowed_roles}")
         return identity.principal_id
 
     def register_artifact(
@@ -129,12 +130,7 @@ class AuthenticatedBenchmarkAccess:
         elif event == "expire":
             required_role = "benchmark_curator"
         elif event == "cancel":
-            identity = self._identity_provider.authenticate(request_context)
-            principal_id = identity.principal_id if isinstance(identity, AuthenticatedIdentity) else ""
-            required_role = (
-                "benchmark_curator" if principal_id == assignment["assigned_by"]
-                else "benchmark_reviewer"
-            )
+            required_role = ("benchmark_curator", "benchmark_reviewer")
         else:
             raise RegistryIntegrityError("unsupported assignment transition")
         actor = self._principal(request_context, required_role)
