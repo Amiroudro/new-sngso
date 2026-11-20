@@ -220,6 +220,9 @@ def test_narrative_assembly_traces_segments_and_keeps_language_and_conflicts_sep
         assert segment["claims"][0]["provenance"][0]["article_id"] == "article:one"
         assert segment["claims"][0]["evidence"][0]["evidence_id"] == "evidence:one"
         assert bangla["blockers"]
+        assert bangla["assembly_status"] == "blocked"
+        assert bangla["summary"]["factual_segment_count"] == 1
+        assert bangla["summary"]["unsupported_factual_segment_count"] == 1
         assert report["languages"]["en"]["publisher_perspectives"][0]["perspective_id"] == "perspective:one"
         assert len(report["unresolved_contradictions"]) == 1
         assert report["unresolved_contradictions"][0]["relation_id"] == "claim-relation:one"
@@ -297,6 +300,8 @@ def test_narrative_assembly_blocks_rejected_language_review_even_when_review_rec
         report = registry.story_narrative_assembly_report("story:one")
         object_report = report["languages"]["bn"]["objects"][0]
         assert object_report["language_review_pass"] is False
+        assert report["languages"]["bn"]["assembly_status"] == "blocked"
+        assert report["languages"]["bn"]["summary"]["language_review_pass_count"] == 0
         assert any(
             blocker["reason"].startswith("language review is rejected")
             for blocker in report["languages"]["bn"]["blockers"]
