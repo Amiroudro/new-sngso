@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Any
 from .canonical import sha256_fingerprint
 from .contracts import validate_payload
+from .benchmark_study import validate_benchmark_study_protocol
+from .benchmark_study_execution import validate_benchmark_study_execution
 
 class BenchmarkAcceptanceReviewError(ValueError):
     """Raised when an acceptance review is inconsistent or overclaims scope."""
@@ -14,12 +16,14 @@ def validate_benchmark_acceptance_review(payload: dict[str, Any], *, protocol: d
     This is a contract validator, not an authorization or production approval mechanism.
     """
     validate_payload("editorial-benchmark-acceptance-review", payload)
+    protocol_report = validate_benchmark_study_protocol(protocol)
+    execution_report = validate_benchmark_study_execution(execution)
     expected = {
         "study_id": protocol["study_id"],
         "study_version": protocol["study_version"],
-        "protocol_fingerprint": sha256_fingerprint(protocol),
+        "protocol_fingerprint": protocol_report["protocol_fingerprint"],
         "execution_id": execution["execution_id"],
-        "execution_fingerprint": sha256_fingerprint(execution),
+        "execution_fingerprint": execution_report["execution_fingerprint"],
         "benchmark_id": protocol["benchmark_id"],
         "benchmark_fingerprint": protocol["benchmark_fingerprint"],
         "rubric_version": protocol["rubric_version"],
