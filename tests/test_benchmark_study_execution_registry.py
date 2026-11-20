@@ -81,23 +81,24 @@ def _registered(registry):
 
 
 def _score(registry, artifact, item_id, evaluator_id):
-    assignment_id = f"assignment:{item_id}:{evaluator_id}"
-    registry.create_benchmark_review_assignment(
-        {
-            "schema_version": "1.0.0", "assignment_id": assignment_id,
-            "artifact_id": artifact["artifact_id"],
-            "artifact_fingerprint": artifact["content_fingerprint"],
-            "language": "bn", "reviewer_id": evaluator_id,
-            "assigned_by": "curator:study", "assigned_at": STAMP,
-            "due_at": DUE_AT, "status": "assigned",
-            "reason": "Blind study evaluator assignment",
-        },
-        actor="curator:study", reason="Assign blind study evaluator",
-    )
-    registry.transition_benchmark_review_assignment(
-        assignment_id, event="accept", actor=evaluator_id, at=ACCEPTED,
-        reason="Accept blind study assignment",
-    )
+    assignment_id = f"assignment:study:{evaluator_id}"
+    if registry.get_benchmark_review_assignment(assignment_id) is None:
+        registry.create_benchmark_review_assignment(
+            {
+                "schema_version": "1.0.0", "assignment_id": assignment_id,
+                "artifact_id": artifact["artifact_id"],
+                "artifact_fingerprint": artifact["content_fingerprint"],
+                "language": "bn", "reviewer_id": evaluator_id,
+                "assigned_by": "curator:study", "assigned_at": STAMP,
+                "due_at": DUE_AT, "status": "assigned",
+                "reason": "Blind study evaluator assignment",
+            },
+            actor="curator:study", reason="Assign blind study evaluator",
+        )
+        registry.transition_benchmark_review_assignment(
+            assignment_id, event="accept", actor=evaluator_id, at=ACCEPTED,
+            reason="Accept blind study assignment",
+        )
     score = {
         "schema_version": "1.0.0", "benchmark_id": artifact["artifact_id"],
         "benchmark_fingerprint": artifact["content_fingerprint"],
