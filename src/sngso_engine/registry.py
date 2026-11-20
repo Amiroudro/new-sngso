@@ -39,6 +39,7 @@ from .benchmark_reviews import validate_human_benchmark_review
 from .benchmark_scoring import validate_benchmark_scoring
 from .benchmark_agreement import benchmark_evaluator_agreement, BenchmarkAgreementError
 from .benchmark_adjudication import validate_benchmark_adjudication
+from .benchmark_study import validate_benchmark_study_protocol, BenchmarkStudyError
 from .benchmark_assignments import (
     BenchmarkAssignmentError,
     transition_benchmark_assignment,
@@ -47,7 +48,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 20
+_SCHEMA_VERSION = 21
 
 
 _MIGRATION_14 = (
@@ -299,6 +300,56 @@ _MIGRATION_20 = (
     """CREATE TRIGGER benchmark_scores_no_delete
        BEFORE DELETE ON benchmark_scores
        BEGIN SELECT RAISE(ABORT, 'benchmark score records are append-only'); END""",
+)
+
+
+_MIGRATION_21 = (
+    """CREATE TABLE benchmark_study_protocols (
+        protocol_record_id TEXT PRIMARY KEY,
+        study_id TEXT NOT NULL,
+        study_version INTEGER NOT NULL CHECK (study_version >= 1),
+        benchmark_id TEXT NOT NULL,
+        benchmark_fingerprint TEXT NOT NULL,
+        rubric_version TEXT NOT NULL,
+        protocol_fingerprint TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status = 'protocol_only'),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        UNIQUE (study_id, study_version),
+        FOREIGN KEY (benchmark_id) REFERENCES benchmark_artifacts(artifact_id) ON DELETE RESTRICT
+    )""",
+    """CREATE INDEX benchmark_study_protocols_benchmark
+       ON benchmark_study_protocols(benchmark_id, study_id, study_version)""",
+    """CREATE TRIGGER benchmark_study_protocols_payload_guard
+       BEFORE INSERT ON benchmark_study_protocols
+       WHEN json_extract(NEW.payload_json, '$.study_id') IS NOT NEW.study_id
+         OR json_extract(NEW.payload_json, '$.study_version') IS NOT NEW.study_version
+         OR json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.benchmark_id
+         OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.benchmark_fingerprint
+         OR json_extract(NEW.payload_json, '$.rubric_version') IS NOT NEW.rubric_version
+         OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+       BEGIN SELECT RAISE(ABORT, 'study protocol payload does not match indexed fields'); END""",
+    """CREATE TRIGGER benchmark_study_protocols_version_guard
+       BEFORE INSERT ON benchmark_study_protocols
+       WHEN (NEW.study_version = 1 AND EXISTS (
+                SELECT 1 FROM benchmark_study_protocols WHERE study_id = NEW.study_id
+             ))
+         OR (NEW.study_version > 1 AND NOT EXISTS (
+                SELECT 1 FROM benchmark_study_protocols
+                WHERE study_id = NEW.study_id AND study_version = NEW.study_version - 1
+                  AND benchmark_id = NEW.benchmark_id
+                  AND benchmark_fingerprint = NEW.benchmark_fingerprint
+                  AND rubric_version = NEW.rubric_version
+             ))
+       BEGIN SELECT RAISE(ABORT, 'study protocol versions must be sequential and preserve benchmark/rubric binding'); END""",
+    """CREATE TRIGGER benchmark_study_protocols_no_update
+       BEFORE UPDATE ON benchmark_study_protocols
+       BEGIN SELECT RAISE(ABORT, 'study protocol versions are immutable'); END""",
+    """CREATE TRIGGER benchmark_study_protocols_no_delete
+       BEFORE DELETE ON benchmark_study_protocols
+       BEGIN SELECT RAISE(ABORT, 'study protocol history is append-only'); END""",
 )
 
 
@@ -1671,6 +1722,20 @@ class SQLiteRegistry:
                     version = 20
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 20 failed; transaction rolled back") from exc
+
+
+            if version == 20 and _SCHEMA_VERSION >= 21:
+                try:
+                    for statement in _MIGRATION_21:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (21, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 21")
+                    version = 21
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 21 failed; transaction rolled back") from exc
 
 
 
@@ -6058,6 +6123,126 @@ class SQLiteRegistry:
             "eligible_for_comparison": report["eligible_for_comparison"],
             "score_fingerprint": score_fingerprint, "created_at": created_at,
         }
+
+
+    def register_benchmark_study_protocol(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Persist an immutable, curator-approved version of a study protocol."""
+        try:
+            report = validate_benchmark_study_protocol(payload)
+        except (TypeError, ValueError, BenchmarkStudyError) as exc:
+            raise RegistryIntegrityError("study protocol does not satisfy its versioned contract") from exc
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        fingerprint = report["protocol_fingerprint"]
+        protocol_record_id = f"benchmark-study-protocol:{payload['study_id']}:{payload['study_version']}"
+        created_at = _utc_now()
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_curator")
+            artifact = connection.execute(
+                "SELECT language, content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+                (payload["benchmark_id"],),
+            ).fetchone()
+            if artifact is None:
+                raise RegistryIntegrityError("study protocol must reference a registered benchmark artifact")
+            if sha256_fingerprint(json.loads(artifact["content_json"])) != artifact["content_fingerprint"]:
+                raise RegistryIntegrityError("registered benchmark artifact fingerprint verification failed")
+            if payload["benchmark_fingerprint"] != artifact["content_fingerprint"]:
+                raise RegistryIntegrityError("study protocol benchmark fingerprint is stale or mismatched")
+            item_ids = {item["item_id"] for item in json.loads(artifact["content_json"])["items"]}
+            declared = payload["partition_membership"]
+            partition_ids = set(
+                declared["calibration_item_ids"]
+                + declared["blind_evaluation_item_ids"]
+                + declared["adjudication_item_ids"]
+            )
+            if not partition_ids.issubset(item_ids):
+                raise RegistryIntegrityError("study protocol contains item IDs outside the registered benchmark artifact")
+            if any(row["language"] != artifact["language"] for row in payload["language_task_strata"]):
+                raise RegistryIntegrityError("study protocol language strata do not match the benchmark artifact language")
+            for assignment in payload["blind_assignment_plan"]:
+                if assignment["item_id"] not in item_ids:
+                    raise RegistryIntegrityError("blind assignment references an item outside the registered benchmark artifact")
+                artifact_item = next(item for item in json.loads(artifact["content_json"])["items"] if item["item_id"] == assignment["item_id"])
+                if artifact_item["task_type"] != assignment["task_type"]:
+                    raise RegistryIntegrityError("blind assignment task type does not match the registered benchmark item")
+            connection.execute(
+                """INSERT INTO benchmark_study_protocols
+                (protocol_record_id, study_id, study_version, benchmark_id,
+                 benchmark_fingerprint, rubric_version, protocol_fingerprint,
+                 status, payload_json, created_at, actor, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'protocol_only', ?, ?, ?, ?)""",
+                (protocol_record_id, payload["study_id"], payload["study_version"],
+                 payload["benchmark_id"], payload["benchmark_fingerprint"],
+                 payload["rubric_version"], fingerprint, _json_text(payload),
+                 created_at, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_study_protocol.registered",
+                entity_type="benchmark_study_protocol", entity_id=protocol_record_id,
+                payload={"study_id": payload["study_id"], "study_version": payload["study_version"],
+                         "benchmark_id": payload["benchmark_id"],
+                         "benchmark_fingerprint": payload["benchmark_fingerprint"],
+                         "protocol_fingerprint": fingerprint, "reason": reason},
+            )
+        return self.get_benchmark_study_protocol(payload["study_id"], payload["study_version"]) or {}
+
+    def get_benchmark_study_protocol(
+        self, study_id: str, study_version: int | None = None
+    ) -> dict[str, Any] | None:
+        if study_version is None:
+            row = self._connection.execute(
+                "SELECT * FROM benchmark_study_protocols WHERE study_id = ? ORDER BY study_version DESC LIMIT 1",
+                (study_id,),
+            ).fetchone()
+        else:
+            row = self._connection.execute(
+                "SELECT * FROM benchmark_study_protocols WHERE study_id = ? AND study_version = ?",
+                (study_id, study_version),
+            ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload_json"])
+        verified = sha256_fingerprint(payload) == row["protocol_fingerprint"]
+        return {
+            "protocol_record_id": row["protocol_record_id"], "study_id": row["study_id"],
+            "study_version": row["study_version"], "benchmark_id": row["benchmark_id"],
+            "benchmark_fingerprint": row["benchmark_fingerprint"],
+            "rubric_version": row["rubric_version"],
+            "protocol_fingerprint": row["protocol_fingerprint"], "status": row["status"],
+            "protocol": payload, "created_at": row["created_at"], "actor": row["actor"],
+            "reason": row["reason"], "fingerprint_verified": verified,
+        }
+
+    def benchmark_study_protocol_history(self, study_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            "SELECT study_version FROM benchmark_study_protocols WHERE study_id = ? ORDER BY study_version",
+            (study_id,),
+        ).fetchall()
+        return [
+            self.get_benchmark_study_protocol(study_id, row["study_version"])
+            for row in rows
+        ]
+
+    def list_benchmark_study_protocols(
+        self, *, benchmark_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        if benchmark_id is None:
+            rows = self._connection.execute(
+                "SELECT study_id, study_version FROM benchmark_study_protocols ORDER BY study_id, study_version"
+            ).fetchall()
+        else:
+            rows = self._connection.execute(
+                "SELECT study_id, study_version FROM benchmark_study_protocols WHERE benchmark_id = ? ORDER BY study_id, study_version",
+                (benchmark_id,),
+            ).fetchall()
+        return [
+            self.get_benchmark_study_protocol(row["study_id"], row["study_version"])
+            for row in rows
+        ]
 
     def get_benchmark_score(self, score_id: str) -> dict[str, Any] | None:
         row = self._connection.execute(
