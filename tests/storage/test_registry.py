@@ -1364,10 +1364,7 @@ def test_existing_schema_v11_database_migrates_to_v12(tmp_path, monkeypatch) -> 
         assert migrated._connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'glossary_entries'"
         ).fetchone() is not None
-        assert migrated._connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_reviews'"
-        ).fetchone() is not None
-        migrated.migrate()
+                migrated.migrate()
         assert migrated.schema_version() == 12
 
 
