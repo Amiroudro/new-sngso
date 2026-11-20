@@ -278,3 +278,8 @@ The authenticated learning-object review facade captures a ten-dimension, versio
 ### Section 7.41 implementation update
 
 Audited the existing Flutter edition models and the integrated repository's Engine v2 converter/status documentation. Added docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md with the current consumer shape, a cautious field mapping, required provenance-manifest behavior, and fail-closed staging gates. This is design documentation only: there is no shared executable schema, adapter, claim-level manifest consumer, or cross-repository golden test, and no Flutter verification was run. No integrated-app files or published/bundled editions were changed. The Section 7 compatibility gate remains open.
+
+
+### Section 7.42 implementation update
+
+Added a read-only staging compatibility verifier for the English story subset understood by the legacy Flutter edition model. It requires an approved engine edition, exact story and selected-object revisions, passing quality reports, active human-attested English reviewers, citation equality to registered source/article records, current republication permission, and endpoint coverage for every article URL. It rejects non-draft client status and any unbound UI data; it never writes or publishes. Synthetic regression cases cover allow/deny, stale/tampered content, source and endpoint mismatches, unsupported fields, and reviewer qualification. GitHub Actions [run #44752476466](https://github.com/Amiroudro/new-sngso/actions/runs/44752476466) passed the full Python 3.12 suite: **701 tests in 6.38 seconds** on code head ec06daf4d3abba0b8034d56c1f84bb470d63229d. No Flutter parser run, real source grant, serializer, bilingual export, or cross-repository golden test exists yet.
