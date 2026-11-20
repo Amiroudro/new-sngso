@@ -4613,6 +4613,24 @@ class SQLiteRegistry:
                         ),
                         "history": self.benchmark_review_history(review_row["review_id"]),
                     })
+            acceptance_reviews = []
+            benchmark_ids = sorted({item["record"].get("benchmark_id") for item in benchmark_reviews
+                                    if item["record"].get("benchmark_id")})
+            if benchmark_ids:
+                placeholders = ",".join("?" for _ in benchmark_ids)
+                acceptance_rows = connection.execute(
+                    f"SELECT review_id FROM benchmark_acceptance_reviews WHERE benchmark_id IN ({placeholders}) ORDER BY created_at, review_id",
+                    tuple(benchmark_ids),
+                ).fetchall()
+                acceptance_reviews = [
+                    {
+                        "review_id": acceptance_row["review_id"],
+                        "quality_report": self._benchmark_acceptance_review_quality_report(
+                            acceptance_row["review_id"], connection
+                        ),
+                    }
+                    for acceptance_row in acceptance_rows
+                ]
             snapshot = {
                 "story_id": story_id,
                 "story_revision": story_row["revision"],
@@ -4631,6 +4649,7 @@ class SQLiteRegistry:
                 "learning_objects": learning_objects,
                 "glossary_entries": glossary_entries,
                 "benchmark_reviews": benchmark_reviews,
+                "benchmark_acceptance_reviews": acceptance_reviews,
                 "reporting_independence": reporting_independence,
             }
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
@@ -5960,6 +5979,176 @@ class SQLiteRegistry:
         return [{"revision": row["revision"], "created_at": row["created_at"],
                  "actor": row["actor"], "reason": row["reason"],
                  "record": json.loads(row["payload_json"])} for row in rows]
+
+    def _benchmark_acceptance_review_quality_report(
+        self, review_id: str, connection: sqlite3.Connection
+    ) -> dict[str, Any]:
+        """Recheck exact study evidence and current source-review permissions for scoped reference."""
+        row = connection.execute(
+            "SELECT * FROM benchmark_acceptance_reviews WHERE review_id = ?", (review_id,)
+        ).fetchone()
+        if row is None:
+            raise RegistryIntegrityError(f"unknown benchmark acceptance review: {review_id}")
+        payload = json.loads(row["payload_json"])
+        checks: list[dict[str, Any]] = []
+        blockers: list[str] = []
+
+        def check(name: str, passed: bool, detail: str) -> None:
+            checks.append({"name": name, "passed": bool(passed), "detail": detail})
+            if not passed:
+                blockers.append(detail)
+
+        fingerprint_ok = sha256_fingerprint(payload) == row["acceptance_fingerprint"]
+        check("acceptance_fingerprint", fingerprint_ok,
+              "Acceptance decision fingerprint is verified." if fingerprint_ok else
+              "Acceptance decision fingerprint does not match its immutable payload.")
+        protocol_row = connection.execute(
+            "SELECT * FROM benchmark_study_protocols WHERE protocol_record_id = ?",
+            (row["protocol_record_id"],),
+        ).fetchone()
+        execution_row = connection.execute(
+            "SELECT * FROM benchmark_study_executions WHERE execution_id = ?",
+            (row["execution_id"],),
+        ).fetchone()
+        protocol = json.loads(protocol_row["payload_json"]) if protocol_row else None
+        execution = json.loads(execution_row["payload_json"]) if execution_row else None
+        protocol_ok = bool(
+            protocol_row and protocol
+            and sha256_fingerprint(protocol) == protocol_row["protocol_fingerprint"] == row["protocol_fingerprint"]
+            and protocol_row["study_id"] == row["study_id"]
+            and protocol_row["study_version"] == row["study_version"]
+        )
+        execution_ok = bool(
+            execution_row and execution
+            and sha256_fingerprint(execution) == execution_row["execution_fingerprint"] == row["execution_fingerprint"]
+            and execution_row["protocol_record_id"] == row["protocol_record_id"]
+        )
+        check("registered_protocol", protocol_ok,
+              "Exact registered protocol version and fingerprint are verified." if protocol_ok else
+              "Registered protocol is missing, changed, or does not match the acceptance decision.")
+        check("registered_execution", execution_ok,
+              "Exact registered execution and protocol linkage are verified." if execution_ok else
+              "Registered execution is missing, changed, or not bound to the accepted protocol.")
+        artifact_row = connection.execute(
+            "SELECT content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+            (row["benchmark_id"],),
+        ).fetchone()
+        artifact_ok = bool(
+            artifact_row
+            and sha256_fingerprint(json.loads(artifact_row["content_json"])) == artifact_row["content_fingerprint"]
+            and artifact_row["content_fingerprint"] == row["benchmark_fingerprint"]
+            and execution_ok and execution_row["benchmark_id"] == row["benchmark_id"]
+            and execution_row["benchmark_fingerprint"] == row["benchmark_fingerprint"]
+        )
+        check("benchmark_artifact", artifact_ok,
+              "Registered benchmark artifact fingerprint is verified." if artifact_ok else
+              "Benchmark artifact is missing, changed, or no longer matches the study execution.")
+        try:
+            if not (protocol_ok and execution_ok and artifact_ok):
+                raise RegistryIntegrityError("exact registered study evidence is unavailable")
+            from .benchmark_acceptance_review import validate_benchmark_acceptance_review
+            acceptance_validation = validate_benchmark_acceptance_review(
+                payload, protocol=protocol, execution=execution
+            )
+            contract_ok = bool(acceptance_validation["valid"])
+        except (RegistryIntegrityError, KeyError, TypeError, ValueError):
+            contract_ok = False
+        check("acceptance_contract", contract_ok,
+              "Independent acceptance contract remains valid." if contract_ok else
+              "Acceptance decision no longer satisfies its registered study contract.")
+        domains = payload.get("domains", {})
+        all_domains_pass = (
+            set(domains) == {"statistical_validity", "editorial_validity", "operational_security"}
+            and all(isinstance(value, dict) and value.get("status") == "pass" for value in domains.values())
+        )
+        decision_accepted = row["decision"] in {"accepted_for_limited_use", "accepted_for_proposed_use"}
+        check("accepted_decision", decision_accepted and all_domains_pass,
+              "All three independent review domains passed for a scoped accepted decision."
+              if decision_accepted and all_domains_pass else
+              "Decision is not accepted for scoped use or all three review domains do not pass.")
+
+        source_rows = connection.execute(
+            "SELECT revision, payload_json FROM benchmark_reviews WHERE benchmark_id = ? ORDER BY review_id",
+            (row["benchmark_id"],),
+        ).fetchall()
+        eligible_reviewers: set[str] = set()
+        source_review_checks = []
+        for source_row in source_rows:
+            source_review = json.loads(source_row["payload_json"])
+            reviewer_id = source_review.get("reviewer", {}).get("reviewer_id")
+            principal_row = connection.execute(
+                "SELECT active, roles_json, languages_json, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                (reviewer_id,),
+            ).fetchone() if reviewer_id else None
+            principal_ok = bool(
+                principal_row and principal_row["active"]
+                and "benchmark_reviewer" in json.loads(principal_row["roles_json"])
+                and principal_row["principal_kind"] == "human"
+                and source_review.get("language") in json.loads(principal_row["languages_json"])
+            )
+            exact_binding = bool(
+                source_review.get("benchmark_id") == row["benchmark_id"]
+                and source_review.get("benchmark_fingerprint") == row["benchmark_fingerprint"]
+            )
+            permission_report = self._benchmark_review_quality_report(source_review, connection)
+            attestation = connection.execute(
+                """SELECT principal_id, issuer, audience, subject, provider_key_id, provider_adapter,
+                expires_at, attested_at FROM benchmark_review_identity_attestations
+                WHERE review_id = ? AND review_revision = ?""",
+                (source_review.get("review_id"), source_row["revision"]),
+            ).fetchone()
+            attested = bool(
+                attestation and attestation["principal_id"] == reviewer_id
+                and all(attestation[key] for key in (
+                    "issuer", "audience", "subject", "provider_key_id", "provider_adapter"
+                ))
+                and _aware_datetime(attestation["attested_at"], "attested_at")
+                < _aware_datetime(attestation["expires_at"], "expires_at")
+            )
+            eligible = bool(
+                source_review.get("status") == "approved" and principal_ok and exact_binding
+                and permission_report["eligible_for_current_use"] and attested
+            )
+            if eligible:
+                eligible_reviewers.add(reviewer_id)
+            source_review_checks.append({
+                "review_id": source_review.get("review_id"),
+                "reviewer_id": reviewer_id,
+                "current_permission_eligible": permission_report["eligible_for_current_use"],
+                "active_human_reviewer": principal_ok,
+                "exact_artifact_binding": exact_binding,
+                "identity_attested_for_current_revision": attested,
+                "eligible_current_source_review": eligible,
+            })
+        source_review_coverage = len(eligible_reviewers) >= 2
+        check("current_human_source_reviews", source_review_coverage,
+              "At least two distinct active, attested human reviews remain eligible under current source permissions."
+              if source_review_coverage else
+              "At least two distinct active, attested human reviews with current source permissions are required.")
+        scoped = bool(
+            fingerprint_ok and protocol_ok and execution_ok and artifact_ok and contract_ok
+            and decision_accepted and all_domains_pass and source_review_coverage
+        )
+        return {
+            "review_id": row["review_id"], "study_id": row["study_id"],
+            "study_version": row["study_version"], "execution_id": row["execution_id"],
+            "benchmark_id": row["benchmark_id"], "decision": row["decision"],
+            "intended_use": payload.get("intended_use"),
+            "scope_limitations": payload.get("scope_limitations", []),
+            "eligible_for_scoped_reference": scoped,
+            "checks": checks, "blockers": blockers,
+            "source_reviews": source_review_checks,
+            "production_ready": False, "authorization_granted": False,
+            "interpretation": (
+                "This report rechecks evidence linkage and current source permissions for editorial context. "
+                "It is not production authorization and does not establish factual correctness."
+            ),
+        }
+
+    def benchmark_acceptance_review_quality_report(self, review_id: str) -> dict[str, Any]:
+        """Return a read-only, current-use report for one acceptance decision."""
+        with self._transaction("DEFERRED") as connection:
+            return self._benchmark_acceptance_review_quality_report(review_id, connection)
 
     def _benchmark_review_quality_report(
         self, review: dict[str, Any], connection: sqlite3.Connection
