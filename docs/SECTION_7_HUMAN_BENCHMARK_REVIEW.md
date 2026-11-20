@@ -115,3 +115,19 @@ The authenticated application facade exposes assignment and transition operation
 The local registry still does not authenticate real people by itself. Production must supply the trusted identity provider described in Section 7.9, secure administrator provisioning, and a real reviewer onboarding process. A qualification is an administratively recorded credential claim, not independent proof of professional competence. The tests use fixtures and do not establish that genuine Bangla or English editorial reviews have been completed.
 
 The registry also exposes filtered assignment queues by reviewer, status, and language. The authenticated reviewer queue always scopes results to the principal derived from the trusted session and rejects language filters outside that principal's registered qualifications.
+
+
+## 7.12 Benchmark readiness report and reviewer classification
+
+Migration 18 adds an explicit principal classification: `human`, `synthetic`, `automation`, or `unverified`. Existing principals migrate to `unverified`; the system never retroactively interprets historical test fixtures as people. New principals also default to `unverified`. The classification is an administrative declaration only and is not an authentication claim.
+
+`benchmark_readiness_report(artifact_id)` produces a read-only artifact-level report. It verifies the stored artifact fingerprint, exact artifact/language binding, current review-use policy (including source permissions and adjudication outcome), active reviewer role, reviewer language qualification, distinct reviewer count, principal classifications, and adjudication presence. It reports individual review checks and explicit blockers.
+
+Statuses are deliberately limited:
+- `human_review_pending`: the required qualified and currently eligible human-classified review set is incomplete, or identity evidence is insufficient.
+- `synthetic_only`: the eligible review set consists only of synthetic or automated principals.
+- `ready_for_adjudication`: at least two distinct active, language-qualified, human-classified reviewers have currently eligible approved reviews and no final adjudication exists.
+
+The report never emits `ready_for_use` and always returns `production_ready: false`. A `human` principal classification does not prove that the principal is a real person. This release does not persist a production identity-provider attestation with each review, and it does not compare review content to detect substantive disagreement. Consequently, even a report marked `ready_for_adjudication` remains blocked from production readiness. Existing review, permission, and adjudication policy gates remain authoritative; the report itself grants no approval.
+
+Tests explicitly verify that migrated principals default to `unverified`, that test principals cannot satisfy human identity evidence, that two human-classified reviewers still require adjudication and identity-provider attestation, and that synthetic-only fixtures are never represented as human-reviewed evidence.
