@@ -59,6 +59,24 @@ def test_adjudication_requires_two_distinct_reviews():
         validate_payload("editorial-benchmark-adjudication", payload)
 
 
+def test_uphold_existing_requires_an_explicit_subset_of_review_ids():
+    payload = _payload()
+    payload["outcome"] = "uphold_existing"
+    result = validate_benchmark_adjudication(payload)
+    assert result["valid"] is False
+    payload["upheld_review_ids"] = ["review:one"]
+    result = validate_benchmark_adjudication(payload)
+    assert result["valid"] is True
+    payload["upheld_review_ids"] = ["review:not-referenced"]
+    assert validate_benchmark_adjudication(payload)["valid"] is False
+
+
+def test_non_uphold_outcomes_cannot_select_upheld_reviews():
+    payload = _payload()
+    payload["upheld_review_ids"] = ["review:one"]
+    assert validate_benchmark_adjudication(payload)["valid"] is False
+
+
 def test_adjudication_requires_explicit_rationale_and_evidence():
     payload = _payload()
     payload["rationale"] = "Not enough."
