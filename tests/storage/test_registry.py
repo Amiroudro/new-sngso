@@ -1560,6 +1560,21 @@ def test_assignment_acceptance_and_cancellation_are_persisted_as_revisions():
         assert [entry["revision"] for entry in registry.benchmark_review_assignment_history(payload["assignment_id"])] == [1, 2, 3]
 
 
+def test_revoked_reviewer_cannot_accept_existing_assignment():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="assign")
+        registry.revoke_benchmark_principal(
+            "editor:lead", actor="test-bootstrap", reason="Reviewer access withdrawn",
+        )
+        with pytest.raises(RegistryIntegrityError, match="active registered principal"):
+            registry.transition_benchmark_review_assignment(
+                payload["assignment_id"], event="accept", actor="editor:lead",
+                at="2026-11-20T01:00:00Z", reason="revoked reviewer attempt",
+            )
+
+
 def test_assignment_submission_requires_stored_review_for_same_reviewer_and_artifact():
     with SQLiteRegistry() as registry:
         _populate_benchmark_review_sources(registry)
