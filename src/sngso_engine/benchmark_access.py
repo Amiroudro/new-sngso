@@ -134,6 +134,12 @@ class AuthenticatedBenchmarkAccess:
         else:
             raise RegistryIntegrityError("unsupported assignment transition")
         actor = self._principal(request_context, required_role)
+        if event in {"accept", "submit"} and actor != assignment["reviewer_id"]:
+            raise RegistryIntegrityError("authenticated reviewer must match the assigned reviewer")
+        if event == "expire" and actor != assignment["assigned_by"]:
+            raise RegistryIntegrityError("authenticated curator must match the assigning curator")
+        if event == "cancel" and actor not in {assignment["assigned_by"], assignment["reviewer_id"]}:
+            raise RegistryIntegrityError("authenticated principal is not a participant in this assignment")
         return self._registry.transition_benchmark_review_assignment(
             assignment_id, event=event, actor=actor, at=at, reason=reason,
             submitted_review_id=submitted_review_id,
