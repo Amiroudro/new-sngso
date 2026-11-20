@@ -147,3 +147,8 @@ The deterministic learning-object quality report exposes a dedicated distractor-
 Each MCQ distractor rationale now carries one or more basis_claim_ids. These IDs must be a non-empty subset of the learning object's story-linked claims. The quality report separately checks whether every rationale basis claim still exists, is assessed as supported or partially supported, and has linked evidence. Missing, unassessed, disputed, contradicted, retracted, or evidence-free rationale claims block the registry quality gate.
 
 This is a conservative evidence-link check, not proof that the rationale logically follows from the claim or that the distractor is pedagogically effective. Human review remains necessary to judge the wording, ambiguity, plausibility, and learner-level suitability of each option.
+
+
+## Section 7.39: language-rubric quality gate
+
+Every learning object must pass its language-specific editorial rubric before the deterministic registry quality report can return a passing quality gate. Generic approval metadata alone is insufficient. Bangla and English use their exact rubric versions and dimension sets. This check establishes recorded rubric completeness only; trusted reviewer authentication, factual correctness, question pedagogy, genuine human evidence, and production authorization remain separate requirements.

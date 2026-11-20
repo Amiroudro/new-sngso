@@ -6,7 +6,7 @@
 **Repository:** `Amiroudro/new-sngso`  
 **Working branch:** `feat/section-7-human-benchmark-review-contract`  
 **Open pull request:** [PR #7](https://github.com/Amiroudro/new-sngso/pull/7)  
-**Latest full-suite-verified code head:** `bf1559f352455055070303177a051eed357d38ac` — [run #44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064), 688 passed in 7.75 seconds. Recheck the live PR head before further edits.
+**Latest full-suite-verified code head:** `1ecf6a9345c996366363d5f8a08191485f6db66e` — [run #44731019456](https://github.com/Amiroudro/new-sngso/actions/runs/44731019456), 689 passed in 8.59 seconds. Recheck the live PR head before further edits.
 
 ---
 
@@ -77,7 +77,7 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 10. **End-to-end verification and controlled handover**  
     Verify the complete system, document limitations and operations, and hand over without unauthorized publication.
 
-**Current position:** Section 7 remains in progress. Sections 7.35 vocabulary evidence binding, 7.36 question answer-evidence binding, 7.37 revision-card claim traceability, and 7.38 bilingual variant claim-coverage reporting are verified. Sections 8, 9, and 10 have not started. Do not describe Section 7 as complete.
+**Current position:** Section 7 remains in progress. Sections 7.35 vocabulary evidence binding, 7.36 question answer-evidence binding, 7.37 revision-card claim traceability, 7.38 bilingual variant claim-coverage reporting, and 7.39 language-rubric quality gating are verified. Sections 8, 9, and 10 have not started. Do not describe Section 7 as complete.
 
 ## 4. Verified repository and PR state
 
@@ -85,7 +85,7 @@ Keep this exact order. Do not rename, merge, skip, or prematurely mark sections 
 - PR #7 is a draft and is not merged.
 - Base branch: `feat/section-7-editorial-benchmarks`.
 - Head branch: `feat/section-7-human-benchmark-review-contract`.
-- Latest full-suite-verified code head: `bf1559f352455055070303177a051eed357d38ac`; GitHub Actions run [#44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064) passed with **688 tests in 7.75 seconds**. Latest documentation-only head `bea55e22c1cb0d5cd6dcd389cfaf8362900c932d` passed [run #44729198761](https://github.com/Amiroudro/new-sngso/actions/runs/44729198761), 688 tests in 8.58 seconds. Recheck PR #7 for any later commits.
+- Latest full-suite-verified code head: `1ecf6a9345c996366363d5f8a08191485f6db66e`; GitHub Actions run [#44731019456](https://github.com/Amiroudro/new-sngso/actions/runs/44731019456) passed with **689 tests in 8.59 seconds**. Recheck PR #7 for any later commits.
 - PR #7 is based on the benchmark branch from PR #6, which remains open and draft. Keep PR #7 draft until the dependency is integrated or the target branch is deliberately changed.
 - Previous historical checkpoint: run [#44708874613](https://github.com/Amiroudro/new-sngso/actions/runs/44708874613), 677 Python 3.12 tests in 6.94 seconds.
 - PR has 68 changed files at the latest check.
@@ -172,33 +172,19 @@ The Section 7.18 operational security review recorded **NOT ACCEPTED FOR PRODUCT
 
 Continue Section 7. Do not jump to Section 8 until Section 7 exit criteria are demonstrably met.
 
-### Next: continue Section 7 from the live verified state
+### Remaining Section 7 work
 
-Audit existing schemas, validators, registry methods, quality reports, tests, and documentation before coding. Extend existing abstractions rather than creating duplicate frameworks.
+The source-evidence bindings, revision-card segment checks, bilingual claim-coverage diagnostic, and language-rubric quality gate are implemented and CI-verified. Continue in Section 7 while these exit blockers remain:
 
-Priorities:
-1. **Vocabulary:** tie each entry to the exact source sentence or evidence locator, preserve context and part of speech, distinguish contextual meaning from general dictionary meaning, and record Bangla/English equivalents without inventing them.
-2. **Comprehension questions:** require answer claim IDs and evidence locators; ensure the answer is actually supported by the cited source material; preserve uncertainty and attribution.
-3. **MCQs:** validate correct-answer support, option uniqueness, rationale-to-claim links, and exact story/artifact binding. Human review must assess whether the correct answer is defensible and distractors are unambiguously wrong.
-4. **Revision cards:** preserve source, date/context, claim links, uncertainty, attribution, and language-specific review status.
-5. **Bilingual consistency:** review Bangla and English separately for meaning, omissions, terminology, attribution, and factual fidelity. Do not assume literal translation is correct.
-6. **Quality reports:** fail closed for missing evidence, stale references, unsupported claims, rejected reviews, or permission drift. Do not invent numeric quality scores.
-7. **Tests:** include adversarial and negative cases, migrations, stale revisions, evidence mismatch, missing/extra IDs, and language-specific failure cases.
-8. **Documentation:** update the Section 7 design, roadmap, completion record, and relevant contracts.
+1. Add a durable, authenticated human review workflow for MCQ pedagogical validity: one defensible answer, clear stem, plausible but unambiguously incorrect distractors, rationale quality, learner-level fit, and explanation fidelity. Existing automated checks do not establish these judgments.
+2. Obtain genuine, qualified Bangla and English human review data, prespecified calibration evidence, and independent acceptance evidence. Keep synthetic tests clearly separate.
+3. Collect actual reporting-lineage evidence and current permission evidence for each intended source operation. Do not infer independence or rights from publisher counts.
+4. Finish production identity-provider, protected administrator bootstrap, database/host controls, backup/restore drills, and the Section 7.18 operational sign-off.
+5. Define and test the compatibility boundary from the evidence-first engine to the integrated Flutter app. Do not assume its contracts are interchangeable with the older Engine v2 format.
+6. Verify realistic daily briefing inputs through the editorial workflow without invented sources or claims.
 
-After that, inspect remaining Section 7 gaps against the original plan: complete briefing tiers, source lineage, genuine human review, operational/security acceptance, and the real inputs needed for a daily briefing.
+The engineering workflow can continue while external evidence is gathered. Keep Section 7 open until every exit criterion is evidenced or explicitly recorded as unresolved; do not start Section 8 ahead of it.
 
-### Section 7 exit criteria
-
-Do not mark Section 7 complete until:
-- All intended editorial output types have versioned contracts and traceable evidence.
-- Bangla and English review workflows are separate, complete, and fail closed.
-- Source permissions and provenance are rechecked at use time.
-- Independent reporting is supported by actual lineage evidence, not publisher counts.
-- Genuine, qualified human review data exists and is distinguishable from synthetic fixtures.
-- Production identity, admin bootstrap, security controls, backup/restore, and operational sign-off are genuinely deployed and verified, or are explicitly recorded as unresolved blockers.
-- Realistic end-to-end inputs can pass the editorial workflow without inventing sources or claims.
-- Completion record accurately distinguishes implemented code, tested behavior, external dependencies, and evidence still missing.
 
 ## 7. Future sections: required direction
 
@@ -251,7 +237,7 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 >
 > Start with a fresh audit of the live repositories, current branches, relevant PRs, changed files, tests, and latest GitHub Actions results. Treat `Sngs-plus` as the integrated Flutter product and `new-sngso` as the evidence-first engine under active development. Verify exact commits before editing. Do not assume the handover's dated SHA or test counts are current.
 >
-> Continue from the actual state of the code. Sections 7.35–7.38 are verified. After checking the current engine head, audit MCQ validity, genuine human evidence, Section 7 exit gates, and the interface between the evidence-first engine and the integrated Flutter app. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
+> Continue from the actual state of the code. Sections 7.35–7.39 are verified. After checking the current engine head, continue with structured human MCQ validity review, genuine human evidence, source-lineage evidence, operational acceptance, and the interface between the evidence-first engine and the integrated Flutter app. Improve existing contracts and workflows instead of duplicating them. Add robust positive and negative tests, run the full suite, verify CI on the exact code head, and update the roadmap and completion record.
 >
 > Follow the original ten-section sequence exactly. Do not begin Section 8 until Section 7 exit criteria are actually met. Do not claim that synthetic tests prove editorial quality, that different publishers prove independent reporting, or that passing tests establish production readiness. Preserve uncertainty, attribution, source permissions, and human review.
 >
@@ -283,3 +269,12 @@ Use the following as the opening instruction in the new Premium ChatGPT conversa
 - This is a structural coverage diagnostic. Matching claim IDs do not establish translation fidelity, equivalent nuance, or linguistic quality. The report continues to return `production_ready=false` and `authorization_granted=false`.
 - Tests cover both matched and mismatched Bangla/English variant groups.
 - GitHub Actions [run #44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064) passed the full Python 3.12 suite: **688 passed in 7.75 seconds** on code head `bf1559f352455055070303177a051eed357d38ac`. Section 7 remains in progress.
+
+
+## Section 7.39: language-rubric quality gate (verified)
+
+- `learning_object_quality_report` now requires the exact Bangla or English review rubric to pass in addition to generic approval status. Generic approval alone cannot make an object pass its quality gate.
+- Positive fixtures now carry explicit language-specific rubric outcomes. A regression case proves that an otherwise approved object without the rubric is blocked.
+- The gate remains a deterministic completeness check; it does not establish reviewer identity or factual correctness by itself. The authenticated review facade and the Section 7.18 production gate remain separate controls.
+- GitHub Actions [run #44731019456](https://github.com/Amiroudro/new-sngso/actions/runs/44731019456) passed the full Python 3.12 suite: **689 passed in 8.59 seconds** on code head `1ecf6a9345c996366363d5f8a08191485f6db66e`.
+- Section 7 remains in progress; Sections 8–10 remain future work.

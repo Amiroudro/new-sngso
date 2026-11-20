@@ -142,3 +142,12 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - Tests cover matching and mismatched claim sets and confirm the report remains non-authorizing.
 - GitHub Actions [run #44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064) passed the full Python 3.12 suite: **688 passed in 7.75 seconds** on code head `bf1559f352455055070303177a051eed357d38ac`.
 - Claim-set parity is structural only; it does not prove translation fidelity or equivalent nuance. Section 7 remains in progress.
+
+
+## Section 7.39: language-rubric quality gate (verified)
+
+- The learning-object quality report now requires a complete, passing language-specific rubric in addition to approved status. Generic approval without Bangla/English rubric evidence blocks the quality gate.
+- Positive approval fixtures now carry language-appropriate rubric dimensions, and a negative test verifies that generic approval alone cannot pass.
+- This deterministic gate checks rubric completeness only. It does not authenticate the reviewer or prove editorial truth; the trusted review facade and operational acceptance remain separate requirements.
+- GitHub Actions [run #44731019456](https://github.com/Amiroudro/new-sngso/actions/runs/44731019456) passed **689 tests in 8.59 seconds** on code head `1ecf6a9345c996366363d5f8a08191485f6db66e`.
+- Section 7 remains in progress.
