@@ -1,31 +1,37 @@
 # Section 7.25: independent benchmark acceptance review
 
-## Purpose and separation of duties
+## Purpose
 
-Sections 7.22–7.24 establish a registered study plan and immutable execution evidence. They do not establish that the study is statistically sound, that the benchmark is editorially correct, or that the operating environment is secure. Section 7.25 defines a separate review contract that evaluates those dimensions without allowing one successful dimension to conceal failure in another.
+A registered study protocol and immutable execution record do not prove that the study is statistically defensible, that its benchmark is editorially sound, or that the operating environment is secure. This section makes those three dimensions explicit and requires an independent decision tied to the exact study evidence.
 
-## Three mandatory review domains
+## Three mandatory domains
 
-1. **Statistical validity:** suitability of the statistic for the measurement scale and sampling design; assumptions, clustering and dependence; sample and stratum coverage; uncertainty interval method; missingness and sensitivity analysis; reproducibility of the analysis artifact.
-2. **Editorial validity:** source traceability and current permission; factual support and claim scope; language quality; task and language coverage; adjudication outcomes; known answer leakage and benchmark contamination.
-3. **Operational security:** provider-backed identity and role provenance; reviewer and methodologist separation; immutable protocol, execution and score evidence; audit integrity; current permission checks; deployment controls and the Section 7.18 threat/control requirements.
+1. **Statistical validity:** statistic/measurement-scale fit, assumptions, sampling and stratum coverage, dependence and clustering, uncertainty interval method, missingness and sensitivity analysis, and reproducibility of the analysis artifact.
+2. **Editorial validity:** source traceability and current permission, factual support and claim scope, language quality, task/language coverage, adjudication outcomes, answer leakage, and benchmark contamination.
+3. **Operational security:** provider-backed identity and role provenance, separation of reviewers and methodologist, immutable protocol/execution/score evidence, audit integrity, current permission checks, and the Section 7.18 threat/control requirements.
 
-Each domain must include a status, findings, evidence references, and a reasoned rationale. Acceptance is rejected by the validator unless all three domains pass. A reviewer cannot turn a missing domain into a pass by citing a strong result in another domain.
+Each domain records a status, findings, evidence references, and rationale. Acceptance is invalid unless all three domains pass. Strong performance in one domain cannot compensate for a failed or incomplete domain.
 
-## Independence and evidence binding
+## Exact evidence and independence
 
-The review binds the exact study ID/version, protocol fingerprint, execution ID/fingerprint, benchmark fingerprint, and rubric version. These values are recomputed from the supplied protocol and execution payloads and compared exactly. A changed protocol or execution invalidates the review and requires a new review.
+Every decision binds the study ID/version, protocol fingerprint, execution ID/fingerprint, benchmark fingerprint, and rubric version. The validator recomputes protocol and execution fingerprints from the supplied immutable payloads. The registry additionally retrieves the exact registered protocol and execution rows and verifies their stored fingerprints and relationship before accepting a decision.
 
-The acceptance reviewer must be distinct from every planned blind evaluator and the methodologist. A conflict declaration is mandatory; a declared conflict blocks the decision. The contract requires the independent-acceptance-reviewer role, but this pure validator does not authenticate that role or identity. A future durable registry and authenticated facade must enforce it at the trust boundary.
+The reviewer must be an active human-classified benchmark_acceptance_reviewer with recent provider-backed authentication. The reviewer ID must match the authenticated issuer/subject-mapped principal. A blind evaluator or the study methodologist cannot issue the acceptance review. A conflict declaration is mandatory and a declared conflict blocks acceptance.
 
-## Decision semantics and scope
+## Durable decision ledger
 
-Decisions are not_reviewed, needs_revision, rejected, accepted_for_limited_use, and accepted_for_proposed_use. Acceptance requires all three domains to pass. Rejection requires at least one failed domain; a revision decision requires at least one domain marked for revision.
+SQLite migration 23 adds benchmark_acceptance_reviews. The ledger stores the decision, exact evidence fingerprints, reviewer, provider provenance, timestamp, reason, and a canonical acceptance-record fingerprint. Database constraints enforce unique review IDs and at most one final acceptance decision per execution. Triggers enforce payload/index consistency and prevent updates or deletion. A hash-chained audit event records registration.
 
-Every record states its intended use, limitations, evidence references, and rationale. The labels describe review outcomes only. They do not authorize production publication, automated editorial decisions, or bypass of the Section 7.18 security gate. No decision in this section can set production_ready or grant authorization.
+The authenticated facade exposes submission to the acceptance-reviewer role. Retrieval is scoped to the submitting reviewer or authorized governance roles; listing is restricted to curator, adjudicator, security administrator, and methodologist roles. The role is provisioned through the existing security-admin lifecycle. The raw registry remains a trusted deployment boundary and must not be exposed to request handlers.
 
-## Current implementation boundary
+## Decision semantics and limits
 
-This section adds a versioned JSON Schema, deterministic cross-record validator, and adversarial tests for stale fingerprints, reviewer conflicts, incomplete domain outcomes, and decision consistency. It is a contract/validation slice, not yet a durable decision ledger. The next implementation step should persist review decisions append-only, bind them to registry protocol/execution rows, enforce the independent reviewer role through authenticated sessions, and preserve the no-production-promotion invariant in database constraints and facade responses.
+Decisions are not_reviewed, needs_revision, rejected, accepted_for_limited_use, and accepted_for_proposed_use. Acceptance requires all three domains to pass. A reviewer must state intended use, scope limitations, evidence references, and rationale.
 
-No real study or independent acceptance review is supplied by synthetic tests. Passing tests prove only that these declared validation rules behave as tested.
+These are evidence-backed review outcomes, not production authorization. Stored records always report production_ready=false and authorization_granted=false. The decision cannot bypass Section 7.18 or promote a benchmark automatically. A new immutable execution record is required before another acceptance decision can be registered for the same study execution.
+
+## What this section does not prove
+
+The registry verifies declared evidence linkage and reviewer authorization; it does not independently reproduce the statistical calculation, authenticate the real-world truth of source claims, assess reviewer competence, or prove that a human has discovered every material defect. The domain findings and cited evidence still require genuine independent scrutiny.
+
+No real human study or acceptance review is supplied by the test fixtures. Passing tests prove the tested controls behave as coded, not that a benchmark is accurate or suitable for production.
