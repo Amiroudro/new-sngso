@@ -147,8 +147,9 @@ def test_study_protocol_rejects_item_task_mismatch():
         changed = deepcopy(protocol)
         changed["blind_assignment_plan"][0]["task_type"] = "translation"
         changed["language_task_strata"][0]["task_type"] = "translation"
+        changed["language_task_strata"].append({"language": "bn", "task_type": "headline"})
         for reviewer in changed["reviewer_plan"]:
-            reviewer["task_types"] = ["translation"]
+            reviewer["task_types"] = ["headline", "translation"]
         with pytest.raises(RegistryIntegrityError, match="task type does not match"):
             registry.register_benchmark_study_protocol(
                 changed, actor="curator:study", reason="Mismatched task",
