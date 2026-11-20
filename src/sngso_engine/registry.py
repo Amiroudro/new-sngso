@@ -41,6 +41,7 @@ from .benchmark_agreement import benchmark_evaluator_agreement, BenchmarkAgreeme
 from .benchmark_adjudication import validate_benchmark_adjudication
 from .benchmark_study import validate_benchmark_study_protocol, BenchmarkStudyError
 from .benchmark_study_execution import validate_benchmark_study_execution, BenchmarkStudyExecutionError
+from .benchmark_acceptance_review import validate_benchmark_acceptance_review, BenchmarkAcceptanceReviewError
 from .benchmark_assignments import (
     BenchmarkAssignmentError,
     transition_benchmark_assignment,
@@ -49,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 22
+_SCHEMA_VERSION = 23
 
 
 _MIGRATION_14 = (
@@ -399,6 +400,64 @@ _MIGRATION_22 = (
     """CREATE TRIGGER benchmark_study_executions_no_delete
        BEFORE DELETE ON benchmark_study_executions
        BEGIN SELECT RAISE(ABORT, 'study execution history is append-only'); END""",
+)
+
+
+_MIGRATION_23 = (
+    """CREATE TABLE benchmark_acceptance_reviews (
+        review_id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL UNIQUE,
+        protocol_record_id TEXT NOT NULL,
+        study_id TEXT NOT NULL,
+        study_version INTEGER NOT NULL,
+        protocol_fingerprint TEXT NOT NULL,
+        execution_fingerprint TEXT NOT NULL,
+        benchmark_id TEXT NOT NULL,
+        benchmark_fingerprint TEXT NOT NULL,
+        rubric_version TEXT NOT NULL,
+        reviewer_id TEXT NOT NULL,
+        reviewer_role TEXT NOT NULL CHECK (reviewer_role = 'independent_acceptance_reviewer'),
+        decision TEXT NOT NULL CHECK (decision IN (
+            'not_reviewed', 'needs_revision', 'rejected',
+            'accepted_for_limited_use', 'accepted_for_proposed_use'
+        )),
+        issuer TEXT NOT NULL CHECK (length(trim(issuer)) > 0),
+        subject TEXT NOT NULL CHECK (length(trim(subject)) > 0),
+        provider_key_id TEXT NOT NULL CHECK (length(trim(provider_key_id)) > 0),
+        provider_adapter TEXT NOT NULL CHECK (length(trim(provider_adapter)) > 0),
+        authenticated_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        FOREIGN KEY (execution_id) REFERENCES benchmark_study_executions(execution_id) ON DELETE RESTRICT,
+        FOREIGN KEY (protocol_record_id) REFERENCES benchmark_study_protocols(protocol_record_id) ON DELETE RESTRICT,
+        FOREIGN KEY (benchmark_id) REFERENCES benchmark_artifacts(artifact_id) ON DELETE RESTRICT,
+        FOREIGN KEY (reviewer_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT
+    )""",
+    """CREATE INDEX benchmark_acceptance_reviews_study
+       ON benchmark_acceptance_reviews(study_id, study_version, created_at)""",
+    """CREATE TRIGGER benchmark_acceptance_reviews_payload_guard
+       BEFORE INSERT ON benchmark_acceptance_reviews
+       WHEN json_extract(NEW.payload_json, '$.review_id') IS NOT NEW.review_id
+         OR json_extract(NEW.payload_json, '$.execution_id') IS NOT NEW.execution_id
+         OR json_extract(NEW.payload_json, '$.study_id') IS NOT NEW.study_id
+         OR json_extract(NEW.payload_json, '$.study_version') IS NOT NEW.study_version
+         OR json_extract(NEW.payload_json, '$.protocol_fingerprint') IS NOT NEW.protocol_fingerprint
+         OR json_extract(NEW.payload_json, '$.execution_fingerprint') IS NOT NEW.execution_fingerprint
+         OR json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.benchmark_id
+         OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.benchmark_fingerprint
+         OR json_extract(NEW.payload_json, '$.rubric_version') IS NOT NEW.rubric_version
+         OR json_extract(NEW.payload_json, '$.reviewer_id') IS NOT NEW.reviewer_id
+         OR json_extract(NEW.payload_json, '$.reviewer_role') IS NOT NEW.reviewer_role
+         OR json_extract(NEW.payload_json, '$.decision') IS NOT NEW.decision
+       BEGIN SELECT RAISE(ABORT, 'acceptance review payload does not match indexed evidence'); END""",
+    """CREATE TRIGGER benchmark_acceptance_reviews_no_update
+       BEFORE UPDATE ON benchmark_acceptance_reviews
+       BEGIN SELECT RAISE(ABORT, 'benchmark acceptance decisions are immutable'); END""",
+    """CREATE TRIGGER benchmark_acceptance_reviews_no_delete
+       BEFORE DELETE ON benchmark_acceptance_reviews
+       BEGIN SELECT RAISE(ABORT, 'benchmark acceptance decisions are append-only'); END""",
 )
 
 
@@ -1801,6 +1860,19 @@ class SQLiteRegistry:
                     raise RegistryMigrationError("Migration 22 failed; transaction rolled back") from exc
 
 
+
+            if version == 22 and _SCHEMA_VERSION >= 23:
+                try:
+                    for statement in _MIGRATION_23:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (23, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 23")
+                    version = 23
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 23 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -5224,7 +5296,7 @@ class SQLiteRegistry:
         principal_kind: str = "unverified"
     ) -> dict[str, Any]:
         """Provision a registry principal; caller must be a trusted operator."""
-        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist"}
+        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist", "benchmark_acceptance_reviewer"}
         supported_languages = {"bn", "en"}
         if principal_kind not in {"human", "synthetic", "automation", "unverified"}:
             raise ValueError("principal_kind must be human, synthetic, automation, or unverified")
@@ -6466,6 +6538,135 @@ class SQLiteRegistry:
             (study_id,),
         ).fetchall()
         return [self.get_benchmark_study_execution(row["execution_id"]) for row in rows]
+
+
+    def register_benchmark_acceptance_review(
+        self, payload: dict[str, Any], *, actor: str,
+        identity: dict[str, Any], reason: str
+    ) -> dict[str, Any]:
+        """Persist one immutable independent acceptance decision for an exact execution."""
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise RegistryIntegrityError("acceptance reviewer actor and reason are required")
+        identity_fields = ("issuer", "subject", "provider_key_id", "provider_adapter", "authenticated_at")
+        if not isinstance(identity, dict) or any(
+            not isinstance(identity.get(key), str) or not identity[key].strip()
+            for key in identity_fields
+        ):
+            raise RegistryIntegrityError("acceptance review requires trusted provider identity evidence")
+        authenticated_at = _aware_datetime(identity["authenticated_at"], "authenticated_at")
+        now = datetime.now(timezone.utc)
+        if authenticated_at > now or now - authenticated_at > timedelta(minutes=15):
+            raise RegistryIntegrityError("acceptance review requires recent authentication within 15 minutes")
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_acceptance_reviewer")
+            reviewer = connection.execute(
+                "SELECT active, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                (actor,),
+            ).fetchone()
+            if reviewer is None or not reviewer["active"] or reviewer["principal_kind"] != "human":
+                raise RegistryIntegrityError("acceptance review requires an active human-classified reviewer")
+            protocol_row = connection.execute(
+                "SELECT * FROM benchmark_study_protocols WHERE study_id = ? AND study_version = ?",
+                (payload.get("study_id"), payload.get("study_version")),
+            ).fetchone()
+            execution_row = connection.execute(
+                "SELECT * FROM benchmark_study_executions WHERE execution_id = ?",
+                (payload.get("execution_id"),),
+            ).fetchone()
+            if protocol_row is None or execution_row is None:
+                raise RegistryIntegrityError("acceptance review must reference registered protocol and execution records")
+            protocol = json.loads(protocol_row["payload_json"])
+            execution = json.loads(execution_row["payload_json"])
+            if sha256_fingerprint(protocol) != protocol_row["protocol_fingerprint"]:
+                raise RegistryIntegrityError("registered study protocol fingerprint verification failed")
+            if sha256_fingerprint(execution) != execution_row["execution_fingerprint"]:
+                raise RegistryIntegrityError("registered study execution fingerprint verification failed")
+            if execution_row["protocol_record_id"] != protocol_row["protocol_record_id"]:
+                raise RegistryIntegrityError("execution is not bound to the referenced registered protocol version")
+            try:
+                validate_benchmark_acceptance_review(payload, protocol=protocol, execution=execution)
+            except (TypeError, ValueError, BenchmarkAcceptanceReviewError) as exc:
+                raise RegistryIntegrityError("acceptance review does not satisfy the exact registered study evidence") from exc
+            if actor != payload["reviewer_id"]:
+                raise RegistryIntegrityError("acceptance reviewer must match the authenticated principal")
+            if actor in {row["reviewer_id"] for row in protocol["reviewer_plan"]}:
+                raise RegistryIntegrityError("blind evaluator cannot act as independent acceptance reviewer")
+            if actor == execution_row["methodologist_id"]:
+                raise RegistryIntegrityError("methodologist cannot act as independent acceptance reviewer")
+            artifact = connection.execute(
+                "SELECT content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+                (execution_row["benchmark_id"],),
+            ).fetchone()
+            if artifact is None or sha256_fingerprint(json.loads(artifact["content_json"])) != artifact["content_fingerprint"]:
+                raise RegistryIntegrityError("acceptance review benchmark artifact fingerprint verification failed")
+            if artifact["content_fingerprint"] != execution_row["benchmark_fingerprint"]:
+                raise RegistryIntegrityError("acceptance review benchmark fingerprint is stale")
+            created_at = _utc_now()
+            connection.execute(
+                """INSERT INTO benchmark_acceptance_reviews
+                (review_id, execution_id, protocol_record_id, study_id, study_version,
+                 protocol_fingerprint, execution_fingerprint, benchmark_id,
+                 benchmark_fingerprint, rubric_version, reviewer_id, reviewer_role,
+                 decision, issuer, subject, provider_key_id, provider_adapter,
+                 authenticated_at, payload_json, created_at, actor, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (payload["review_id"], payload["execution_id"], protocol_row["protocol_record_id"],
+                 payload["study_id"], payload["study_version"], payload["protocol_fingerprint"],
+                 payload["execution_fingerprint"], payload["benchmark_id"],
+                 payload["benchmark_fingerprint"], payload["rubric_version"], actor,
+                 payload["reviewer_role"], payload["decision"], identity["issuer"], identity["subject"],
+                 identity["provider_key_id"], identity["provider_adapter"], identity["authenticated_at"],
+                 _json_text(payload), created_at, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_acceptance_review.registered",
+                entity_type="benchmark_acceptance_review", entity_id=payload["review_id"],
+                payload={"execution_id": payload["execution_id"], "study_id": payload["study_id"],
+                         "decision": payload["decision"], "reviewer_id": actor,
+                         "protocol_fingerprint": payload["protocol_fingerprint"],
+                         "execution_fingerprint": payload["execution_fingerprint"], "reason": reason},
+            )
+        return self.get_benchmark_acceptance_review(payload["review_id"]) or {}
+
+    def get_benchmark_acceptance_review(self, review_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_acceptance_reviews WHERE review_id = ?", (review_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload_json"])
+        return {
+            "review_id": row["review_id"], "execution_id": row["execution_id"],
+            "protocol_record_id": row["protocol_record_id"], "study_id": row["study_id"],
+            "study_version": row["study_version"], "protocol_fingerprint": row["protocol_fingerprint"],
+            "execution_fingerprint": row["execution_fingerprint"], "benchmark_id": row["benchmark_id"],
+            "benchmark_fingerprint": row["benchmark_fingerprint"], "rubric_version": row["rubric_version"],
+            "reviewer_id": row["reviewer_id"], "decision": row["decision"],
+            "issuer": row["issuer"], "subject": row["subject"], "provider_key_id": row["provider_key_id"],
+            "provider_adapter": row["provider_adapter"], "authenticated_at": row["authenticated_at"],
+            "review": payload, "created_at": row["created_at"], "actor": row["actor"],
+            "reason": row["reason"], "fingerprint_verified": (
+                sha256_fingerprint(payload) == sha256_fingerprint(json.loads(row["payload_json"]))
+            ),
+            "production_ready": False, "authorization_granted": False,
+        }
+
+    def list_benchmark_acceptance_reviews(
+        self, *, study_id: str | None = None, execution_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        clauses, values = [], []
+        if study_id is not None:
+            clauses.append("study_id = ?")
+            values.append(study_id)
+        if execution_id is not None:
+            clauses.append("execution_id = ?")
+            values.append(execution_id)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self._connection.execute(
+            "SELECT review_id FROM benchmark_acceptance_reviews" + where + " ORDER BY created_at, review_id",
+            values,
+        ).fetchall()
+        return [self.get_benchmark_acceptance_review(row["review_id"]) for row in rows]
 
     def get_benchmark_score(self, score_id: str) -> dict[str, Any] | None:
         row = self._connection.execute(
