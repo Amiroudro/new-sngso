@@ -141,25 +141,25 @@
               }
             },
             "allOf": [
-    {
-      "if": {
-        "required": [
-          "language_review"
-        ]
-      },
-      "then": {
-        "properties": {
-          "status": {
-            "const": "approved"
-          }
-        },
-        "required": [
-          "reviewed_at",
-          "reviewed_by",
-          "review_note"
-        ]
-      }
-    },
+              {
+                "if": {
+                  "required": [
+                    "language_review"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "status": {
+                      "const": "approved"
+                    }
+                  },
+                  "required": [
+                    "reviewed_at",
+                    "reviewed_by",
+                    "review_note"
+                  ]
+                }
+              },
               {
                 "if": {
                   "properties": {
@@ -321,6 +321,7 @@
       "additionalProperties": false,
       "required": [
         "language",
+        "rubric_version",
         "reviewer_id",
         "reviewed_at",
         "dimensions",
@@ -349,22 +350,32 @@
         "dimensions": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "language_accuracy",
-            "clarity",
-            "factual_fidelity",
-            "attribution",
-            "omissions",
-            "translation_fidelity"
-          ],
           "properties": {
-            "language_accuracy": {
+            "grammar_and_spelling": {
               "enum": [
                 "pass",
                 "needs_revision"
               ]
             },
-            "clarity": {
+            "naturalness_and_register": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "grammar_and_style": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "clarity_and_readability": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "terminology_consistency": {
               "enum": [
                 "pass",
                 "needs_revision"
@@ -396,8 +407,77 @@
               ]
             }
           }
+        },
+        "rubric_version": {
+          "type": "string",
+          "enum": [
+            "bn-editorial-v1",
+            "en-editorial-v1"
+          ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "language": {
+                "const": "bn"
+              }
+            },
+            "required": [
+              "language"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rubric_version": {
+                "const": "bn-editorial-v1"
+              },
+              "dimensions": {
+                "required": [
+                  "grammar_and_spelling",
+                  "naturalness_and_register",
+                  "terminology_consistency",
+                  "factual_fidelity",
+                  "attribution",
+                  "omissions",
+                  "translation_fidelity"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "language": {
+                "const": "en"
+              }
+            },
+            "required": [
+              "language"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rubric_version": {
+                "const": "en-editorial-v1"
+              },
+              "dimensions": {
+                "required": [
+                  "grammar_and_style",
+                  "clarity_and_readability",
+                  "terminology_consistency",
+                  "factual_fidelity",
+                  "attribution",
+                  "omissions",
+                  "translation_fidelity"
+                ]
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "allOf": [
@@ -563,6 +643,28 @@
             ]
           }
         }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "language_review"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          }
+        },
+        "required": [
+          "reviewed_at",
+          "reviewed_by",
+          "review_note"
+        ]
       }
     }
   ]
