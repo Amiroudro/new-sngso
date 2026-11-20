@@ -272,8 +272,18 @@ def verify_flutter_staging_candidate(
         ("stories", "stories"), ("words", "words"), ("revision_words", "revision_words"),
         ("phrases", "phrases"), ("mcqs", "mcqs"), ("sources", "sources"),
     ):
-        if count_key in counts and counts[count_key] != len(client_edition.get(collection, [])):
+        if count_key not in counts:
+            continue
+        count_value = counts[count_key]
+        if isinstance(count_value, bool) or not isinstance(count_value, int) or count_value < 0:
+            raise FlutterCompatibilityError(f"{count_key} count must be a non-negative integer")
+        if count_value != len(client_edition.get(collection, [])):
             raise FlutterCompatibilityError(f"{count_key} count does not match its client array")
+    unsupported_count_keys = set(counts) - {
+        "stories", "words", "revision_words", "phrases", "mcqs", "sources"
+    }
+    if unsupported_count_keys:
+        raise FlutterCompatibilityError("counts contains unsupported keys")
 
     story_bindings = provenance_manifest.get("story_bindings")
     if not isinstance(story_bindings, list) or not story_bindings:
@@ -285,8 +295,6 @@ def verify_flutter_staging_candidate(
         story_id = _required_text(story.get("id"), "client story id")
         if story_id in client_stories:
             raise FlutterCompatibilityError("client story IDs must be unique")
-        if set(story) != {"id", "headline", "summary", "category", "sources"}:
-            raise FlutterCompatibilityError("client story contains unsupported or unbound fields")
         if set(story) != {"id", "headline", "summary", "category", "sources"}:
             raise FlutterCompatibilityError("client story contains unsupported or unbound fields")
         for field in ("headline", "summary", "category"):
@@ -394,8 +402,6 @@ def verify_flutter_staging_candidate(
             raise FlutterCompatibilityError(f"story {story_id} must display at least one source")
         if client_story["category"] and client_story["category"] not in story_payload.get("topic_tags", []):
             raise FlutterCompatibilityError(f"client category is not a registered story topic tag: {story_id}")
-        if client_story["category"] and client_story["category"] not in story_payload.get("topic_tags", []):
-            raise FlutterCompatibilityError(f"client category is not a registered story topic tag: {story_id}")
         binding = bindings_by_story[story_id]
         if set(binding) != {"story_id", "story_revision", "snapshot_sha256", "fields"}:
             raise FlutterCompatibilityError("story binding contains unsupported fields")
@@ -465,11 +471,7 @@ def verify_flutter_staging_candidate(
     edition_sources = client_edition.get("sources", [])
     if not isinstance(edition_sources, list):
         raise FlutterCompatibilityError("edition sources must be a list")
-    if not isinstance(edition_sources, list):
-        raise FlutterCompatibilityError("edition sources must be a list")
     edition_ref_fingerprints = set()
-    if not isinstance(edition_sources, list):
-        raise FlutterCompatibilityError("edition sources must be a list")
     for source_ref in edition_sources:
         if not isinstance(source_ref, dict):
             raise FlutterCompatibilityError("edition source references must be objects")
