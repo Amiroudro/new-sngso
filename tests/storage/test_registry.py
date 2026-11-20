@@ -1487,6 +1487,11 @@ def test_assignment_persists_with_immutable_revision_history_and_audit():
                 "DELETE FROM benchmark_review_assignments WHERE assignment_id = ?",
                 (payload["assignment_id"],),
             )
+        with pytest.raises(sqlite3.IntegrityError, match="matching append-only revision"):
+            registry._connection.execute(
+                "UPDATE benchmark_review_assignments SET revision = 2 WHERE assignment_id = ?",
+                (payload["assignment_id"],),
+            )
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             registry._connection.execute(
                 "UPDATE benchmark_review_assignment_revisions SET reason = 'tampered' WHERE assignment_id = ?",
@@ -1624,6 +1629,13 @@ def test_schema_v16_migrates_to_v17_assignment_ledger(tmp_path, monkeypatch):
             )
         }
         assert "languages_json" in columns
+        triggers = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert "benchmark_review_assignment_initial_revision" in triggers
+        assert "benchmark_review_assignment_update_requires_revision" in triggers
         migrated.migrate()
         assert migrated.schema_version() == 17
 
