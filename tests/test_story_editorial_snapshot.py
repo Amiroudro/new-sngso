@@ -206,6 +206,44 @@ def test_bilingual_quality_report_keeps_language_coverage_and_blockers_separate(
         registry.close()
 
 
+def test_narrative_assembly_traces_segments_and_keeps_language_and_conflicts_separate():
+    registry = _prepared()
+    try:
+        report = registry.story_narrative_assembly_report("story:one")
+        assert set(report["languages"]) == {"bn", "en"}
+        bangla = report["languages"]["bn"]
+        assert len(bangla["segments"]) == 1
+        segment = bangla["segments"][0]
+        assert segment["role"] == "fact"
+        assert segment["claim_ids"] == ["claim:a"]
+        assert segment["support_state"] == "unverified_or_disputed"
+        assert segment["claims"][0]["provenance"][0]["article_id"] == "article:one"
+        assert segment["claims"][0]["evidence"][0]["evidence_id"] == "evidence:one"
+        assert bangla["blockers"]
+        assert report["languages"]["en"]["publisher_perspectives"][0]["perspective_id"] == "perspective:one"
+        assert len(report["unresolved_contradictions"]) == 1
+        assert report["unresolved_contradictions"][0]["relation_id"] == "claim-relation:one"
+        assert report["languages"]["bn"]["production_ready"] is False
+        assert report["production_ready"] is False
+        assert report["authorization_granted"] is False
+    finally:
+        registry.close()
+
+
+def test_narrative_assembly_is_embedded_in_snapshot_without_changing_source_evidence():
+    registry = _prepared()
+    try:
+        snapshot = registry.story_editorial_snapshot("story:one")
+        report = snapshot["narrative_assembly_report"]
+        assert report["assembly_policy"]["attributed_positions_remain_separate"] is True
+        assert report["assembly_policy"]["bangla_and_english_are_assessed_independently"] is True
+        assert report["snapshot_fingerprint"] is None
+        assert snapshot["fingerprint"]
+        assert registry.verify_audit_chain()
+    finally:
+        registry.close()
+
+
 def test_editorial_snapshot_rejects_unknown_story():
     registry = _prepared()
     try:
