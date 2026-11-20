@@ -196,7 +196,11 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["claim_id", "evidence_id", "evidence_revision"],
+            "required": [
+              "claim_id",
+              "evidence_id",
+              "evidence_revision"
+            ],
             "properties": {
               "claim_id": {
                 "$ref": "common.schema.json#/$defs/id"
@@ -311,15 +315,29 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["option_id", "rationale", "basis_claim_ids"],
+            "required": [
+              "option_id",
+              "rationale",
+              "basis_claim_ids"
+            ],
             "properties": {
-              "option_id": {"type": "string", "minLength": 1, "maxLength": 40},
-              "rationale": {"type": "string", "minLength": 1, "maxLength": 1200},
+              "option_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "rationale": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1200
+              },
               "basis_claim_ids": {
                 "type": "array",
                 "minItems": 1,
                 "uniqueItems": true,
-                "items": {"$ref": "common.schema.json#/$defs/id"}
+                "items": {
+                  "$ref": "common.schema.json#/$defs/id"
+                }
               }
             }
           }
@@ -589,6 +607,168 @@
           }
         }
       ]
+    },
+    "mcq_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language",
+        "rubric_version",
+        "reviewer_id",
+        "reviewed_at",
+        "dimensions",
+        "note",
+        "identity_attestation"
+      ],
+      "properties": {
+        "language": {
+          "enum": [
+            "bn",
+            "en"
+          ]
+        },
+        "rubric_version": {
+          "const": "mcq-editorial-v1"
+        },
+        "reviewer_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "reviewed_at": {
+          "$ref": "common.schema.json#/$defs/dateTime"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "single_defensible_key",
+            "stem_clarity_and_precision",
+            "distractor_plausibility",
+            "distractors_unambiguously_incorrect",
+            "misconception_alignment",
+            "option_parallelism",
+            "no_accidental_clues",
+            "explanation_fidelity"
+          ],
+          "properties": {
+            "single_defensible_key": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "stem_clarity_and_precision": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "distractor_plausibility": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "distractors_unambiguously_incorrect": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "misconception_alignment": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "option_parallelism": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "no_accidental_clues": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            },
+            "explanation_fidelity": {
+              "enum": [
+                "pass",
+                "needs_revision"
+              ]
+            }
+          }
+        },
+        "identity_attestation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "principal_id",
+            "issuer",
+            "subject",
+            "provider_key_id",
+            "provider_adapter",
+            "authenticated_at",
+            "attested_at",
+            "authentication_methods",
+            "authentication_context"
+          ],
+          "properties": {
+            "principal_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "issuer": {
+              "type": "string",
+              "format": "uri"
+            },
+            "subject": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "provider_key_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "provider_adapter": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "authenticated_at": {
+              "$ref": "common.schema.json#/$defs/dateTime"
+            },
+            "attested_at": {
+              "$ref": "common.schema.json#/$defs/dateTime"
+            },
+            "authentication_methods": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            },
+            "authentication_context": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      }
     }
   },
   "allOf": [
