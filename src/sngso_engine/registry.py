@@ -4659,6 +4659,211 @@ class SQLiteRegistry:
             if not item["is_superseded"]
         ]
 
+    @staticmethod
+    def _story_narrative_assembly_from_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Assemble reviewed, language-separated narrative segments with claim/evidence traces."""
+        claims = {item["id"]: item["record"] for item in snapshot["claims"]}
+        evidence_by_claim: dict[str, list[dict[str, Any]]] = {}
+        for item in snapshot["evidence"]:
+            evidence_by_claim.setdefault(item["record"]["claim_id"], []).append(item["record"])
+
+        by_language: dict[str, dict[str, Any]] = {
+            "bn": {"language": "bn", "objects": [], "segments": [], "blockers": []},
+            "en": {"language": "en", "objects": [], "segments": [], "blockers": []},
+        }
+        for item in snapshot["learning_objects"]:
+            record = item["record"]
+            language = record["language"]
+            if language not in by_language:
+                continue
+            segments = record.get("content", {}).get("segments", [])
+            if not segments:
+                continue
+            language_report = by_language[language]
+            object_entry = {
+                "learning_object_id": item["id"],
+                "revision": item["revision"],
+                "kind": record["kind"],
+                "status": record["status"],
+                "language_review": record.get("language_review"),
+                "segment_count": len(segments),
+            }
+            language_report["objects"].append(object_entry)
+            if record["status"] != "approved":
+                language_report["blockers"].append({
+                    "learning_object_id": item["id"],
+                    "reason": "learning object is not approved",
+                })
+            if not record.get("language_review"):
+                language_report["blockers"].append({
+                    "learning_object_id": item["id"],
+                    "reason": "independent language review evidence is missing",
+                })
+
+            for index, segment in enumerate(segments):
+                claim_ids = sorted(segment.get("claim_ids", []))
+                claim_entries = []
+                missing_claim_ids = []
+                unsupported_claim_ids = []
+                for claim_id in claim_ids:
+                    claim = claims.get(claim_id)
+                    if claim is None:
+                        missing_claim_ids.append(claim_id)
+                        continue
+                    evidence = sorted(
+                        evidence_by_claim.get(claim_id, []),
+                        key=lambda entry: entry["id"],
+                    )
+                    supporting_evidence = [
+                        entry for entry in evidence if entry["relationship"] == "supports"
+                    ]
+                    if claim.get("assessment") != "supported" or not supporting_evidence:
+                        unsupported_claim_ids.append(claim_id)
+                    claim_entries.append({
+                        "claim_id": claim_id,
+                        "claim_text": claim["text"],
+                        "assessment": claim["assessment"],
+                        "provenance": claim.get("provenance", []),
+                        "evidence": [
+                            {
+                                "evidence_id": entry["id"],
+                                "source_id": entry["source_id"],
+                                "article_id": entry.get("article_id"),
+                                "relationship": entry["relationship"],
+                                "locator": entry["locator"],
+                                "assessment_method": entry.get("assessment_method"),
+                            }
+                            for entry in evidence
+                        ],
+                    })
+
+                role = segment["role"]
+                if role == "fact":
+                    support_state = (
+                        "supported"
+                        if claim_ids and not missing_claim_ids and not unsupported_claim_ids
+                        else "unverified_or_disputed"
+                    )
+                elif role == "attributed":
+                    support_state = "attributed_position"
+                else:
+                    support_state = "editorial_analysis"
+                trace = {
+                    "learning_object_id": item["id"],
+                    "learning_object_revision": item["revision"],
+                    "segment_index": index,
+                    "language": language,
+                    "text": segment["text"],
+                    "role": role,
+                    "attribution": segment.get("attribution"),
+                    "support_state": support_state,
+                    "claim_ids": claim_ids,
+                    "claims": claim_entries,
+                    "missing_claim_ids": missing_claim_ids,
+                    "unsupported_claim_ids": unsupported_claim_ids,
+                    "traceable": bool(claim_ids) and not missing_claim_ids,
+                }
+                language_report["segments"].append(trace)
+                if missing_claim_ids:
+                    language_report["blockers"].append({
+                        "learning_object_id": item["id"],
+                        "segment_index": index,
+                        "reason": "segment references missing claims",
+                        "claim_ids": missing_claim_ids,
+                    })
+                if role == "fact" and support_state != "supported":
+                    language_report["blockers"].append({
+                        "learning_object_id": item["id"],
+                        "segment_index": index,
+                        "reason": "factual sentence lacks fully supported claims and supporting evidence",
+                        "claim_ids": unsupported_claim_ids or claim_ids,
+                    })
+
+        perspectives_by_language: dict[str, list[dict[str, Any]]] = {"bn": [], "en": []}
+        for item in snapshot["perspectives"]:
+            record = item["record"]
+            language = record["language"]
+            if language in perspectives_by_language:
+                perspectives_by_language[language].append({
+                    "perspective_id": item["perspective_id"],
+                    "kind": record["kind"],
+                    "attribution": record["attribution"],
+                    "source_id": item["source_id"],
+                    "article_id": item["article_id"],
+                    "text": record["text"],
+                    "claim_ids": sorted(record.get("claim_ids", [])),
+                    "review_status": record.get("review_status", "unreviewed"),
+                })
+
+        contradictions = []
+        for relation in snapshot["claim_relations"]:
+            if relation["relationship"] != "contradicts":
+                continue
+            record = relation["record"]
+            left = claims.get(relation["claim_id"], {})
+            right = claims.get(relation["related_claim_id"], {})
+            contradictions.append({
+                "relation_id": relation["relation_id"],
+                "claim_id": relation["claim_id"],
+                "claim_text": left.get("text"),
+                "related_claim_id": relation["related_claim_id"],
+                "related_claim_text": right.get("text"),
+                "review_status": record.get("review_status", "unreviewed"),
+                "reviewed_by": record.get("reviewed_by"),
+                "reviewed_at": record.get("reviewed_at"),
+                "review_note": record.get("review_note"),
+            })
+        unresolved_contradictions = [
+            item for item in contradictions
+            if item["review_status"] not in {"approved", "resolved"}
+        ]
+
+        languages = {}
+        for language, report in by_language.items():
+            report["publisher_perspectives"] = [
+                item for item in perspectives_by_language[language]
+                if item["kind"] == "publisher_framing"
+            ]
+            report["other_attributed_perspectives"] = [
+                item for item in perspectives_by_language[language]
+                if item["kind"] != "publisher_framing"
+            ]
+            report["unresolved_contradiction_ids"] = [
+                item["relation_id"] for item in unresolved_contradictions
+            ]
+            report["production_ready"] = False
+            report["authorization_granted"] = False
+            languages[language] = report
+
+        return {
+            "story_id": snapshot["story_id"],
+            "snapshot_fingerprint": None,
+            "languages": languages,
+            "contradictions": contradictions,
+            "unresolved_contradictions": unresolved_contradictions,
+            "reporting_independence": snapshot["reporting_independence"],
+            "independence_caveat": (
+                "Publisher count and article count are not proof of independent reporting. "
+                "Syndication, shared sourcing, and common-origin material must be investigated separately."
+            ),
+            "assembly_policy": {
+                "facts_require_supported_claims_and_supporting_evidence": True,
+                "attributed_positions_remain_separate": True,
+                "editorial_analysis_remains_labelled": True,
+                "bangla_and_english_are_assessed_independently": True,
+                "unresolved_contradictions_are_preserved": True,
+            },
+            "production_ready": False,
+            "authorization_granted": False,
+        }
+
+    def story_narrative_assembly_report(self, story_id: str) -> dict[str, Any]:
+        """Return a deterministic, non-authorizing narrative assembly dossier."""
+        snapshot = self.story_editorial_snapshot(story_id)
+        report = snapshot["narrative_assembly_report"]
+        report["snapshot_fingerprint"] = snapshot["fingerprint"]
+        return report
+
     def story_editorial_snapshot(self, story_id: str) -> dict[str, Any]:
         """Build a deterministic, read-only editorial dossier from one SQLite snapshot."""
         with self._transaction("DEFERRED") as connection:
@@ -4811,7 +5016,9 @@ class SQLiteRegistry:
                 "benchmark_acceptance_reviews": acceptance_reviews,
                 "reporting_independence": reporting_independence,
             }
+            snapshot["narrative_assembly_report"] = self._story_narrative_assembly_from_snapshot(snapshot)
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
+            snapshot["narrative_assembly_report"]["snapshot_fingerprint"] = snapshot["fingerprint"]
             return snapshot
 
     def add_glossary_entry(
