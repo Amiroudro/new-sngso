@@ -25,7 +25,7 @@ Before a review is stored, its declared article, publisher, permission-evidence,
 
 ## Limits that remain
 
-This is not reviewer authentication or authorization. A reviewer ID is a recorded declaration, not proof of identity. The registry does not independently establish that an editorial judgement is correct. Synthetic fixtures are not a substitute for a real, bilingual, human-reviewed benchmark set. Do not present metadata validation as proof of factual correctness.
+Registry-managed roles authorize declared principal IDs, but do not authenticate the human operating an account or independently establish editorial correctness. Synthetic fixtures are not a substitute for a real, bilingual, human-reviewed benchmark set. Do not present metadata validation as proof of factual correctness.
 
 The review record retains the fingerprint declaration, but migration 14 now binds it to stored canonical artifact content and independently recomputes it at review and eligibility checks.
 
@@ -33,7 +33,7 @@ The review record retains the fingerprint declaration, but migration 14 now bind
 
 The registry exposes a read-only benchmark review quality report. It separates the recorded review decision and metadata validation from a fresh check that each source still has verified evidence and a currently usable grant for its declared endpoint and operation. A suspended, revoked, expired, or otherwise unusable grant blocks current-use eligibility even when the historical review remains approved.
 
-The story editorial snapshot includes benchmark review records whose declared source articles belong to that story. Each included record carries its current revision, append-only review history, and a current-use quality report. This is provenance visibility, not an editorial quality score. The report explicitly warns that reviewer identity is not authenticated and that it does not determine factual correctness.
+The story editorial snapshot includes benchmark review records whose declared source articles belong to that story. Each included record carries its current revision, append-only review history, and a current-use quality report. This is provenance visibility, not an editorial quality score. The report warns that registry roles do not authenticate the human operating an account and that it does not determine factual correctness.
 
 ## 7.6 Immutable benchmark artifact registry
 
@@ -41,7 +41,7 @@ Schema migration 14 adds an immutable benchmark-artifact table. Curators registe
 
 A human review must now reference a registered artifact by its artifact ID. On review creation and revision, the registry re-reads the stored artifact, recomputes its fingerprint, and checks both the declared review fingerprint and language. The read-only quality report repeats this artifact check, and current-use eligibility fails closed if the artifact is missing, mismatched, or cannot be verified.
 
-This stage also defines a versioned benchmark-content contract. Each artifact contains one or more uniquely identified items with a task type, input, expected output, and explicit scoring criteria. The contract supports headline, summary, translation, claim extraction, fact-checking, vocabulary, and editorial-judgment tasks. Curator/reviewer identity authentication remains outside this stage. Canonicalization is explicitly versioned so a future change cannot silently reinterpret old fingerprints.
+This stage also defines a versioned benchmark-content contract. Each artifact contains one or more uniquely identified items with a task type, input, expected output, and explicit scoring criteria. The contract supports headline, summary, translation, claim extraction, fact-checking, vocabulary, and editorial-judgment tasks. Human identity authentication remains outside this stage. Canonicalization is explicitly versioned so a future change cannot silently reinterpret old fingerprints.
 
 ## 7.8 Registry-managed benchmark roles
 
@@ -49,12 +49,11 @@ Schema migration 15 adds registry-managed benchmark principals with the explicit
 
 Provisioning is an administrative operation and must be performed only by a trusted deployment operator. The local SQLite registry does not authenticate that operator or the human behind a principal ID. A production deployment must bind the principal ID to a trusted login/session and restrict provisioning to an authenticated administrator. Role checks are a registry authorization control, not proof of real-world identity.
 
-Adjudicator role registration is enforced when an adjudication is written. The registry requires the adjudicator principal to be active, to hold `benchmark_adjudicator`, and to match the declared adjudicator ID. The two referenced reviews must exist, bind to the same exact artifact fingerprint, and have reviewer IDs matching the stored review records. The adjudicator cannot be one of those reviewers. Adjudication records are immutable and audited. The record documents the resolution; it does not automatically rewrite review decisions or grant current-use approval. A downstream policy must interpret each outcome before changing benchmark eligibility.
+Adjudicator role registration is enforced when an adjudication is written. The registry requires the adjudicator principal to be active, to hold `benchmark_adjudicator`, and to match the declared adjudicator ID. The two referenced reviews must exist, bind to the same exact artifact fingerprint, and have reviewer IDs matching the stored review records. The adjudicator cannot be one of those reviewers. Adjudication records are immutable and audited. The record documents the resolution; it does not automatically rewrite review decisions or grant current-use approval. The read-only current-use quality report now applies an explicit fail-closed outcome policy: `uphold_existing` can preserve eligibility only for a referenced approved review; `return_for_revision` blocks use until a revised artifact is registered and reviewed; `reject_benchmark_item` blocks use; and `split_accepted_answers` blocks use until distinct accepted-answer items are represented in a revised artifact and freshly reviewed. The policy does not rewrite reviewers' historical decisions or grant approval to new artifact versions.
 
 ## Next gates
 
-- Define and implement the policy that maps adjudication outcomes to review status/current-use eligibility without silently rewriting reviewers' historical decisions.
-- Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
+- Connect principal IDs to a trusted authentication/session provider and restrict provisioning to authenticated administrators.
 - Populate separate Bangla and English benchmark sets with qualified human reviewers, adjudication, and correction provenance.
 
 ## 7.4 Operation-scoped permission enforcement
@@ -76,4 +75,4 @@ This check is performed when a review is created or revised. It does not authent
 
 A separate Draft 2020-12 adjudication record now captures the benchmark artifact fingerprint, at least two distinct review IDs, an adjudicator declaration, a controlled outcome, a reasoned decision, evidence references, and a timezone-aware resolution timestamp. Outcomes distinguish upholding an existing decision, returning work for revision, rejecting a benchmark item, and splitting multiple acceptable answers.
 
-The validator rejects an adjudicator whose declared principal ID is also listed among the reviewers. This is a workflow-level independence check, not proof of identity or actual independence. Authentication, role provisioning, durable adjudication history, and enforced reviewer-role separation remain explicit integration gates. The adjudication record is not yet wired into the SQLite review lifecycle, so it must not be treated as a production approval mechanism.
+The validator rejects an adjudicator whose declared principal ID is also listed among the reviewers. This is a workflow-level independence check, not proof of identity or actual independence. The validator's declared-independence check is supplemented by registry role enforcement and checks against the stored reviewer records. Durable adjudication history is immutable and audited. Current-use eligibility applies the explicit outcome policy described in Section 7.8. The adjudication workflow still does not authenticate the human behind a principal ID.
