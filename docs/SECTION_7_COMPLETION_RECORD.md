@@ -35,10 +35,23 @@ The repository implementation for the Section 7 human-benchmark governance workf
 Synthetic tests validate software behavior only. Production use remains blocked pending genuine Bangla/English human evidence, independent statistical and editorial review, current publisher permissions, real provider infrastructure, host/database controls, backup/restore drills, and formal completion of the Section 7.18 go/no-go checklist.
 
 
-## Section 8.1: benchmark-to-story evidence integration
+## Section 7.26: benchmark-to-story evidence integration
 
 - Story editorial snapshots now include acceptance decisions linked through registered benchmark source articles.
 - A current acceptance-quality report rechecks protocol, execution, artifact, decision, provider-attested human source reviews, and operation-scoped source permissions.
 - Expired, suspended, revoked, or otherwise unusable source permissions block scoped reference without rewriting historical reviews.
 - The report exposes intended use, scope limitations, named checks, and blockers. It never grants publication or production authorization.
-- See `docs/SECTION_8_1_STORY_BENCHMARK_EVIDENCE.md`.
+- See `docs/SECTION_7_26_BENCHMARK_STORY_INTEGRATION.md`.
+
+
+## Relationship to the ten-section master plan
+
+This completion record covers the human-benchmark governance slice of **Section 7: Editorial production and bilingual quality**. It does not mark all of Section 7 complete. Section 7 still requires production workflows for three-level summaries, independent Bangla and English review, multi-source perspectives, bilingual terminology, source-grounded vocabulary and exam learning, and daily briefing assembly inputs.
+
+Sections 8, 9, and 10 remain future ordered phases:
+
+- **8. Edition assembly and publication safety:** immutable editions/manifests, validation and approval gates, correction/supersession, last-known-good protection, and staging-only export.
+- **9. Operations, observability, and free-first automation:** structured run reports, health/alerts, recovery, scheduling after idempotency, cost controls, backup/restore, and incident response.
+- **10. End-to-end verification and controlled handover:** complete engine verification, real editorial evaluation, reproducibility, security review, and safe downstream integration readiness.
+
+The Section 7 benchmark acceptance integration is not a substitute for any of those deliverables.
