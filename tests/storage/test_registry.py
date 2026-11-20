@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 13
+        assert registry.schema_version() == 14
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 13
+        assert reopened.schema_version() == 14
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -1374,7 +1374,7 @@ def _benchmark_review_payload() -> dict:
         "schema_version": "1.0.0",
         "review_id": "review:benchmark-en-001",
         "benchmark_id": "benchmark:headline-en-v1",
-        "benchmark_fingerprint": "sha256:" + "c" * 64,
+        "benchmark_fingerprint": registry_module.sha256_fingerprint({"items": [{"prompt": "Sample English headline", "expected": "A verified report"}]}),
         "language": "en",
         "status": "approved",
         "reviewer": {
@@ -1406,6 +1406,13 @@ def _populate_benchmark_review_sources(registry: SQLiteRegistry) -> None:
     registry.add_permission_evidence(evidence_record())
     registry.add_permission_grant(grant_record())
     registry.add_domain_record("article", article_record())
+    registry.register_benchmark_artifact(
+        "benchmark:headline-en-v1",
+        language="en",
+        content={"items": [{"prompt": "Sample English headline", "expected": "A verified report"}]},
+        actor="benchmark-curator",
+        reason="register immutable test artifact",
+    )
 
 
 def test_benchmark_review_persists_with_registered_source_references_and_history():
@@ -1526,6 +1533,75 @@ def test_benchmark_review_history_cannot_be_updated_or_deleted():
                 "DELETE FROM benchmark_review_revisions WHERE review_id = ?",
                 (payload["review_id"],),
             )
+
+
+def test_existing_schema_v13_database_migrates_to_v14(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v13.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 13)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 13
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_artifacts'"
+        ).fetchone() is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 14)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 14
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'benchmark_artifacts_no_update'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 14
+
+
+def test_benchmark_artifact_fingerprint_is_computed_from_canonical_content():
+    with SQLiteRegistry() as registry:
+        first = registry.register_benchmark_artifact(
+            "benchmark:canonical-en-v1", language="en",
+            content={"z": 2, "a": [1, {"b": True}]},
+            actor="curator", reason="initial registration",
+        )
+        second = registry.get_benchmark_artifact("benchmark:canonical-en-v1")
+        assert first["content_fingerprint"] == registry_module.sha256_fingerprint(
+            {"a": [1, {"b": True}], "z": 2}
+        )
+        assert second["fingerprint_verified"] is True
+        assert second["content"] == {"a": [1, {"b": True}], "z": 2}
+
+
+def test_benchmark_artifacts_cannot_be_updated_or_deleted():
+    with SQLiteRegistry() as registry:
+        artifact = registry.register_benchmark_artifact(
+            "benchmark:immutable-en-v1", language="en",
+            content={"items": ["one"]}, actor="curator", reason="initial registration",
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            registry._connection.execute(
+                "UPDATE benchmark_artifacts SET reason = 'tampered' WHERE artifact_id = ?",
+                (artifact["artifact_id"],),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            registry._connection.execute(
+                "DELETE FROM benchmark_artifacts WHERE artifact_id = ?",
+                (artifact["artifact_id"],),
+            )
+
+
+def test_benchmark_review_requires_exact_registered_artifact_and_language():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        payload["benchmark_fingerprint"] = "sha256:" + "f" * 64
+        with pytest.raises(RegistryIntegrityError, match="does not match registered artifact"):
+            registry.add_benchmark_review(payload, actor="editor:lead", reason="wrong fingerprint")
+
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        payload["language"] = "bn"
+        payload["reviewer"]["language"] = "bn"
+        with pytest.raises(RegistryIntegrityError, match="language does not match"):
+            registry.add_benchmark_review(payload, actor="editor:lead", reason="wrong language")
 
 
 def test_existing_schema_v12_database_migrates_to_v13(tmp_path, monkeypatch):
