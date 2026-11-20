@@ -538,6 +538,15 @@ def test_mcq_quality_report_exposes_rationale_coverage_and_human_review_limit():
             if item["name"] == "mcq_distractor_rationale_coverage"
         )
         assert coverage["passed"] is True
+        source_support = next(
+            item for item in report["checks"]
+            if item["name"] == "mcq_distractor_rationale_source_support"
+        )
+        assert source_support["passed"] is False
+        assert any(
+            item["check"] == "mcq_distractor_rationale_source_support"
+            for item in report["blockers"]
+        )
         warning = next(
             item for item in report["warnings"]
             if item["check"] == "mcq_human_distractor_review"
