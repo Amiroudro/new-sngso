@@ -1431,6 +1431,8 @@ _MCQ_REVIEW_RUBRIC = {
         "stem_clarity_and_precision",
         "distractor_plausibility",
         "distractors_unambiguously_incorrect",
+        "distractor_rationale_quality",
+        "learner_level_fit",
         "misconception_alignment",
         "option_parallelism",
         "no_accidental_clues",
