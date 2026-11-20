@@ -92,6 +92,7 @@ def access(registry=None, session=None):
         FakeIdentityProvider(session or identity()),
         expected_issuer="https://login.example.test/",
         expected_audience="sngso-benchmark",
+        subject_to_principal=lambda issuer, subject: "person:42" if (issuer, subject) == ("https://login.example.test/", "oidc-subject-42") else None,
         clock=lambda: NOW,
     )
 
@@ -269,3 +270,27 @@ def test_assignment_transition_rejects_authenticated_non_assignee():
             at="2026-11-20T12:00:00Z", reason="wrong reviewer",
         )
     assert not any(call[0] == "assignment_transition" for call in registry.calls)
+
+
+
+def test_provider_subject_must_be_bound_to_the_authenticated_registry_principal():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    mismatched = identity(subject="some-other-person")
+    with pytest.raises(RegistryIntegrityError, match="not bound"):
+        access(registry, mismatched).submit_review(
+            "trusted-request",
+            {"review_id": "review:spoofed", "reviewer": {"reviewer_id": "person:42"}},
+            reason="subject substitution",
+        )
+    assert registry.calls == []
+
+
+def test_missing_provider_subject_is_rejected_before_registry_access():
+    registry = FakeRegistry()
+    missing = identity(subject="")
+    with pytest.raises(RegistryIntegrityError, match="subject is missing"):
+        access(registry, missing).register_artifact(
+            "trusted-request", "artifact", language="en",
+            content={"items": []}, reason="missing subject",
+        )
+    assert registry.calls == []
