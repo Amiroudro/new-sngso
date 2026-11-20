@@ -99,6 +99,20 @@ class EditorialRepository(Protocol):
     def story_reporting_independence(self, story_id: str) -> dict[str, Any]: ...
 
 
+class BenchmarkReviewRepository(Protocol):
+    """Versioned human review records with append-only decision history."""
+
+    def add_benchmark_review(
+        self, review: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]: ...
+    def revise_benchmark_review(
+        self, review_id: str, review: dict[str, Any], *,
+        expected_revision: int, actor: str, reason: str
+    ) -> dict[str, Any]: ...
+    def get_benchmark_review(self, review_id: str) -> dict[str, Any] | None: ...
+    def benchmark_review_history(self, review_id: str) -> list[dict[str, Any]]: ...
+
+
 class AuditRepository(Protocol):
     """Port for append-only decision and revision history."""
 
@@ -135,6 +149,7 @@ class EngineRepository(
     AuditRepository,
     CollectionObservationRepository,
     IngestionRepository,
+    BenchmarkReviewRepository,
     Protocol,
 ):
     """Combined repository port implemented by the SQLite adapter."""
