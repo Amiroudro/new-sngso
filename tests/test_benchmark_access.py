@@ -33,6 +33,18 @@ class FakeRegistry:
         }
         self.calls = []
 
+    def register_benchmark_principal(self, principal_id, **kwargs):
+        self.calls.append(("provision", principal_id, kwargs))
+        return {"principal_id": principal_id, "active": True, **kwargs}
+
+    def revoke_benchmark_principal(self, principal_id, **kwargs):
+        self.calls.append(("revoke", principal_id, kwargs))
+        return {"principal_id": principal_id, "active": False}
+
+    def reinstate_benchmark_principal(self, principal_id, **kwargs):
+        self.calls.append(("reinstate", principal_id, kwargs))
+        return {"principal_id": principal_id, "active": True}
+
     def get_benchmark_principal(self, principal_id):
         return self.principal if principal_id == self.principal["principal_id"] else None
 
@@ -293,4 +305,57 @@ def test_missing_provider_subject_is_rejected_before_registry_access():
             "trusted-request", "artifact", language="en",
             content={"items": []}, reason="missing subject",
         )
+    assert registry.calls == []
+
+
+
+def test_only_authenticated_security_admin_can_provision_principals():
+    registry = FakeRegistry(roles=("benchmark_security_admin",))
+    result = access(registry).provision_principal(
+        "trusted-request", "person:new", display_name="New reviewer",
+        roles=["benchmark_reviewer"], languages=["bn"],
+        principal_kind="human", reason="Approved reviewer onboarding",
+    )
+    assert result["principal_id"] == "person:new"
+    assert registry.calls[-1][0] == "provision"
+    assert registry.calls[-1][2]["provisioned_by"] == "person:42"
+
+
+def test_curator_cannot_provision_or_grant_security_roles():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+        access(registry).provision_principal(
+            "trusted-request", "person:new", display_name="New admin",
+            roles=["benchmark_security_admin"], reason="unauthorized",
+        )
+    assert registry.calls == []
+
+
+def test_security_admin_cannot_provision_themselves():
+    registry = FakeRegistry(roles=("benchmark_security_admin",))
+    with pytest.raises(RegistryIntegrityError, match="cannot provision themselves"):
+        access(registry).provision_principal(
+            "trusted-request", "person:42", display_name="Self",
+            roles=["benchmark_security_admin"], reason="self grant",
+        )
+    assert registry.calls == []
+
+
+def test_security_admin_can_revoke_and_reinstate_other_principal():
+    registry = FakeRegistry(roles=("benchmark_security_admin",))
+    facade = access(registry)
+    revoked = facade.revoke_principal("trusted-request", "person:other", reason="Access review")
+    reinstated = facade.reinstate_principal("trusted-request", "person:other", reason="Reapproved")
+    assert revoked["active"] is False
+    assert reinstated["active"] is True
+    assert [call[0] for call in registry.calls] == ["revoke", "reinstate"]
+
+
+def test_security_admin_cannot_revoke_or_reinstate_self():
+    registry = FakeRegistry(roles=("benchmark_security_admin",))
+    facade = access(registry)
+    with pytest.raises(RegistryIntegrityError, match="cannot revoke their own"):
+        facade.revoke_principal("trusted-request", "person:42", reason="self revoke")
+    with pytest.raises(RegistryIntegrityError, match="cannot reinstate their own"):
+        facade.reinstate_principal("trusted-request", "person:42", reason="self restore")
     assert registry.calls == []
