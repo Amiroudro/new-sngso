@@ -169,3 +169,12 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - The adapter, manifest validator, executable shared contract, Flutter parser validation, and cross-repository golden tests remain unimplemented. Flutter tooling was not available in this session.
 - No Sngs-plus files, bundled assets, existing edition snapshots, or publication schedules were changed.
 - Section 7 remains open; this design note does not pass the compatibility exit criterion.
+
+
+## Section 7.42: staging-only Flutter compatibility verifier (CI verified)
+
+- Added a read-only verifier that binds a draft legacy client payload to an approved registered edition and exact approved English headline/summary learning-object revisions.
+- It rechecks reviewer qualification, source/article citation metadata, republication grant status, endpoint scope, and exact story coverage.
+- It blocks published payload status, stale records, mismatched text or citations, unsupported fields/collections, and missing or denied permission evidence. It makes no writes and grants no publication authorization.
+- Synthetic tests cover successful staging verification and failure conditions. GitHub Actions [run #44752476466](https://github.com/Amiroudro/new-sngso/actions/runs/44752476466) passed the full Python 3.12 suite: **701 tests in 6.38 seconds** on code head ec06daf4d3abba0b8034d56c1f84bb470d63229d.
+- The serializer, actual Flutter parser/golden tests, bilingual export, source grants, and production evidence remain open. Section 7 is not complete.
