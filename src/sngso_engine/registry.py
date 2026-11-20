@@ -5205,6 +5205,7 @@ class SQLiteRegistry:
                 "meets_registry_quality_gates": quality["meets_registry_quality_gates"],
                 "blockers": quality["blockers"],
                 "warnings": quality["warnings"],
+                "language_review": record.get("language_review"),
             })
 
         kinds_by_language = {
@@ -5304,7 +5305,18 @@ class SQLiteRegistry:
                     duplicate_tiers.append(tier)
                 if len(artifacts) != 1 or artifacts[0]["status"] != "approved":
                     unapproved_tiers.append(tier)
-                if len(artifacts) != 1 or not artifacts[0]["meets_registry_quality_gates"]:
+                review = artifacts[0]["language_review"] if len(artifacts) == 1 else None
+                review_passed = bool(review) and all(
+                    verdict == "pass" or (
+                        name == "translation_fidelity" and verdict == "not_applicable"
+                    )
+                    for name, verdict in (review or {}).get("dimensions", {}).items()
+                ) and len(review["dimensions"]) == 6
+                if (
+                    len(artifacts) != 1
+                    or not artifacts[0]["meets_registry_quality_gates"]
+                    or not review_passed
+                ):
                     quality_blocked_tiers.append(tier)
                 tier_reports[tier] = {
                     "artifact_count": len(artifacts),
@@ -5313,6 +5325,16 @@ class SQLiteRegistry:
                     "quality_gate_pass": (
                         len(artifacts) == 1
                         and artifacts[0]["meets_registry_quality_gates"]
+                    ),
+                    "language_review_pass": (
+                        len(artifacts) == 1
+                        and bool(artifacts[0]["language_review"])
+                        and all(
+                            verdict == "pass" or (
+                                name == "translation_fidelity" and verdict == "not_applicable"
+                            )
+                            for name, verdict in artifacts[0]["language_review"]["dimensions"].items()
+                        )
                     ),
                     "artifacts": artifacts,
                 }
