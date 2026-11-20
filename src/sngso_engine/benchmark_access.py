@@ -150,6 +150,74 @@ class AuthenticatedBenchmarkAccess:
         return result
 
 
+    def review_learning_object(
+        self, request_context: Any, learning_object_id: str, *,
+        expected_revision: int, decision: str, dimensions: dict[str, str],
+        note: str, reason: str,
+    ) -> Any:
+        """Record a language-specific editorial decision with provider-backed reviewer provenance."""
+        identity = self._identity(request_context)
+        actor = identity.principal_id
+        principal = self._registry.get_benchmark_principal(actor)
+        if (
+            principal is None or not principal["active"]
+            or "benchmark_reviewer" not in principal["roles"]
+            or principal.get("principal_kind") != "human"
+        ):
+            raise RegistryIntegrityError("editorial review requires an active human-classified benchmark reviewer")
+        now = self._clock()
+        if now - identity.authenticated_at > timedelta(minutes=15):
+            raise RegistryIntegrityError("editorial review requires recent authentication within 15 minutes")
+        if (
+            not identity.subject.strip() or not identity.authentication_methods
+            or not identity.authentication_context.strip()
+            or not identity.provider_key_id.strip() or not identity.provider_adapter.strip()
+        ):
+            raise RegistryIntegrityError("editorial reviewer requires provider-backed identity and authentication context")
+        current = self._registry.get_learning_object(learning_object_id)
+        if current is None:
+            raise RegistryIntegrityError(f"unknown learning object: {learning_object_id}")
+        import json
+        payload = json.loads(current.payload_json)
+        if current.revision != expected_revision:
+            raise RegistryIntegrityError("learning object revision conflict")
+        language = payload.get("language")
+        if language not in {"bn", "en"} or language not in principal.get("languages", []):
+            raise RegistryIntegrityError("authenticated reviewer is not qualified for this editorial language")
+        if decision not in {"approved", "rejected"}:
+            raise RegistryIntegrityError("editorial review decision must be approved or rejected")
+        reviewed_at = now.isoformat()
+        rubric_version = "bn-editorial-v1" if language == "bn" else "en-editorial-v1"
+        payload.update({
+            "status": decision,
+            "reviewed_at": reviewed_at,
+            "reviewed_by": actor,
+            "review_note": note,
+            "language_review": {
+                "language": language,
+                "rubric_version": rubric_version,
+                "reviewer_id": actor,
+                "reviewed_at": reviewed_at,
+                "note": note,
+                "dimensions": dimensions,
+                "identity_attestation": {
+                    "principal_id": actor,
+                    "issuer": identity.issuer,
+                    "subject": identity.subject,
+                    "provider_key_id": identity.provider_key_id,
+                    "provider_adapter": identity.provider_adapter,
+                    "authenticated_at": identity.authenticated_at.isoformat(),
+                    "attested_at": reviewed_at,
+                    "authentication_methods": list(identity.authentication_methods),
+                    "authentication_context": identity.authentication_context,
+                },
+            },
+        })
+        return self._registry.revise_learning_object(
+            learning_object_id, payload, expected_revision=expected_revision,
+            actor=actor, reason=reason,
+        )
+
     def submit_score(
         self, request_context: Any, assignment_id: str,
         score: dict[str, Any], *, reason: str
