@@ -119,7 +119,7 @@ The registry also exposes filtered assignment queues by reviewer, status, and la
 
 ## 7.12 Benchmark readiness report and reviewer classification
 
-Migration 18 adds an explicit principal classification: `human`, `synthetic`, `automation`, or `unverified`. Existing principals migrate to `unverified`; the system never retroactively interprets historical test fixtures as people. New principals also default to `unverified`. The classification is an administrative declaration only and is not an authentication claim.
+Migration 18 adds an explicit principal classification: `human`, `synthetic`, `automation`, or `unverified`. Existing principals migrate to `unverified`; the system never retroactively interprets historical test fixtures as people. New principals also default to `unverified`. The classification is set at provisioning, included in the audit event, and immutable at the SQLite boundary. The classification is an administrative declaration only and is not an authentication claim.
 
 `benchmark_readiness_report(artifact_id)` produces a read-only artifact-level report. It verifies the stored artifact fingerprint, exact artifact/language binding, current review-use policy (including source permissions and adjudication outcome), active reviewer role, reviewer language qualification, distinct reviewer count, principal classifications, and adjudication presence. It reports individual review checks and explicit blockers.
 
