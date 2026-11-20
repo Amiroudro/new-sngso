@@ -8,6 +8,7 @@ import pytest
 from sngso_engine.canonical import sha256_fingerprint
 from sngso_engine.flutter_compat import (
     FlutterCompatibilityError,
+    build_flutter_staging_candidate,
     verify_flutter_staging_candidate,
 )
 from sngso_engine.permissions import PermissionDecision
@@ -73,8 +74,8 @@ class FakeRegistry:
         return [{"revision": 1}] if record_type == "edition" and record_id == "edition:staging-one" else []
 
     def story_editorial_snapshot(self, story_id):
-        return {
-            "story_id": story_id,
+        snapshot = {
+            "story_id": story_id, "story_revision": 1,
             "story": {"id": story_id, "status": "ongoing", "topic_tags": []},
             "articles": [{
                 "id": "article:one",
@@ -86,6 +87,8 @@ class FakeRegistry:
                 },
             }],
         }
+        snapshot["fingerprint"] = sha256_fingerprint(snapshot)
+        return snapshot
 
     def get_source(self, source_id):
         return {"id": source_id, "publisher_name": "Example Publisher"}
@@ -156,9 +159,17 @@ def _candidate(registry=None):
         "payload_sha256": sha256_fingerprint(client),
         "story_bindings": [{
             "story_id": "story:one",
+            "story_revision": 1,
+            "snapshot_sha256": registry.story_editorial_snapshot("story:one")["fingerprint"],
             "fields": {
-                "headline": {"learning_object_id": "learning:headline", "revision": 1},
-                "summary": {"learning_object_id": "learning:summary", "revision": 1},
+                "headline": {
+                    "learning_object_id": "learning:headline", "revision": 1,
+                    "sha256": sha256_fingerprint(registry.records["learning:headline"].to_payload()),
+                },
+                "summary": {
+                    "learning_object_id": "learning:summary", "revision": 1,
+                    "sha256": sha256_fingerprint(registry.records["learning:summary"].to_payload()),
+                },
             },
         }],
         "source_permissions": [{
@@ -254,3 +265,41 @@ def test_staging_candidate_requires_current_reviewer_language_qualification():
     registry.principal_languages = ["bn"]
     with pytest.raises(FlutterCompatibilityError, match="not an active human principal"):
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+
+def test_builder_creates_a_staging_only_bundle_from_explicit_approved_objects():
+    registry = FakeRegistry()
+    result = build_flutter_staging_candidate(
+        registry,
+        "edition:staging-one",
+        {
+            "story:one": {
+                "headline": "learning:headline",
+                "summary": "learning:summary",
+            },
+        },
+        [{
+            "source_id": "source:one", "endpoint_id": "endpoint:one",
+            "grant_id": "grant:republication", "operation": "republication",
+        }],
+        now=NOW,
+    )
+    assert result["verification"]["status"] == "verified_for_staging_only"
+    assert result["verification"]["publication_authorized"] is False
+    assert result["client_edition"]["status"] == "staging"
+    assert result["client_edition"]["stories"][0]["headline"] == "Approved headline"
+    assert result["client_edition"]["stories"][0]["summary"] == "Approved summary"
+    assert result["provenance_manifest"]["story_bindings"][0]["snapshot_sha256"]
+
+
+def test_builder_rejects_ambiguous_or_incomplete_field_selection():
+    registry = FakeRegistry()
+    with pytest.raises(FlutterCompatibilityError, match="cover every approved edition story"):
+        build_flutter_staging_candidate(
+            registry, "edition:staging-one", {},
+            [{
+                "source_id": "source:one", "endpoint_id": "endpoint:one",
+                "grant_id": "grant:republication", "operation": "republication",
+            }],
+            now=NOW,
+        )
