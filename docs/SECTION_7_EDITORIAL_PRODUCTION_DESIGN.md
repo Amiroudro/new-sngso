@@ -74,3 +74,12 @@ The glossary registry is stored under schema migration 12. A headword is unique 
 The report is deterministic and read-only. It does not generate a numerical quality score, rank claims, or replace an editor's judgement. It provides a machine-checkable hand-off for later edition assembly.
 
 GitHub Actions [run #44625107271](https://github.com/Amiroudro/new-sngso/actions/runs/44625107271) passed **434 tests in 3.70 seconds** on code head `99316bb5423ce36f1dafd4b0afc0f764a299e8a9`. The suite includes quality-report pass/blocker cases, proof that reports do not write audit events, MCQ option/key validation, and a direct SQLite guard against duplicate MCQ option IDs.
+
+
+## Independent, versioned Bangla and English language-review rubrics
+
+Structured language review now carries an explicit rubric version. Bangla uses bn-editorial-v1 with grammar/spelling, naturalness/register, terminology consistency, factual fidelity, attribution, omissions, and translation fidelity. English uses en-editorial-v1 with grammar/style, clarity/readability, terminology consistency, factual fidelity, attribution, omissions, and translation fidelity. The distinct language-specific criteria prevent a generic language-accuracy checkbox from standing in for meaningful review.
+
+A review can be recorded as approved or rejected. An approved review cannot contain a needs_revision finding; a rejected review must contain at least one. The exact expected dimension set is enforced, so missing, extra, or cross-language criteria fail closed. A rejected review remains a durable revision rather than being discarded. These checks validate the review record's structure and declared findings, not the reviewer's competence or the actual quality of the prose. Reviewer identity is still not authenticated by the learning-object registry.
+
+The story summary-tier report counts a language review as passed only when the artifact is approved and its complete, language-matched rubric passes. Bangla and English remain independent. No combined score or publication authorization is produced.
