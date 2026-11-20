@@ -1467,6 +1467,55 @@ def test_benchmark_review_requires_exact_operation_and_endpoint_grant():
             registry.add_benchmark_review(payload, actor="editor:lead", reason="endpoint not covered")
 
 
+def test_benchmark_review_quality_report_rechecks_current_permission():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+
+        report = registry.benchmark_review_quality_report(payload["review_id"])
+        assert report["eligible_for_current_use"] is True
+        assert all(item["passed"] for item in report["checks"])
+
+        registry.transition_permission_grant(
+            "permission:publisher-a-discovery-001",
+            "suspended",
+            actor="rights-reviewer",
+            reason="Permission requires renewed confirmation.",
+        )
+        report = registry.benchmark_review_quality_report(payload["review_id"])
+        assert report["eligible_for_current_use"] is False
+        assert any(
+            item["name"] == "current_source_permission" and not item["passed"]
+            for item in report["checks"]
+        )
+
+
+def test_story_snapshot_includes_linked_benchmark_review_provenance():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        registry.add_domain_record("story", story_record())
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+
+        snapshot = registry.story_editorial_snapshot("story:sample-event")
+        assert len(snapshot["benchmark_reviews"]) == 1
+        item = snapshot["benchmark_reviews"][0]
+        assert item["review_id"] == payload["review_id"]
+        assert item["revision"] == 1
+        assert item["quality_report"]["eligible_for_current_use"] is True
+        assert item["history"][0]["actor"] == "editor:lead"
+
+        registry.transition_permission_grant(
+            "permission:publisher-a-discovery-001",
+            "suspended",
+            actor="rights-reviewer",
+            reason="Permission requires renewed confirmation.",
+        )
+        refreshed = registry.story_editorial_snapshot("story:sample-event")
+        assert refreshed["benchmark_reviews"][0]["quality_report"]["eligible_for_current_use"] is False
+
+
 def test_benchmark_review_history_cannot_be_updated_or_deleted():
     with SQLiteRegistry() as registry:
         _populate_benchmark_review_sources(registry)
