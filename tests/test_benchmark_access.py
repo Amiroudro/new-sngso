@@ -29,6 +29,7 @@ class FakeRegistry:
             "roles": list(roles),
             "languages": ["en", "bn"],
             "active": active,
+            "principal_kind": "human",
         }
         self.calls = []
 
@@ -41,7 +42,11 @@ class FakeRegistry:
 
     def add_benchmark_review(self, review, **kwargs):
         self.calls.append(("review", review, kwargs))
-        return review
+        return {**review, "revision": 1}
+
+    def record_benchmark_review_identity_attestation(self, attestation, **kwargs):
+        self.calls.append(("identity_attestation", attestation, kwargs))
+        return attestation
 
     def add_benchmark_adjudication(self, payload, **kwargs):
         self.calls.append(("adjudication", payload, kwargs))
@@ -71,6 +76,11 @@ def identity(**overrides):
         "authenticated_at": NOW - timedelta(minutes=2),
         "expires_at": NOW + timedelta(minutes=10),
         "session_id": "session:opaque",
+        "subject": "oidc-subject-42",
+        "authentication_methods": ("pwd", "mfa"),
+        "authentication_context": "urn:example:loa:2",
+        "provider_key_id": "key-2026-01",
+        "provider_adapter": "example-oidc-adapter/1.0",
     }
     values.update(overrides)
     return AuthenticatedIdentity(**values)
@@ -137,6 +147,31 @@ def test_untrusted_request_context_is_rejected_by_provider():
             "client-supplied-id", "artifact", language="en",
             content={"items": []}, reason="test",
         )
+
+
+def test_review_submission_persists_provider_identity_attestation_without_raw_session_id():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    review = {"review_id": "review:one", "reviewer": {"reviewer_id": "person:42"}}
+    access(registry).submit_review("trusted-request", review, reason="review submitted")
+    attestation = next(call[1] for call in registry.calls if call[0] == "identity_attestation")
+    assert attestation["subject"] == "oidc-subject-42"
+    assert attestation["authentication_methods"] == ["pwd", "mfa"]
+    assert attestation["provider_key_id"] == "key-2026-01"
+    assert attestation["provider_adapter"] == "example-oidc-adapter/1.0"
+    assert attestation["session_fingerprint"].startswith("sha256:")
+    assert "session:opaque" not in str(attestation)
+    assert attestation["review_revision"] == 1
+
+
+def test_review_submission_rejects_identity_without_provider_verification_metadata():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    session = identity(provider_key_id="", provider_adapter="")
+    with pytest.raises(RegistryIntegrityError, match="verification key and adapter"):
+        access(registry, session).submit_review(
+            "trusted-request", {"reviewer": {"reviewer_id": "person:42"}},
+            reason="missing provider metadata",
+        )
+    assert registry.calls == []
 
 
 def test_review_identity_must_match_authenticated_principal():
