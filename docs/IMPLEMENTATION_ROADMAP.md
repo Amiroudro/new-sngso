@@ -559,3 +559,11 @@ Added non-overwriting SQLite online-backup and restore helpers. Backups are crea
 Tests cover backup/restore state preservation, audit checkpoint preservation, overwrite refusal, active-transaction rejection and tampered audit-chain rejection. GitHub Actions [run #44939132297](https://github.com/Amiroudro/new-sngso/actions/runs/44939132297) passed **842 tests in 8.91 seconds** on code commit 120a07f2f822e84f9863651f0153a219ec3116fa.
 
 This does not provide scheduling, off-site storage, encryption, retention, an independently stored checkpoint, or a production restore drill. These remain explicit Section 9 gates.
+
+### Section 9.4: deterministic retry classification
+
+Added a pure, fail-closed retry policy for a narrow set of known transient network/HTTP/SQLite-busy errors. It applies bounded exponential backoff and an attempt cap. Permission, identity, authentication, contract/schema, policy, source/endpoint and integrity failures are permanent; unknown failure codes are not retried. The classifier performs no retries or scheduling.
+
+GitHub Actions [run #44939277125](https://github.com/Amiroudro/new-sngso/actions/runs/44939277125) passed **859 tests in 11.54 seconds** on code commit 9dad74539a50cb6a548dd09932781013a71c4371.
+
+The next step is idempotency and orchestration design before implementing any retry loop. Runbooks, external audit anchoring, backup encryption/retention/off-site copies, and a production-like restore drill remain open.
