@@ -32,6 +32,8 @@
       ]
     },
     "initiated_by": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "retry_of": { "$ref": "common.schema.json#/$defs/id" },
     "started_at": {
       "$ref": "common.schema.json#/$defs/dateTime"
     },
