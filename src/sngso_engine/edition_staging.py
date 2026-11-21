@@ -75,10 +75,13 @@ def list_edition_staging_events(registry: Any) -> list[dict[str, Any]]:
 def _apply(registry: Any, *, operation: str, manifest_id: str, identity: AuthenticatedIdentity,
            reason: str, expected_state_revision: int, expected_current_export_id: str | None,
            now: datetime, rollback_export_id: str | None = None) -> dict[str, Any]:
-    export, package = _prepare(registry, manifest_id, identity, reason, now)
-    if rollback_export_id is not None and export.export_id != rollback_export_id:
-        raise EditionStagingError("freshly verified rollback export does not match the previously promoted export")
     with registry._transaction() as connection:
+        # Re-run the complete rights/reviewer/approval gate while holding the write
+        # transaction so a concurrent revocation cannot slip between verification
+        # and the atomic channel-pointer update.
+        export, package = _prepare(registry, manifest_id, identity, reason, now)
+        if rollback_export_id is not None and export.export_id != rollback_export_id:
+            raise EditionStagingError("freshly verified rollback export does not match the previously promoted export")
         state = connection.execute(
             "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
         ).fetchone()
