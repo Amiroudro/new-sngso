@@ -6991,7 +6991,7 @@ class SQLiteRegistry:
             }
             if payload.get("status") not in transitions.get(previous["status"], set()):
                 raise RegistryIntegrityError("invalid pipeline run status transition")
-            immutable = ("id", "started_at", "software_version", "config_hash", "input_hashes", "initiated_by")
+            immutable = ("id", "started_at", "software_version", "config_hash", "input_hashes", "initiated_by", "attempt", "retry_of")
             if any(payload.get(field) != previous.get(field) for field in immutable):
                 raise RegistryIntegrityError("pipeline run identity and inputs are immutable")
             _aware_datetime(payload["started_at"], "started_at")
