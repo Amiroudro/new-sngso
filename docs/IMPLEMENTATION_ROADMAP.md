@@ -366,3 +366,6 @@ Inspected the actual registry APIs before implementing the registry-backed verif
 Reused the repository's existing pipeline-run contract and tightened its lifecycle requirements. Added SQLite schema migration 26, current run records, append-only run revisions, audit events, immutable run identity/input fields, and guarded queued/running-to-terminal transitions. Added registry APIs to create, retrieve, transition, and inspect pipeline-run history. Tests cover lifecycle, stale revisions, immutable inputs, unknown IDs, and migration from v25 to v26.
 
 This closes the missing persistence capability at code level, but not the full edition binding. The next verifier must require a succeeded run and compare its output fingerprint to the exact canonical edition artifact. The current code has not yet been validated by a completed CI run; no deployed database or pipeline was touched.
+
+
+Verification: the first full test run found three stale schema-version assertions, not failures in the new pipeline-run tests. After correcting those assertions and adding direct SQLite guard tests, GitHub Actions run [#44917871635](https://github.com/Amiroudro/new-sngso/actions/runs/44917871635) passed the full Python 3.12 suite (**781 passed in 7.97 seconds**) on code head c28c18958a2b5f2274e1e5b868378ddcfa21c409. No production database was migrated.
