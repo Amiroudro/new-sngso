@@ -354,3 +354,8 @@ The manifest records provenance; it does not grant publication permission. Struc
 
 
 Section 8.3 adds a canonical in-memory artifact integrity verifier. It validates the provenance manifest, matches edition ID/revision/key, recomputes the canonical payload SHA-256, and returns immutable byte snapshots. Tampering and identity mismatch tests are included. This does not yet resolve registry references or prove current permission/pipeline state; those are required for the next registry-backed assembly gate.
+
+
+### Section 8.4 registry capability inspection
+
+Inspected the actual registry APIs before implementing the registry-backed verifier. Story and learning-object immutable histories are available, and current republication grants can be re-evaluated through the permission evaluator. However, the registry has no pipeline-run model, table, or lookup method even though the edition and artifact-manifest contracts require `pipeline_run_id`. This is a hard provenance dependency: the engine cannot prove the referenced run exists or succeeded. The verifier must remain unimplemented rather than silently skipping this check. Next: define and persist immutable pipeline-run records, then add fail-closed registry verification for exact story/object revisions and hashes, current endpoint-scoped grants, and successful pipeline-run binding.
