@@ -724,6 +724,29 @@ def test_revoked_staging_operator_cannot_promote_and_state_is_unchanged(monkeypa
 
 
 
+def test_revoked_approver_cannot_promote_previously_approved_staging_candidate(monkeypatch):
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_approved_staging_candidate(
+            registry, monkeypatch, "2026-11-22-approver-revocation"
+        )
+        registry.revoke_benchmark_principal(
+            "approver:one", actor="security",
+            reason="approval principal revoked before staging promotion",
+        )
+        with pytest.raises(edition_export.StagingExportError, match="approver is no longer an active human approver"):
+            edition_staging.promote_edition_to_staging(
+                registry, manifest_id,
+                identity=identity(principal_id="operator:one"),
+                reason="Promotion must recheck current approver authority",
+                expected_state_revision=0,
+                expected_current_export_id=None,
+            )
+        state = edition_staging.get_edition_staging_state(registry)
+        assert state["state_revision"] == 0
+        assert state["current_export_id"] is None
+        assert edition_staging.list_edition_staging_events(registry) == []
+
+
 def test_two_independent_connections_cannot_both_promote_same_staging_revision(tmp_path, monkeypatch):
     database = tmp_path / "shared-staging.sqlite"
     with SQLiteRegistry(database) as primary:
