@@ -412,3 +412,6 @@ Added a strict decision contract and SQLite migration 28. An authenticated, rece
 Before recording a decision, the registry reruns the whole-edition staging verifier, including current bilingual reviewer evidence, story and learning-object revisions, successful pipeline output binding, and current endpoint-scoped republication grants. Each artifact manifest accepts only one immutable final decision. SQLite triggers prohibit direct updates and deletion, and the audit chain records the event.
 
 An approval is **not publication authorization**. The decision contract explicitly fixes `publication_authorized` to false; it cannot change edition status or write to a live destination. Guarded release authorization, controlled promotion, correction/supersession, last-known-good handling, and end-to-end acceptance remain open. Production OIDC/JWKS/revocation and protected approver provisioning are still deployment acceptance gates.
+
+
+**Verification:** GitHub Actions run [#44926118184](https://github.com/Amiroudro/new-sngso/actions/runs/44926118184) passed the full Python 3.12 suite: **805 passed in 5.48 seconds** on head `231be4b7db18605a5ec48bb18a91c088720741ce`. The initial run had four stale schema-version assertions; these were corrected before the passing run. This is repository CI evidence only, not a production deployment or live publication test.
