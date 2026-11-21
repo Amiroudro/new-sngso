@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 27
+_SCHEMA_VERSION = 28
 
 
 _MIGRATION_14 = (
@@ -772,6 +772,39 @@ _MIGRATION_27 = (
     """CREATE TRIGGER edition_artifacts_no_delete
        BEFORE DELETE ON edition_artifacts
        BEGIN SELECT RAISE(ABORT, 'edition artifacts are immutable'); END""",
+)
+
+
+_MIGRATION_28 = (
+    """CREATE TABLE edition_decisions (
+        decision_id TEXT PRIMARY KEY,
+        manifest_id TEXT NOT NULL UNIQUE,
+        edition_id TEXT NOT NULL,
+        edition_revision INTEGER NOT NULL CHECK (edition_revision >= 1),
+        payload_sha256 TEXT NOT NULL CHECK (payload_sha256 GLOB 'sha256:*'),
+        decision TEXT NOT NULL CHECK (decision IN ('approve', 'reject')),
+        principal_id TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        FOREIGN KEY (manifest_id) REFERENCES edition_artifacts(manifest_id) ON DELETE RESTRICT
+    )""",
+    """CREATE TRIGGER edition_decisions_payload_guard
+       BEFORE INSERT ON edition_decisions
+       WHEN json_extract(NEW.payload_json, '$.decision_id') IS NOT NEW.decision_id
+         OR json_extract(NEW.payload_json, '$.manifest_id') IS NOT NEW.manifest_id
+         OR json_extract(NEW.payload_json, '$.edition_id') IS NOT NEW.edition_id
+         OR json_extract(NEW.payload_json, '$.edition_revision') IS NOT NEW.edition_revision
+         OR json_extract(NEW.payload_json, '$.payload_sha256') IS NOT NEW.payload_sha256
+         OR json_extract(NEW.payload_json, '$.decision') IS NOT NEW.decision
+         OR json_extract(NEW.payload_json, '$.principal_id') IS NOT NEW.principal_id
+         OR json_extract(NEW.payload_json, '$.decided_at') IS NOT NEW.decided_at
+       BEGIN SELECT RAISE(ABORT, 'edition decision columns must match payload'); END""",
+    """CREATE TRIGGER edition_decisions_no_update
+       BEFORE UPDATE ON edition_decisions
+       BEGIN SELECT RAISE(ABORT, 'edition decisions are append-only'); END""",
+    """CREATE TRIGGER edition_decisions_no_delete
+       BEFORE DELETE ON edition_decisions
+       BEGIN SELECT RAISE(ABORT, 'edition decisions are append-only'); END""",
 )
 
 class RegistryIntegrityError(ValueError):
@@ -2426,6 +2459,20 @@ class SQLiteRegistry:
                     version = 27
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 27 failed; transaction rolled back") from exc
+
+
+            if version == 27 and _SCHEMA_VERSION >= 28:
+                try:
+                    for statement in _MIGRATION_28:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (28, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 28")
+                    version = 28
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 28 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -6800,6 +6847,138 @@ class SQLiteRegistry:
             "reverify_required_before_release": True,
         }
 
+
+    def record_edition_decision(
+        self, manifest_id: str, *, identity: Any, decision: str, reason: str
+    ) -> dict[str, Any]:
+        """Record one provider-attested human approval/rejection of an exact staged artifact.
+
+        This records an editorial release-review decision only. It never authorizes
+        publication, changes edition status, or grants downstream write permission.
+        """
+        from datetime import timedelta
+        from .benchmark_access import AuthenticatedIdentity
+        from .edition_artifacts import verify_registry_backed_edition_artifact
+
+        if not isinstance(identity, AuthenticatedIdentity):
+            raise RegistryIntegrityError("edition decision requires a trusted authenticated identity")
+        if decision not in {"approve", "reject"}:
+            raise RegistryIntegrityError("edition decision must be approve or reject")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("decision reason is required")
+        now = datetime.now(timezone.utc)
+        if (
+            identity.authenticated_at.tzinfo is None or identity.expires_at.tzinfo is None
+            or identity.authenticated_at > now or identity.expires_at <= now
+            or now - identity.authenticated_at > timedelta(minutes=15)
+        ):
+            raise RegistryIntegrityError("edition decision requires a valid session and authentication within 15 minutes")
+        if not all(isinstance(value, str) and value.strip() for value in (
+            identity.principal_id, identity.issuer, identity.audience, identity.subject,
+            identity.session_id, identity.authentication_context, identity.provider_key_id,
+            identity.provider_adapter,
+        )) or not identity.authentication_methods:
+            raise RegistryIntegrityError("edition decision identity attestation is incomplete")
+
+        with self._lock:
+            principal = self.get_benchmark_principal(identity.principal_id)
+            if (
+                principal is None or not principal["active"]
+                or principal.get("principal_kind") != "human"
+                or "edition_approver" not in principal["roles"]
+            ):
+                raise RegistryIntegrityError("edition decision requires an active human edition approver")
+            artifact = self.get_edition_artifact(manifest_id)
+            if artifact is None:
+                raise RegistryIntegrityError("unknown stored edition artifact")
+            verified = verify_registry_backed_edition_artifact(
+                self, artifact["payload"], artifact["manifest"], now=now
+            )
+            if verified.artifact.payload_sha256 != artifact["payload_sha256"]:
+                raise RegistryIntegrityError("stored edition artifact changed during decision verification")
+
+            # An approver must be independent of every language reviewer on the candidate.
+            for object_id in verified.learning_object_ids:
+                record = self.get_learning_object(object_id)
+                if record is None:
+                    raise RegistryIntegrityError("edition learning object disappeared during decision verification")
+                object_payload = record.to_payload()
+                review = object_payload.get("language_review", {})
+                reviewer_id = review.get("reviewer_id") or object_payload.get("reviewed_by")
+                if reviewer_id and reviewer_id == identity.principal_id:
+                    raise RegistryIntegrityError("edition approver must be independent of the candidate's language reviewers")
+
+            decided_at = now.isoformat()
+            import hashlib
+            payload = {
+                "schema_version": "1.0.0",
+                "decision_id": f"edition-decision:{uuid.uuid4().hex}",
+                "manifest_id": manifest_id,
+                "edition_id": artifact["edition_id"],
+                "edition_revision": artifact["edition_revision"],
+                "payload_sha256": artifact["payload_sha256"],
+                "decision": decision,
+                "scope": "staging_candidate_review",
+                "principal_id": identity.principal_id,
+                "role": "edition_approver",
+                "decided_at": decided_at,
+                "reason": reason.strip(),
+                "identity_attestation": {
+                    "issuer": identity.issuer,
+                    "audience": identity.audience,
+                    "subject": identity.subject,
+                    "authenticated_at": identity.authenticated_at.isoformat(),
+                    "expires_at": identity.expires_at.isoformat(),
+                    "authentication_methods": list(identity.authentication_methods),
+                    "authentication_context": identity.authentication_context,
+                    "provider_key_id": identity.provider_key_id,
+                    "provider_adapter": identity.provider_adapter,
+                    "session_fingerprint": "sha256:" + hashlib.sha256(identity.session_id.encode("utf-8")).hexdigest(),
+                },
+                "publication_authorized": False,
+            }
+            validate_payload("edition-decision", payload)
+            with self._transaction() as connection:
+                self._require_benchmark_role(connection, identity.principal_id, "edition_approver")
+                try:
+                    connection.execute(
+                        """INSERT INTO edition_decisions
+                        (decision_id, manifest_id, edition_id, edition_revision,
+                         payload_sha256, decision, principal_id, decided_at, payload_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            payload["decision_id"], manifest_id, payload["edition_id"],
+                            payload["edition_revision"], payload["payload_sha256"],
+                            decision, identity.principal_id, decided_at, _json_text(payload),
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise RegistryIntegrityError(
+                        "this immutable artifact already has a final edition decision"
+                    ) from exc
+                self._append_audit(
+                    connection, event_type="edition_decision.recorded",
+                    entity_type="edition_artifact", entity_id=manifest_id,
+                    payload=payload,
+                )
+        return payload
+
+    def get_edition_decision(self, manifest_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload_json FROM edition_decisions WHERE manifest_id = ?",
+                (manifest_id,),
+            ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def list_edition_decisions(self, edition_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT payload_json FROM edition_decisions WHERE edition_id = ? ORDER BY decided_at, decision_id",
+                (edition_id,),
+            ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
     def get_domain_record(self, record_type: str, record_id: str):
         if record_type == "story_decision":
             with self._lock:
@@ -6948,7 +7127,7 @@ class SQLiteRegistry:
         principal_kind: str = "unverified"
     ) -> dict[str, Any]:
         """Provision a registry principal; caller must be a trusted operator."""
-        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist", "benchmark_acceptance_reviewer"}
+        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist", "benchmark_acceptance_reviewer", "edition_approver"}
         supported_languages = {"bn", "en"}
         if principal_kind not in {"human", "synthetic", "automation", "unverified"}:
             raise ValueError("principal_kind must be human, synthetic, automation, or unverified")
