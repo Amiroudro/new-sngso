@@ -36,3 +36,17 @@ This is a read-only report function, not an HTTP health endpoint, monitoring ser
 ## Safety boundary
 
 No scheduled collection, live source access, automatic release, production deployment, external secret configuration, paid service, or live edition publication is authorized by this work. Section 8 remains staging-only.
+
+## 9.3 Verified local SQLite backup and restore
+
+Implemented free-first local backup/restore helpers using Python's built-in SQLite online backup API:
+
+- A backup is written to a temporary file in the destination directory, then checked with SQLite integrity_check, schema-version matching, contiguous audit sequence and hash-chain verification before atomic non-overwriting installation.
+- Restore accepts only a verified backup matching the current engine schema version and writes to a new destination. Existing destinations are never overwritten.
+- Backup files are created with owner-only permissions (0600) where supported.
+- The utilities refuse to start a backup inside an active registry transaction and return the external audit checkpoint value for an operator to store separately.
+- Tests cover consistent backup/restore of pipeline-run and audit state, refusal to overwrite, active-transaction rejection, and tampered-audit backup/restore rejection.
+
+GitHub Actions [run #44939132297](https://github.com/Amiroudro/new-sngso/actions/runs/44939132297) passed **842 tests in 8.91 seconds** on commit `120a07f2f822e84f9863651f0153a219ec3116fa`.
+
+This is a local utility, not a scheduled or off-site backup service. Encryption, retention, independent storage, recovery-point objectives, and an actual restore drill against a production-like database remain unimplemented.
