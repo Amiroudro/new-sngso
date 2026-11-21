@@ -9,7 +9,8 @@ import pytest
 
 from sngso_engine.benchmark_access import AuthenticatedBenchmarkAccess, AuthenticatedIdentity
 from sngso_engine.registry import RegistryIntegrityError, SQLiteRegistry
-from sngso_engine import registry as registry_module\nfrom sngso_engine import edition_staging\nfrom sngso_engine.canonical import canonical_json_bytes
+from sngso_engine import registry as registry_module
+from sngso_engine import edition_staging
 from sngso_engine import edition_artifacts, edition_export
 
 
