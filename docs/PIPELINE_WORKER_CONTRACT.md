@@ -11,6 +11,8 @@ The engine supplies no network connector or publisher-specific handler. Every ha
 ## Example
 
 ~~~python
+from datetime import datetime, timezone
+
 from sngso_engine import (
     PipelineStage,
     SQLiteRegistry,
@@ -27,7 +29,7 @@ with SQLiteRegistry("data/registry.sqlite") as registry:
         {
             "schema_version": "1.0.0",
             "status": "queued",
-            "started_at": "2026-11-22T00:00:00+00:00",
+            "started_at": datetime.now(timezone.utc).isoformat(),
             "software_version": "engine/0.1.0",
             "config_hash": "sha256:" + "a" * 64,
             "input_hashes": [sha256_fingerprint(input_context)],
@@ -52,7 +54,7 @@ with SQLiteRegistry("data/registry.sqlite") as registry:
     print(result["status"], result["stage_results"])
 ~~~
 
-The example uses synthetic in-memory stage handlers. Replace the example timestamp with the current UTC time in an actual local invocation. Do not treat this example as permission to connect a live source.
+The example uses synthetic in-memory stage handlers and a current UTC timestamp. Do not treat this example as permission to connect a live source.
 
 ## Execution contract
 
