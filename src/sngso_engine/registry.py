@@ -1012,6 +1012,7 @@ _MIGRATION_31 = (
          OR NEW.operator_principal_id = json_extract(NEW.payload_json, '$.release_authorization.authorizer_principal_id')
          OR NEW.state_revision <> (SELECT state_revision + 1 FROM edition_staging_channel_state WHERE channel = 'staging')
          OR NEW.previous_current_export_id IS NOT (SELECT current_export_id FROM edition_staging_channel_state WHERE channel = 'staging')
+         OR NEW.lkg_export_id IS NOT NEW.previous_current_export_id
          OR (NEW.operation = 'promote' AND EXISTS (SELECT 1 FROM edition_staging_events prior WHERE prior.export_id = NEW.export_id AND prior.operation = 'promote'))
          OR (NEW.operation = 'rollback' AND NOT EXISTS (
              SELECT 1 FROM edition_staging_events prior
