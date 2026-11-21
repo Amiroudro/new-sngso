@@ -100,3 +100,61 @@ def test_operational_report_rejects_invalid_parameters(kwargs):
     with SQLiteRegistry() as registry:
         with pytest.raises(OperationalReportError):
             build_operational_health_report(registry, **kwargs)
+
+
+def test_retry_policy_retries_only_recognized_transient_failures_with_bounded_backoff():
+    from sngso_engine.operations import classify_retry_policy
+
+    first = classify_retry_policy("network_timeout", attempt=1)
+    second = classify_retry_policy("HTTP_503", attempt=2)
+    exhausted = classify_retry_policy("sqlite_busy", attempt=3)
+    assert first["retryable"] is True
+    assert first["delay_seconds"] == 2.0
+    assert second["retryable"] is True
+    assert second["delay_seconds"] == 4.0
+    assert exhausted["retryable"] is False
+    assert exhausted["reason"] == "attempt_limit_reached"
+    capped = classify_retry_policy(
+        "http_429", attempt=9, max_attempts=10,
+        base_delay_seconds=5, max_delay_seconds=20,
+    )
+    assert capped["retryable"] is True
+    assert capped["delay_seconds"] == 20.0
+
+
+@pytest.mark.parametrize(
+    "failure_code",
+    [
+        "permission_denied", "permission_expired", "permission_revoked",
+        "identity_revoked", "authentication_failed", "contract_validation_failed",
+        "schema_invalid", "content_policy_blocked", "integrity_violation",
+        "unknown_vendor_error",
+    ],
+)
+def test_retry_policy_fails_closed_for_permanent_and_unknown_failures(failure_code):
+    from sngso_engine.operations import classify_retry_policy
+
+    result = classify_retry_policy(failure_code)
+    assert result["retryable"] is False
+    assert result["delay_seconds"] == 0
+    assert result["category"] in {"permanent", "unknown"}
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"failure_code": ""},
+        {"failure_code": "network_timeout", "attempt": 0},
+        {"failure_code": "network_timeout", "attempt": True},
+        {"failure_code": "network_timeout", "max_attempts": 0},
+        {"failure_code": "network_timeout", "base_delay_seconds": 0},
+        {"failure_code": "network_timeout", "base_delay_seconds": 10, "max_delay_seconds": 5},
+    ],
+)
+def test_retry_policy_rejects_invalid_inputs(kwargs):
+    from sngso_engine.operations import classify_retry_policy
+
+    failure_code = kwargs.pop("failure_code")
+    with pytest.raises(OperationalReportError):
+        classify_retry_policy(failure_code, **kwargs)
+
