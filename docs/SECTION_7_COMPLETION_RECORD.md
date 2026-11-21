@@ -188,3 +188,42 @@ The Section 7 benchmark acceptance integration is not a substitute for any of th
 - The result remains staging-only. It writes no edition file, changes no app asset, and grants no publication authorization.
 - Tests verify successful candidate construction and incomplete-selection rejection. GitHub Actions [run #44753534682](https://github.com/Amiroudro/new-sngso/actions/runs/44753534682) passed the full Python 3.12 suite: **703 tests in 6.68 seconds** on code head f7889295a9ca329852b518f96af68fb0b2b4b315.
 - Flutter parser/golden tests, actual source republishing grants, bilingual and study-object mappings, and real human/operational evidence remain unresolved. Section 7 is still in progress.
+
+
+## Section 7.52: bounded implementation close and handoff
+
+**Implementation status: CLOSED for the engine-side scope defined in Section 7.** This closes the software workstream, not the real-world or production acceptance gates.
+
+The Section 7 implementation now includes:
+- Registered learning objects for editorial and exam-learning content, with revision history, evidence bindings, language-specific quality gates, and review traceability.
+- Story-level editorial snapshots, narrative assembly, attribution and perspective separation, uncertainty/contradiction visibility, and source-independence evidence-gap reporting.
+- Structured quality checks for summaries, vocabulary, comprehension/analysis questions, MCQs, and revision cards, including claim/evidence linkage and explicit human-review requirements.
+- Separate Bangla and English review states, variant claim-coverage reporting, and a fail-closed pair verifier requiring independent language-qualified reviewer identities.
+- A narrow English-only Flutter staging adapter and provenance contract. It remains an integration boundary, not a bilingual edition exporter or proof of Flutter runtime compatibility.
+
+### What this close does and does not mean
+
+Section 7's engine-side implementation scope is closed so work can proceed to Section 8 without adding more numbered Section 7 features. Do not reopen Section 7 merely to build edition packaging, publication controls, scheduled operations, or downstream app integration; those belong to Sections 8–10.
+
+This is **not** production acceptance, editorial certification, or permission to publish. The following external evidence gates remain open and must be carried into the relevant later sections:
+1. Genuine, independently conducted Bangla and English editorial reviews on representative real stories and learning objects.
+2. Verified provider-side identity authentication, including real issuer/JWKS/revocation configuration and protected administrator bootstrap.
+3. Current publisher permission evidence for every intended collection, quotation, and republication operation.
+4. Independent editorial/statistical assessment of benchmark evidence and actual reviewer agreement; synthetic fixtures are not human-study results.
+5. Deployed host/database security controls, backup and restore evidence, and operational signoff.
+6. Flutter parser/runtime and cross-repository golden verification before any downstream client integration.
+
+### Verification record and limits
+
+The latest recorded full Python-suite result in this workstream is **753 passed** on code head `14ad3d02bdb285d98c995e7082785824805cf4c8`, reported by workflow run [#44906408948](https://github.com/Amiroudro/new-sngso/actions/runs/44906408948). Inspection of that workflow's job steps shows that run #44906408948 was actually named **Contract validation** and executed the contract-validation step, not `pytest`. Therefore the 753-test full-suite claim is **not independently substantiated by that run and must not be presented as CI-verified**. The subsequent run [#44906480066](https://github.com/Amiroudro/new-sngso/actions/runs/44906480066) on the documentation head also ran contract validation only. A dedicated full-suite CI result on the current head is still required before claiming a full CI test pass.
+
+No Flutter runtime test, real publisher permission check, genuine human review, production security acceptance, publication, or live app update is claimed here.
+
+### Handoff
+
+- Section 7: implementation scope closed, external acceptance gates explicitly outstanding.
+- Section 8: next. Begin with edition assembly and publication safety, using only approved and explicitly bound bilingual content.
+- Section 9: operations, observability, and free-first automation.
+- Section 10: end-to-end verification and controlled handover.
+
+PR #7 remains draft and unmerged. No published edition, live schedule, Flutter repository, website, or production destination was changed.
