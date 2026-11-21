@@ -543,3 +543,11 @@ Final code verification: [run #44938218038](https://github.com/Amiroudro/new-sng
 6. Document alert thresholds and external audit checkpoint handling without introducing a paid monitoring dependency.
 
 **Safety boundary:** no scheduled collection, live source access, automatic release, production deployment, external secret configuration, paid service, or live edition publication is authorized by this audit. Section 9 implementation must preserve the existing Section 8 staging-only boundary.
+
+### Section 9.2: read-only operational health report
+
+Added bounded, newest-first pipeline-run listing to SQLiteRegistry and its repository port. Added a read-only operational report that summarizes run counts, stale active runs, recent failed/rejected runs, audit-chain verification and the external audit checkpoint value. It excludes failure detail and content payloads, flags empty history as not observed, and always returns production_ready=false. It does not schedule or execute work.
+
+Tests cover ordering/filtering/limits, stale and failed run detection, empty history, invalid parameters and failure-detail non-disclosure. GitHub Actions [run #44938730003](https://github.com/Amiroudro/new-sngso/actions/runs/44938730003) passed **839 tests in 11.54 seconds** on 9092d8137474dfb119af893d570f38c661201db4.
+
+The separate Section 9 audit is in docs/SECTION_9_AUDIT.md. Next: retry classification/idempotency, SQLite backup/restore, and operator runbooks. No scheduled or live pipeline is authorized.
