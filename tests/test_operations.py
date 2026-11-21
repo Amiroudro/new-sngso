@@ -406,7 +406,7 @@ def test_explicit_retry_refuses_runs_that_are_not_failed():
         with pytest.raises(OperationalReportError, match="only a failed"):
             create_pipeline_retry_run(
                 registry, created["record"]["id"], run_kind="daily-edition",
-                previous_attempt=1, actor="operator", reason="Attempt active retry.",
+                previous_attempt=1, recovery_confirmed=True, permissions_rechecked=True, actor="operator", reason="Attempt active retry.",
             )
 
 
