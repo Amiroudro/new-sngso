@@ -30,70 +30,55 @@ def identity(*, principal_id: str = "approver:one", authenticated_at=None) -> Au
     )
 
 
-def prepare_candidate(registry: SQLiteRegistry, monkeypatch, *, approver_roles=None) -> str:
-    manifest_id = "edition-manifest:daily-2026-11-21"
-    edition_id = "edition:daily-2026-11-21"
+def prepare_candidate(registry: SQLiteRegistry, monkeypatch, *, approver_roles=None, suffix: str = "daily-2026-11-21") -> str:
+    manifest_id = f"edition-manifest:{suffix}"
+    edition_id = f"edition:{suffix}"
     payload_hash = "sha256:" + "a" * 64
     manifest = {
         "schema_version": "1.0.0",
         "manifest_id": manifest_id,
         "edition_id": edition_id,
         "edition_revision": 1,
-        "edition_key": "2026-11-21",
+        "edition_key": suffix,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "pipeline_run_id": "pipeline-run:release-test",
         "payload_sha256": payload_hash,
         "story_bindings": [{
-            "story_id": "story:release-test",
+            "story_id": f"story:{suffix}",
             "story_revision": 1,
             "story_snapshot_sha256": "sha256:" + "c" * 64,
             "learning_objects": [
-                {
-                    "learning_object_id": "learning:bn",
-                    "learning_object_revision": 1,
-                    "learning_object_sha256": "sha256:" + "d" * 64,
-                    "kind": "headline_summary",
-                    "language": "bn",
-                },
-                {
-                    "learning_object_id": "learning:en",
-                    "learning_object_revision": 1,
-                    "learning_object_sha256": "sha256:" + "e" * 64,
-                    "kind": "headline_summary",
-                    "language": "en",
-                },
+                {"learning_object_id": "learning:bn", "learning_object_revision": 1,
+                 "learning_object_sha256": "sha256:" + "d" * 64, "kind": "headline_summary", "language": "bn"},
+                {"learning_object_id": "learning:en", "learning_object_revision": 1,
+                 "learning_object_sha256": "sha256:" + "e" * 64, "kind": "headline_summary", "language": "en"},
             ],
         }],
         "source_permissions": [{
-            "source_id": "source:release-test",
-            "endpoint_id": "endpoint:release-test",
-            "grant_id": "grant:release-test",
-            "operation": "republication",
+            "source_id": f"source:{suffix}", "endpoint_id": f"endpoint:{suffix}",
+            "grant_id": f"grant:{suffix}", "operation": "republication",
         }],
+    }
+    if not hasattr(registry, "_test_artifacts"):
+        registry._test_artifacts = {}
+    registry._test_artifacts[manifest_id] = {
+        "manifest_id": manifest_id, "edition_id": edition_id, "edition_revision": 1,
+        "payload_sha256": payload_hash, "payload": {"edition_id": edition_id}, "manifest": manifest,
     }
     registry._connection.execute(
         """INSERT INTO edition_artifacts
         (manifest_id, edition_id, edition_revision, payload_sha256,
          payload_json, manifest_json, verification_json, created_at, actor, reason)
         VALUES (?, ?, 1, ?, '{}', ?, '{}', ?, 'builder', 'test fixture')""",
-        (
-            manifest_id, edition_id, payload_hash, json.dumps(manifest),
-            datetime.now(timezone.utc).isoformat(),
-        ),
+        (manifest_id, edition_id, payload_hash, json.dumps(manifest), datetime.now(timezone.utc).isoformat()),
     )
-    registry.register_benchmark_principal(
-        "approver:one", display_name="Independent approver",
-        roles=approver_roles or ["edition_approver"], provisioned_by="bootstrap",
-        principal_kind="human", reason="test approver",
-    )
-    registry.get_edition_artifact = lambda requested: {
-        "manifest_id": manifest_id,
-        "edition_id": edition_id,
-        "edition_revision": 1,
-        "payload_sha256": payload_hash,
-        "payload": {"edition_id": edition_id},
-        "manifest": manifest,
-    } if requested == manifest_id else None
+    if registry.get_benchmark_principal("approver:one") is None:
+        registry.register_benchmark_principal(
+            "approver:one", display_name="Independent approver",
+            roles=approver_roles or ["edition_approver"], provisioned_by="bootstrap",
+            principal_kind="human", reason="test approver",
+        )
+    registry.get_edition_artifact = lambda requested: registry._test_artifacts.get(requested)
     registry.get_learning_object = lambda object_id: SimpleNamespace(
         to_payload=lambda: {"language_review": {"reviewer_id": "reviewer:independent"}}
     )
