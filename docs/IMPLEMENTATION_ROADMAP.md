@@ -422,3 +422,12 @@ An approval is **not publication authorization**. The decision contract explicit
 Closed the generic edition-write bypass identified in the Section 8.1 audit. The generic edition API now rejects `status: published`, and SQLite migration 29 adds direct-SQL guards against published-edition insertion, edition snapshot mutation, and deletion. Approved edition records remain staging candidates and are not live publications. The Section 8.10 approval ledger remains explicitly non-authorizing; a separate controlled release workflow is still required.
 
 GitHub Actions run [#44926616175](https://github.com/Amiroudro/new-sngso/actions/runs/44926616175) passed the full Python 3.12 suite: **809 passed in 10.05 seconds** on head `b7b48878f121c477481a245454f552965cacf71c`. This is repository test evidence, not a production release or deployment test.
+
+
+### Section 8.12: two-person controlled release authorization
+
+Added an independent release-authorization role and immutable ledger. A different, recently authenticated human than the staging approver must authorize the exact artifact. The original approver must remain active. The registry requires a prior `approve` decision, exact manifest/revision/hash binding, and fresh whole-edition verification including current bilingual review evidence and endpoint-scoped republication grants. The release authorization is append-only and audited.
+
+This gate sets `release_authorized: true` only for a later controlled promotion stage. It explicitly leaves `publication_authorized: false` and performs no live destination writes or edition status changes. Actual promotion, rollback, correction/supersession, and last-known-good handling remain the next implementation work.
+
+GitHub Actions [run #44927171126](https://github.com/Amiroudro/new-sngso/actions/runs/44927171126) passed the full Python 3.12 suite: **815 passed in 7.03 seconds** on head `27624dcc98e394bf6d60f8533405c6be77e518dc`. This is repository CI evidence, not production deployment or a live publication test.
