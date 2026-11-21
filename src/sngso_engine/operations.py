@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 import os
+import re
 import sqlite3
 import uuid
 
@@ -448,8 +449,10 @@ def write_external_audit_checkpoint(registry: Any, destination_path: str | Path)
         }
         encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
         descriptor = None
+        created = False
         try:
             descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            created = True
             with os.fdopen(descriptor, "wb") as stream:
                 descriptor = None
                 stream.write(encoded)
@@ -458,10 +461,11 @@ def write_external_audit_checkpoint(registry: Any, destination_path: str | Path)
         except Exception:
             if descriptor is not None:
                 os.close(descriptor)
-            try:
-                destination.unlink()
-            except FileNotFoundError:
-                pass
+            if created:
+                try:
+                    destination.unlink()
+                except FileNotFoundError:
+                    pass
             raise
     return {"status": "written", "path": str(destination), **payload}
 
@@ -489,7 +493,7 @@ def verify_external_audit_checkpoint(registry: Any, checkpoint_path: str | Path)
         raise OperationalReportError("audit checkpoint sequence is invalid")
     if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version < 1:
         raise OperationalReportError("audit checkpoint schema version is invalid")
-    if not isinstance(event_hash, str) or not __import__("re").fullmatch(r"sha256:[0-9a-f]{64}", event_hash):
+    if not isinstance(event_hash, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", event_hash):
         raise OperationalReportError("audit checkpoint hash is invalid")
 
     with registry._lock:
