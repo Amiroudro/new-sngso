@@ -230,3 +230,66 @@ def test_sqlite_insert_guard_binds_decision_to_exact_stored_artifact_and_role(mo
                     json.dumps(forged),
                 ),
             )
+
+
+def edition_payload(status: str = "approved") -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "id": "edition:controlled-release-test",
+        "edition_key": "2026-11-21",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+        "content_hash": "sha256:" + "a" * 64,
+        "pipeline_run_id": "pipeline-run:release-test",
+        "story_ids": [],
+        "language_variants": [{"language": "en", "status": "draft", "text": "Staging candidate"}],
+    }
+
+
+def test_generic_edition_insert_cannot_publish_and_sqlite_keeps_edition_immutable() -> None:
+    with SQLiteRegistry() as registry:
+        with pytest.raises(RegistryIntegrityError, match="controlled release workflow"):
+            registry.add_domain_record("edition", edition_payload("published"))
+
+        approved = registry.add_domain_record("edition", edition_payload("approved"))
+        assert approved.status == "approved"
+        forged = edition_payload("published")
+        with pytest.raises(sqlite3.IntegrityError, match="controlled release workflow"):
+            registry._connection.execute(
+                """INSERT INTO domain_records
+                (record_type, id, revision, created_at, updated_at, payload_json)
+                VALUES ('edition', ?, 1, ?, ?, ?)""",
+                (
+                    forged["id"], forged["created_at"], forged["created_at"],
+                    json.dumps(forged),
+                ),
+            )
+        changed = edition_payload("published")
+        with pytest.raises(sqlite3.IntegrityError, match="edition snapshots are immutable"):
+            registry._connection.execute(
+                "UPDATE domain_records SET payload_json = ? WHERE record_type = 'edition' AND id = ?",
+                (json.dumps(changed), approved.id),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="edition snapshots are immutable"):
+            registry._connection.execute(
+                "DELETE FROM domain_records WHERE record_type = 'edition' AND id = ?",
+                (approved.id,),
+            )
+
+
+def test_schema_28_migrates_to_29_with_edition_publication_guards(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "edition-guard-v28.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 28)
+    with SQLiteRegistry(database) as old:
+        assert old.schema_version() == 28
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 29)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 29
+        triggers = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert "edition_domain_records_no_published_insert" in triggers
+        assert "edition_domain_records_no_update" in triggers
+        assert "edition_domain_records_no_delete" in triggers
