@@ -575,3 +575,7 @@ Added a stable run ID derived from run kind, software version, config hash, orde
 GitHub Actions [run #44939558764](https://github.com/Amiroudro/new-sngso/actions/runs/44939558764) passed **869 tests in 6.65 seconds** on commit e2728fa5f3df0c97999398815862535fc1b3c826.
 
 The remaining Section 9 work is a genuine orchestrator/worker boundary, operational runbooks, external audit checkpoint storage, backup encryption/retention/off-site storage, production restore drills and monitoring/alert routing. No scheduled live pipeline is authorized.
+
+### Section 9.6: initial local operations runbook
+
+Added docs/OPERATIONS_RUNBOOK.md with local procedures for health reports, verified backup/restore, retry classification, idempotent run submission, audit limitations and stop/escalation conditions. It explicitly documents missing production facilities and does not claim to be an on-call or production recovery plan.
