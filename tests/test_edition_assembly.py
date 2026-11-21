@@ -151,6 +151,11 @@ def test_assembly_rejects_unapproved_learning_object(monkeypatch):
 def test_assembly_rejects_stale_learning_object_history(monkeypatch):
     registry = AssemblyRegistry()
     registry.objects["learning:bn"].revision = 5
+    original_history = registry.learning_object_history
+    registry.learning_object_history = lambda object_id: (
+        [{"revision": 4, "record": registry.objects[object_id].to_payload()}]
+        if object_id == "learning:bn" else original_history(object_id)
+    )
     with pytest.raises(EditionAssemblyError, match="revision history mismatch"):
         _assemble(monkeypatch, registry)
 
