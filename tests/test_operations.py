@@ -315,7 +315,7 @@ def test_explicit_retry_creates_new_queued_attempt_with_same_immutable_inputs():
         )
         duplicate = create_pipeline_retry_run(
             registry, created["record"]["id"], run_kind="daily-edition",
-            previous_attempt=1, actor="operator", reason="Repeat retry request.",
+            previous_attempt=1, recovery_confirmed=True, permissions_rechecked=True, actor="operator", reason="Repeat retry request.",
         )
         assert retried["created"] is True
         assert duplicate["created"] is False
@@ -355,7 +355,7 @@ def test_explicit_retry_refuses_permanent_and_unknown_failures(failure_code):
         with pytest.raises(OperationalReportError, match="not eligible for retry"):
             create_pipeline_retry_run(
                 registry, created["record"]["id"], run_kind="daily-edition",
-                previous_attempt=1, actor="operator", reason="Attempt forbidden retry.",
+                previous_attempt=1, recovery_confirmed=True, permissions_rechecked=True, actor="operator", reason="Attempt forbidden retry.",
             )
         assert len(registry.list_pipeline_runs(limit=10)) == 1
 
