@@ -447,3 +447,12 @@ GitHub Actions [run #44927518850](https://github.com/Amiroudro/new-sngso/actions
 Documented the required staging-only promotion, correction, rollback, and last-known-good invariants in `docs/SECTION_8_14_STAGING_CORRECTION_ROLLBACK_DESIGN.md`. The design requires fresh re-verification, immutable correction artifacts, separate approval and release authorization, a distinct authenticated staging operator, append-only event history, atomic compare-and-swap pointer changes, and preservation of the previous known-good staging export. Rollback is a new event, never deletion or rewriting of history.
 
 **Design only at this checkpoint.** The migration, authenticated staging operator, atomic registry methods, and acceptance tests remain to be implemented. No staging channel is operational and no live publication is authorized.
+
+
+### Section 8.14: atomic staging promotion, correction and rollback
+
+Implemented SQLite migration 31, append-only staging events, guarded current/LKG channel state, a distinct authenticated staging-operator role, and authenticated facade operations for promotion and rollback. Both operations freshly rebuild and verify the staging export inside the write transaction and compare-and-swap the expected state revision and current export. Corrections require new immutable artifacts and fresh dual authorization. Rollback creates a new event and restores only an earlier successfully promoted export. The staging channel is fixed to staging and remains explicitly non-publishing.
+
+GitHub Actions run [#44932795855](https://github.com/Amiroudro/new-sngso/actions/runs/44932795855) passed the full Python 3.12 suite: **824 passed in 9.62 seconds** on code/test head `11bb329f8a207914160ab6f335d2eedd2b5bcf9f`.
+
+The implementation is registry-level staging only. Genuine human review, current real publisher permissions, deployed identity/revocation, cross-process concurrency acceptance, backup/restore drills and a downstream staging consumer remain external acceptance gates. No live edition was published.
