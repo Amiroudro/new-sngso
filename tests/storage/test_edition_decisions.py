@@ -35,10 +35,41 @@ def prepare_candidate(registry: SQLiteRegistry, monkeypatch, *, approver_roles=N
     edition_id = "edition:daily-2026-11-21"
     payload_hash = "sha256:" + "a" * 64
     manifest = {
+        "schema_version": "1.0.0",
         "manifest_id": manifest_id,
         "edition_id": edition_id,
         "edition_revision": 1,
+        "edition_key": "2026-11-21",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "pipeline_run_id": "pipeline-run:release-test",
         "payload_sha256": payload_hash,
+        "story_bindings": [{
+            "story_id": "story:release-test",
+            "story_revision": 1,
+            "story_snapshot_sha256": "sha256:" + "c" * 64,
+            "learning_objects": [
+                {
+                    "learning_object_id": "learning:bn",
+                    "learning_object_revision": 1,
+                    "learning_object_sha256": "sha256:" + "d" * 64,
+                    "kind": "headline_summary",
+                    "language": "bn",
+                },
+                {
+                    "learning_object_id": "learning:en",
+                    "learning_object_revision": 1,
+                    "learning_object_sha256": "sha256:" + "e" * 64,
+                    "kind": "headline_summary",
+                    "language": "en",
+                },
+            ],
+        }],
+        "source_permissions": [{
+            "source_id": "source:release-test",
+            "endpoint_id": "endpoint:release-test",
+            "grant_id": "grant:release-test",
+            "operation": "republication",
+        }],
     }
     registry._connection.execute(
         """INSERT INTO edition_artifacts
