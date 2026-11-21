@@ -127,3 +127,82 @@ def test_sqlite_guards_reject_illegal_direct_transition_and_deletion() -> None:
             registry._connection.execute(
                 "DELETE FROM pipeline_runs WHERE id = ?", (queued["id"],)
             )
+
+
+def _failed_parent(registry):
+    parent = run_record("running")
+    registry.add_pipeline_run(parent, actor="scheduler", reason="create retry parent")
+    failed = dict(
+        parent,
+        status="failed",
+        finished_at="2026-11-21T05:10:00Z",
+        failure_code="network_timeout",
+    )
+    registry.transition_pipeline_run(
+        parent["id"], failed, expected_revision=1,
+        actor="worker", reason="parent attempt failed",
+    )
+    return parent
+
+
+def test_pipeline_retry_lineage_requires_failed_parent_and_matching_inputs():
+    with SQLiteRegistry() as registry:
+        parent = _failed_parent(registry)
+        retry = dict(
+            run_record("queued"),
+            id="pipeline-run:retry-2026-11-21",
+            attempt=2,
+            retry_of=parent["id"],
+        )
+        created = registry.add_pipeline_run(
+            retry, actor="operator", reason="create explicit retry child",
+        )
+        assert created["record"]["retry_of"] == parent["id"]
+        assert created["record"]["attempt"] == 2
+
+
+def test_pipeline_retry_lineage_rejects_missing_or_nonfailed_parent():
+    with SQLiteRegistry() as registry:
+        child = dict(
+            run_record("queued"),
+            id="pipeline-run:retry-missing-parent",
+            attempt=2,
+            retry_of="pipeline-run:missing-parent",
+        )
+        with pytest.raises(RegistryIntegrityError, match="does not exist"):
+            registry.add_pipeline_run(child, actor="operator", reason="invalid retry parent")
+
+        parent = run_record("running")
+        registry.add_pipeline_run(parent, actor="scheduler", reason="create active parent")
+        child["id"] = "pipeline-run:retry-active-parent"
+        child["retry_of"] = parent["id"]
+        with pytest.raises(RegistryIntegrityError, match="must be failed"):
+            registry.add_pipeline_run(child, actor="operator", reason="retry active parent")
+
+
+def test_pipeline_retry_lineage_rejects_changed_attempt_or_parent_inputs():
+    with SQLiteRegistry() as registry:
+        parent = _failed_parent(registry)
+        wrong_attempt = dict(
+            run_record("queued"),
+            id="pipeline-run:retry-wrong-attempt",
+            attempt=3,
+            retry_of=parent["id"],
+        )
+        with pytest.raises(RegistryIntegrityError, match="immediately follow"):
+            registry.add_pipeline_run(
+                wrong_attempt, actor="operator", reason="wrong retry attempt",
+            )
+
+        changed_input = dict(
+            run_record("queued"),
+            id="pipeline-run:retry-changed-input",
+            attempt=2,
+            retry_of=parent["id"],
+            config_hash="sha256:" + "d" * 64,
+        )
+        with pytest.raises(RegistryIntegrityError, match="preserve its parent's"):
+            registry.add_pipeline_run(
+                changed_input, actor="operator", reason="changed retry input",
+            )
+
