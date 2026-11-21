@@ -9,7 +9,7 @@ import pytest
 
 from sngso_engine.benchmark_access import AuthenticatedBenchmarkAccess, AuthenticatedIdentity
 from sngso_engine.registry import RegistryIntegrityError, SQLiteRegistry
-from sngso_engine import registry as registry_module
+from sngso_engine import registry as registry_module\nfrom sngso_engine import edition_staging\nfrom sngso_engine.canonical import canonical_json_bytes
 from sngso_engine import edition_artifacts, edition_export
 
 
@@ -537,3 +537,135 @@ def test_verified_staging_export_rejects_missing_or_revoked_release_authorizatio
         )
         with pytest.raises(edition_export.StagingExportError, match="no longer an active human release authorizer"):
             edition_export.build_verified_staging_export(registry, manifest_id)
+
+
+
+def prepare_approved_staging_candidate(registry, monkeypatch, suffix):
+    manifest_id = prepare_candidate(registry, monkeypatch, suffix=suffix)
+    if registry.get_benchmark_principal("authorizer:one") is None:
+        registry.register_benchmark_principal(
+            "authorizer:one", display_name="Release authorizer",
+            roles=["edition_release_authorizer"], provisioned_by="bootstrap",
+            principal_kind="human", reason="test release authorizer",
+        )
+    if registry.get_benchmark_principal("operator:one") is None:
+        registry.register_benchmark_principal(
+            "operator:one", display_name="Staging operator",
+            roles=["edition_staging_operator"], provisioned_by="bootstrap",
+            principal_kind="human", reason="test staging operator",
+        )
+    registry.record_edition_decision(
+        manifest_id, identity=identity(principal_id="approver:one"),
+        decision="approve", reason="Candidate passed independent staging review",
+    )
+    registry.authorize_edition_release(
+        manifest_id, identity=identity(principal_id="authorizer:one"),
+        reason="Independent controlled release authorization",
+    )
+    monkeypatch.setattr(
+        edition_export, "verify_registry_backed_edition_artifact",
+        lambda *args, **kwargs: SimpleNamespace(
+            artifact=SimpleNamespace(payload_sha256="sha256:" + "a" * 64),
+            learning_object_ids=("learning:bn", "learning:en"),
+        ),
+    )
+    return manifest_id
+
+
+def test_staging_first_and_second_promotion_preserve_last_known_good(monkeypatch):
+    with SQLiteRegistry() as registry:
+        first = prepare_approved_staging_candidate(registry, monkeypatch, "2026-11-21-am")
+        first_result = edition_staging.promote_edition_to_staging(
+            registry, first, identity=identity(principal_id="operator:one"),
+            reason="First verified staging candidate", expected_state_revision=0,
+            expected_current_export_id=None,
+        )
+        first_export = first_result["export"].export_id
+        assert first_result["state"]["current_export_id"] == first_export
+        assert first_result["state"]["lkg_export_id"] is None
+
+        second = prepare_approved_staging_candidate(registry, monkeypatch, "2026-11-21-pm")
+        second_result = edition_staging.promote_edition_to_staging(
+            registry, second, identity=identity(principal_id="operator:one"),
+            reason="Corrected afternoon staging candidate", expected_state_revision=1,
+            expected_current_export_id=first_export,
+        )
+        assert second_result["state"]["current_export_id"] == second_result["export"].export_id
+        assert second_result["state"]["lkg_export_id"] == first_export
+        assert second_result["state"]["state_revision"] == 2
+        assert [event["operation"] for event in edition_staging.list_edition_staging_events(registry)] == [
+            "promote", "promote"
+        ]
+
+
+def test_staging_rollback_is_new_event_and_restores_previous_verified_export(monkeypatch):
+    with SQLiteRegistry() as registry:
+        first = prepare_approved_staging_candidate(registry, monkeypatch, "2026-11-21-am")
+        first_result = edition_staging.promote_edition_to_staging(
+            registry, first, identity=identity(principal_id="operator:one"),
+            reason="First verified staging candidate", expected_state_revision=0,
+            expected_current_export_id=None,
+        )
+        first_export = first_result["export"].export_id
+        second = prepare_approved_staging_candidate(registry, monkeypatch, "2026-11-21-pm")
+        second_result = edition_staging.promote_edition_to_staging(
+            registry, second, identity=identity(principal_id="operator:one"),
+            reason="Second verified staging candidate", expected_state_revision=1,
+            expected_current_export_id=first_export,
+        )
+        second_export = second_result["export"].export_id
+        rolled_back = edition_staging.rollback_edition_staging(
+            registry, first, target_export_id=first_export,
+            identity=identity(principal_id="operator:one"),
+            reason="Rollback after staging regression", expected_state_revision=2,
+            expected_current_export_id=second_export,
+        )
+        assert rolled_back["state"]["current_export_id"] == first_export
+        assert rolled_back["state"]["lkg_export_id"] == second_export
+        assert [event["operation"] for event in edition_staging.list_edition_staging_events(registry)] == [
+            "promote", "promote", "rollback"
+        ]
+
+
+def test_staging_compare_and_swap_and_role_separation_fail_closed(monkeypatch):
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_approved_staging_candidate(registry, monkeypatch, "2026-11-21-am")
+        with pytest.raises(RegistryIntegrityError, match="state changed"):
+            edition_staging.promote_edition_to_staging(
+                registry, manifest_id, identity=identity(principal_id="operator:one"),
+                reason="Stale operator view", expected_state_revision=1,
+                expected_current_export_id=None,
+            )
+        with pytest.raises(RegistryIntegrityError, match="independent"):
+            edition_staging.promote_edition_to_staging(
+                registry, manifest_id, identity=identity(principal_id="approver:one"),
+                reason="Approver cannot operate staging", expected_state_revision=0,
+                expected_current_export_id=None,
+            )
+        state = edition_staging.get_edition_staging_state(registry)
+        assert state["state_revision"] == 0
+        assert state["current_export_id"] is None
+
+
+def test_staging_event_history_is_append_only_and_state_cannot_be_deleted(monkeypatch):
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_approved_staging_candidate(registry, monkeypatch, "2026-11-21-am")
+        result = edition_staging.promote_edition_to_staging(
+            registry, manifest_id, identity=identity(principal_id="operator:one"),
+            reason="First verified staging candidate", expected_state_revision=0,
+            expected_current_export_id=None,
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "UPDATE edition_staging_events SET reason = 'rewritten' WHERE event_id = ?",
+                (result["event"]["event_id"],),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "DELETE FROM edition_staging_events WHERE event_id = ?",
+                (result["event"]["event_id"],),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="cannot be deleted"):
+            registry._connection.execute(
+                "DELETE FROM edition_staging_channel_state WHERE channel = 'staging'"
+            )
