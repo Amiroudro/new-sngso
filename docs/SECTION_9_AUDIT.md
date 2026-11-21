@@ -50,3 +50,18 @@ Implemented free-first local backup/restore helpers using Python's built-in SQLi
 GitHub Actions [run #44939132297](https://github.com/Amiroudro/new-sngso/actions/runs/44939132297) passed **842 tests in 8.91 seconds** on commit `120a07f2f822e84f9863651f0153a219ec3116fa`.
 
 This is a local utility, not a scheduled or off-site backup service. Encryption, retention, independent storage, recovery-point objectives, and an actual restore drill against a production-like database remain unimplemented.
+
+## 9.4 Deterministic retry classification
+
+Added a pure retry-policy classifier. It recognizes a narrow set of transient network/HTTP/SQLite-busy failure codes, applies bounded exponential backoff, and stops at the configured attempt limit. Permission denial/expiry/revocation, identity/authentication failure, contract/schema failure, unsupported operation, inactive source/endpoint, content-policy block, and integrity failure are permanent. Unknown codes fail closed and are not retried.
+
+The classifier does not perform retries, sleep, schedule jobs, or mutate pipeline state. It is policy input for a future orchestrator. Tests cover transient retries, backoff caps, attempt exhaustion, permanent and unknown failures, and invalid inputs.
+
+GitHub Actions [run #44939277125](https://github.com/Amiroudro/new-sngso/actions/runs/44939277125) passed **859 tests in 11.54 seconds** on commit `9dad74539a50cb6a548dd09932781013a71c4371`.
+
+### Updated remaining work
+
+- Idempotency and orchestration semantics must be defined before an actual retry loop is added.
+- Operational runbooks and incident response remain outstanding.
+- Backup encryption, retention, off-site copies, external audit checkpoint storage and a production-like restore drill remain outstanding.
+- No scheduler, monitoring service, alert router, live source connector or production deployment exists.
