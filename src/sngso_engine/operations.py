@@ -422,3 +422,92 @@ def create_pipeline_run_idempotently(
             raise
         return reuse_existing(existing)
 
+def write_external_audit_checkpoint(registry: Any, destination_path: str | Path) -> dict[str, Any]:
+    """Write the current verified audit tip to a new owner-only JSON file.
+
+    The operator must copy this file to independently controlled storage;
+    writing it beside the database alone does not protect against joint tampering.
+    """
+    from datetime import datetime, timezone
+
+    destination = Path(destination_path).expanduser().resolve()
+    if not destination.parent.is_dir():
+        raise FileNotFoundError("checkpoint destination directory must already exist")
+    with registry._lock:
+        if not registry.verify_audit_chain():
+            raise OperationalReportError("cannot checkpoint an invalid audit chain")
+        checkpoint = registry.audit_checkpoint()
+        if checkpoint["sequence"] < 1 or not checkpoint["event_hash"]:
+            raise OperationalReportError("cannot checkpoint an empty audit chain")
+        payload = {
+            "schema_version": "1.0.0",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "registry_schema_version": registry.schema_version(),
+            "sequence": checkpoint["sequence"],
+            "event_hash": checkpoint["event_hash"],
+        }
+        encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        descriptor = None
+        try:
+            descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                descriptor = None
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except Exception:
+            if descriptor is not None:
+                os.close(descriptor)
+            try:
+                destination.unlink()
+            except FileNotFoundError:
+                pass
+            raise
+    return {"status": "written", "path": str(destination), **payload}
+
+
+def verify_external_audit_checkpoint(registry: Any, checkpoint_path: str | Path) -> dict[str, Any]:
+    """Verify that the current retained audit chain still contains an external checkpoint."""
+    path = Path(checkpoint_path).expanduser().resolve()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OperationalReportError(f"cannot read audit checkpoint: {exc}") from exc
+    required = {"schema_version", "generated_at", "registry_schema_version", "sequence", "event_hash"}
+    if not isinstance(payload, dict) or set(payload) != required or payload.get("schema_version") != "1.0.0":
+        raise OperationalReportError("audit checkpoint shape is invalid")
+    try:
+        generated_at = datetime.fromisoformat(payload["generated_at"].replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise OperationalReportError("audit checkpoint timestamp is invalid") from exc
+    if generated_at.tzinfo is None or generated_at.utcoffset() is None:
+        raise OperationalReportError("audit checkpoint timestamp must be timezone-aware")
+    sequence = payload["sequence"]
+    schema_version = payload["registry_schema_version"]
+    event_hash = payload["event_hash"]
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        raise OperationalReportError("audit checkpoint sequence is invalid")
+    if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version < 1:
+        raise OperationalReportError("audit checkpoint schema version is invalid")
+    if not isinstance(event_hash, str) or not __import__("re").fullmatch(r"sha256:[0-9a-f]{64}", event_hash):
+        raise OperationalReportError("audit checkpoint hash is invalid")
+
+    with registry._lock:
+        if registry.schema_version() < schema_version:
+            raise OperationalReportError("registry schema is older than the audit checkpoint")
+        if not registry.verify_audit_chain():
+            raise OperationalReportError("current registry audit chain is invalid")
+        events = registry.audit_events()
+        if len(events) < sequence or events[sequence - 1]["sequence"] != sequence:
+            raise OperationalReportError("audit chain has been truncated before the external checkpoint")
+        if events[sequence - 1]["event_hash"] != event_hash:
+            raise OperationalReportError("audit chain does not match the external checkpoint")
+        current = registry.audit_checkpoint()
+    return {
+        "status": "verified",
+        "checkpoint_sequence": sequence,
+        "current_sequence": current["sequence"],
+        "trailing_events": current["sequence"] - sequence,
+        "event_hash": event_hash,
+    }
+
