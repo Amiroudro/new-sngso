@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/edition-staging-event.schema.json",
+  "title": "Edition staging event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "state_revision",
+    "channel",
+    "operation",
+    "manifest_id",
+    "edition_id",
+    "edition_revision",
+    "payload_sha256",
+    "export_id",
+    "export_sha256",
+    "previous_current_export_id",
+    "lkg_export_id",
+    "operator_principal_id",
+    "occurred_at",
+    "reason",
+    "target",
+    "publication_authorized",
+    "staging_decision",
+    "release_authorization",
+    "operator_identity_attestation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "channel": {
+      "const": "staging"
+    },
+    "operation": {
+      "enum": [
+        "promote",
+        "rollback"
+      ]
+    },
+    "manifest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "edition_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "edition_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "payload_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "export_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "export_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "previous_current_export_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "lkg_export_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "operator_principal_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "const": "staging"
+    },
+    "publication_authorized": {
+      "const": false
+    },
+    "staging_decision": {
+      "$ref": "https://new-sngso.local/contracts/v1/edition-decision.schema.json"
+    },
+    "release_authorization": {
+      "$ref": "https://new-sngso.local/contracts/v1/edition-release-authorization.schema.json"
+    },
+    "operator_identity_attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issuer",
+        "audience",
+        "subject",
+        "authenticated_at",
+        "expires_at",
+        "authentication_methods",
+        "authentication_context",
+        "provider_key_id",
+        "provider_adapter",
+        "session_fingerprint"
+      ],
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "audience": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authenticated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "authentication_methods": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "authentication_context": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider_key_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider_adapter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}
