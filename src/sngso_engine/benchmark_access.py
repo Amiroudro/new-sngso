@@ -567,6 +567,51 @@ class AuthenticatedBenchmarkAccess:
             manifest_id, identity=identity, reason=reason
         )
 
+
+    def promote_edition_to_staging(
+        self, request_context: Any, manifest_id: str, *, reason: str,
+        expected_state_revision: int, expected_current_export_id: str | None,
+    ) -> dict[str, Any]:
+        """Promote a candidate only through a recently authenticated staging operator."""
+        identity = self._identity(request_context)
+        principal = self._registry.get_benchmark_principal(identity.principal_id)
+        if (
+            principal is None or not principal["active"]
+            or principal.get("principal_kind") != "human"
+            or "edition_staging_operator" not in principal["roles"]
+        ):
+            raise RegistryIntegrityError("staging promotion requires an active human staging operator")
+        if self._clock() - identity.authenticated_at > timedelta(minutes=15):
+            raise RegistryIntegrityError("staging promotion requires recent authentication within 15 minutes")
+        from .edition_staging import promote_edition_to_staging
+        return promote_edition_to_staging(
+            self._registry, manifest_id, identity=identity, reason=reason,
+            expected_state_revision=expected_state_revision,
+            expected_current_export_id=expected_current_export_id, now=self._clock(),
+        )
+
+    def rollback_edition_staging(
+        self, request_context: Any, manifest_id: str, *, target_export_id: str,
+        reason: str, expected_state_revision: int, expected_current_export_id: str,
+    ) -> dict[str, Any]:
+        """Rollback only to a prior verified staging export through a fresh operator session."""
+        identity = self._identity(request_context)
+        principal = self._registry.get_benchmark_principal(identity.principal_id)
+        if (
+            principal is None or not principal["active"]
+            or principal.get("principal_kind") != "human"
+            or "edition_staging_operator" not in principal["roles"]
+        ):
+            raise RegistryIntegrityError("staging rollback requires an active human staging operator")
+        if self._clock() - identity.authenticated_at > timedelta(minutes=15):
+            raise RegistryIntegrityError("staging rollback requires recent authentication within 15 minutes")
+        from .edition_staging import rollback_edition_staging
+        return rollback_edition_staging(
+            self._registry, manifest_id, target_export_id=target_export_id,
+            identity=identity, reason=reason, expected_state_revision=expected_state_revision,
+            expected_current_export_id=expected_current_export_id, now=self._clock(),
+        )
+
     def reviewer_assignment_queue(
         self, request_context: Any, *, status: str | None = None,
         language: str | None = None
