@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -720,3 +721,64 @@ def test_revoked_staging_operator_cannot_promote_and_state_is_unchanged(monkeypa
         assert state["state_revision"] == 0
         assert state["current_export_id"] is None
         assert edition_staging.list_edition_staging_events(registry) == []
+
+
+
+def test_two_independent_connections_cannot_both_promote_same_staging_revision(tmp_path, monkeypatch):
+    database = tmp_path / "shared-staging.sqlite"
+    with SQLiteRegistry(database) as primary:
+        manifest_id = prepare_approved_staging_candidate(
+            primary, monkeypatch, "2026-11-22-two-connection-race"
+        )
+        # The second registry sees the same durable artifact and decision ledgers.
+        # The test fixture's artifact lookup is intentionally supplied to both
+        # registry instances; all channel state and authorization reads remain DB-backed.
+        with SQLiteRegistry(database) as contender:
+            contender._test_artifacts = primary._test_artifacts
+            contender.get_edition_artifact = lambda requested: contender._test_artifacts.get(requested)
+
+            barrier = threading.Barrier(2)
+            outcomes = []
+            outcome_lock = threading.Lock()
+
+            def attempt(registry):
+                barrier.wait(timeout=5)
+                try:
+                    result = edition_staging.promote_edition_to_staging(
+                        registry, manifest_id,
+                        identity=identity(principal_id="operator:one"),
+                        reason="Concurrent promotion race",
+                        expected_state_revision=0,
+                        expected_current_export_id=None,
+                    )
+                    outcome = ("success", result["event"]["event_id"])
+                except edition_staging.EditionStagingError as exc:
+                    outcome = ("rejected", str(exc))
+                except BaseException as exc:
+                    outcome = ("unexpected", repr(exc))
+                with outcome_lock:
+                    outcomes.append(outcome)
+
+            threads = [
+                threading.Thread(target=attempt, args=(primary,)),
+                threading.Thread(target=attempt, args=(contender,)),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                assert not thread.is_alive(), "concurrent staging promotion did not finish"
+
+            assert len(outcomes) == 2
+            assert sum(kind == "success" for kind, _ in outcomes) == 1
+            rejected = [detail for kind, detail in outcomes if kind == "rejected"]
+            assert len(rejected) == 1
+            assert "state changed" in rejected[0]
+            assert not [detail for kind, detail in outcomes if kind == "unexpected"]
+
+            state = edition_staging.get_edition_staging_state(primary)
+            events = edition_staging.list_edition_staging_events(primary)
+            assert state["state_revision"] == 1
+            assert state["current_export_id"] is not None
+            assert len(events) == 1
+            assert events[0]["state_revision"] == 1
