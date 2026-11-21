@@ -468,3 +468,11 @@ Added a gate-by-gate acceptance register in `docs/SECTION_8_15_END_TO_END_ACCEPT
 Added a two-connection SQLite promotion race test, transaction-failure rollback test, and pre-promotion operator-revocation test. GitHub Actions run [#44937132497](https://github.com/Amiroudro/new-sngso/actions/runs/44937132497) passed the full Python 3.12 suite: **827 passed in 7.61 seconds** on commit `d85d661fe5d54e6c1988ccb49239eae3608bb515`.
 
 The repository-level concurrency, atomicity, and operator-revocation test gaps are now covered. The next Section 8 acceptance task is an integrated real-registry lifecycle test with no mocked whole-edition verifier. Genuine editorial/permission/identity evidence, production backup/restore, and staging-consumer runtime tests remain external gates. Section 8 is not production-ready or operationally accepted.
+
+## Additional authorization-revocation regression
+
+A further staging test revokes the original human approver after the approval and separate release authorization have been recorded, but before staging promotion. Promotion must re-run export checks, reject the now-inactive approver, and leave the staging pointer and event ledger unchanged.
+
+The first test run exposed an expected exception-wrapping boundary: the staging API translates the lower-level export rejection into `EditionStagingError`. The assertion was corrected to check the public staging API contract. The corrected full Python 3.12 suite passed: **828 passed in 11.22 seconds**, GitHub Actions run [#44937450038](https://github.com/Amiroudro/new-sngso/actions/runs/44937450038), commit `39ca24dd512f8ca4bca7f0d59c79eccd61a03d0f`.
+
+This is repository-level regression evidence using synthetic staging fixtures. It does not replace the still-open integrated genuine-record lifecycle test or external operational acceptance gates.
