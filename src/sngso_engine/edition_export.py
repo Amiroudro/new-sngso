@@ -93,7 +93,7 @@ def build_verified_staging_export(
     package_core = {
         "schema_version": "1.0.0",
         "target": "staging",
-        "created_at": evaluation_time.astimezone(timezone.utc).isoformat(),
+        "created_at": artifact["manifest"]["created_at"],
         "manifest_id": manifest_id,
         "edition_id": artifact["edition_id"],
         "edition_revision": artifact["edition_revision"],
@@ -104,7 +104,7 @@ def build_verified_staging_export(
         "release_authorization": authorization,
         "publication_authorized": False,
     }
-    export_id = "staging-export:" + sha256_fingerprint(package_core).removeprefix("sha256:")
+    export_id = "staging-export:" + sha256_fingerprint({\n        "manifest_id": manifest_id, "edition_id": artifact["edition_id"],\n        "edition_revision": artifact["edition_revision"], "payload_sha256": artifact["payload_sha256"],\n    }).removeprefix("sha256:")
     package = {"export_id": export_id, **package_core}
     try:
         validate_payload("edition-staging-export", package)
