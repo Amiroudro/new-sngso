@@ -2504,7 +2504,7 @@ def test_schema_v15_migrates_to_v16_with_single_final_adjudication_guard(tmp_pat
 
 def test_latest_registry_contains_append_only_score_study_execution_and_acceptance_stores():
     with SQLiteRegistry() as registry:
-        assert registry.schema_version() == 30
+        assert registry.schema_version() == 31
         tables = {
             row["name"] for row in registry._connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
@@ -2641,7 +2641,7 @@ def test_schema_30_migrates_to_31_staging_channel(tmp_path, monkeypatch) -> None
     database = tmp_path / "staging-v30.sqlite"
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 30)
     with SQLiteRegistry(database) as old:
-        assert old.schema_version() == 30
+        assert old.schema_version() == 31
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 31)
     with SQLiteRegistry(database) as migrated:
         assert migrated.schema_version() == 31
