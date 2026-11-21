@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 25
+_SCHEMA_VERSION = 26
 
 
 _MIGRATION_14 = (
@@ -675,6 +675,56 @@ _MIGRATION_25 = (
          ) THEN RAISE(ABORT, 'question answer evidence must be current and linked to its answer claim') END;
        END""",
 )
+
+_MIGRATION_26 = (
+    """CREATE TABLE pipeline_runs (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'rejected')),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        started_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json))
+    )""",
+    """CREATE TABLE pipeline_run_revisions (
+        pipeline_run_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (pipeline_run_id, revision),
+        FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_runs(id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX pipeline_runs_status_started ON pipeline_runs(status, started_at)",
+    """CREATE TRIGGER pipeline_run_identity_guard
+       BEFORE UPDATE ON pipeline_runs
+       BEGIN
+         SELECT CASE WHEN NEW.id != OLD.id
+           OR NEW.started_at != OLD.started_at
+           OR json_extract(NEW.payload_json, '$.software_version') IS NOT json_extract(OLD.payload_json, '$.software_version')
+           OR json_extract(NEW.payload_json, '$.config_hash') IS NOT json_extract(OLD.payload_json, '$.config_hash')
+           OR json_extract(NEW.payload_json, '$.input_hashes') IS NOT json_extract(OLD.payload_json, '$.input_hashes')
+           OR json_extract(NEW.payload_json, '$.initiated_by') IS NOT json_extract(OLD.payload_json, '$.initiated_by')
+         THEN RAISE(ABORT, 'pipeline run identity and inputs are immutable') END;
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'pipeline run revision must increment by one') END;
+       END""",
+    """CREATE TRIGGER pipeline_run_revision_no_update
+       BEFORE UPDATE ON pipeline_run_revisions
+       BEGIN SELECT RAISE(ABORT, 'pipeline run revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_run_revision_no_delete
+       BEFORE DELETE ON pipeline_run_revisions
+       BEGIN SELECT RAISE(ABORT, 'pipeline run revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_run_revision_matches_current
+       BEFORE INSERT ON pipeline_run_revisions
+       BEGIN
+         SELECT CASE WHEN NOT EXISTS (
+           SELECT 1 FROM pipeline_runs
+           WHERE id = NEW.pipeline_run_id AND revision = NEW.revision
+             AND payload_json = NEW.payload_json
+         ) THEN RAISE(ABORT, 'pipeline run revision must match current record') END;
+       END""",
+)
+
 class RegistryIntegrityError(ValueError):
     """Raised when a record references missing or incompatible registry data."""
 
@@ -2300,6 +2350,19 @@ class SQLiteRegistry:
                     version = 25
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 25 failed; transaction rolled back") from exc
+
+            if version == 25 and _SCHEMA_VERSION >= 26:
+                try:
+                    for statement in _MIGRATION_26:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (26, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 26")
+                    version = 26
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 26 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -6441,6 +6504,120 @@ class SQLiteRegistry:
             "production_ready": False,
             "authorization_granted": False,
         }
+
+    def add_pipeline_run(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Register the initial queued/running state of one immutable pipeline execution."""
+        validate_payload("pipeline-run", payload)
+        if payload.get("status") not in {"queued", "running"}:
+            raise RegistryIntegrityError("new pipeline run must start queued or running")
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("pipeline run actor and reason are required")
+        _aware_datetime(payload["started_at"], "started_at")
+        payload_json = _json_text(payload)
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json)
+                   VALUES (?, ?, 1, ?, ?)""",
+                (payload["id"], payload["status"], payload["started_at"], payload_json),
+            )
+            connection.execute(
+                """INSERT INTO pipeline_run_revisions
+                   (pipeline_run_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, 1, ?, ?, ?, ?)""",
+                (payload["id"], _utc_now(), actor.strip(), reason.strip(), payload_json),
+            )
+            self._append_audit(
+                connection, event_type="pipeline_run.created",
+                entity_type="pipeline_run", entity_id=payload["id"],
+                payload={"revision": 1, "record": payload, "actor": actor.strip(), "reason": reason.strip()},
+            )
+        return {"revision": 1, "record": json.loads(payload_json)}
+
+    def get_pipeline_run(self, pipeline_run_id: str) -> dict[str, Any] | None:
+        """Return the current pipeline-run revision and its validated record."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT revision, payload_json FROM pipeline_runs WHERE id = ?",
+                (pipeline_run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        record = json.loads(row["payload_json"])
+        validate_payload("pipeline-run", record)
+        return {"revision": row["revision"], "record": record}
+
+    def transition_pipeline_run(
+        self, pipeline_run_id: str, payload: dict[str, Any], *,
+        expected_revision: int, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Append a legal lifecycle transition; run identity and inputs never change."""
+        validate_payload("pipeline-run", payload)
+        if payload.get("id") != pipeline_run_id:
+            raise RegistryIntegrityError("pipeline run identity cannot change")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+            raise ValueError("expected_revision must be a positive integer")
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("pipeline run actor and reason are required")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM pipeline_runs WHERE id = ?",
+                (pipeline_run_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("unknown pipeline run")
+            if row["revision"] != expected_revision:
+                raise RegistryIntegrityError("pipeline run revision conflict")
+            previous = json.loads(row["payload_json"])
+            transitions = {
+                "queued": {"running", "cancelled", "rejected"},
+                "running": {"succeeded", "failed", "cancelled"},
+            }
+            if payload.get("status") not in transitions.get(previous["status"], set()):
+                raise RegistryIntegrityError("invalid pipeline run status transition")
+            immutable = ("id", "started_at", "software_version", "config_hash", "input_hashes", "initiated_by")
+            if any(payload.get(field) != previous.get(field) for field in immutable):
+                raise RegistryIntegrityError("pipeline run identity and inputs are immutable")
+            _aware_datetime(payload["started_at"], "started_at")
+            if "finished_at" in payload and _aware_datetime(payload["finished_at"], "finished_at") < _aware_datetime(previous["started_at"], "started_at"):
+                raise RegistryIntegrityError("pipeline run cannot finish before it starts")
+            revision = expected_revision + 1
+            payload_json = _json_text(payload)
+            updated = connection.execute(
+                """UPDATE pipeline_runs SET status = ?, revision = ?, payload_json = ?
+                   WHERE id = ? AND revision = ?""",
+                (payload["status"], revision, payload_json, pipeline_run_id, expected_revision),
+            )
+            if updated.rowcount != 1:
+                raise RegistryIntegrityError("pipeline run revision conflict")
+            connection.execute(
+                """INSERT INTO pipeline_run_revisions
+                   (pipeline_run_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (pipeline_run_id, revision, _utc_now(), actor.strip(), reason.strip(), payload_json),
+            )
+            self._append_audit(
+                connection, event_type="pipeline_run.transitioned",
+                entity_type="pipeline_run", entity_id=pipeline_run_id,
+                payload={"from": previous["status"], "to": payload["status"], "revision": revision,
+                         "actor": actor.strip(), "reason": reason.strip(), "record": payload},
+            )
+        return {"revision": revision, "record": json.loads(payload_json)}
+
+    def pipeline_run_history(self, pipeline_run_id: str) -> list[dict[str, Any]]:
+        """Return append-only pipeline execution history."""
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, created_at, actor, reason, payload_json
+                   FROM pipeline_run_revisions WHERE pipeline_run_id = ? ORDER BY revision""",
+                (pipeline_run_id,),
+            ).fetchall()
+        return [
+            {"revision": row["revision"], "created_at": row["created_at"],
+             "actor": row["actor"], "reason": row["reason"], "record": json.loads(row["payload_json"])}
+            for row in rows
+        ]
 
     def get_domain_record(self, record_type: str, record_id: str):
         if record_type == "story_decision":
