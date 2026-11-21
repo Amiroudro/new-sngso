@@ -28,7 +28,7 @@ Transform lawfully accessible, attributable reporting into accurate, explainable
 
 ## Project status
 
-The current engineering branch contains versioned contracts, permission-aware collection and ingestion, story/claim/evidence intelligence, bilingual editorial review, benchmark and learning-object quality controls, immutable edition artifacts, separate approval/release authorization, and a staging-only promotion/rollback ledger. Section 7's implementation workstream is closed, and Section 8's Python-engine implementation workstream is complete with a real-registry lifecycle test. Section 9's baseline audit is complete, and its first operational reporting and local backup/restore utilities are implemented; idempotent orchestration, runbooks, external audit anchoring and production backup operations remain. Section 10 (end-to-end verification and controlled handover) follows Section 9. The latest full Python 3.12 suite passed 871 tests. This is not a claim of production readiness, real publisher republication permission, genuine human-reviewed editorial evidence, deployed identity infrastructure, operational backups, an integrated staging consumer, or an operating daily publication pipeline. See `docs/IMPLEMENTATION_ROADMAP.md` and `docs/HANDOVER_FOR_PREMIUM_CHATGPT.md` for current scope and boundaries.
+The current engineering branch contains versioned contracts, permission-aware collection and ingestion, story/claim/evidence intelligence, bilingual editorial review, benchmark and learning-object quality controls, immutable edition artifacts, separate approval/release authorization, and a staging-only promotion/rollback ledger. Section 7's implementation workstream is closed, and Section 8's Python-engine implementation workstream is complete with a real-registry lifecycle test. Section 9's baseline audit, operational reporting, local backup/restore utilities, fail-closed retry classification, idempotent run creation, manual external audit checkpoint helpers, initial runbook, and synchronous injected-stage runner are implemented. The runner is local/pre-production only: it has no scheduler, worker pool, live publisher connector, durable stage checkpoint, or automatic retry. Encrypted/off-site backups, retention, external checkpoint delivery, monitoring, crash recovery, and production drills remain open. Section 10 (end-to-end verification and controlled handover) follows Section 9. The latest full Python 3.12 suite passed 881 tests. This is not a claim of production readiness, real publisher republication permission, genuine human-reviewed editorial evidence, deployed identity infrastructure, operational backups, an integrated staging consumer, or an operating daily publication pipeline. See `docs/IMPLEMENTATION_ROADMAP.md` and `docs/HANDOVER_FOR_PREMIUM_CHATGPT.md` for current scope and boundaries.
 
 ## Documents
 
@@ -40,6 +40,7 @@ The current engineering branch contains versioned contracts, permission-aware co
 - docs/IMPLEMENTATION_ROADMAP.md
 - docs/SECTION_9_AUDIT.md
 - docs/OPERATIONS_RUNBOOK.md
+- docs/PIPELINE_WORKER_CONTRACT.md
 - docs/HANDOVER_FOR_PREMIUM_CHATGPT.md
 - docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md
 - docs/BASELINE_AUDIT.md
@@ -47,6 +48,8 @@ The current engineering branch contains versioned contracts, permission-aware co
 - docs/PERSISTENCE.md
 - contracts/README.md
 - contracts/v1/
+
+Latest worker execution verification: [GitHub Actions run #44940389931](https://github.com/Amiroudro/new-sngso/actions/runs/44940389931).
 
 ## Local validation
 
