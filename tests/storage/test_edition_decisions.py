@@ -293,3 +293,168 @@ def test_schema_28_migrates_to_29_with_edition_publication_guards(tmp_path, monk
         assert "edition_domain_records_no_published_insert" in triggers
         assert "edition_domain_records_no_update" in triggers
         assert "edition_domain_records_no_delete" in triggers
+
+
+def test_two_person_release_authorization_requires_prior_approval_and_is_append_only(monkeypatch) -> None:
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_candidate(registry, monkeypatch)
+        registry.register_benchmark_principal(
+            "release:two", display_name="Release authorizer",
+            roles=["edition_release_authorizer"], provisioned_by="bootstrap",
+            principal_kind="human", reason="test release authorizer",
+        )
+        approval = registry.record_edition_decision(
+            manifest_id, identity=identity(), decision="approve",
+            reason="Independent editorial approval",
+        )
+        release_identity = identity(principal_id="release:two")
+        authorization = registry.authorize_edition_release(
+            manifest_id, identity=release_identity,
+            reason="Separate release-gate authorization after fresh verification",
+        )
+        assert authorization["approval_decision_id"] == approval["decision_id"]
+        assert authorization["approver_principal_id"] == "approver:one"
+        assert authorization["authorizer_principal_id"] == "release:two"
+        assert authorization["release_authorized"] is True
+        assert authorization["publication_authorized"] is False
+        assert authorization["scope"] == "controlled_release_gate"
+        assert registry.get_edition_release_authorization(manifest_id) == authorization
+        assert "opaque-session-value" not in json.dumps(authorization)
+        with pytest.raises(RegistryIntegrityError, match="already has a release authorization"):
+            registry.authorize_edition_release(
+                manifest_id, identity=release_identity, reason="Duplicate authorization"
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "UPDATE edition_release_authorizations SET authorizer_principal_id = 'forged' WHERE manifest_id = ?",
+                (manifest_id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "DELETE FROM edition_release_authorizations WHERE manifest_id = ?",
+                (manifest_id,),
+            )
+
+
+def test_two_person_release_authorization_rejects_missing_rejected_or_same_person_approval(monkeypatch) -> None:
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_candidate(registry, monkeypatch)
+        registry.register_benchmark_principal(
+            "release:two", display_name="Release authorizer",
+            roles=["edition_release_authorizer"], provisioned_by="bootstrap",
+            principal_kind="human", reason="test release authorizer",
+        )
+        release_identity = identity(principal_id="release:two")
+        with pytest.raises(RegistryIntegrityError, match="requires an approved staging decision"):
+            registry.authorize_edition_release(
+                manifest_id, identity=release_identity, reason="No prior decision"
+            )
+        registry.record_edition_decision(
+            manifest_id, identity=identity(), decision="reject", reason="Candidate rejected"
+        )
+        with pytest.raises(RegistryIntegrityError, match="requires an approved staging decision"):
+            registry.authorize_edition_release(
+                manifest_id, identity=release_identity, reason="Rejected candidate"
+            )
+
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_candidate(registry, monkeypatch)
+        registry.register_benchmark_principal(
+            "approver:one", display_name="Also release authorizer",
+            roles=["edition_approver", "edition_release_authorizer"],
+            provisioned_by="bootstrap", principal_kind="human",
+            reason="test dual-role principal",
+        )
+        registry.record_edition_decision(
+            manifest_id, identity=identity(), decision="approve", reason="Approved candidate"
+        )
+        with pytest.raises(RegistryIntegrityError, match="different from the staging approver"):
+            registry.authorize_edition_release(
+                manifest_id, identity=identity(), reason="Attempted self authorization"
+            )
+
+
+def test_two_person_release_authorization_requires_active_human_authorizer_and_fresh_auth(monkeypatch) -> None:
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_candidate(registry, monkeypatch)
+        registry.register_benchmark_principal(
+            "release:two", display_name="Release authorizer",
+            roles=["edition_release_authorizer"], provisioned_by="bootstrap",
+            principal_kind="human", reason="test release authorizer",
+        )
+        registry.record_edition_decision(
+            manifest_id, identity=identity(), decision="approve", reason="Approved candidate"
+        )
+        stale = identity(
+            principal_id="release:two",
+            authenticated_at=datetime.now(timezone.utc) - timedelta(minutes=16),
+        )
+        with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+            registry.authorize_edition_release(
+                manifest_id, identity=stale, reason="Stale authentication"
+            )
+        registry.revoke_benchmark_principal(
+            "release:two", actor="security", reason="test revocation"
+        )
+        with pytest.raises(RegistryIntegrityError, match="active human edition_release_authorizer"):
+            registry.authorize_edition_release(
+                manifest_id, identity=identity(principal_id="release:two"),
+                reason="Revoked authorizer",
+            )
+
+
+def test_schema_29_migrates_to_30_with_release_authorization_ledger(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "edition-release-v29.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 29)
+    with SQLiteRegistry(database) as old:
+        assert old.schema_version() == 29
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 30)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 30
+        triggers = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert "edition_release_authorizations_insert_guard" in triggers
+        assert "edition_release_authorizations_no_update" in triggers
+        assert "edition_release_authorizations_no_delete" in triggers
+
+
+def test_authenticated_facade_exposes_two_person_release_authorization() -> None:
+    with SQLiteRegistry() as registry:
+        registry.register_benchmark_principal(
+            "release:two", display_name="Release authorizer",
+            roles=["edition_release_authorizer"], provisioned_by="bootstrap",
+            principal_kind="human", reason="test release authorizer",
+        )
+        now = datetime.now(timezone.utc)
+        supplied_identity = identity(principal_id="release:two")
+        class Provider:
+            def authenticate(self, request_context):
+                assert request_context == {"session": "release-context"}
+                return supplied_identity
+
+        captured = {}
+        registry.authorize_edition_release = lambda manifest_id, **kwargs: captured.update(
+            manifest_id=manifest_id, **kwargs
+        ) or {"release_authorized": True}
+        access = AuthenticatedBenchmarkAccess(
+            registry, Provider(),
+            expected_issuer="https://identity.example",
+            expected_audience="sarangsho-editorial",
+            subject_to_principal=lambda issuer, subject: (
+                "release:two" if (issuer, subject) == (
+                    "https://identity.example", "oidc-subject-123"
+                ) else None
+            ),
+            clock=lambda: now,
+        )
+        result = access.authorize_edition_release(
+            {"session": "release-context"},
+            "edition-manifest:daily-2026-11-21",
+            reason="Second-person authorization",
+        )
+        assert result == {"release_authorized": True}
+        assert captured["identity"] is supplied_identity
+        assert captured["manifest_id"] == "edition-manifest:daily-2026-11-21"
