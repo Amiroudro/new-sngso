@@ -7040,7 +7040,7 @@ class SQLiteRegistry:
     ) -> list[dict[str, Any]]:
         """List recent pipeline runs without exposing unbounded history or payload detail."""
         allowed_statuses = {"queued", "running", "succeeded", "failed", "cancelled", "rejected"}
-        if status is not None and status not in allowed_statuses:
+        if status is not None and (not isinstance(status, str) or status not in allowed_statuses):
             raise ValueError("unsupported pipeline run status filter")
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 5000:
             raise ValueError("limit must be an integer between 1 and 5000")
