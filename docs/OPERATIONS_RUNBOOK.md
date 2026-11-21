@@ -121,3 +121,35 @@ Preserve the original database and logs, record the run ID and bounded failure c
 ## Not yet available
 
 There is no live monitoring dashboard, alert delivery, on-call rota, scheduler, worker pool, live source transport, automated backup schedule, external checkpoint publisher, encryption/key-management setup, retention automation, or production restore procedure. These require separate implementation and authorization.
+
+## 9. Export and verify an audit checkpoint
+
+After a successful audit-chain verification, write a checkpoint to a new file:
+
+~~~python
+from sngso_engine import SQLiteRegistry, write_external_audit_checkpoint
+
+with SQLiteRegistry("data/registry.sqlite") as registry:
+    checkpoint = write_external_audit_checkpoint(
+        registry,
+        "checkpoints/audit-tip-2026-11-22.json",
+    )
+    print(checkpoint)
+~~~
+
+Copy the checkpoint file to separately controlled storage. The local file alone is not an independent anchor.
+
+Later, verify the current database against that stored checkpoint:
+
+~~~python
+from sngso_engine import SQLiteRegistry, verify_external_audit_checkpoint
+
+with SQLiteRegistry("data/registry.sqlite") as registry:
+    result = verify_external_audit_checkpoint(
+        registry,
+        "checkpoints/audit-tip-2026-11-22.json",
+    )
+    print(result)
+~~~
+
+Verification permits new events after the checkpoint, but detects a broken chain, truncation before the saved sequence, or a changed hash at that sequence. External copying and alerting are manual; no upload service is configured.
