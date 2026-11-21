@@ -264,3 +264,21 @@ def test_pipeline_idempotency_key_rejects_invalid_inputs(kwargs):
     with pytest.raises(OperationalReportError):
         pipeline_run_idempotency_key(**arguments)
 
+
+def test_pipeline_idempotency_key_preserves_declared_input_order():
+    from sngso_engine.operations import pipeline_run_idempotency_key
+
+    common = {
+        "run_kind": "multi-stage-run",
+        "software_version": "engine-test/1.0",
+        "config_hash": "sha256:" + "a" * 64,
+        "initiated_by": "test-scheduler",
+    }
+    first = pipeline_run_idempotency_key(
+        **common, input_hashes=["sha256:" + "b" * 64, "sha256:" + "c" * 64],
+    )
+    reversed_inputs = pipeline_run_idempotency_key(
+        **common, input_hashes=["sha256:" + "c" * 64, "sha256:" + "b" * 64],
+    )
+    assert first != reversed_inputs
+
