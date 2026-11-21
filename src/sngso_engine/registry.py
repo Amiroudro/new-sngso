@@ -6905,7 +6905,9 @@ class SQLiteRegistry:
                 object_payload = record.to_payload()
                 review = object_payload.get("language_review", {})
                 reviewer_id = review.get("reviewer_id") or object_payload.get("reviewed_by")
-                if reviewer_id and reviewer_id == identity.principal_id:
+                if not isinstance(reviewer_id, str) or not reviewer_id.strip():
+                    raise RegistryIntegrityError("edition approval requires recorded language-reviewer identity for every selected object")
+                if reviewer_id == identity.principal_id:
                     raise RegistryIntegrityError("edition approver must be independent of the candidate's language reviewers")
 
             decided_at = now.isoformat()
