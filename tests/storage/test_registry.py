@@ -2504,7 +2504,7 @@ def test_schema_v15_migrates_to_v16_with_single_final_adjudication_guard(tmp_pat
 
 def test_migrations_20_to_26_create_append_only_score_study_execution_and_acceptance_stores():
     with SQLiteRegistry() as registry:
-        assert registry.schema_version() == 25
+        assert registry.schema_version() == 26
         tables = {
             row["name"] for row in registry._connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
