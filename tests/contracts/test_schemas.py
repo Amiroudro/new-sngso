@@ -237,6 +237,7 @@ def test_minimal_valid_contract_instances(name: str, instance: dict) -> None:
                 "schema_version": "1.0.0",
                 "id": "run:sample-001",
                 "status": "succeeded",
+                "initiated_by": "scheduler:daily",
                 "started_at": "2026-11-19T00:00:00Z",
                 "finished_at": "2026-11-19T00:01:00Z",
                 "software_version": "0.1.0",
