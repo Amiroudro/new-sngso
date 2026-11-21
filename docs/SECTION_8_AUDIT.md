@@ -249,3 +249,11 @@ Added cross-connection and failure-path regression coverage in `tests/storage/te
 GitHub Actions run [#44937132497](https://github.com/Amiroudro/new-sngso/actions/runs/44937132497) passed the full Python 3.12 suite: **827 passed in 7.61 seconds** on commit `d85d661fe5d54e6c1988ccb49239eae3608bb515`.
 
 **Limit:** the concurrency and failure tests use synthetic staging fixtures and a mocked whole-edition verifier. They establish SQLite transaction/CAS behavior for this tested path, not the complete genuine-record lifecycle or production database behavior. The integrated real-registry assembly-to-rollback test, real human/rights/identity evidence, operational backup/restore, and downstream staging consumer remain outstanding.
+
+## Additional authorization-revocation regression
+
+A further staging test revokes the original human approver after the approval and separate release authorization have been recorded, but before staging promotion. Promotion must re-run export checks, reject the now-inactive approver, and leave the staging pointer and event ledger unchanged.
+
+The first test run exposed an expected exception-wrapping boundary: the staging API translates the lower-level export rejection into `EditionStagingError`. The assertion was corrected to check the public staging API contract. The corrected full Python 3.12 suite passed: **828 passed in 11.22 seconds**, GitHub Actions run [#44937450038](https://github.com/Amiroudro/new-sngso/actions/runs/44937450038), commit `39ca24dd512f8ca4bca7f0d59c79eccd61a03d0f`.
+
+This is repository-level regression evidence using synthetic staging fixtures. It does not replace the still-open integrated genuine-record lifecycle test or external operational acceptance gates.
