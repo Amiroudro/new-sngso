@@ -585,3 +585,11 @@ Added docs/OPERATIONS_RUNBOOK.md with local procedures for health reports, verif
 Added owner-only, non-overwriting JSON checkpoint export and verification against a later registry. A valid checkpoint remains verifiable after later appends; truncation before the checkpoint or a changed hash at the checkpoint sequence is rejected. The operator must manually copy the file to separately controlled storage; no external upload or alert integration exists.
 
 GitHub Actions [run #44939874419](https://github.com/Amiroudro/new-sngso/actions/runs/44939874419) passed **871 tests in 11.11 seconds** on commit 751352dc92c7bdb90f0f3b8d8866d362b3c34db2.
+
+### Section 9.8: synchronous injected-stage pipeline runner
+
+Added a bounded execution seam that atomically claims a queued run, checks the exact input-context fingerprint, invokes caller-supplied stages sequentially, passes prior outputs forward in memory, and records stage fingerprints and terminal outcomes. It stops on the first failure, blocks later stages, omits raw outputs and unexpected exception messages from persisted history, and classifies failures without automatically retrying them. A two-connection test verifies that a queued run cannot be executed twice.
+
+GitHub Actions [run #44940389931](https://github.com/Amiroudro/new-sngso/actions/runs/44940389931) passed **881 tests in 10.71 seconds** on code commit c56f745e39fe419d64176038d426d6654e2d5110.
+
+The runner is synchronous and accepts only injected handlers. It has no network transport, live publisher connector, scheduler, worker pool, lease, heartbeat, resume, cancellation, or publication action. A process interruption leaves a running record for manual reconciliation; no stage checkpoint or automatic retry exists. See docs/PIPELINE_WORKER_CONTRACT.md for the contract and limits.
