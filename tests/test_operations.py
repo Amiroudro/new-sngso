@@ -503,3 +503,28 @@ def test_explicit_retry_refuses_an_exhausted_attempt_limit():
             )
         assert len(registry.list_pipeline_runs(limit=10)) == 1
 
+
+def test_idempotent_helper_reuses_legacy_attempt_one_record_without_new_fields():
+    from sngso_engine.operations import pipeline_run_idempotency_key
+
+    payload = _idempotent_run_payload()
+    payload["status"] = "queued"
+    run_id = pipeline_run_idempotency_key(
+        run_kind="daily-edition",
+        software_version=payload["software_version"],
+        config_hash=payload["config_hash"],
+        input_hashes=payload["input_hashes"],
+        initiated_by=payload["initiated_by"],
+        attempt=1,
+    )
+    legacy = dict(payload, id=run_id)
+    with SQLiteRegistry() as registry:
+        registry.add_pipeline_run(legacy, actor="legacy", reason="Create pre-attempt-field record.")
+        reused = create_pipeline_run_idempotently(
+            registry, payload, run_kind="daily-edition",
+            actor="operator", reason="Reuse legacy attempt one.",
+        )
+        assert reused["created"] is False
+        assert reused["record"]["id"] == run_id
+        assert reused["record"].get("attempt") is None
+
