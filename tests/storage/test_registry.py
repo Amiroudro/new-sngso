@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 27
+        assert registry.schema_version() == 28
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 27
+        assert reopened.schema_version() == 28
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -2504,7 +2504,7 @@ def test_schema_v15_migrates_to_v16_with_single_final_adjudication_guard(tmp_pat
 
 def test_latest_registry_contains_append_only_score_study_execution_and_acceptance_stores():
     with SQLiteRegistry() as registry:
-        assert registry.schema_version() == 27
+        assert registry.schema_version() == 28
         tables = {
             row["name"] for row in registry._connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
