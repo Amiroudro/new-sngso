@@ -14,11 +14,11 @@ from sngso_engine.operations import (
 from sngso_engine.registry import SQLiteRegistry
 
 
-def _add_run(registry):
+def _add_run(registry, run_id="pipeline-run:backup-fixture"):
     now = datetime.now(timezone.utc)
     record = {
         "schema_version": "1.0.0",
-        "id": "pipeline-run:backup-fixture",
+        "id": run_id,
         "status": "running",
         "started_at": (now - timedelta(minutes=2)).isoformat(),
         "software_version": "backup-test/1.0",
@@ -103,7 +103,7 @@ def test_external_audit_checkpoint_detects_truncation_and_allows_new_appends(tmp
             write_external_audit_checkpoint(registry, checkpoint_path)
         assert checkpoint_path.read_text(encoding="utf-8") == original_text
 
-        _add_run(registry)
+        _add_run(registry, "pipeline-run:backup-fixture-two")
         verified = verify_external_audit_checkpoint(registry, checkpoint_path)
         assert verified["status"] == "verified"
         assert verified["checkpoint_sequence"] == written["sequence"]
