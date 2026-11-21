@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 26
+_SCHEMA_VERSION = 27
 
 
 _MIGRATION_14 = (
@@ -742,6 +742,36 @@ _MIGRATION_26 = (
              AND payload_json = NEW.payload_json
          ) THEN RAISE(ABORT, 'pipeline run revision must match current record') END;
        END""",
+)
+
+
+_MIGRATION_27 = (
+    """CREATE TABLE edition_artifacts (
+        manifest_id TEXT PRIMARY KEY,
+        edition_id TEXT NOT NULL,
+        edition_revision INTEGER NOT NULL CHECK (edition_revision >= 1),
+        payload_sha256 TEXT NOT NULL CHECK (payload_sha256 GLOB 'sha256:*'),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        manifest_json TEXT NOT NULL CHECK (json_valid(manifest_json)),
+        verification_json TEXT NOT NULL CHECK (json_valid(verification_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        UNIQUE (edition_id, edition_revision)
+    )""",
+    """CREATE TRIGGER edition_artifacts_payload_guard
+       BEFORE INSERT ON edition_artifacts
+       WHEN json_extract(NEW.manifest_json, '$.manifest_id') IS NOT NEW.manifest_id
+         OR json_extract(NEW.manifest_json, '$.edition_id') IS NOT NEW.edition_id
+         OR json_extract(NEW.manifest_json, '$.edition_revision') IS NOT NEW.edition_revision
+         OR json_extract(NEW.manifest_json, '$.payload_sha256') IS NOT NEW.payload_sha256
+       BEGIN SELECT RAISE(ABORT, 'stored edition artifact columns must match manifest'); END""",
+    """CREATE TRIGGER edition_artifacts_no_update
+       BEFORE UPDATE ON edition_artifacts
+       BEGIN SELECT RAISE(ABORT, 'edition artifacts are immutable'); END""",
+    """CREATE TRIGGER edition_artifacts_no_delete
+       BEFORE DELETE ON edition_artifacts
+       BEGIN SELECT RAISE(ABORT, 'edition artifacts are immutable'); END""",
 )
 
 class RegistryIntegrityError(ValueError):
@@ -2382,6 +2412,20 @@ class SQLiteRegistry:
                     version = 26
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 26 failed; transaction rolled back") from exc
+
+
+            if version == 26 and _SCHEMA_VERSION >= 27:
+                try:
+                    for statement in _MIGRATION_27:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (27, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 27")
+                    version = 27
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 27 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -6637,6 +6681,124 @@ class SQLiteRegistry:
              "actor": row["actor"], "reason": row["reason"], "record": json.loads(row["payload_json"])}
             for row in rows
         ]
+
+
+    def store_verified_edition_artifact(
+        self, verified: Any, *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Reverify and persist one immutable staging artifact/manifest pair."""
+        from .edition_artifacts import (
+            VerifiedRegistryEdition,
+            verify_registry_backed_edition_artifact,
+        )
+
+        if not isinstance(verified, VerifiedRegistryEdition):
+            raise RegistryIntegrityError("only a registry-verified staging artifact can be stored")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        try:
+            payload = json.loads(verified.artifact.payload_bytes)
+            manifest = json.loads(verified.artifact.manifest_bytes)
+        except (TypeError, ValueError) as exc:
+            raise RegistryIntegrityError("verified artifact bytes are not valid JSON") from exc
+
+        # Hold this registry instance's re-entrant lock across re-verification
+        # and insertion so another thread cannot revise the records in between.
+        with self._lock:
+            evaluated_at = datetime.now(timezone.utc)
+            fresh = verify_registry_backed_edition_artifact(
+                self, payload, manifest, now=evaluated_at
+            )
+            if fresh.artifact.payload_sha256 != verified.artifact.payload_sha256:
+                raise RegistryIntegrityError("staging artifact changed before persistence")
+            created_at = _utc_now()
+            receipt = {
+                "status": "verified_for_staging_only",
+                "publication_authorized": False,
+                "pipeline_run_id": fresh.pipeline_run.pipeline_run_id,
+                "pipeline_run_revision": fresh.pipeline_run.revision,
+                "story_ids": list(fresh.story_ids),
+                "learning_object_ids": list(fresh.learning_object_ids),
+                "source_permission_checks": fresh.source_permission_checks,
+                "verified_at": evaluated_at.isoformat(),
+                "reverify_required_before_release": True,
+            }
+            with self._transaction() as connection:
+                try:
+                    connection.execute(
+                        """INSERT INTO edition_artifacts
+                        (manifest_id, edition_id, edition_revision, payload_sha256,
+                         payload_json, manifest_json, verification_json, created_at, actor, reason)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            manifest["manifest_id"], manifest["edition_id"],
+                            manifest["edition_revision"], fresh.artifact.payload_sha256,
+                            fresh.artifact.payload_bytes.decode("utf-8"),
+                            fresh.artifact.manifest_bytes.decode("utf-8"),
+                            _json_text(receipt), created_at, actor.strip(), reason.strip(),
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise RegistryIntegrityError(
+                        "edition artifact already exists or violates immutable artifact constraints"
+                    ) from exc
+                self._append_audit(
+                    connection,
+                    event_type="edition_artifact.stored",
+                    entity_type="edition_artifact",
+                    entity_id=manifest["manifest_id"],
+                    payload={
+                        "edition_id": manifest["edition_id"],
+                        "edition_revision": manifest["edition_revision"],
+                        "payload_sha256": fresh.artifact.payload_sha256,
+                        "actor": actor.strip(),
+                        "reason": reason.strip(),
+                        "publication_authorized": False,
+                    },
+                )
+        return self.get_edition_artifact(manifest["manifest_id"]) or {}
+
+    def get_edition_artifact(self, manifest_id: str) -> dict[str, Any] | None:
+        """Retrieve an immutable artifact after rechecking its stored byte fingerprints.
+
+        Retrieval verifies stored integrity only. Current rights, reviewers, and
+        release eligibility must be re-evaluated before any later release decision.
+        """
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM edition_artifacts WHERE manifest_id = ?", (manifest_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload_json"])
+        manifest = json.loads(row["manifest_json"])
+        receipt = json.loads(row["verification_json"])
+        from .edition_artifacts import verify_edition_artifact
+        verified = verify_edition_artifact(payload, manifest)
+        if (
+            verified.payload_sha256 != row["payload_sha256"]
+            or row["edition_id"] != manifest["edition_id"]
+            or row["edition_revision"] != manifest["edition_revision"]
+            or receipt.get("publication_authorized") is not False
+        ):
+            raise RegistryIntegrityError("stored edition artifact integrity or receipt binding failed")
+        return {
+            "manifest_id": row["manifest_id"],
+            "edition_id": row["edition_id"],
+            "edition_revision": row["edition_revision"],
+            "payload_sha256": row["payload_sha256"],
+            "payload": payload,
+            "manifest": manifest,
+            "verification": receipt,
+            "created_at": row["created_at"],
+            "actor": row["actor"],
+            "reason": row["reason"],
+            "integrity_verified": True,
+            "publication_authorized": False,
+            "reverify_required_before_release": True,
+        }
 
     def get_domain_record(self, record_type: str, record_id: str):
         if record_type == "story_decision":
