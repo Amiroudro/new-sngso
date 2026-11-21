@@ -229,3 +229,10 @@ The staging event contract fixes the channel and target to staging and `publicat
 Regression tests cover schema 30→31 migration, first and second promotion, LKG preservation, rollback as a new event, stale compare-and-swap rejection, role separation, append-only event history and non-deletable state. GitHub Actions run [#44932795855](https://github.com/Amiroudro/new-sngso/actions/runs/44932795855) passed the full Python 3.12 suite: **824 passed in 9.62 seconds** on code/test head `11bb329f8a207914160ab6f335d2eedd2b5bcf9f`.
 
 **Acceptance boundary:** tests use synthetic fixtures and a mocked whole-edition verifier. They do not establish real publisher rights, genuine independent human review, deployed OIDC/JWKS/revocation, cross-process production concurrency, backup/restore, or staging-consumer integration. Section 8.14's registry implementation is complete; real staging operation and production acceptance are not.
+
+
+## Section 8.15: end-to-end acceptance register
+
+Added [`docs/SECTION_8_15_END_TO_END_ACCEPTANCE.md`](SECTION_8_15_END_TO_END_ACCEPTANCE.md), which records the verified Section 8.14 implementation, the full Python 3.12 suite result (**824 passed in 11.04 seconds**, run [#44932902651](https://github.com/Amiroudro/new-sngso/actions/runs/44932902651)), and a gate-by-gate acceptance matrix. The current staging lifecycle tests use synthetic records and a monkeypatched whole-edition verifier; they do not yet prove one fully connected genuine-record lifecycle. Open engineering tests include separate-connection concurrency, transaction-failure atomicity, revocation immediately before promotion, and a real-registry integrated assembly-to-rollback path. Real human reviews, publisher grants, deployed identity/revocation, backup/restore and a downstream staging consumer remain external acceptance gates.
+
+**Decision:** Section 8 implementation is substantially complete, but end-to-end acceptance and production readiness are not. No live destination or frontend was changed; publication remains unauthorized.
