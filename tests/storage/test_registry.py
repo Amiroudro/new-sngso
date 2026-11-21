@@ -531,13 +531,13 @@ def test_domain_record_revision_is_audited_and_uses_optimistic_locking() -> None
             )
 
 
-def test_published_edition_snapshot_cannot_be_revised() -> None:
+def test_edition_snapshot_cannot_be_revised() -> None:
     with SQLiteRegistry() as registry:
         registry.add_source(source_record())
         registry.add_domain_record("article", article_record())
         registry.add_domain_record("story", story_record())
         edition = edition_record()
-        edition["status"] = "published"
+        edition["status"] = "approved"
         registry.add_domain_record("edition", edition)
         with pytest.raises(RegistryIntegrityError, match="snapshots are immutable"):
             registry.revise_domain_record(
