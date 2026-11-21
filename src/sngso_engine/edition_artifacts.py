@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
@@ -22,6 +23,54 @@ class VerifiedEditionArtifact:
     payload_sha256: str
     edition_id: str
     edition_revision: int
+
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedPipelineRun:
+    """A successful registry run bound to one exact artifact fingerprint."""
+
+    pipeline_run_id: str
+    revision: int
+    finished_at: str
+    output_fingerprint: str
+
+
+def verify_pipeline_run_for_artifact(
+    registry: Any, manifest: dict[str, Any], payload_sha256: str
+) -> VerifiedPipelineRun:
+    """Require a persisted successful run whose output includes this artifact hash."""
+    if not isinstance(manifest, dict):
+        raise EditionArtifactIntegrityError("edition manifest must be an object")
+    try:
+        validate_payload("edition-artifact-manifest", manifest)
+    except (ContractValidationError, FileNotFoundError, ValueError) as exc:
+        raise EditionArtifactIntegrityError(f"invalid edition manifest: {exc}") from exc
+    if not isinstance(payload_sha256, str) or payload_sha256 != manifest["payload_sha256"]:
+        raise EditionArtifactIntegrityError("artifact fingerprint does not match manifest")
+    stored = registry.get_pipeline_run(manifest["pipeline_run_id"])
+    if stored is None:
+        raise EditionArtifactIntegrityError("manifest references an unknown pipeline run")
+    record = stored["record"]
+    if record.get("status") != "succeeded":
+        raise EditionArtifactIntegrityError("pipeline run has not succeeded")
+    if payload_sha256 not in record.get("output_hashes", []):
+        raise EditionArtifactIntegrityError("pipeline run output does not bind this artifact fingerprint")
+    try:
+        finished = datetime.fromisoformat(record["finished_at"].replace("Z", "+00:00"))
+        created = datetime.fromisoformat(manifest["created_at"].replace("Z", "+00:00"))
+    except (KeyError, AttributeError, TypeError, ValueError) as exc:
+        raise EditionArtifactIntegrityError("pipeline run or manifest timestamp is invalid") from exc
+    if finished.tzinfo is None or created.tzinfo is None:
+        raise EditionArtifactIntegrityError("pipeline run and manifest timestamps must be timezone-aware")
+    if finished.astimezone(timezone.utc) > created.astimezone(timezone.utc):
+        raise EditionArtifactIntegrityError("edition manifest predates pipeline completion")
+    return VerifiedPipelineRun(
+        pipeline_run_id=manifest["pipeline_run_id"],
+        revision=stored["revision"],
+        finished_at=record["finished_at"],
+        output_fingerprint=payload_sha256,
+    )
 
 
 def verify_edition_artifact(
