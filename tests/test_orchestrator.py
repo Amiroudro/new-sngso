@@ -207,3 +207,50 @@ def test_pipeline_stage_failure_rejects_unsafe_failure_metadata():
         PipelineStageFailure("Invalid Code", "safe")
     with pytest.raises(ValueError):
         PipelineStageFailure("network_timeout", "x" * 2001)
+
+
+def test_two_workers_cannot_execute_the_same_queued_run_twice(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    database = tmp_path / "worker-claim.sqlite"
+    context = {"batch": "single-claim"}
+    entered = Event()
+    release = Event()
+    with SQLiteRegistry(database) as left, SQLiteRegistry(database) as right:
+        created = _queued_run(left, context)
+        run_id = created["record"]["id"]
+
+        def slow_stage(_):
+            entered.set()
+            assert release.wait(timeout=5)
+            return {"finished": True}
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            first = pool.submit(
+                execute_pipeline_run,
+                left,
+                run_id,
+                input_context=context,
+                stages=[PipelineStage("work", slow_stage)],
+                actor="worker-one",
+                reason="Claim run on first worker.",
+            )
+            assert entered.wait(timeout=5)
+            with pytest.raises(PipelineExecutionError, match="only a queued"):
+                execute_pipeline_run(
+                    right,
+                    run_id,
+                    input_context=context,
+                    stages=[PipelineStage("work", lambda _: {"duplicate": True})],
+                    actor="worker-two",
+                    reason="Attempt duplicate claim.",
+                )
+            release.set()
+            result = first.result(timeout=5)
+
+        assert result["status"] == "succeeded"
+        assert "outputs" not in result
+        history = left.pipeline_run_history(run_id)
+        assert [item["record"]["status"] for item in history] == ["queued", "running", "succeeded"]
+
