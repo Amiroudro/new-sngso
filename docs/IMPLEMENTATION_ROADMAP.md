@@ -385,3 +385,12 @@ Added and exported `verify_registry_backed_edition_artifact`. The single read-on
 The verifier returns staging-only evidence and never writes, approves, publishes, or grants publication authority. GitHub Actions [run #44918763573](https://github.com/Amiroudro/new-sngso/actions/runs/44918763573) passed the full Python 3.12 suite: **788 passed in 7.73 seconds** on head `937f054ac69124a9c02d7b102fe6ae41bc1489f1`.
 
 Remaining Section 8 work: artifact persistence/retrieval, bilingual assembly, append-only approval/release ledger, guarded publication transitions, correction/supersession and last-known-good handling, staging export, and end-to-end acceptance. No live edition or frontend was changed.
+
+ 
+### Section 8.8: immutable artifact persistence and retrieval
+
+Added SQLite migration 27 and an immutable edition-artifact store for canonical payload/manifest pairs and their staging-verification receipt. Storage reruns the complete registry-backed verifier before inserting; audit events record the operation. Retrieval recomputes payload/manifest integrity but does not assume current rights or reviewer status remain valid, so a fresh full verification is required before release. Database guards prohibit update/deletion and prevent more than one artifact per edition revision.
+
+GitHub Actions [run #44919212598](https://github.com/Amiroudro/new-sngso/actions/runs/44919212598) passed the full Python 3.12 suite: **792 passed in 10.19 seconds** on head `4b0411595680910b29b4c18cfb002b6cc3650611`.
+
+Remaining: bilingual edition assembly, append-only approval/release decisions, guarded publication transitions, correction/supersession and last-known-good handling, staging export, and end-to-end acceptance. No live edition or frontend was changed.
