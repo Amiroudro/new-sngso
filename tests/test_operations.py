@@ -47,6 +47,8 @@ def test_list_pipeline_runs_is_bounded_filterable_and_newest_first():
         assert registry.list_pipeline_runs(status="succeeded")[0]["record"]["id"] == "pipeline-run:old"
         with pytest.raises(ValueError, match="status filter"):
             registry.list_pipeline_runs(status="unknown")
+        with pytest.raises(ValueError, match="status filter"):
+            registry.list_pipeline_runs(status=["running"])
         with pytest.raises(ValueError, match="limit"):
             registry.list_pipeline_runs(limit=0)
 
