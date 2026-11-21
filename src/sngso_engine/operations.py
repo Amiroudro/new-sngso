@@ -526,6 +526,8 @@ def create_pipeline_retry_run(
     actor: str,
     reason: str,
     max_attempts: int = 3,
+    recovery_confirmed: bool = False,
+    permissions_rechecked: bool = False,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Create a new queued attempt only after an explicitly retryable failed run.
@@ -538,6 +540,8 @@ def create_pipeline_retry_run(
         raise OperationalReportError("failed_run_id is required")
     if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
         raise OperationalReportError("retry actor and reason are required")
+    if recovery_confirmed is not True or permissions_rechecked is not True:
+        raise OperationalReportError("retry requires explicit recovery and permission recheck attestations")
     if isinstance(previous_attempt, bool) or not isinstance(previous_attempt, int) or previous_attempt < 1:
         raise OperationalReportError("previous_attempt must be a positive integer")
     if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 1:
@@ -582,7 +586,7 @@ def create_pipeline_retry_run(
         payload,
         run_kind=run_kind,
         actor=actor,
-        reason=reason,
+        reason=reason.strip() + " (operator attested: permissions rechecked; prior side effects reconciled)",
         attempt=previous_attempt + 1,
     )
     return {
