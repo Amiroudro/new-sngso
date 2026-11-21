@@ -369,3 +369,10 @@ This closes the missing persistence capability at code level, but not the full e
 
 
 Verification: the first full test run found three stale schema-version assertions, not failures in the new pipeline-run tests. After correcting those assertions and adding direct SQLite guard tests, GitHub Actions run [#44917871635](https://github.com/Amiroudro/new-sngso/actions/runs/44917871635) passed the full Python 3.12 suite (**781 passed in 7.97 seconds**) on code head c28c18958a2b5f2274e1e5b868378ddcfa21c409. No production database was migrated.
+
+
+### Section 8.6: successful pipeline output binding
+
+Added a registry-backed staging verifier that resolves the manifest's pipeline run, requires a succeeded current run, checks that its output hash list contains the exact canonical edition payload fingerprint, and rejects manifests created before pipeline completion. Regression tests use actual SQLite registry records and cover missing, running, mismatched-output, and timestamp failure paths.
+
+GitHub Actions run [#44918034521](https://github.com/Amiroudro/new-sngso/actions/runs/44918034521) passed the full Python 3.12 suite (**785 passed in 10.02 seconds**) on code head 90d787a618e55ac51f41f62ad2179a73f5f5748d. Next: bind story snapshots, approved learning-object revisions, and current endpoint-scoped republication grants in one fail-closed edition verification pass.
