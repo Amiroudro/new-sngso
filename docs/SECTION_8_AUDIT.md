@@ -108,3 +108,12 @@ Regression coverage was added for persistence, revision history, successful comp
 
 
 **Verification update:** the first full-suite run exposed three old assertions hard-coded to schema version 25; the new pipeline-run tests passed. Those assertions were corrected, and SQLite-level guards were added for payload/index consistency, legal state transitions, and deletion prevention. GitHub Actions run [#44917871635](https://github.com/Amiroudro/new-sngso/actions/runs/44917871635) then passed the full Python 3.12 suite: **781 passed in 7.97 seconds** on code head c28c18958a2b5f2274e1e5b868378ddcfa21c409. This verifies the code and tests in that run, not a deployed database or production pipeline.
+
+
+## Section 8.6: registry-backed pipeline output binding
+
+Added verify_pipeline_run_for_artifact as a staging verification gate. It resolves the manifest's pipeline_run_id through the new SQLite registry, requires the current run state to be succeeded, requires the run's recorded output_hashes to include the exact manifest/payload fingerprint, and rejects a manifest timestamp earlier than pipeline completion. It returns the run ID, current revision, finish time, and verified output fingerprint. Missing, running, failed, mismatched-output, and temporally impossible cases are rejected.
+
+The helper is exported from the engine package and has registry-backed tests using actual SQLiteRegistry records. GitHub Actions run [#44918034521](https://github.com/Amiroudro/new-sngso/actions/runs/44918034521) passed the full Python 3.12 suite: **785 passed in 10.02 seconds** on code head 90d787a618e55ac51f41f62ad2179a73f5f5748d.
+
+**Remaining:** this is one registry binding, not the complete edition verifier. Story snapshot revisions/fingerprints, exact approved learning-object revisions/fingerprints and quality gates, and current endpoint-scoped republication grants still need to be verified together before the bilingual assembler can rely on the manifest.
