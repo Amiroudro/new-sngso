@@ -579,3 +579,9 @@ The remaining Section 9 work is a genuine orchestrator/worker boundary, operatio
 ### Section 9.6: initial local operations runbook
 
 Added docs/OPERATIONS_RUNBOOK.md with local procedures for health reports, verified backup/restore, retry classification, idempotent run submission, audit limitations and stop/escalation conditions. It explicitly documents missing production facilities and does not claim to be an on-call or production recovery plan.
+
+### Section 9.7: external audit checkpoint export and verification
+
+Added owner-only, non-overwriting JSON checkpoint export and verification against a later registry. A valid checkpoint remains verifiable after later appends; truncation before the checkpoint or a changed hash at the checkpoint sequence is rejected. The operator must manually copy the file to separately controlled storage; no external upload or alert integration exists.
+
+GitHub Actions [run #44939874419](https://github.com/Amiroudro/new-sngso/actions/runs/44939874419) passed **871 tests in 11.11 seconds** on commit 751352dc92c7bdb90f0f3b8d8866d362b3c34db2.
