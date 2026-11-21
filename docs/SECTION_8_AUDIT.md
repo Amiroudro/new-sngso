@@ -164,3 +164,14 @@ Regression tests cover exact bilingual text/claim preservation, source and story
 GitHub Actions [run #44921515577](https://github.com/Amiroudro/new-sngso/actions/runs/44921515577) passed the full Python 3.12 suite: **799 passed in 5.51 seconds** on code head `6911dde2ced74f01df71c8075d922f436cb6ce70`.
 
 **Remaining Section 8 work:** approval/release decision ledger, guarded publication transitions, correction/supersession and last-known-good handling, controlled staging export, and end-to-end acceptance. Assembly is not publication authorization.
+
+
+## Section 8.10: append-only edition staging decision ledger
+
+Added the strict `edition-decision` contract and SQLite migration 28. The new `edition_decisions` ledger stores one final decision per immutable artifact manifest and binds the decision to the exact edition ID/revision and canonical payload fingerprint. Database guards keep indexed columns aligned with the decision payload and reject updates/deletions. Every accepted decision also creates an audit-chain event.
+
+The decision API accepts only a recent, unexpired `AuthenticatedIdentity`, an active human-classified principal with the separately provisioned `edition_approver` role, and complete provider identity evidence. The authenticated application facade derives that identity from its configured provider and enforces the same role boundary. The approver must differ from every recorded language reviewer on the candidate. Before recording a decision, the registry reruns whole-edition verification against current story/object revisions, bilingual review evidence, pipeline output, and current republication grants.
+
+The ledger supports `approve` and `reject` for the exact staging candidate. A second decision for the same manifest is rejected; a changed candidate needs a new artifact/revision and a fresh decision. Raw session IDs are never stored; only a SHA-256 session fingerprint is recorded.
+
+**Critical boundary:** an `approve` decision means only that an independent, authenticated edition approver accepted that exact staging candidate for the next controlled release gate. The record always sets `publication_authorized: false`. It does not mark an edition published, write to a live destination, or authorize the app/website to consume it. The next work must implement guarded release authorization and promotion separately. The real OIDC provider, protected principal provisioning, and deployment controls remain external acceptance requirements.
