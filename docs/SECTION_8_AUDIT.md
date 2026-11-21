@@ -87,3 +87,21 @@ A focused inspection of the current registry APIs identified which provenance ch
 **Decision:** do not implement or label a registry-backed edition verifier complete until pipeline-run persistence and lookup have a defined, immutable contract. The next code gate must add a versioned pipeline-run registry record and tests for missing, failed, running, mismatched, and succeeded runs. After that, the verifier can resolve exact story and learning-object history, recheck every current endpoint-scoped republication grant, and reject stale or incomplete provenance. The existing in-memory verifier remains only a payload/manifest integrity check.
 
 No registry records, live editions, files, or publication destinations were changed during this inspection.
+
+
+## Section 8.5: persisted pipeline-run lifecycle
+
+The existing pipeline-run schema was reused and tightened rather than replaced. It now requires an initiator and enforces lifecycle shape: terminal runs require a finish timestamp; successful runs require output fingerprints and cannot carry failure fields; failed/rejected runs require a failure code; non-success states cannot claim output fingerprints.
+
+Added SQLite migration 26 with:
+- A current pipeline_runs record and append-only pipeline_run_revisions history.
+- Identity/input immutability for run ID, start time, software version, configuration fingerprint, input fingerprints, and initiator.
+- Sequential revision enforcement and immutable revision history.
+- Audit-chain events for creation and status transitions.
+- Public add_pipeline_run, get_pipeline_run, transition_pipeline_run, and pipeline_run_history methods.
+
+The API only allows initial queued/running records and legal lifecycle transitions: queued to running/cancelled/rejected, and running to succeeded/failed/cancelled. A terminal run cannot be restarted or edited. Optimistic revision checks prevent stale workers from overwriting a newer status.
+
+Regression coverage was added for persistence, revision history, successful completion, invalid terminal insertion, immutable inputs, stale revision rejection, unknown IDs, and migration from schema version 25 to 26. The existing contract fixture was updated to include the required initiator.
+
+**Limit:** this adds durable run provenance but does not yet bind a run to a specific edition candidate or prove that a run's output fingerprint equals the edition payload. The registry-backed edition verifier still needs to compare the manifest pipeline_run_id with a succeeded current run and verify its output fingerprint against the canonical artifact. CI verification is pending; no production database was migrated and no pipeline was executed.
