@@ -409,6 +409,26 @@ def test_real_registry_bilingual_edition_lifecycle_through_rollback(monkeypatch)
                 reason="Independently authorize exact staging artifact.")
             assert build_verified_staging_export(registry,manifest_id).publication_authorized is False
 
+        # A current permission change after approval must still block promotion.
+        from sngso_engine.edition_staging import EditionStagingError
+        registry.transition_permission_grant(
+            grant_id, "suspended", actor="rights-admin",
+            reason="Simulate a publisher-permission suspension before promotion.",
+        )
+        with pytest.raises(EditionStagingError, match="permission denied"):
+            promote_edition_to_staging(
+                registry, first, identity=auth("operator:one"),
+                reason="This must fail while republication permission is suspended.",
+                expected_state_revision=0, expected_current_export_id=None,
+            )
+        assert get_edition_staging_state(registry)["state_revision"] == 0
+        assert list_edition_staging_events(registry) == []
+        registry.transition_permission_grant(
+            grant_id, "approved", actor="rights-admin",
+            reason="Restore the test grant after the revocation-path assertion.",
+            at=(now + timedelta(minutes=3)).isoformat(),
+        )
+
         p1=promote_edition_to_staging(registry,first,identity=auth("operator:one"),
             reason="Promote first verified candidate.",expected_state_revision=0,
             expected_current_export_id=None)
