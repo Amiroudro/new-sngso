@@ -556,7 +556,7 @@ def verify_flutter_staging_candidate(
         raise FlutterCompatibilityError(
             "source permission bindings must exactly cover the client source references"
         )
-    endpoint_urls: dict[str, list[str]] = {}
+    endpoint_urls: dict[str, list[tuple[str, str]]] = {}
     for permission in permission_bindings:
         source_id = permission["source_id"]
         endpoint_id = permission["endpoint_id"]
@@ -574,7 +574,7 @@ def verify_flutter_staging_candidate(
         endpoint_url = endpoint_payload.get("endpoint_uri")
         if not isinstance(endpoint_url, str):
             raise FlutterCompatibilityError("registered endpoint URI is missing")
-        endpoint_urls.setdefault(source_id, []).append(endpoint_url)
+        endpoint_urls.setdefault(source_id, []).append((endpoint_id, endpoint_url))
         decision = registry.evaluate_grant(
             grant_id, "republication", endpoint_id=endpoint_id, now=evaluation_time
         )
@@ -582,16 +582,23 @@ def verify_flutter_staging_candidate(
             raise FlutterCompatibilityError(
                 f"current republication permission denied for {source_id}: {decision.reason}"
             )
+    used_permission_keys: set[tuple[str, str]] = set()
     for source_id, article_urls in used_article_urls.items():
         for article_url in article_urls:
-            covered = any(
-                _endpoint_covers_article(endpoint_url, article_url)
-                for endpoint_url in endpoint_urls.get(source_id, [])
-            )
-            if not covered:
+            covering_endpoints = [
+                endpoint_id
+                for endpoint_id, endpoint_url in endpoint_urls.get(source_id, [])
+                if _endpoint_covers_article(endpoint_url, article_url)
+            ]
+            if not covering_endpoints:
                 raise FlutterCompatibilityError(
                     f"no permitted endpoint covers article URL for {source_id}"
                 )
+            used_permission_keys.update((source_id, endpoint_id) for endpoint_id in covering_endpoints)
+    if permission_keys != used_permission_keys:
+        raise FlutterCompatibilityError(
+            "source permission bindings must not include unused source endpoints"
+        )
 
     return {
         "status": "verified_for_staging_only",
