@@ -10,7 +10,7 @@ import pytest
 from sngso_engine.benchmark_access import AuthenticatedBenchmarkAccess, AuthenticatedIdentity
 from sngso_engine.registry import RegistryIntegrityError, SQLiteRegistry
 from sngso_engine import registry as registry_module
-from sngso_engine import edition_artifacts
+from sngso_engine import edition_artifacts, edition_export
 
 
 def identity(*, principal_id: str = "approver:one", authenticated_at=None) -> AuthenticatedIdentity:
@@ -486,3 +486,69 @@ def test_authenticated_facade_exposes_two_person_release_authorization() -> None
         assert result == {"release_authorized": True}
         assert captured["identity"] is supplied_identity
         assert captured["manifest_id"] == "edition-manifest:daily-2026-11-21"
+
+
+def test_verified_staging_export_requires_dual_authorization_and_is_in_memory_only(monkeypatch) -> None:
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_candidate(registry, monkeypatch)
+        registry.register_benchmark_principal(
+            "release:two", display_name="Release authorizer",
+            roles=["edition_release_authorizer"], provisioned_by="bootstrap",
+            principal_kind="human", reason="test release authorizer",
+        )
+        registry.record_edition_decision(
+            manifest_id, identity=identity(), decision="approve",
+            reason="Independent editorial approval",
+        )
+        registry.authorize_edition_release(
+            manifest_id, identity=identity(principal_id="release:two"),
+            reason="Separate release authorization",
+        )
+        monkeypatch.setattr(
+            edition_export,
+            "verify_registry_backed_edition_artifact",
+            lambda *args, **kwargs: SimpleNamespace(
+                artifact=SimpleNamespace(payload_sha256="sha256:" + "a" * 64),
+                learning_object_ids=("learning:bn", "learning:en"),
+            ),
+        )
+        exported = edition_export.build_verified_staging_export(
+            registry, manifest_id, now=datetime.now(timezone.utc)
+        )
+        package = json.loads(exported.package_bytes)
+        assert exported.publication_authorized is False
+        assert exported.package_sha256.startswith("sha256:")
+        assert package["target"] == "staging"
+        assert package["manifest_id"] == manifest_id
+        assert package["staging_decision"]["decision"] == "approve"
+        assert package["release_authorization"]["release_authorized"] is True
+        assert package["publication_authorized"] is False
+        assert package["edition_payload"] == {"edition_id": "edition:daily-2026-11-21"}
+        assert "live_url" not in package
+        assert "destination_uri" not in package
+        assert registry.audit_checkpoint()["sequence"] >= 2
+
+
+def test_verified_staging_export_rejects_missing_or_revoked_release_authorization(monkeypatch) -> None:
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_candidate(registry, monkeypatch)
+        with pytest.raises(edition_export.StagingExportError, match="approved edition decision"):
+            edition_export.build_verified_staging_export(registry, manifest_id)
+
+        registry.register_benchmark_principal(
+            "release:two", display_name="Release authorizer",
+            roles=["edition_release_authorizer"], provisioned_by="bootstrap",
+            principal_kind="human", reason="test release authorizer",
+        )
+        registry.record_edition_decision(
+            manifest_id, identity=identity(), decision="approve", reason="Approved candidate"
+        )
+        registry.authorize_edition_release(
+            manifest_id, identity=identity(principal_id="release:two"),
+            reason="Separate release authorization",
+        )
+        registry.revoke_benchmark_principal(
+            "release:two", actor="security", reason="release authorizer revoked"
+        )
+        with pytest.raises(edition_export.StagingExportError, match="no longer an active human release authorizer"):
+            edition_export.build_verified_staging_export(registry, manifest_id)
