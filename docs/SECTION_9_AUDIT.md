@@ -79,3 +79,9 @@ Tests cover repeat submission, changed inputs, new retry attempt, ordered-input 
 Implemented so far: read-only operational health reporting, bounded pipeline-run listing, verified local SQLite backup/restore, fail-closed retry classification, and deterministic idempotent run creation.
 
 Still open: a real orchestration/worker boundary, idempotency integration with actual job execution, operational runbooks, external audit checkpoint storage, backup encryption/retention/off-site storage, production restore drills, monitoring/alert routing, and any authorized scheduled pipeline.
+
+## 9.6 Initial local operations runbook
+
+Added docs/OPERATIONS_RUNBOOK.md covering read-only health interpretation, verified local backup, backup verification, restore to a new path, fail-closed retry classification, idempotent run submission, audit-chain limitations, and stop/escalation conditions.
+
+The runbook explicitly states that backup files are not encrypted, external checkpoints are not automatically stored, there is no scheduler/worker/monitoring/alert service, and no production restore drill has been performed. It is initial local guidance, not a production on-call procedure.
