@@ -40,3 +40,19 @@ The final Section 8 acceptance pass must exercise the entire lifecycle, includin
 ## Safety boundary
 
 No live edition, existing published file, frontend repository, production destination, or schedule is modified by this audit. PR #7 remains draft and unmerged. The Section 7 external acceptance blockers remain visible and must be enforced where relevant; Section 8 does not convert synthetic evidence into real human review or publisher permission.
+
+
+## Section 8.2: immutable edition artifact manifest contract
+
+Added `contracts/v1/edition-artifact-manifest.schema.json` and focused schema/runtime tests.
+
+The manifest contract binds:
+- Immutable edition ID, revision, edition key, creation timestamp, and pipeline-run ID.
+- SHA-256 of the canonical edition payload.
+- Every included story ID, exact story revision, and story-snapshot fingerprint.
+- Explicit learning-object IDs, revisions, fingerprints, content kind, and language for each story. Every story binding must include at least one Bangla and one English learning object.
+- Source, endpoint, and permission-grant IDs, with the operation fixed to `republication`.
+
+The schema rejects unknown fields at every level, malformed fingerprints, non-positive revisions, duplicate bindings, missing language variants, empty permission bindings, and any permission operation other than republication. The contract deliberately does not contain a `publication_authorized` boolean: a provenance manifest records what an artifact is bound to; it cannot grant publication authority.
+
+**Limit:** this is a structural provenance contract only. It does not yet retrieve registry records, prove that hashes match actual stored payloads, verify current grant validity, check pipeline-run success, or assemble an edition. Those are runtime gates for the next Section 8 work. No edition payload was written and nothing was published.
