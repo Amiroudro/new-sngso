@@ -61,8 +61,8 @@ class RegistryFixture:
         }
         self.edition = Record({
             "id": "edition:one", "edition_key": "2026-11-21",
-            "status": "approved", "pipeline_run_id": "pipeline-run:one",
-            "story_ids": ["story:one"],
+            "status": "approved", "content_hash": "",
+            "pipeline_run_id": "pipeline-run:one", "story_ids": ["story:one"],
         })
         self.permission_calls = []
 
@@ -120,6 +120,12 @@ def _build(registry):
         "edition_key": "2026-11-21",
         "stories": [{"story_id": "story:one"}],
     }
+    payload_hash = sha256_fingerprint(payload)
+    registry.edition = Record({
+        "id": "edition:one", "edition_key": "2026-11-21",
+        "status": "approved", "content_hash": payload_hash,
+        "pipeline_run_id": "pipeline-run:one", "story_ids": ["story:one"],
+    })
     manifest = {
         "schema_version": "1.0.0",
         "manifest_id": "edition-manifest:one",
@@ -128,7 +134,7 @@ def _build(registry):
         "edition_key": "2026-11-21",
         "created_at": "2026-11-21T05:30:00Z",
         "pipeline_run_id": "pipeline-run:one",
-        "payload_sha256": sha256_fingerprint(payload),
+        "payload_sha256": payload_hash,
         "story_bindings": [{
             "story_id": "story:one",
             "story_revision": 1,
