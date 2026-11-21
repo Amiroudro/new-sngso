@@ -14,6 +14,7 @@ from typing import Any, Callable, Sequence
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .operations import classify_retry_policy
+from .registry import RegistryIntegrityError
 
 
 class PipelineExecutionError(ValueError):
@@ -106,13 +107,16 @@ def execute_pipeline_run(
         raise PipelineExecutionError("input context fingerprint is not bound to the queued run")
 
     claimed = dict(record, status="running")
-    claim = registry.transition_pipeline_run(
-        pipeline_run_id,
-        claimed,
-        expected_revision=current["revision"],
-        actor=actor,
-        reason=f"{reason.strip()} (claim)",
-    )
+    try:
+        claim = registry.transition_pipeline_run(
+            pipeline_run_id,
+            claimed,
+            expected_revision=current["revision"],
+            actor=actor,
+            reason=f"{reason.strip()} (claim)",
+        )
+    except RegistryIntegrityError as exc:
+        raise PipelineExecutionError("pipeline run was claimed or changed by another worker") from exc
 
     outputs: dict[str, Any] = {}
     stage_results: list[dict[str, Any]] = []
