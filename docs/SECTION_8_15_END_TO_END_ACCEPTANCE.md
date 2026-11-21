@@ -65,3 +65,11 @@ These tests close the previously listed repository-level gaps for cross-connecti
 The principal remaining engineering gate is one integrated test that uses genuine registry-created story, learning-object, source, endpoint, permission, pipeline-run and artifact records, then exercises assembly → approval → separate release authorization → export → promotion → rollback without monkeypatching the whole-edition verifier. The external acceptance gates in the matrix remain open: genuine independent Bangla/English reviews, actual publisher grants, deployed OIDC/JWKS and revocation, backup/restore evidence, and a staging consumer runtime/golden test.
 
 **Decision remains unchanged:** Section 8 implementation is substantially complete, but end-to-end and operational acceptance are incomplete. No production readiness or live publication is claimed.
+
+## Additional authorization-revocation regression
+
+A further staging test revokes the original human approver after the approval and separate release authorization have been recorded, but before staging promotion. Promotion must re-run export checks, reject the now-inactive approver, and leave the staging pointer and event ledger unchanged.
+
+The first test run exposed an expected exception-wrapping boundary: the staging API translates the lower-level export rejection into `EditionStagingError`. The assertion was corrected to check the public staging API contract. The corrected full Python 3.12 suite passed: **828 passed in 11.22 seconds**, GitHub Actions run [#44937450038](https://github.com/Amiroudro/new-sngso/actions/runs/44937450038), commit `39ca24dd512f8ca4bca7f0d59c79eccd61a03d0f`.
+
+This is repository-level regression evidence using synthetic staging fixtures. It does not replace the still-open integrated genuine-record lifecycle test or external operational acceptance gates.
