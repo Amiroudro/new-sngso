@@ -995,7 +995,8 @@ _MIGRATION_31 = (
          OR NEW.operator_principal_id = json_extract(NEW.payload_json, '$.release_authorization.authorizer_principal_id')
          OR NEW.state_revision <> (SELECT state_revision + 1 FROM edition_staging_channel_state WHERE channel = 'staging')
          OR NEW.previous_current_export_id IS NOT (SELECT current_export_id FROM edition_staging_channel_state WHERE channel = 'staging')
-         OR (NEW.operation = 'promote' AND EXISTS (SELECT 1 FROM edition_staging_events prior WHERE prior.export_id = NEW.export_id AND prior.operation = 'promote'))\n         OR (NEW.operation = 'rollback' AND NOT EXISTS (
+         OR (NEW.operation = 'promote' AND EXISTS (SELECT 1 FROM edition_staging_events prior WHERE prior.export_id = NEW.export_id AND prior.operation = 'promote'))
+         OR (NEW.operation = 'rollback' AND NOT EXISTS (
              SELECT 1 FROM edition_staging_events prior
              WHERE prior.export_id = NEW.export_id AND prior.operation = 'promote'
          ))
@@ -3114,7 +3115,8 @@ class SQLiteRegistry:
                 payload["revoked_at"] = stamp
                 payload["revocation_reason"] = reason
             elif new_status == "suspended":
-                payload["notes"] = (payload.get("notes", "") + f"\nSuspended: {reason}").strip()
+                payload["notes"] = (payload.get("notes", "") + f"
+Suspended: {reason}").strip()
             validate_payload("source-permission-grant", payload)
             revision = row["revision"] + 1
             connection.execute(
@@ -7537,7 +7539,7 @@ class SQLiteRegistry:
         principal_kind: str = "unverified"
     ) -> dict[str, Any]:
         """Provision a registry principal; caller must be a trusted operator."""
-        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist", "benchmark_acceptance_reviewer", "edition_approver", "edition_release_authorizer"}
+        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist", "benchmark_acceptance_reviewer", "edition_approver", "edition_release_authorizer", "edition_staging_operator"}
         supported_languages = {"bn", "en"}
         if principal_kind not in {"human", "synthetic", "automation", "unverified"}:
             raise ValueError("principal_kind must be human, synthetic, automation, or unverified")
