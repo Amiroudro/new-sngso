@@ -508,3 +508,38 @@ Final code verification: [run #44938218038](https://github.com/Amiroudro/new-sng
 **Section 8 status:** implementation workstream complete at the Python repository boundary. This is not production acceptance. External gates remain: real publisher republication grants, genuine independent Bangla/English human reviews, deployed OIDC/JWKS/revocation and protected administrator bootstrap, operational backup/restore evidence, and a real downstream staging-consumer runtime/golden test. The Flutter app, website and published editions remain untouched. No live publication is authorized.
 
 **Next master-plan section:** Section 9, operations, observability and free-first automation. Section 10 remains end-to-end verification and controlled handover.
+
+## Section 9.1: operations, observability and free-first automation baseline audit
+
+**Status: audit complete; implementation not yet started.** This audit covers the Python engine repository only. It does not assume the separate daily content pipeline or Flutter client is deployed as part of this repository.
+
+### Current evidence
+
+- **CI:** one GitHub Actions workflow, .github/workflows/contracts.yml, runs the complete pytest suite on relevant pushes and pull requests. It uses Python 3.12, read-only repository permissions, and a five-minute job timeout. There is no scheduled production pipeline, deployment workflow, release workflow, or environment-protected promotion job.
+- **Pipeline tracking:** SQLite schema version 31 persists pipeline-run identity, status, input/output fingerprints, revisions, and audit events. This is a durable run ledger, not a scheduler, worker, or end-to-end orchestrator.
+- **Audit:** the registry exposes hash-chain verification and an audit checkpoint (sequence plus chain tip). The checkpoint is useful only if copied to an independently controlled location. No external checkpoint publisher or alert exists.
+- **Database operations:** file-backed SQLite uses WAL mode and a 10-second busy timeout; write transactions are serialized and nested composition now uses savepoints. The repository has concurrency and rollback tests. No backup command, automated backup schedule, restore command, restore drill, retention policy, or encrypted backup process is implemented.
+- **Collection and network boundary:** the collection module is permission-first orchestration with injected connectors. It explicitly does not implement network transport. No live publisher connector or permitted production source set is configured.
+- **Identity:** an OIDC verification adapter and authenticated facades exist, but the repository contains no production issuer configuration, JWKS resolver, revocation service, secret store, or protected administrator bootstrap.
+- **Observability:** there is no application health endpoint, structured operational log contract, metrics exporter, trace correlation layer, alert routing, or operator dashboard. Existing audit events and pipeline-run records are not substitutes for runtime telemetry.
+- **Recovery and support:** no operations runbook, incident severity model, stuck-run recovery procedure, database corruption response, or service-level objective is defined.
+- **Cost posture:** current runtime dependencies remain modest and there is no paid hosted infrastructure configured. GitHub Actions is the only demonstrated automation service, currently used for CI rather than scheduled production work.
+
+### Principal risks
+
+1. A durable pipeline-run record can exist without an actual orchestrator reliably starting, supervising, retrying, or terminating work.
+2. An audit chain can be locally verified but its tail can be truncated by a sufficiently privileged operator unless checkpoints are stored externally.
+3. SQLite concurrency is tested, but operational backup, restore, filesystem protection, and multi-user hosted workload behaviour are not established.
+4. Failed, delayed, or partially completed work has no central alerting or operator-facing diagnosis.
+5. No production automation should be scheduled until real source grants, real identity infrastructure, and a human-controlled review/release process exist.
+
+### Bounded implementation sequence
+
+1. Define a small structured run/health report using existing pipeline-run and audit records; include correlation IDs, stage outcome, timestamps, bounded error categories, and no secrets or article-body leakage.
+2. Add deterministic retry classification and idempotency rules at the orchestration boundary. Do not retry permission denial, contract failure, revoked identity, or other permanent failures.
+3. Add local SQLite backup and restore utilities with integrity checks, audit-chain verification, and automated temporary-database restore tests before considering hosted operations.
+4. Define operator runbooks for failed runs, permission revocation, database lock/corruption, restore, and last-known-good staging recovery.
+5. Add free-first CI checks for the new operational utilities. Consider scheduled automation only after a separately authorized, genuinely permitted input pipeline exists.
+6. Document alert thresholds and external audit checkpoint handling without introducing a paid monitoring dependency.
+
+**Safety boundary:** no scheduled collection, live source access, automatic release, production deployment, external secret configuration, paid service, or live edition publication is authorized by this audit. Section 9 implementation must preserve the existing Section 8 staging-only boundary.
