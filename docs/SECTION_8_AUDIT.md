@@ -178,3 +178,14 @@ The ledger supports `approve` and `reject` for the exact staging candidate. A se
 
 
 **Verification:** the first run exposed four stale assertions expecting schema version 27; those were updated to 28. The corrected full Python 3.12 suite passed GitHub Actions run [#44926118184](https://github.com/Amiroudro/new-sngso/actions/runs/44926118184): **805 passed in 5.48 seconds** on code/test head `231be4b7db18605a5ec48bb18a91c088720741ce`. The run included the new migration, contract validation, decision-ledger tests, and the existing suite. No production database was migrated and no edition was approved or published.
+
+
+## Section 8.11: close the generic published-edition write path
+
+The baseline audit identified that a caller could create an edition domain record with `status: published` through the generic record API, bypassing any separate release decision. That path is now blocked at two levels. `SQLiteRegistry.add_domain_record("edition", ...)` rejects a published status with a clear error, and SQLite migration 29 adds database triggers that reject direct SQL insertion of a published edition. Additional triggers reject direct SQL updates and deletion of edition snapshots, matching the existing application-level immutable-revision rule.
+
+Approved edition records remain staging candidates; the word `approved` does not mean live publication. The only implemented edition decision in Section 8.10 remains non-authorizing. No generic or direct-SQL path can now turn an edition record into `published`. A future controlled release workflow must be implemented separately and must bind to the exact approved artifact and fresh release checks before any real destination is considered.
+
+Regression coverage checks API-level rejection, direct-SQL rejection, edition update/delete guards, and migration 28→29. The existing preview test was updated to represent an approved staging candidate rather than a published edition.
+
+**Verification:** GitHub Actions run [#44926616175](https://github.com/Amiroudro/new-sngso/actions/runs/44926616175) passed the full Python 3.12 suite: **809 passed in 10.05 seconds** on code/test head `b7b48878f121c477481a245454f552965cacf71c`. Earlier attempts exposed stale schema-version assertions and tests that constructed published editions through the now-blocked generic path; those were corrected before this passing run. No production database was migrated and no edition was published.
