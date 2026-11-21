@@ -429,3 +429,43 @@ def test_real_registry_bilingual_edition_lifecycle_through_rollback(monkeypatch)
         ]
         assert get_edition_staging_state(registry)["current_export_id"]==first_export
         assert registry.verify_audit_chain()
+
+
+def test_registry_nested_transaction_uses_savepoint_and_rolls_back_inner_scope():
+    from sngso_engine.registry import SQLiteRegistry
+
+    with SQLiteRegistry() as registry:
+        with registry._transaction() as connection:
+            connection.execute("CREATE TABLE nested_transaction_probe (value TEXT PRIMARY KEY)")
+            connection.execute("INSERT INTO nested_transaction_probe VALUES ('outer-before')")
+            with pytest.raises(RuntimeError, match="abort inner scope"):
+                with registry._transaction("DEFERRED") as nested:
+                    nested.execute("INSERT INTO nested_transaction_probe VALUES ('inner')")
+                    raise RuntimeError("abort inner scope")
+            connection.execute("INSERT INTO nested_transaction_probe VALUES ('outer-after')")
+
+        values = [
+            row["value"] for row in registry._connection.execute(
+                "SELECT value FROM nested_transaction_probe ORDER BY value"
+            )
+        ]
+        assert values == ["outer-after", "outer-before"]
+        assert registry._connection.in_transaction is False
+
+
+def test_outer_registry_rollback_reverts_successful_nested_savepoint():
+    from sngso_engine.registry import SQLiteRegistry
+
+    with SQLiteRegistry() as registry:
+        with pytest.raises(RuntimeError, match="abort outer scope"):
+            with registry._transaction() as connection:
+                connection.execute("CREATE TABLE outer_rollback_probe (value TEXT)")
+                with registry._transaction() as nested:
+                    nested.execute("INSERT INTO outer_rollback_probe VALUES ('nested-write')")
+                raise RuntimeError("abort outer scope")
+
+        table = registry._connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='outer_rollback_probe'"
+        ).fetchone()
+        assert table is None
+        assert registry._connection.in_transaction is False
