@@ -282,3 +282,126 @@ def test_pipeline_idempotency_key_preserves_declared_input_order():
     )
     assert first != reversed_inputs
 
+
+def test_explicit_retry_creates_new_queued_attempt_with_same_immutable_inputs():
+    from sngso_engine.operations import create_pipeline_retry_run
+    from sngso_engine.orchestrator import PipelineStage, PipelineStageFailure, execute_pipeline_run
+
+    context = {"batch": "retry-fixture"}
+    with SQLiteRegistry() as registry:
+        first = _idempotent_run_payload()
+        first["input_hashes"] = [__import__("sngso_engine").sha256_fingerprint(context)]
+        created = create_pipeline_run_idempotently(
+            registry, first, run_kind="daily-edition",
+            actor="test", reason="Create first attempt.",
+        )
+        failed = execute_pipeline_run(
+            registry, created["record"]["id"], input_context=context,
+            stages=[PipelineStage(
+                "network-stage",
+                lambda _: (_ for _ in ()).throw(
+                    PipelineStageFailure("network_timeout", "Temporary network timeout.")
+                ),
+            )],
+            actor="test-worker", reason="Execute first attempt.",
+        )
+        assert failed["status"] == "failed"
+
+        retried = create_pipeline_retry_run(
+            registry, created["record"]["id"], run_kind="daily-edition",
+            previous_attempt=1, actor="operator", reason="Authorize one deliberate retry.",
+        )
+        duplicate = create_pipeline_retry_run(
+            registry, created["record"]["id"], run_kind="daily-edition",
+            previous_attempt=1, actor="operator", reason="Repeat retry request.",
+        )
+        assert retried["created"] is True
+        assert duplicate["created"] is False
+        assert retried["attempt"] == 2
+        assert retried["record"]["status"] == "queued"
+        assert retried["record"]["input_hashes"] == created["record"]["input_hashes"]
+        assert retried["record"]["config_hash"] == created["record"]["config_hash"]
+        assert retried["record"]["initiated_by"] == created["record"]["initiated_by"]
+        assert retried["retry_decision"]["retryable"] is True
+
+
+@pytest.mark.parametrize("failure_code", ["permission_revoked", "unknown_failure"])
+def test_explicit_retry_refuses_permanent_and_unknown_failures(failure_code):
+    from sngso_engine.operations import create_pipeline_retry_run
+    from sngso_engine.orchestrator import PipelineStage, PipelineStageFailure, execute_pipeline_run
+    from sngso_engine.canonical import sha256_fingerprint
+
+    context = {"batch": "no-retry"}
+    payload = _idempotent_run_payload()
+    payload["input_hashes"] = [sha256_fingerprint(context)]
+    with SQLiteRegistry() as registry:
+        created = create_pipeline_run_idempotently(
+            registry, payload, run_kind="daily-edition",
+            actor="test", reason="Create no-retry fixture.",
+        )
+        execute_pipeline_run(
+            registry, created["record"]["id"], input_context=context,
+            stages=[PipelineStage(
+                "failure",
+                lambda _: (_ for _ in ()).throw(
+                    PipelineStageFailure(failure_code, "Safe test failure.")
+                ),
+            )],
+            actor="test-worker", reason="Fail no-retry fixture.",
+        )
+        with pytest.raises(OperationalReportError, match="not eligible for retry"):
+            create_pipeline_retry_run(
+                registry, created["record"]["id"], run_kind="daily-edition",
+                previous_attempt=1, actor="operator", reason="Attempt forbidden retry.",
+            )
+        assert len(registry.list_pipeline_runs(limit=10)) == 1
+
+
+def test_explicit_retry_requires_exact_previous_attempt_identity():
+    from sngso_engine.operations import create_pipeline_retry_run
+    from sngso_engine.orchestrator import PipelineStage, PipelineStageFailure, execute_pipeline_run
+    from sngso_engine.canonical import sha256_fingerprint
+
+    context = {"batch": "wrong-attempt"}
+    payload = _idempotent_run_payload()
+    payload["input_hashes"] = [sha256_fingerprint(context)]
+    with SQLiteRegistry() as registry:
+        created = create_pipeline_run_idempotently(
+            registry, payload, run_kind="daily-edition",
+            actor="test", reason="Create attempt identity fixture.",
+        )
+        execute_pipeline_run(
+            registry, created["record"]["id"], input_context=context,
+            stages=[PipelineStage(
+                "failure",
+                lambda _: (_ for _ in ()).throw(
+                    PipelineStageFailure("network_timeout", "Temporary failure.")
+                ),
+            )],
+            actor="test-worker", reason="Fail attempt identity fixture.",
+        )
+        with pytest.raises(OperationalReportError, match="attempt number"):
+            create_pipeline_retry_run(
+                registry, created["record"]["id"], run_kind="daily-edition",
+                previous_attempt=2, actor="operator", reason="Supply wrong attempt.",
+            )
+
+
+def test_explicit_retry_refuses_runs_that_are_not_failed():
+    from sngso_engine.operations import create_pipeline_retry_run
+    from sngso_engine.canonical import sha256_fingerprint
+
+    context = {"batch": "still-running"}
+    payload = _idempotent_run_payload()
+    payload["input_hashes"] = [sha256_fingerprint(context)]
+    with SQLiteRegistry() as registry:
+        created = create_pipeline_run_idempotently(
+            registry, payload, run_kind="daily-edition",
+            actor="test", reason="Create active run.",
+        )
+        with pytest.raises(OperationalReportError, match="only a failed"):
+            create_pipeline_retry_run(
+                registry, created["record"]["id"], run_kind="daily-edition",
+                previous_attempt=1, actor="operator", reason="Attempt active retry.",
+            )
+
