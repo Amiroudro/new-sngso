@@ -136,3 +136,16 @@ Regression tests cover a successful bilingual staging bundle, a stale story snap
 GitHub Actions [run #44918763573](https://github.com/Amiroudro/new-sngso/actions/runs/44918763573) passed the complete Python 3.12 suite: **788 passed in 7.73 seconds** on head `937f054ac69124a9c02d7b102fe6ae41bc1489f1`.
 
 **Remaining:** artifact persistence and retrieval, bilingual assembly from reviewed records, append-only approval/release decisions, guarded publication transitions, correction/supersession and last-known-good handling, and end-to-end acceptance are still open. This verifier is not a publication state machine and does not authorize release.
+
+
+## Section 8.8: immutable artifact persistence and integrity-checked retrieval
+
+Added SQLite migration 27 and a dedicated `edition_artifacts` store. It persists the canonical payload JSON, provenance manifest JSON, exact payload fingerprint, edition identity/revision, and a verification receipt. The manifest ID is the record key, and one edition revision can have only one stored artifact. Database triggers reject updates and deletions, and an insert guard keeps indexed identity/hash columns aligned with the stored manifest.
+
+`SQLiteRegistry.store_verified_edition_artifact` accepts only the registry-verification result type, parses its immutable bytes, and reruns the complete registry-backed staging verifier at the time of storage. The recheck and insert are protected by the registry instance lock. The stored receipt records the pipeline revision, story/object bindings, permission-check count, verification timestamp, and explicit non-authorizing status. Every store operation emits an audit-chain event.
+
+`get_edition_artifact` retrieves the exact payload/manifest pair and recomputes canonical integrity before returning it. Retrieval is deliberately narrower than fresh staging verification: it verifies stored bytes and receipt binding, not current source rights or reviewer eligibility. A stored artifact must be fully reverified before any later release decision. The API always returns `publication_authorized=false`.
+
+Tests cover schema migration 26→27, immutable storage/retrieval, duplicate insertion rejection, direct SQL update/delete guards, and the explicit re-verification requirement. GitHub Actions [run #44919212598](https://github.com/Amiroudro/new-sngso/actions/runs/44919212598) passed the full Python 3.12 suite: **792 passed in 10.19 seconds** on code head `4b0411595680910b29b4c18cfb002b6cc3650611`.
+
+**Limit:** this is durable staging-artifact retention, not an approval ledger or release system. No publication state transition, correction/supersession, last-known-good promotion, or live edition write is implemented.
