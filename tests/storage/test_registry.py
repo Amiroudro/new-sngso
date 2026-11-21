@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 30
+        assert registry.schema_version() == 31
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 30
+        assert reopened.schema_version() == 31
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -2635,3 +2635,20 @@ def test_existing_schema_v22_database_migrates_to_v23(tmp_path, monkeypatch):
         ).fetchone() is not None
         migrated.migrate()
         assert migrated.schema_version() == 23
+
+
+def test_schema_30_migrates_to_31_staging_channel(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "staging-v30.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 30)
+    with SQLiteRegistry(database) as old:
+        assert old.schema_version() == 30
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 31)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 31
+        state = migrated._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert dict(state) == {
+            "channel": "staging", "state_revision": 0, "current_event_id": None,
+            "current_export_id": None, "lkg_event_id": None, "lkg_export_id": None,
+        }
