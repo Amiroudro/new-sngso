@@ -75,6 +75,7 @@ from .operations import (
     OperationalReportError,
     backup_registry_database,
     build_operational_health_report,
+    classify_retry_policy,
     restore_registry_backup,
     verify_registry_backup,
 )
@@ -138,6 +139,7 @@ __all__ = [
     "PipelineRunRepository",
     "OperationalReportError",
     "build_operational_health_report",
+    "classify_retry_policy",
     "PermissionDecision",
     "PermissionFirstCollector",
     "PermissionEvidenceRecord",
