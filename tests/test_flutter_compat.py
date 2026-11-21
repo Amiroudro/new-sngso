@@ -401,6 +401,13 @@ def test_builder_rejects_ambiguous_or_incomplete_field_selection():
 
 
 
+def test_staging_candidate_rejects_unknown_nested_provenance_fields():
+    registry, client, manifest = _candidate()
+    manifest["story_bindings"][0]["fields"]["headline"]["unreviewed"] = True
+    with pytest.raises(FlutterCompatibilityError, match="provenance manifest schema validation failed"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+
 def test_staging_candidate_rejects_unrecognized_manifest_fields():
     registry, client, manifest = _candidate()
     manifest["unreviewed_extension"] = {"publication_authorized": True}
