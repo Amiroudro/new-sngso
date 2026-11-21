@@ -311,7 +311,7 @@ def test_explicit_retry_creates_new_queued_attempt_with_same_immutable_inputs():
 
         retried = create_pipeline_retry_run(
             registry, created["record"]["id"], run_kind="daily-edition",
-            previous_attempt=1, actor="operator", reason="Authorize one deliberate retry.",
+            previous_attempt=1, recovery_confirmed=True, permissions_rechecked=True, actor="operator", reason="Authorize one deliberate retry.",
         )
         duplicate = create_pipeline_retry_run(
             registry, created["record"]["id"], run_kind="daily-edition",
@@ -386,7 +386,7 @@ def test_explicit_retry_requires_exact_previous_attempt_identity():
         with pytest.raises(OperationalReportError, match="attempt number"):
             create_pipeline_retry_run(
                 registry, created["record"]["id"], run_kind="daily-edition",
-                previous_attempt=2, actor="operator", reason="Supply wrong attempt.",
+                previous_attempt=2, recovery_confirmed=True, permissions_rechecked=True, actor="operator", reason="Supply wrong attempt.",
             )
 
 
@@ -425,5 +425,36 @@ def test_idempotent_pipeline_creation_validates_actor_and_reason_even_on_reuse()
             create_pipeline_run_idempotently(
                 registry, payload, run_kind="daily-edition",
                 actor="operator", reason=" ",
+            )
+
+
+def test_explicit_retry_requires_recovery_and_permission_attestations():
+    from sngso_engine.operations import create_pipeline_retry_run
+    from sngso_engine.orchestrator import PipelineStage, PipelineStageFailure, execute_pipeline_run
+    from sngso_engine.canonical import sha256_fingerprint
+
+    context = {"batch": "attestation-required"}
+    payload = _idempotent_run_payload()
+    payload["status"] = "queued"
+    payload["input_hashes"] = [sha256_fingerprint(context)]
+    with SQLiteRegistry() as registry:
+        created = create_pipeline_run_idempotently(
+            registry, payload, run_kind="daily-edition",
+            actor="test", reason="Create attestation fixture.",
+        )
+        execute_pipeline_run(
+            registry, created["record"]["id"], input_context=context,
+            stages=[PipelineStage(
+                "failure",
+                lambda _: (_ for _ in ()).throw(
+                    PipelineStageFailure("network_timeout", "Temporary failure.")
+                ),
+            )],
+            actor="test-worker", reason="Fail attestation fixture.",
+        )
+        with pytest.raises(OperationalReportError, match="attestations"):
+            create_pipeline_retry_run(
+                registry, created["record"]["id"], run_kind="daily-edition",
+                previous_attempt=1, actor="operator", reason="Omit safety attestations.",
             )
 
