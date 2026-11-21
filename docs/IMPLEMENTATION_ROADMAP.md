@@ -359,3 +359,10 @@ Section 8.3 adds a canonical in-memory artifact integrity verifier. It validates
 ### Section 8.4 registry capability inspection
 
 Inspected the actual registry APIs before implementing the registry-backed verifier. Story and learning-object immutable histories are available, and current republication grants can be re-evaluated through the permission evaluator. However, the registry has no pipeline-run model, table, or lookup method even though the edition and artifact-manifest contracts require `pipeline_run_id`. This is a hard provenance dependency: the engine cannot prove the referenced run exists or succeeded. The verifier must remain unimplemented rather than silently skipping this check. Next: define and persist immutable pipeline-run records, then add fail-closed registry verification for exact story/object revisions and hashes, current endpoint-scoped grants, and successful pipeline-run binding.
+
+
+### Section 8.5: pipeline-run persistence implemented, CI pending
+
+Reused the repository's existing pipeline-run contract and tightened its lifecycle requirements. Added SQLite schema migration 26, current run records, append-only run revisions, audit events, immutable run identity/input fields, and guarded queued/running-to-terminal transitions. Added registry APIs to create, retrieve, transition, and inspect pipeline-run history. Tests cover lifecycle, stale revisions, immutable inputs, unknown IDs, and migration from v25 to v26.
+
+This closes the missing persistence capability at code level, but not the full edition binding. The next verifier must require a succeeded run and compare its output fingerprint to the exact canonical edition artifact. The current code has not yet been validated by a completed CI run; no deployed database or pipeline was touched.
