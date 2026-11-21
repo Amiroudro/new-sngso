@@ -20,6 +20,8 @@ from .edition_artifacts import (
     EditionArtifactIntegrityError,
     VerifiedEditionArtifact,
     VerifiedPipelineRun,
+    VerifiedRegistryEdition,
+    verify_registry_backed_edition_artifact,
     verify_edition_artifact,
     verify_pipeline_run_for_artifact,
 )
@@ -94,6 +96,8 @@ __all__ = [
     "EditionArtifactIntegrityError",
     "VerifiedEditionArtifact",
     "VerifiedPipelineRun",
+    "VerifiedRegistryEdition",
+    "verify_registry_backed_edition_artifact",
     "verify_edition_artifact",
     "verify_pipeline_run_for_artifact",
     "EditorialRepository",
