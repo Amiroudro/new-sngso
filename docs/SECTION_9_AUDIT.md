@@ -65,3 +65,17 @@ GitHub Actions [run #44939277125](https://github.com/Amiroudro/new-sngso/actions
 - Operational runbooks and incident response remain outstanding.
 - Backup encryption, retention, off-site copies, external audit checkpoint storage and a production-like restore drill remain outstanding.
 - No scheduler, monitoring service, alert router, live source connector or production deployment exists.
+
+## 9.5 Deterministic idempotent pipeline-run creation
+
+Added a deterministic pipeline-run identity derived from run kind, software version, configuration fingerprint, ordered input fingerprints, initiator, and explicit attempt number. Duplicate submissions for the same logical attempt reuse the existing durable run record. Concurrent submissions from two independent SQLite connections converge on one record. A deliberate retry attempt gets a different identity; changed inputs also produce a different identity. Caller-supplied mismatched IDs are rejected.
+
+This helper only creates or reuses the durable run record. It does not launch workers, schedule execution, mutate terminal runs, or implement a retry loop. Input order is preserved in the idempotency identity because order may be semantically meaningful.
+
+Tests cover repeat submission, changed inputs, new retry attempt, ordered-input identity, malformed input, and a two-connection concurrent submission race. GitHub Actions [run #44939558764](https://github.com/Amiroudro/new-sngso/actions/runs/44939558764) passed **869 tests in 6.65 seconds** on commit `e2728fa5f3df0c97999398815862535fc1b3c826`.
+
+### Section 9 status after 9.5
+
+Implemented so far: read-only operational health reporting, bounded pipeline-run listing, verified local SQLite backup/restore, fail-closed retry classification, and deterministic idempotent run creation.
+
+Still open: a real orchestration/worker boundary, idempotency integration with actual job execution, operational runbooks, external audit checkpoint storage, backup encryption/retention/off-site storage, production restore drills, monitoring/alert routing, and any authorized scheduled pipeline.
