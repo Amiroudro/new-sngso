@@ -172,6 +172,8 @@ def verify_registry_backed_edition_artifact(
             raise EditionArtifactIntegrityError("registered edition is not approved for staging verification")
         if edition_payload.get("edition_key") != manifest["edition_key"]:
             raise EditionArtifactIntegrityError("registered edition key does not match manifest")
+        if edition_payload.get("content_hash") != artifact.payload_sha256:
+            raise EditionArtifactIntegrityError("registered edition content hash does not bind the canonical artifact")
         if edition_payload.get("pipeline_run_id") != manifest["pipeline_run_id"]:
             raise EditionArtifactIntegrityError("registered edition and manifest pipeline runs differ")
 
@@ -180,10 +182,15 @@ def verify_registry_backed_edition_artifact(
         if len(bound_story_ids) != len(set(bound_story_ids)):
             raise EditionArtifactIntegrityError("manifest story bindings contain duplicate stories")
         registered_story_ids = edition_payload.get("story_ids")
-        if not isinstance(registered_story_ids, list) or set(registered_story_ids) != set(bound_story_ids):
+        if (
+            not isinstance(registered_story_ids, list)
+            or len(registered_story_ids) != len(set(registered_story_ids))
+            or set(registered_story_ids) != set(bound_story_ids)
+        ):
             raise EditionArtifactIntegrityError("manifest must bind every registered edition story exactly once")
 
         required_sources: dict[str, set[str]] = {}
+        seen_learning_object_ids: set[str] = set()
         for binding in story_bindings:
             story_id = binding["story_id"]
             story_history = registry.domain_record_history("story", story_id)
@@ -203,6 +210,9 @@ def verify_registry_backed_edition_artifact(
             objects_by_kind: dict[str, dict[str, str]] = {}
             for object_binding in binding["learning_objects"]:
                 object_id = object_binding["learning_object_id"]
+                if object_id in seen_learning_object_ids:
+                    raise EditionArtifactIntegrityError(f"learning object is bound more than once: {object_id}")
+                seen_learning_object_ids.add(object_id)
                 history = registry.learning_object_history(object_id)
                 if not history or history[-1]["revision"] != object_binding["learning_object_revision"]:
                     raise EditionArtifactIntegrityError(f"learning-object revision is missing or stale: {object_id}")
@@ -219,7 +229,12 @@ def verify_registry_backed_edition_artifact(
                     or object_payload.get("status") != "approved"
                 ):
                     raise EditionArtifactIntegrityError(f"learning-object binding does not match approved record: {object_id}")
-                objects_by_kind.setdefault(object_binding["kind"], {})[object_binding["language"]] = object_id
+                language_bindings = objects_by_kind.setdefault(object_binding["kind"], {})
+                if object_binding["language"] in language_bindings:
+                    raise EditionArtifactIntegrityError(
+                        f"story {story_id} has duplicate {object_binding['language']} variants for {object_binding['kind']}"
+                    )
+                language_bindings[object_binding["language"]] = object_id
             if not objects_by_kind:
                 raise EditionArtifactIntegrityError(f"story has no bound learning objects: {story_id}")
             for kind, language_ids in objects_by_kind.items():
