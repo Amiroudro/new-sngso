@@ -1,7 +1,11 @@
 """Sarangsho Plus greenfield engine package."""
 
 from .edition_assembly import AssembledBilingualEdition, EditionAssemblyError, assemble_bilingual_edition_artifact
-from .edition_export import StagingExportError, VerifiedStagingExport, build_verified_staging_export\nfrom .edition_staging import (\n    EditionStagingError, get_edition_staging_state, list_edition_staging_events,\n    promote_edition_to_staging, rollback_edition_staging,\n)
+from .edition_export import StagingExportError, VerifiedStagingExport, build_verified_staging_export
+from .edition_staging import (
+    EditionStagingError, get_edition_staging_state, list_edition_staging_events,
+    promote_edition_to_staging, rollback_edition_staging,
+)
 
 __version__ = "0.1.0"
 
@@ -101,7 +105,12 @@ __all__ = [
     "assemble_bilingual_edition_artifact",
     "StagingExportError",
     "VerifiedStagingExport",
-    "build_verified_staging_export",\n    "EditionStagingError",\n    "get_edition_staging_state",\n    "list_edition_staging_events",\n    "promote_edition_to_staging",\n    "rollback_edition_staging",
+    "build_verified_staging_export",
+    "EditionStagingError",
+    "get_edition_staging_state",
+    "list_edition_staging_events",
+    "promote_edition_to_staging",
+    "rollback_edition_staging",
     "EditionArtifactIntegrityError",
     "VerifiedEditionArtifact",
     "VerifiedPipelineRun",
