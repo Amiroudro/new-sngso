@@ -291,6 +291,7 @@ def test_explicit_retry_creates_new_queued_attempt_with_same_immutable_inputs():
     context = {"batch": "retry-fixture"}
     with SQLiteRegistry() as registry:
         first = _idempotent_run_payload()
+        first["status"] = "queued"
         first["input_hashes"] = [__import__("sngso_engine").sha256_fingerprint(context)]
         created = create_pipeline_run_idempotently(
             registry, first, run_kind="daily-edition",
@@ -334,6 +335,7 @@ def test_explicit_retry_refuses_permanent_and_unknown_failures(failure_code):
 
     context = {"batch": "no-retry"}
     payload = _idempotent_run_payload()
+    payload["status"] = "queued"
     payload["input_hashes"] = [sha256_fingerprint(context)]
     with SQLiteRegistry() as registry:
         created = create_pipeline_run_idempotently(
