@@ -349,10 +349,12 @@ def pipeline_run_idempotency_key(
             raise OperationalReportError(f"{name} is required")
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", config_hash):
         raise OperationalReportError("config_hash must be a lowercase SHA-256 fingerprint")
-    if not isinstance(input_hashes, list) or len(input_hashes) != len(set(input_hashes)):
-        raise OperationalReportError("input_hashes must be a unique list")
+    if not isinstance(input_hashes, list):
+        raise OperationalReportError("input_hashes must be a list")
     if any(not isinstance(item, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", item) for item in input_hashes):
         raise OperationalReportError("every input hash must be a lowercase SHA-256 fingerprint")
+    if len(input_hashes) != len(set(input_hashes)):
+        raise OperationalReportError("input_hashes must be unique")
     if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
         raise OperationalReportError("attempt must be a positive integer")
     digest = sha256_fingerprint({
