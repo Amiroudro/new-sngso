@@ -87,3 +87,10 @@ The example uses synthetic in-memory stage handlers and a current UTC timestamp.
 - Keep edition approval, separate release authorization, staging promotion, and publication as distinct guarded workflows.
 
 This runner is an execution seam for local validation and future integration. It does not make the product production-ready and does not authorize scheduled collection or publication.
+
+## Deliberate retry after a failed attempt
+
+`create_pipeline_retry_run` can create a new queued attempt only when the prior run is failed, its run ID matches the explicitly supplied prior attempt number, and its failure code is classified as a known transient failure within the configured attempt limit. Permanent and unknown failures are rejected. The helper preserves the exact configuration and ordered input hashes.
+
+The operator must explicitly attest that prior side effects have been reconciled and permissions have been rechecked. These booleans are audit-recorded assertions, not cryptographic identity proof or a substitute for fresh permission checks inside each stage handler. The helper creates a queued record only; it does not run it. No automatic retry is performed.
+
