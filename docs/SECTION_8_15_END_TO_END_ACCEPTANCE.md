@@ -47,3 +47,21 @@ This is the final Section 8 acceptance checkpoint. It distinguishes repository i
 **Section 8 implementation is substantially complete, but end-to-end acceptance is not complete.** The repository contains the intended registry-level staging workflow and the full Python suite passes. The acceptance matrix still has open real-world and integration gates. Do not label Section 8 production-ready or operationally accepted until those gates are evidenced.
 
 No live destination, Android app, website, existing published edition, or schedule has been modified. The staging channel remains an internal SQLite registry pointer, not a deployed staging environment. No code in this section sets `publication_authorized` to true.
+
+
+## Verification update: cross-connection staging safety
+
+The acceptance tests were extended and the full Python 3.12 suite passed on commit `d85d661fe5d54e6c1988ccb49239eae3608bb515`: **827 passed in 7.61 seconds**, GitHub Actions run [#44937132497](https://github.com/Amiroudro/new-sngso/actions/runs/44937132497).
+
+New evidence:
+- Two independent `SQLiteRegistry` instances opened against the same temporary SQLite file race to promote using the same expected state revision and empty current pointer. Exactly one promotion succeeds; the other is rejected as stale. The final database contains one staging event and one pointer revision.
+- An injected database failure after event insertion but during channel-pointer update rolls back both writes. Retrying after removing the injected failure succeeds.
+- Revoking the staging operator before promotion blocks the operation and leaves the state and event ledger unchanged.
+
+These tests close the previously listed repository-level gaps for cross-connection concurrency, transaction-failure atomicity, and operator revocation before promotion. They remain synthetic fixture tests: the artifact and whole-edition verifier are still fixture-backed/mocked in this staging lifecycle test file.
+
+## Remaining acceptance work
+
+The principal remaining engineering gate is one integrated test that uses genuine registry-created story, learning-object, source, endpoint, permission, pipeline-run and artifact records, then exercises assembly → approval → separate release authorization → export → promotion → rollback without monkeypatching the whole-edition verifier. The external acceptance gates in the matrix remain open: genuine independent Bangla/English reviews, actual publisher grants, deployed OIDC/JWKS and revocation, backup/restore evidence, and a staging consumer runtime/golden test.
+
+**Decision remains unchanged:** Section 8 implementation is substantially complete, but end-to-end and operational acceptance are incomplete. No production readiness or live publication is claimed.
