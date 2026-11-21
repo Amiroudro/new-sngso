@@ -7147,6 +7147,13 @@ class SQLiteRegistry:
                 raise RegistryIntegrityError("release authorization requires an approved staging decision")
             if approval.get("principal_id") == identity.principal_id:
                 raise RegistryIntegrityError("release authorizer must be different from the staging approver")
+            approver = self.get_benchmark_principal(approval.get("principal_id", ""))
+            if (
+                approver is None or not approver["active"]
+                or approver.get("principal_kind") != "human"
+                or "edition_approver" not in approver["roles"]
+            ):
+                raise RegistryIntegrityError("the staging approver must remain an active human edition approver")
             artifact = self.get_edition_artifact(manifest_id)
             if artifact is None:
                 raise RegistryIntegrityError("unknown stored edition artifact")
