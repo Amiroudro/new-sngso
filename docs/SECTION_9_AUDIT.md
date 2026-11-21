@@ -85,3 +85,15 @@ Still open: a real orchestration/worker boundary, idempotency integration with a
 Added docs/OPERATIONS_RUNBOOK.md covering read-only health interpretation, verified local backup, backup verification, restore to a new path, fail-closed retry classification, idempotent run submission, audit-chain limitations, and stop/escalation conditions.
 
 The runbook explicitly states that backup files are not encrypted, external checkpoints are not automatically stored, there is no scheduler/worker/monitoring/alert service, and no production restore drill has been performed. It is initial local guidance, not a production on-call procedure.
+
+## 9.7 External audit checkpoint export and verification
+
+Added helpers to write the current verified audit-chain tip to a new owner-only JSON checkpoint file and verify that a later registry still contains that exact sequence/hash prefix. Verification accepts later appended events, but fails closed if the chain is invalid, truncated before the checkpoint, or has a different hash at the checkpoint sequence. Existing checkpoint files are never overwritten.
+
+The file is an external anchor only if an operator copies it to a separately controlled location. The repository does not automatically upload or store it outside the database host.
+
+Tests cover empty-chain refusal, no-overwrite safety, successful verification after later appends, malformed checkpoint rejection, and detection of audit-chain truncation after bypassing local append-only triggers.
+
+GitHub Actions [run #44939874419](https://github.com/Amiroudro/new-sngso/actions/runs/44939874419) passed **871 tests in 11.11 seconds** on commit `751352dc92c7bdb90f0f3b8d8866d362b3c34db2`.
+
+External checkpoint delivery, monitoring and alerting remain manual/unimplemented.
