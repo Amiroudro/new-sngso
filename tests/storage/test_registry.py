@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 26
+        assert registry.schema_version() == 27
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 26
+        assert reopened.schema_version() == 27
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -2515,7 +2515,10 @@ def test_latest_registry_contains_append_only_score_study_execution_and_acceptan
                 "SELECT name FROM sqlite_master WHERE type = 'trigger'"
             )
         }
+        assert "edition_artifacts" in tables
         assert "benchmark_scores" in tables
+        assert "edition_artifacts_no_update" in triggers
+        assert "edition_artifacts_no_delete" in triggers
         assert "benchmark_scores_no_update" in triggers
         assert "benchmark_scores_no_delete" in triggers
         assert "benchmark_study_protocols" in tables
