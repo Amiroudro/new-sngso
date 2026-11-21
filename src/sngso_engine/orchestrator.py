@@ -14,7 +14,6 @@ from typing import Any, Callable, Sequence
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .operations import classify_retry_policy
-from .registry import RegistryIntegrityError
 
 
 class PipelineExecutionError(ValueError):
