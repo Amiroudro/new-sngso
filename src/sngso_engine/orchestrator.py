@@ -188,7 +188,6 @@ def execute_pipeline_run(
             "revision": result["revision"],
             "stage_results": stage_results,
             "output_hashes": output_hashes,
-            "outputs": outputs,
             "retry_decision": None,
         }
 
@@ -214,6 +213,5 @@ def execute_pipeline_run(
         "revision": result["revision"],
         "stage_results": stage_results,
         "output_hashes": [],
-        "outputs": {},
         "retry_decision": retry_decision,
     }
