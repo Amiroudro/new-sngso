@@ -351,3 +351,6 @@ The work is bounded to five implementation gates plus one end-to-end acceptance 
 Added a strict Draft 2020-12 `edition-artifact-manifest` contract and runtime/schema regression tests. It binds edition identity/revision, pipeline-run identity, canonical payload fingerprint, exact story revisions/snapshot fingerprints, language-specific learning-object revisions/fingerprints, and source/endpoint/republication-grant references. Every story binding requires both Bangla and English content; all objects reject unknown fields and non-canonical hashes.
 
 The manifest records provenance; it does not grant publication permission. Structural validation does not yet prove the referenced registry records exist, that their fingerprints match, or that permission grants and pipeline runs are currently valid. Those checks remain required before assembly/review. No live edition or publication destination was changed.
+
+
+Section 8.3 adds a canonical in-memory artifact integrity verifier. It validates the provenance manifest, matches edition ID/revision/key, recomputes the canonical payload SHA-256, and returns immutable byte snapshots. Tampering and identity mismatch tests are included. This does not yet resolve registry references or prove current permission/pipeline state; those are required for the next registry-backed assembly gate.
