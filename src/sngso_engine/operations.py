@@ -361,7 +361,7 @@ def pipeline_run_idempotency_key(
         "run_kind": run_kind.strip(),
         "software_version": software_version.strip(),
         "config_hash": config_hash,
-        "input_hashes": sorted(input_hashes),
+        "input_hashes": input_hashes,
         "initiated_by": initiated_by.strip(),
         "attempt": attempt,
     })
