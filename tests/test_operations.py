@@ -6,6 +6,7 @@ import pytest
 
 from sngso_engine.operations import OperationalReportError, build_operational_health_report
 from sngso_engine.registry import SQLiteRegistry
+from sngso_engine.operations import create_pipeline_run_idempotently
 
 
 def _run(registry, run_id, started_at, *, terminal=None, finished_at=None):
