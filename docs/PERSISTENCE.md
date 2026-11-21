@@ -1,8 +1,8 @@
 # Persistence, Revisions, and Audit Trail
 
-Status: Sections 1–5 foundation implemented to documented scope; Section 5 fixture suite passed in GitHub Actions run #44607783960 (297 tests).  
+Status: current SQLite registry schema version 31. This document's original Sections 1–5 history is retained below; the implementation has since expanded to pipeline-run history, learning objects, benchmark/review workflows, immutable bilingual edition artifacts, approval/release ledgers, and staging promotion/rollback. Latest full Python 3.12 suite: 831 tests passed in GitHub Actions run #44938218038.  
 Storage engine: Python `sqlite3` and SQLite.  
-Migration line: schema version 6. Migration 5 adds the append-only story decision ledger; migration 6 adds a unique, append-only application ledger referencing each decision at most once. The application table is persistence groundwork only: no API currently writes to it and no story/claim membership changes are performed.
+Migration line: schema version 31. Migrations 26–31 add pipeline-run history, immutable edition artifact storage, approval/release decisions, and staging event/current/LKG state.
 
 ## Design choices
 
@@ -100,15 +100,15 @@ The verifier alone cannot detect tail truncation. If the last events are removed
 - No live publisher connector or network collection is implemented.
 - No real publisher is pre-approved; the registry starts empty.
 - Evidence records store references and fingerprints, not copies of legal documents or full source articles.
-- Human reviewer identity is recorded, but authentication and reviewer-role authorization are not yet implemented.
+- Provider-backed identity and role contracts, a cryptographic OIDC adapter, authenticated editorial/approval facades, and principal revocation workflows are implemented and tested. No production issuer, JWKS resolver, revocation service, protected administrator bootstrap, or deployment configuration is supplied by this repository.
 - Source and endpoint status changes do not yet have dedicated lifecycle APIs.
-- Pipeline runs, timelines, perspectives, and learning objects are not yet persisted. The new collection-observation table persists only permission-checked discovery/metadata results; it is not a general-purpose article-content store.
+- Pipeline runs and revisions, learning objects and review revisions, benchmark workflow records, edition artifacts, approval/release decisions, and staging events are persisted. Story timelines and perspectives are represented in the editorial domain/snapshot workflows. Collection observations remain permission-checked discovery/metadata records, not a general-purpose full-article-content store.
 - Cross-record validation is implemented for the listed relationships only; it is not a substitute for the full publication gate.
 - SQLite is suitable for local and early low-volume use, not yet validated for a multi-user hosted production workload.
-- Backups, restore drills, encryption-at-rest policy, retention automation, and external audit anchoring remain future operational work.
+- Backups, restore drills, encryption-at-rest policy, retention automation, external audit anchoring, and a hosted production database operating model remain future operational work.
 
 ## Verification
 
 The repository includes fixture tests for migration idempotency and rollback, cross-source reference rejection, evidence review requirements, grant lifecycle, permission decisions, audit chain integrity, append-only revisions, optimistic concurrency, concurrent writes, permission-first connector gating, operation separation, provenance persistence, and revocation during connector execution.
 
-The full pytest suite passed in GitHub Actions run [#44607783960](https://github.com/Amiroudro/new-sngso/actions/runs/44607783960) with **297 tests**, including schema migration 4, metadata ingestion, idempotency, cross-publisher duplicate candidates, reversible resolutions, article metadata revisions, permission-revocation checks, and concurrent ingestion.
+The historical Section 5 verification above was superseded by later implementation. The current full Python 3.12 suite passed in GitHub Actions run [#44938218038](https://github.com/Amiroudro/new-sngso/actions/runs/44938218038): **831 passed in 7.60 seconds**. Section 8's real-registry staging lifecycle, rights recheck, promotion and rollback are included. This is automated test evidence, not a backup/restore drill or production deployment test.
