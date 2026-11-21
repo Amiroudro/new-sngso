@@ -367,6 +367,7 @@ def test_explicit_retry_requires_exact_previous_attempt_identity():
 
     context = {"batch": "wrong-attempt"}
     payload = _idempotent_run_payload()
+    payload["status"] = "queued"
     payload["input_hashes"] = [sha256_fingerprint(context)]
     with SQLiteRegistry() as registry:
         created = create_pipeline_run_idempotently(
