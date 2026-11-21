@@ -195,7 +195,7 @@ def test_registry_backed_verifier_rejects_stale_story_snapshot(monkeypatch):
         registry = RegistryFixture(pipeline_registry)
         payload, manifest = _build(registry)
         registry.story["story_revision"] = 2
-        with pytest.raises(EditionArtifactIntegrityError, match="story revision"):
+        with pytest.raises(EditionArtifactIntegrityError, match="snapshot fingerprint"):
             verify_registry_backed_edition_artifact(registry, payload, manifest, now=NOW)
 
 
