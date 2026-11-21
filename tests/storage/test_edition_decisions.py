@@ -733,7 +733,7 @@ def test_revoked_approver_cannot_promote_previously_approved_staging_candidate(m
             "approver:one", actor="security",
             reason="approval principal revoked before staging promotion",
         )
-        with pytest.raises(edition_export.StagingExportError, match="approver is no longer an active human approver"):
+        with pytest.raises(edition_staging.EditionStagingError, match="approver is no longer an active human approver"):
             edition_staging.promote_edition_to_staging(
                 registry, manifest_id,
                 identity=identity(principal_id="operator:one"),
