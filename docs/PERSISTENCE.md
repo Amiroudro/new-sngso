@@ -1,6 +1,6 @@
 # Persistence, Revisions, and Audit Trail
 
-Status: current SQLite registry schema version 31. This document's original Sections 1–5 history is retained below; the implementation has since expanded to pipeline-run history, learning objects, benchmark/review workflows, immutable bilingual edition artifacts, approval/release ledgers, and staging promotion/rollback. Latest full Python 3.12 suite: 869 tests passed in GitHub Actions run #44939558764.  
+Status: current SQLite registry schema version 31. This document's original Sections 1–5 history is retained below; the implementation has since expanded to pipeline-run history, learning objects, benchmark/review workflows, immutable bilingual edition artifacts, approval/release ledgers, and staging promotion/rollback. Latest full Python 3.12 suite: 871 tests passed in GitHub Actions run #44939874419.  
 Storage engine: Python `sqlite3` and SQLite.  
 Migration line: schema version 31. Migrations 26–31 add pipeline-run history, immutable edition artifact storage, approval/release decisions, and staging event/current/LKG state.
 
@@ -111,4 +111,4 @@ The verifier alone cannot detect tail truncation. If the last events are removed
 
 The repository includes fixture tests for migration idempotency and rollback, cross-source reference rejection, evidence review requirements, grant lifecycle, permission decisions, audit chain integrity, append-only revisions, optimistic concurrency, concurrent writes, permission-first connector gating, operation separation, provenance persistence, and revocation during connector execution.
 
-The historical Section 5 verification above was superseded by later implementation. The current full Python 3.12 suite passed in GitHub Actions run [#44938730003](https://github.com/Amiroudro/new-sngso/actions/runs/44939558764): **839 passed in 6.65 seconds**. Section 8's real-registry staging lifecycle, rights recheck, promotion and rollback are included. This is automated test evidence, not a backup/restore drill or production deployment test.
+The historical Section 5 verification above was superseded by later implementation. The current full Python 3.12 suite passed in GitHub Actions run [#44938730003](https://github.com/Amiroudro/new-sngso/actions/runs/44939874419): **839 passed in 11.11 seconds**. Section 8's real-registry staging lifecycle, rights recheck, promotion and rollback are included. This is automated test evidence, not a backup/restore drill or production deployment test.
