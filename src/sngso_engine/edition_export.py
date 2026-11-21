@@ -104,7 +104,10 @@ def build_verified_staging_export(
         "release_authorization": authorization,
         "publication_authorized": False,
     }
-    export_id = "staging-export:" + sha256_fingerprint({\n        "manifest_id": manifest_id, "edition_id": artifact["edition_id"],\n        "edition_revision": artifact["edition_revision"], "payload_sha256": artifact["payload_sha256"],\n    }).removeprefix("sha256:")
+    export_id = "staging-export:" + sha256_fingerprint({
+        "manifest_id": manifest_id, "edition_id": artifact["edition_id"],
+        "edition_revision": artifact["edition_revision"], "payload_sha256": artifact["payload_sha256"],
+    }).removeprefix("sha256:")
     package = {"export_id": export_id, **package_core}
     try:
         validate_payload("edition-staging-export", package)
