@@ -93,18 +93,18 @@ def test_pipeline_run_rejects_illegal_transition_and_immutable_input_change() ->
             )
 
 
-def test_pipeline_run_unknown_id_and_future_schema_are_rejected(tmp_path, monkeypatch) -> None:
+def test_pipeline_run_unknown_id_and_schema_26_migrates_to_27(tmp_path, monkeypatch) -> None:
     with SQLiteRegistry() as registry:
         assert registry.get_pipeline_run("pipeline-run:missing") is None
         assert registry.pipeline_run_history("pipeline-run:missing") == []
 
-    database = tmp_path / "pipeline-run-v25.sqlite"
-    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 25)
-    with SQLiteRegistry(database) as old_registry:
-        assert old_registry.schema_version() == 25
+    database = tmp_path / "pipeline-run-v26.sqlite"
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 26)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 26
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 27)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 26
+        assert migrated.schema_version() == 27
 
 
 def test_sqlite_guards_reject_illegal_direct_transition_and_deletion() -> None:
