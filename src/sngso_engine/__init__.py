@@ -71,7 +71,7 @@ from .models import (
     StoryRecord,
 )
 from .permissions import PermissionDecision, evaluate_permission
-from .operations import OperationalReportError, build_operational_health_report
+from .operations import (\n    OperationalReportError, backup_registry_database, build_operational_health_report,\n    restore_registry_backup, verify_registry_backup,\n)
 from .ports import (
     AuditRepository,
     CollectionObservationRepository,
