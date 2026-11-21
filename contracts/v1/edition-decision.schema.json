@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/edition-decision.schema.json",
+  "title": "Immutable edition staging review decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "decision_id", "manifest_id", "edition_id",
+    "edition_revision", "payload_sha256", "decision", "scope",
+    "principal_id", "role", "decided_at", "reason",
+    "identity_attestation", "publication_authorized"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "decision_id": {"$ref": "common.schema.json#/$defs/id"},
+    "manifest_id": {"$ref": "common.schema.json#/$defs/id"},
+    "edition_id": {"$ref": "common.schema.json#/$defs/id"},
+    "edition_revision": {"type": "integer", "minimum": 1},
+    "payload_sha256": {"$ref": "common.schema.json#/$defs/hash"},
+    "decision": {"enum": ["approve", "reject"]},
+    "scope": {"const": "staging_candidate_review"},
+    "principal_id": {"$ref": "common.schema.json#/$defs/id"},
+    "role": {"const": "edition_approver"},
+    "decided_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "identity_attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issuer", "audience", "subject", "authenticated_at", "expires_at",
+        "authentication_methods", "authentication_context", "provider_key_id",
+        "provider_adapter", "session_fingerprint"
+      ],
+      "properties": {
+        "issuer": {"type": "string", "minLength": 1},
+        "audience": {"type": "string", "minLength": 1},
+        "subject": {"type": "string", "minLength": 1},
+        "authenticated_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+        "expires_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+        "authentication_methods": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "authentication_context": {"type": "string", "minLength": 1},
+        "provider_key_id": {"type": "string", "minLength": 1},
+        "provider_adapter": {"type": "string", "minLength": 1},
+        "session_fingerprint": {"$ref": "common.schema.json#/$defs/hash"}
+      }
+    },
+    "publication_authorized": {"const": false}
+  }
+}
