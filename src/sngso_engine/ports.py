@@ -183,6 +183,14 @@ class BenchmarkReviewRepository(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class PipelineRunRepository(Protocol):
+    """Read-only bounded access to durable pipeline execution records."""
+
+    def list_pipeline_runs(
+        self, *, status: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]: ...
+
+
 class AuditRepository(Protocol):
     """Port for append-only decision and revision history."""
 
@@ -219,6 +227,7 @@ class EngineRepository(
     AuditRepository,
     CollectionObservationRepository,
     IngestionRepository,
+    PipelineRunRepository,
     BenchmarkReviewRepository,
     Protocol,
 ):
