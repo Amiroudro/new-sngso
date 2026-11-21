@@ -71,12 +71,14 @@ from .models import (
     StoryRecord,
 )
 from .permissions import PermissionDecision, evaluate_permission
+from .operations import OperationalReportError, build_operational_health_report
 from .ports import (
     AuditRepository,
     CollectionObservationRepository,
     EditorialRepository,
     EngineRepository,
     IngestionRepository,
+    PipelineRunRepository,
     SourceGovernanceRepository,
 )
 from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegistry
@@ -127,6 +129,9 @@ __all__ = [
     "InMemoryObservationSink",
     "IngestionError",
     "IngestionRepository",
+    "PipelineRunRepository",
+    "OperationalReportError",
+    "build_operational_health_report",
     "PermissionDecision",
     "PermissionFirstCollector",
     "PermissionEvidenceRecord",
