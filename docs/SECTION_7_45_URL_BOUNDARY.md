@@ -23,7 +23,7 @@ Added cases for valid case-insensitive host matching, path-boundary confusion, l
 
 ## Verification status
 
-The changes are on `feat/section-7-human-benchmark-review-contract`. The GitHub Actions lookup for the new commits returned no pull-request workflow runs, so **no test pass is claimed for this change yet**. Run the full Python 3.12 suite and contract validation on the exact latest PR head before treating this subsection as verified.
+The changes are on `feat/section-7-human-benchmark-review-contract`. At the time this subsection was first recorded, no workflow result was available for that then-current head. Subsequent Section 7.49 verification is recorded below.
 
 ## Safety boundary
 
@@ -40,3 +40,12 @@ A regression test covers an injected `publication_authorized` extension. The bui
 ## Section 7.47: manifest metadata validation
 
 The staging verifier now validates the manifest payload digest in the engine's canonical `sha256:` plus 64 lowercase hexadecimal characters format and requires a non-empty manifest edition date before comparing it with the registered edition and client payload. Regression tests reject missing, non-string, uppercase, non-hex, and malformed digest values, as well as an empty date. The initial validator incorrectly omitted the canonical `sha256:` prefix returned by the engine fingerprint helper; Section 7.48 corrected the validator to require that prefix plus 64 lowercase hexadecimal characters. GitHub Actions run [#44770649655](https://github.com/Amiroudro/new-sngso/actions/runs/44770649655) passed the full Python 3.12 suite: **734 passed in 7.90 seconds** on the corrected PR head. These are schema-boundary checks, not proof that a real client consumes the sidecar or that the content is publishable.
+
+
+## Section 7.49: versioned Flutter staging provenance schema
+
+Added `contracts/v1/flutter-staging-provenance.schema.json` as the shared Draft 2020-12 contract for the story-only Flutter staging manifest. The schema pins the version and target client contract, requires the registered edition ID/revision/date and canonical SHA-256 fingerprint, and defines exact nested shapes for story bindings, headline/summary learning-object revisions, and republication permission records. Unknown properties are rejected at every level; revision values must be positive integers; dates and hashes use the shared common definitions.
+
+The staging verifier now runs this contract before its registry-level semantic checks. A separate schema test validates the schema itself, a representative manifest, unknown nested fields, malformed values, unsupported permission operations, and duplicate permission records. A runtime regression test confirms that an injected nested learning-object field is rejected by the verifier.
+
+GitHub Actions run [#44878423840](https://github.com/Amiroudro/new-sngso/actions/runs/44878423840) passed the full Python 3.12 suite: **749 passed in 9.14 seconds** on code head `4c92245abf41aaa656af8fb835530a20e50bae2b`. The schema is an engine-side staging contract only. It does not establish Flutter runtime compatibility, a live source permission grant, or publication authorization.
