@@ -268,3 +268,93 @@ def test_perspective_schema_requires_complete_review_metadata():
     payload["review_status"] = "approved"
     with pytest.raises(ValueError):
         validate_payload("perspective", payload)
+
+
+
+def test_perspective_attribution_report_preserves_source_language_and_claim_links():
+    registry, source_id, article_id = _prepared()
+    try:
+        registry.add_perspective(_perspective(source_id, article_id))
+        stakeholder = _perspective(
+            None, None, identifier="perspective:stakeholder", kind="stakeholder_position"
+        )
+        stakeholder.update({
+            "attribution": "Local residents' association",
+            "language": "bn",
+            "text": "Residents describe disruption to daily travel.",
+            "review_status": "approved",
+            "reviewed_at": "2026-11-20T02:00:00Z",
+            "reviewed_by": "editor:one",
+            "review_note": "Attribution and linked claim checked.",
+        })
+        registry.add_perspective(stakeholder)
+
+        report = registry.story_perspective_attribution_report("story:one")
+        assert report["perspective_count"] == 2
+        assert report["reviewed_count"] == 1
+        assert report["by_kind"] == {
+            "publisher_framing": 1, "stakeholder_position": 1
+        }
+        assert report["by_language"] == {"bn": 1, "en": 1}
+        assert report["source_attributions"] == [{
+            "source_id": source_id, "perspective_ids": ["perspective:one"]
+        }]
+        assert report["unattributed_perspective_ids"] == ["perspective:stakeholder"]
+        assert report["claim_ids_with_perspectives"] == ["claim:one"]
+        assert report["production_ready"] is False
+        assert report["authorization_granted"] is False
+    finally:
+        registry.close()
+
+
+def test_perspective_attribution_report_exposes_unreviewed_and_contradictory_context():
+    registry, source_id, article_id = _prepared()
+    try:
+        registry.add_perspective(_perspective(source_id, article_id))
+        registry.add_domain_record("claim", {
+            "schema_version": "1.0.0",
+            "id": "claim:two",
+            "story_id": "story:one",
+            "text": "The authority did not issue a notice.",
+            "language": "en",
+            "assessment": "unassessed",
+            "provenance": [{
+                "source_id": source_id, "article_id": article_id,
+                "observed_at": STAMP, "method": "human_review",
+                "method_version": "1.0",
+                "locator": {"uri": f"https://publisher.example.org/news/one"},
+            }],
+            "created_at": STAMP,
+        })
+        registry.add_claim_relation({
+            "schema_version": "1.0.0", "id": "relation:contradiction",
+            "story_id": "story:one", "claim_id": "claim:one",
+            "related_claim_id": "claim:two", "relationship": "contradicts",
+            "review_status": "unreviewed", "created_at": STAMP,
+            "created_by": "editor:one",
+            "rationale": "Preserve the unresolved disagreement for editorial review.",
+        })
+        report = registry.story_perspective_attribution_report("story:one")
+        assert report["unreviewed_perspective_ids"] == ["perspective:one"]
+        assert report["contradictions"] == [{
+            "relation_id": "relation:contradiction",
+            "claim_id": "claim:one", "related_claim_id": "claim:two",
+            "review_status": "unreviewed", "reviewed_by": None,
+            "reviewed_at": None, "resolution_note": None,
+        }]
+        assert "do not establish independent reporting" in report["independence_caveat"]
+    finally:
+        registry.close()
+
+
+def test_story_editorial_snapshot_contains_perspective_attribution_report():
+    registry, source_id, article_id = _prepared()
+    try:
+        registry.add_perspective(_perspective(source_id, article_id))
+        snapshot = registry.story_editorial_snapshot("story:one")
+        report = snapshot["perspective_attribution_report"]
+        assert report["perspectives"][0]["source_id"] == source_id
+        assert report["perspectives"][0]["article_id"] == article_id
+        assert report["production_ready"] is False
+    finally:
+        registry.close()

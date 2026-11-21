@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/edition-staging-export.schema.json",
+  "title": "Verified staging-only bilingual edition export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "export_id", "target", "created_at", "manifest_id",
+    "edition_id", "edition_revision", "payload_sha256", "edition_payload",
+    "provenance_manifest", "staging_decision", "release_authorization",
+    "publication_authorized"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "export_id": {"$ref": "common.schema.json#/$defs/id"},
+    "target": {"const": "staging"},
+    "created_at": {"$ref": "common.schema.json#/$defs/dateTime"},
+    "manifest_id": {"$ref": "common.schema.json#/$defs/id"},
+    "edition_id": {"$ref": "common.schema.json#/$defs/id"},
+    "edition_revision": {"type": "integer", "minimum": 1},
+    "payload_sha256": {"$ref": "common.schema.json#/$defs/hash"},
+    "edition_payload": {"type": "object"},
+    "provenance_manifest": {"$ref": "edition-artifact-manifest.schema.json"},
+    "staging_decision": {"$ref": "edition-decision.schema.json"},
+    "release_authorization": {"$ref": "edition-release-authorization.schema.json"},
+    "publication_authorized": {"const": false}
+  }
+}

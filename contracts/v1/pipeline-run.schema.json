@@ -11,7 +11,8 @@
     "started_at",
     "software_version",
     "config_hash",
-    "input_hashes"
+    "input_hashes",
+    "initiated_by"
   ],
   "properties": {
     "schema_version": {
@@ -30,6 +31,9 @@
         "rejected"
       ]
     },
+    "initiated_by": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "retry_of": { "$ref": "common.schema.json#/$defs/id" },
     "started_at": {
       "$ref": "common.schema.json#/$defs/dateTime"
     },
@@ -53,6 +57,7 @@
     },
     "output_hashes": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "$ref": "common.schema.json#/$defs/hash"
       },
@@ -102,5 +107,28 @@
       "type": "string",
       "maxLength": 4000
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "enum": ["succeeded", "failed", "cancelled", "rejected"] } }, "required": ["status"] },
+      "then": { "required": ["finished_at"] },
+      "else": { "not": { "required": ["finished_at"] } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "succeeded" } }, "required": ["status"] },
+      "then": {
+        "required": ["output_hashes"],
+        "not": { "anyOf": [{ "required": ["failure_code"] }, { "required": ["failure_detail"] }] }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["failed", "rejected"] } }, "required": ["status"] },
+      "then": { "required": ["failure_code"] }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["queued", "running", "cancelled", "failed", "rejected"] } }, "required": ["status"] },
+      "then": { "not": { "required": ["output_hashes"] } }
+    }
+  ]
+
 }

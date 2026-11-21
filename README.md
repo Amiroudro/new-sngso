@@ -28,7 +28,7 @@ Transform lawfully accessible, attributable reporting into accurate, explainable
 
 ## Project status
 
-Foundation milestone in progress. Versioned domain contracts, runtime schema validation, deterministic content hashing, a fail-closed permission evaluator, and a SQLite registry with cross-record checks and an append-only audit trail are implemented. Collection, editorial production, and publication are not implemented yet. No production pipeline or publisher permission is implied.
+The current engineering branch contains versioned contracts, permission-aware collection and ingestion, story/claim/evidence intelligence, bilingual editorial review, benchmark and learning-object quality controls, immutable edition artifacts, separate approval/release authorization, and a staging-only promotion/rollback ledger. Section 7's implementation workstream is closed, and Section 8's Python-engine implementation workstream is complete with a real-registry lifecycle test. Section 9's baseline audit, operational reporting, local backup/restore utilities, fail-closed retry classification, idempotent run creation, manual external audit checkpoint helpers, initial runbook, synchronous injected-stage runner, and guarded operator-approved retry-run creation with immutable parent/attempt lineage are implemented. The runner is local/pre-production only: it has no scheduler, worker pool, live publisher connector, durable stage checkpoint, or automatic retry. Encrypted/off-site backups, retention, external checkpoint delivery, monitoring, crash recovery, and production drills remain open. Section 10 (end-to-end verification and controlled handover) follows Section 9. The latest full Python 3.12 suite passed 893 tests. This is not a claim of production readiness, real publisher republication permission, genuine human-reviewed editorial evidence, deployed identity infrastructure, operational backups, an integrated staging consumer, or an operating daily publication pipeline. See `docs/IMPLEMENTATION_ROADMAP.md` and `docs/HANDOVER_FOR_PREMIUM_CHATGPT.md` for current scope and boundaries.
 
 ## Documents
 
@@ -38,11 +38,19 @@ Foundation milestone in progress. Versioned domain contracts, runtime schema val
 - docs/QUALITY_GATES.md
 - docs/DOMAIN_MODEL.md
 - docs/IMPLEMENTATION_ROADMAP.md
+- docs/SECTION_9_AUDIT.md
+- docs/SECTION_9_ACCEPTANCE.md
+- docs/OPERATIONS_RUNBOOK.md
+- docs/PIPELINE_WORKER_CONTRACT.md
+- docs/HANDOVER_FOR_PREMIUM_CHATGPT.md
+- docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md
 - docs/BASELINE_AUDIT.md
 - docs/SOURCE_GOVERNANCE.md
 - docs/PERSISTENCE.md
 - contracts/README.md
 - contracts/v1/
+
+Latest pipeline execution and retry-lineage verification: [GitHub Actions run #44941362943](https://github.com/Amiroudro/new-sngso/actions/runs/44941362943).
 
 ## Local validation
 

@@ -1,6 +1,6 @@
 # Engine Implementation Programme
 
-Status: Sections 1–6 implemented to their documented local/fixture-first scope; Sections 7–10 planned  
+Status: Sections 1–6 implemented to their documented local/fixture-first scope; Section 7 implementation scope closed with external acceptance gates outstanding; Sections 8–10 planned  
 Baseline branch: `fix/engine-ci-source-triggers`  
 Scope: the new `new-sngso` engine repository only
 
@@ -121,19 +121,22 @@ Acceptance:
 
 ## 7. Editorial production and bilingual quality
 
-**Goal:** produce useful Bangla and English editorial outputs from reviewed evidence.
+**Status: in progress.** The first editorial persistence slice is implemented: story-linked learning objects, sentence-to-claim traceability, answer-claim links, independent language variants and review states, controlled bilingual glossary entries, vocabulary-to-glossary consistency, optimistic revisions, immutable history, and deterministic per-object quality gates. Human benchmark governance, study evidence, criterion-level scoring, and independent acceptance records are implemented as a review framework. The benchmark acceptance report is now connected to story editorial snapshots. A separate Bangla/English coverage report reports artifact counts, approval and registry-gate states, blockers, warnings, and missing counterparts without creating a cross-language average.
 
-Tasks:
-- Build three-level summaries, daily briefings, timelines, and multi-source perspectives.
-- Preserve attribution, uncertainty, dates, quantities, and distinctions between fact and analysis.
-- Add separate Bangla and English review states and a controlled glossary.
-- Create source-grounded vocabulary and exam-learning objects.
-- Establish human-reviewed benchmark fixtures.
+Tasks remaining:
+- Build reviewed three-level summary workflows and deterministic editorial templates with sentence-level claim traceability.
+- Extend the current versioned, language-specific Bangla and English review rubric into authenticated reviewer assignment, independent review provenance, and human-audited acceptance evidence.
+- Extend the new story-dossier perspective attribution report into reviewed narrative assembly, explicit source-independence evidence, and bilingual attribution checks.
+- Expand controlled bilingual terminology and source-grounded vocabulary, comprehension, analysis, MCQ, and revision-card workflows.
+- Establish and use genuine human-reviewed Bangla/English benchmarks for omission, distortion, attribution, language quality, and question answerability.
+- Prepare daily briefing inputs for Section 8 edition assembly.
 
 Acceptance:
 - Editorial outputs link back to claims/evidence.
 - No unsupported detail is introduced during compression or translation.
+- Bangla and English are evaluated independently; a strong result in one cannot hide a failure or missing evidence in the other.
 - Learning questions have answerable, evidence-backed explanations.
+- Synthetic fixtures are never represented as human editorial evidence.
 
 ## 8. Edition assembly and publication safety
 
@@ -204,7 +207,7 @@ Acceptance:
 | 4. Permission-first collection | **Complete for the fixture-first framework:** permission-first orchestration, independent storage rechecks, cross-connection revocation tests, atomic batch persistence, full observation provenance including HTTP method, bounded pinned-IP HTTPS transport prototype, strict URL/DNS/header/redirect/body controls, and passing current-head CI | Live publisher adapters remain gated on source-specific rights review, trusted connector review, shared rate limiting, and deployment-level network-egress controls |
 | 5. Ingestion and identity | **Complete:** canonical URL/text/timestamp/language normalization; metadata-only permission-rechecked ingestion; exact observation provenance; deterministic article identity; ordered immutable metadata revisions; idempotency; cross-publisher duplicate candidates; reversible duplicate resolutions; migration 4; 311-test verification | No live publisher integration is enabled |
 | 6. Story intelligence and evidence | **Complete for local registry/fixture scope:** provenance and claim assessment; immutable merge/split decisions with atomic application; claim-backed timeline with correction and review history; attributed perspectives with review gates; curated claim-to-claim contradiction/qualification/reframing links; deterministic read-only editorial dossier; schema migrations through v10; 404 passing tests | Reviewer authentication, production editorial interface, automated extraction/discovery, live publisher adapters, and edition integration remain separate gates |
-| 7. Editorial production | **In progress:** language-specific learning-object contracts and variant groups, sentence-to-claim traceability, question answer-claim links, controlled bilingual glossary entries, vocabulary-to-glossary consistency, independent review states, optimistic revisions, immutable revision history, and deterministic editorial quality reports | Deterministic editorial templates, question answerability/distractor benchmarks, and bilingual language-quality fixtures remain |
+| 7. Editorial production | **In progress:** learning-object persistence and quality gates; bilingual glossary; human benchmark governance/scoring/study/acceptance records; story snapshot integration; separate Bangla/English coverage and quality report (latest implementation under verification) | Reviewed three-level summary workflows, independent language-quality review, multi-source editorial output, full learning workflow, genuine human benchmark evaluation, and daily briefing inputs remain |
 | 8. Edition assembly | Not started | Depends on Section 7 |
 | 9. Operations and automation | Not started | Depends on stable pipeline and publication gates |
 | 10. End-to-end handover | Not started | Depends on all prior sections |
@@ -214,3 +217,393 @@ No section is formally complete until its acceptance gates are verified. Section
 ## Execution order
 
 Complete Section 1 baseline first, then Sections 2–10 in order. A later section may be researched early, but implementation must respect the dependencies and acceptance gates above.
+
+### Section 7.30 implementation update
+
+A read-only bilingual narrative assembly report is now embedded in each story editorial snapshot. It preserves sentence roles (fact, attributed position, editorial analysis), exact claim links, claim provenance and evidence locators; it separates Bangla and English; keeps publisher accounts individually attributed; and preserves unresolved contradictions. A factual sentence is considered supported only when all linked claims are assessed as supported and each has supporting evidence. Draft/unapproved objects, missing language review, missing claims, and unsupported factual segments remain blockers. The report is non-authorizing and does not establish source independence or editorial truth.
+
+Remaining Section 7 work includes real human review evidence, stronger source-independence evidence, bilingual learning-object workflows, and daily briefing inputs.
+
+### Section 7.31 implementation update
+
+The story snapshot now includes a source-independence evidence gap report. It distinguishes confirmed/possible duplicate article relationships from independent reporting, marks no-candidate and reviewed-distinct articles as not establishing independence, and lists the provenance checks still required (original reporting, syndication/republication, shared sources/common origin, and primary-source evidence). It never computes an independent-reporting count from publisher IDs or article counts.
+
+Remaining work includes collecting and reviewing actual reporting-lineage evidence, real human editorial review, source-grounded learning workflows, and daily briefing inputs.
+
+### Section 7.32 implementation update
+
+Narrative assembly now checks the shared language-review pass criteria against the exact Bangla or English rubric instead of treating any review object as sufficient. Missing reviews, rejected reviews, and any needs-revision rubric dimension block that language's assembly report. Per-language summaries expose object/segment counts, factual and traceable coverage, unsupported factual segments, passing language reviews, blocker counts, and a blocked/review-required status. No publication authorization is granted.
+
+Remaining Section 7 work includes real human review evidence, actual reporting-lineage evidence, source-grounded learning workflows, and daily briefing inputs.
+
+### Section 7.33 implementation update
+
+MCQs now require exact option-ID keyed rationales for every incorrect option. Registry validation rejects incomplete, duplicate, or incorrectly assigned rationale coverage. The quality report checks this structural coverage and always records that human review is still required for plausibility, unambiguous incorrectness, misconception alignment, parallel option construction, and accidental clues. Rationale presence is not treated as proof of item quality.
+
+Remaining Section 7 work includes genuine human review of MCQs and other learning objects, source-grounded vocabulary/comprehension workflows, reporting-lineage evidence, and daily briefing inputs.
+
+### Section 7.34 implementation update
+
+MCQ distractor rationales now require one or more source claim IDs drawn from the same learning object's claim set. The quality report verifies that every rationale basis claim exists, is assessed as supported/partially supported, and has linked evidence. Unsupported or unassessed rationale claims block the registry quality gate. This checks evidence traceability, not logical entailment or distractor quality; human review remains mandatory.
+
+### Section 7.35 implementation update
+
+Vocabulary learning objects now require a registered source-evidence ID and revision. The registry checks that the evidence locator belongs to a linked claim, remains in that claim's evidence list, and matches current source/article/observation provenance and the evidence revision. The quality report repeats the check so stale references block use, and migration 24 adds the same invariant at SQLite insert/update boundaries. Tests cover missing/unknown/stale references and the v23→v24 migration. The object stores a pointer to the evidence locator, not copied source text. This provides traceability but does not establish the correctness of the vocabulary sense; human review remains necessary. GitHub Actions [run #44720406104](https://github.com/Amiroudro/new-sngso/actions/runs/44720406104) passed the full Python 3.12 suite: **681 passed in 8.15 seconds** on code head `c2401950927a9ba26b5f7d05678a213543405940`. Section 7 remains in progress.
+
+### Section 7.36 implementation update
+
+Comprehension, analysis, and MCQ answer claims now require explicit mappings to supporting evidence IDs and exact evidence revisions. Registry create/revision methods and the read-only quality report verify current claim linkage, support relationship, revision, locator, and matching source provenance. SQLite migration 25 enforces the binding for direct writes. The new tests cover missing, unknown, stale, unrelated, and directly injected references, plus migration 24→25. These checks provide provenance, not proof of logical entailment or editorial quality; human review remains necessary. Full-suite Python 3.12 CI passed: **685 tests in 6.86 seconds** on code head `49bfed5e9929ca2501bf11e1ebe2399743b7a9d4` ([run #44723149350](https://github.com/Amiroudro/new-sngso/actions/runs/44723149350)).
+
+
+### Section 7.37 implementation update
+
+Revision-card segments now use the same exact text and claim-set traceability checks as summary tiers. Revision-card factual segments are included in quality-report checks, where unassessed or unsupported claims block the report; attributed and analysis segments retain qualification warnings. Regression tests cover unlinked claims, text/segment mismatch, and unassessed factual claims. GitHub Actions [run #44724008090](https://github.com/Amiroudro/new-sngso/actions/runs/44724008090) passed the full Python 3.12 suite: **687 tests in 8.63 seconds** on code head `872e422460af970d85a87d2bfb7f55d376b36d91`. This establishes traceability controls, not editorial correctness. Section 7 remains in progress.
+
+
+### Section 7.38 implementation update
+
+The bilingual editorial report now compares claim IDs for explicitly paired learning-object variants sharing a kind and `variant_group_id`. It labels matched pairs, mismatches, and missing counterparts, and reports language-specific claim differences without guessing pairings. Matching IDs do not prove translation fidelity or linguistic quality, and the report remains non-authorizing. Tests cover matched and mismatched pairs. GitHub Actions [run #44725012064](https://github.com/Amiroudro/new-sngso/actions/runs/44725012064) passed the full Python 3.12 suite: **688 tests in 7.75 seconds** on code head `bf1559f352455055070303177a051eed357d38ac`. Section 7 remains in progress.
+
+
+### Section 7.39 implementation update
+
+An approved learning object now passes the registry quality gate only when its exact language-specific editorial rubric is present and fully passing. Generic approval status without a rubric is explicitly blocked. Test helpers now state the relevant Bangla/English rubric outcome, and regression coverage checks the missing-rubric blocker. GitHub Actions [run #44731019456](https://github.com/Amiroudro/new-sngso/actions/runs/44731019456) passed the complete Python 3.12 suite: **689 tests in 8.59 seconds** on code head `1ecf6a9345c996366363d5f8a08191485f6db66e`. This is a software completeness check, not proof of reviewer identity or factual truth. Section 7 remains in progress.
+
+
+### Section 7.40 implementation update
+
+The authenticated learning-object review facade captures a ten-dimension, versioned MCQ pedagogical rubric. It covers key defensibility, stem clarity, distractor plausibility and rationale quality, learner-level fit, misconception alignment, option parallelism, accidental clues, and explanation fidelity. MCQ approval requires all ten dimensions to pass; the registry quality report blocks approval without this rubric. This deterministic gate does not establish actual pedagogical quality or reviewer independence. GitHub Actions [run #44749250816](https://github.com/Amiroudro/new-sngso/actions/runs/44749250816) passed the full Python 3.12 suite: **693 tests in 6.24 seconds** on code head cc7f4f5e7e3d38a4d6709a9c0b5fdee4c3fe1abe. New tests exercise the authenticated review and fail-closed quality gate. Genuine qualified reviewer evidence remains outstanding.
+
+
+### Section 7.41 implementation update
+
+Audited the existing Flutter edition models and the integrated repository's Engine v2 converter/status documentation. Added docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md with the current consumer shape, a cautious field mapping, required provenance-manifest behavior, and fail-closed staging gates. This is design documentation only: there is no shared executable schema, adapter, claim-level manifest consumer, or cross-repository golden test, and no Flutter verification was run. No integrated-app files or published/bundled editions were changed. The Section 7 compatibility gate remains open.
+
+
+### Section 7.42 implementation update
+
+Added a read-only staging compatibility verifier for the English story subset understood by the legacy Flutter edition model. It requires an approved engine edition, exact story and selected-object revisions, passing quality reports, active human-attested English reviewers, citation equality to registered source/article records, current republication permission, and endpoint coverage for every article URL. It rejects non-draft client status and any unbound UI data; it never writes or publishes. Synthetic regression cases cover allow/deny, stale/tampered content, source and endpoint mismatches, unsupported fields, and reviewer qualification. GitHub Actions [run #44752476466](https://github.com/Amiroudro/new-sngso/actions/runs/44752476466) passed the full Python 3.12 suite: **701 tests in 6.38 seconds** on code head ec06daf4d3abba0b8034d56c1f84bb470d63229d. No Flutter parser run, real source grant, serializer, bilingual export, or cross-repository golden test exists yet.
+
+
+### Section 7.43 implementation update
+
+Added an explicit English story-only Flutter staging builder. Callers select exact headline_summary and brief_summary learning-object IDs for every story in an approved edition and supply the current source grants. The builder creates a draft client payload and provenance manifest in memory, pins edition/story/object revisions and fingerprints, rechecks reviewer qualification and source republication permission, and then verifies endpoint coverage. It does not write or publish. Synthetic tests cover successful construction and incomplete-selection rejection. GitHub Actions [run #44753534682](https://github.com/Amiroudro/new-sngso/actions/runs/44753534682) passed the full Python 3.12 suite: **703 tests in 6.68 seconds** on code head f7889295a9ca329852b518f96af68fb0b2b4b315. Flutter runtime validation, cross-repository golden tests, actual republication grants, bilingual output, and other client collections remain open.
+
+### Section 7.44 implementation update (verified)
+
+The staging-only Flutter compatibility boundary now rejects malformed manifest metadata more strictly:
+- Edition, story, and learning-object revision values must be positive integers; booleans are explicitly rejected even though Python treats booleans as integers.
+- Supplied collection counts must be non-negative integers, not booleans, floats, or strings, and must match the corresponding arrays.
+- Unknown count keys are rejected rather than silently ignored.
+- Duplicate edition-level source references are rejected instead of being silently accepted.
+- Permission-check reporting now counts the actual permission bindings rechecked, including multiple endpoints for one source.
+- Removed repeated duplicate validation branches in the verifier.
+
+Regression tests cover boolean revisions, malformed/negative counts, unknown count keys, and duplicate edition-level source references. GitHub Actions run [#44767670067](https://github.com/Amiroudro/new-sngso/actions/runs/44767670067) passed the full Python 3.12 suite: **710 tests in 8.42 seconds** on code head `e3d7a6bb7f8baba5dd6e4660b8705a1c9d065130`. This is defensive input validation only; it does not establish Flutter runtime compatibility, editorial correctness, or publication authorization. Section 7 remains open.
+
+
+### Section 7.45–7.47 implementation update
+
+The staging-only Flutter boundary rejects ambiguous URL path/origin forms, unknown provenance manifest fields, malformed payload digests, and empty manifest edition dates. Section 7.46 rejects unrecognized manifest extensions; Section 7.47 validates the SHA-256 digest representation and date metadata. Regression cases cover the new rejection paths. Contract validation passed on PR head `39de19f9` (GitHub Actions run [#44769400562](https://github.com/Amiroudro/new-sngso/actions/runs/44769400562)); that workflow validates repository contracts only. The subsequent Section 7.47 code and tests are newer and have not yet been validated by CI or the full Python test suite. No Flutter runtime, real publisher permission, or production publication verification is claimed.
+
+### Section 7.48 implementation update
+
+The first full CI run after Sections 7.45–7.47 exposed a format mismatch: the canonical fingerprint helper returns `sha256:` followed by 64 lowercase hexadecimal characters, while the new validator initially accepted only the bare hexadecimal portion. The validator now checks the canonical prefixed representation, matching the existing fingerprint helper and all manifest producers. This restores compatibility without weakening digest validation. The first run reported 15 failures and 719 passes because invalid digests stopped Flutter compatibility cases before their intended assertions. After the correction, GitHub Actions run [#44770649655](https://github.com/Amiroudro/new-sngso/actions/runs/44770649655) passed the full Python 3.12 suite: **734 passed in 7.90 seconds** on the corrected PR head. No publication or runtime compatibility claim is made.
+
+
+### Section 7.49 implementation update
+
+Added a versioned Draft 2020-12 JSON Schema for the Flutter staging provenance manifest. It defines the exact top-level manifest, nested story bindings, headline/summary learning-object references and revisions, and source republication permission bindings. Unknown fields are rejected throughout; IDs, positive revisions, ISO dates, and canonical SHA-256 fingerprints use shared definitions. The staging verifier enforces the schema before checking current registry records and permissions. Regression coverage includes schema validity, a valid manifest, unsupported nested extensions and permission operations, malformed nested values, duplicate permission records, and runtime rejection of an injected learning-object field. GitHub Actions run [#44878423840](https://github.com/Amiroudro/new-sngso/actions/runs/44878423840) passed the full Python 3.12 suite: **749 passed in 9.14 seconds** on code head `4c92245abf41aaa656af8fb835530a20e50bae2b`. This is a staging provenance contract, not proof of Flutter runtime compatibility or publication authorization.
+
+
+### Section 7.50 implementation update
+
+Added a direct regression validating the staging builder's generated provenance manifest with the shared Section 7.49 JSON Schema. Tightened source-permission consistency so every included article is covered by a current registered endpoint grant and every manifest endpoint must cover at least one included article; unused but otherwise valid endpoints are rejected. This is staging-only and does not grant publication authority. GitHub Actions run [#44878923923](https://github.com/Amiroudro/new-sngso/actions/runs/44878923923) passed the full Python 3.12 suite: **750 passed in 8.85 seconds** on code head `02b6fccc395241d43b354b3ec791780b32ea4edc`.
+
+
+### Section 7.51 implementation update
+
+Added `verify_independent_bilingual_variants` as a fail-closed gate for paired Bangla and English learning objects. It requires separate approved records, matching story/kind/variant group and claim coverage, passing language-specific quality gates, explicit passing translation-fidelity review, active human benchmark reviewers qualified for their respective languages, and different provider-attested (issuer, subject) identities. Regression tests cover a valid pair, duplicate provider identity under different local principal IDs, and a reviewer lacking Bangla qualification. The result is staging-only and does not authorize publication. GitHub Actions run [#44906408948](https://github.com/Amiroudro/new-sngso/actions/runs/44906408948) passed the full Python 3.12 suite: **753 passed in 8.83 seconds** on code head `14ad3d02bdb285d98c995e7082785824805cf4c8`.
+
+
+## Section 7 close and Section 8 handoff
+
+Section 7's engine-side implementation scope is closed. The work includes structured editorial learning objects, claim/evidence traceability, story narrative and attribution reports, language-specific quality gates, bilingual variant coverage, independent reviewer-identity checks, and a narrow English-only staging compatibility adapter.
+
+This is a scope boundary, not production acceptance. Genuine independent Bangla/English reviews, real provider authentication and revocation, current publisher permissions, independent benchmark assessment, deployed security and backup/restore evidence, and Flutter runtime/golden tests remain external acceptance gates. Track these in the relevant operational and end-to-end work in Sections 9 and 10, and enforce any required publication prerequisites in Section 8. Do not keep extending Section 7 with edition assembly, publishing, scheduling, or app integration features.
+
+**Verification caution:** the recorded workflow runs #44906408948 and #44906480066 executed the contract-validation job, not the full Python test suite. Although a 753-test result was previously attributed to run #44906408948, inspection of its actual job steps does not substantiate that claim. A dedicated full-suite CI run on the current code head is still required before claiming CI verification of all tests.
+
+**Next:** Section 8, Edition assembly and publication safety. PR #7 remains draft and unmerged; no live editions, schedules, frontend repositories, or production destinations were changed.
+
+
+### Section 8.1 implementation update: baseline audit
+
+Added `docs/SECTION_8_AUDIT.md` after inspecting the edition schema, typed record, registry reference checks, immutable-revision guard, and existing edition tests. The audit confirms that edition metadata and post-insert immutability already exist, but full artifact storage, successful pipeline-run binding, bilingual edition assembly, publication-time rights/evidence rechecks, an append-only approval ledger, guarded state transitions, correction/supersession, last-known-good protection, and complete staging export do not yet exist.
+
+A critical gap is recorded: the schema permits `status: published`, and generic edition insertion does not require a separate approval decision or guarded transition. Section 8 must close this before any publication workflow is considered safe.
+
+The work is bounded to five implementation gates plus one end-to-end acceptance pass: artifact/manifest contract; bilingual assembly; whole-edition validation; approval/release state machine; correction/last-known-good/staging export. No live edition or publication target is touched.
+
+
+### Section 8.2 implementation update: immutable artifact manifest
+
+Added a strict Draft 2020-12 `edition-artifact-manifest` contract and runtime/schema regression tests. It binds edition identity/revision, pipeline-run identity, canonical payload fingerprint, exact story revisions/snapshot fingerprints, language-specific learning-object revisions/fingerprints, and source/endpoint/republication-grant references. Every story binding requires both Bangla and English content; all objects reject unknown fields and non-canonical hashes.
+
+The manifest records provenance; it does not grant publication permission. Structural validation does not yet prove the referenced registry records exist, that their fingerprints match, or that permission grants and pipeline runs are currently valid. Those checks remain required before assembly/review. No live edition or publication destination was changed.
+
+
+Section 8.3 adds a canonical in-memory artifact integrity verifier. It validates the provenance manifest, matches edition ID/revision/key, recomputes the canonical payload SHA-256, and returns immutable byte snapshots. Tampering and identity mismatch tests are included. This does not yet resolve registry references or prove current permission/pipeline state; those are required for the next registry-backed assembly gate.
+
+
+### Section 8.4 registry capability inspection
+
+Inspected the actual registry APIs before implementing the registry-backed verifier. Story and learning-object immutable histories are available, and current republication grants can be re-evaluated through the permission evaluator. However, the registry has no pipeline-run model, table, or lookup method even though the edition and artifact-manifest contracts require `pipeline_run_id`. This is a hard provenance dependency: the engine cannot prove the referenced run exists or succeeded. The verifier must remain unimplemented rather than silently skipping this check. Next: define and persist immutable pipeline-run records, then add fail-closed registry verification for exact story/object revisions and hashes, current endpoint-scoped grants, and successful pipeline-run binding.
+
+
+### Section 8.5: pipeline-run persistence implemented, CI pending
+
+Reused the repository's existing pipeline-run contract and tightened its lifecycle requirements. Added SQLite schema migration 26, current run records, append-only run revisions, audit events, immutable run identity/input fields, and guarded queued/running-to-terminal transitions. Added registry APIs to create, retrieve, transition, and inspect pipeline-run history. Tests cover lifecycle, stale revisions, immutable inputs, unknown IDs, and migration from v25 to v26.
+
+This closes the missing persistence capability at code level, but not the full edition binding. The next verifier must require a succeeded run and compare its output fingerprint to the exact canonical edition artifact. The current code has not yet been validated by a completed CI run; no deployed database or pipeline was touched.
+
+
+Verification: the first full test run found three stale schema-version assertions, not failures in the new pipeline-run tests. After correcting those assertions and adding direct SQLite guard tests, GitHub Actions run [#44917871635](https://github.com/Amiroudro/new-sngso/actions/runs/44917871635) passed the full Python 3.12 suite (**781 passed in 7.97 seconds**) on code head c28c18958a2b5f2274e1e5b868378ddcfa21c409. No production database was migrated.
+
+
+### Section 8.6: successful pipeline output binding
+
+Added a registry-backed staging verifier that resolves the manifest's pipeline run, requires a succeeded current run, checks that its output hash list contains the exact canonical edition payload fingerprint, and rejects manifests created before pipeline completion. Regression tests use actual SQLite registry records and cover missing, running, mismatched-output, and timestamp failure paths.
+
+GitHub Actions run [#44918034521](https://github.com/Amiroudro/new-sngso/actions/runs/44918034521) passed the full Python 3.12 suite (**785 passed in 10.02 seconds**) on code head 90d787a618e55ac51f41f62ad2179a73f5f5748d. Next: bind story snapshots, approved learning-object revisions, and current endpoint-scoped republication grants in one fail-closed edition verification pass.
+
+ 
+### Section 8.7: whole-edition registry-backed staging verification
+
+Added and exported `verify_registry_backed_edition_artifact`. The single read-only gate verifies canonical payload/manifest integrity, a succeeded pipeline run bound to the exact output hash, the exact approved edition revision and content hash, every current story revision/snapshot fingerprint, every approved learning-object revision/fingerprint, paired Bangla/English variants through the existing independent-review gate, and current endpoint-scoped republication permissions covering every active article URL. Duplicate, missing, stale, denied, or unused bindings fail closed.
+
+The verifier returns staging-only evidence and never writes, approves, publishes, or grants publication authority. GitHub Actions [run #44918763573](https://github.com/Amiroudro/new-sngso/actions/runs/44918763573) passed the full Python 3.12 suite: **788 passed in 7.73 seconds** on head `937f054ac69124a9c02d7b102fe6ae41bc1489f1`.
+
+Remaining Section 8 work: artifact persistence/retrieval, bilingual assembly, append-only approval/release ledger, guarded publication transitions, correction/supersession and last-known-good handling, staging export, and end-to-end acceptance. No live edition or frontend was changed.
+
+ 
+### Section 8.8: immutable artifact persistence and retrieval
+
+Added SQLite migration 27 and an immutable edition-artifact store for canonical payload/manifest pairs and their staging-verification receipt. Storage reruns the complete registry-backed verifier before inserting; audit events record the operation. Retrieval recomputes payload/manifest integrity but does not assume current rights or reviewer status remain valid, so a fresh full verification is required before release. Database guards prohibit update/deletion and prevent more than one artifact per edition revision.
+
+GitHub Actions [run #44919212598](https://github.com/Amiroudro/new-sngso/actions/runs/44919212598) passed the full Python 3.12 suite: **792 passed in 10.19 seconds** on head `4b0411595680910b29b4c18cfb002b6cc3650611`.
+
+Remaining: bilingual edition assembly, append-only approval/release decisions, guarded publication transitions, correction/supersession and last-known-good handling, staging export, and end-to-end acceptance. No live edition or frontend was changed.
+
+ 
+### Section 8.9: deterministic bilingual edition assembly
+
+Added and exported `assemble_bilingual_edition_artifact`. It requires explicit approved learning-object IDs for every edition story, validates exact current revisions and quality gates, requires complete Bangla/English pairs for each selected kind, invokes the independent reviewer gate, and preserves exact content, claim links, story snapshot fingerprints, article/source metadata, and permission bindings. It emits canonical staging payload/manifest bytes and verifies the successful pipeline output hash and timestamps. It does not mutate edition records, store artifacts, approve, or publish.
+
+GitHub Actions [run #44921515577](https://github.com/Amiroudro/new-sngso/actions/runs/44921515577) passed the full Python 3.12 suite: **799 passed in 5.51 seconds** on code head `6911dde2ced74f01df71c8075d922f436cb6ce70`. The focused assembly tests isolate the existing independent-review and pipeline-binding helpers; a live end-to-end assembly with genuine reviewer attestations and active publisher grants remains an acceptance gate.
+
+Remaining Section 8: approval/release ledger, guarded publication transitions, correction/supersession and last-known-good handling, staging export, and end-to-end acceptance. No live edition, website, frontend, or schedule was changed.
+
+
+### Section 8.10: append-only edition staging decision ledger
+
+Added a strict decision contract and SQLite migration 28. An authenticated, recently re-verified human principal with the distinct `edition_approver` role can approve or reject one exact stored staging artifact. The decision binds the manifest ID, edition revision, payload fingerprint, reason, and provider identity attestation; the raw session ID is reduced to a SHA-256 fingerprint. The approver must not be one of the candidate's language reviewers.
+
+Before recording a decision, the registry reruns the whole-edition staging verifier, including current bilingual reviewer evidence, story and learning-object revisions, successful pipeline output binding, and current endpoint-scoped republication grants. Each artifact manifest accepts only one immutable final decision. SQLite triggers prohibit direct updates and deletion, and the audit chain records the event.
+
+An approval is **not publication authorization**. The decision contract explicitly fixes `publication_authorized` to false; it cannot change edition status or write to a live destination. Guarded release authorization, controlled promotion, correction/supersession, last-known-good handling, and end-to-end acceptance remain open. Production OIDC/JWKS/revocation and protected approver provisioning are still deployment acceptance gates.
+
+
+**Verification:** GitHub Actions run [#44926118184](https://github.com/Amiroudro/new-sngso/actions/runs/44926118184) passed the full Python 3.12 suite: **805 passed in 5.48 seconds** on head `231be4b7db18605a5ec48bb18a91c088720741ce`. The initial run had four stale schema-version assertions; these were corrected before the passing run. This is repository CI evidence only, not a production deployment or live publication test.
+
+
+### Section 8.11: generic publication bypass closed
+
+Closed the generic edition-write bypass identified in the Section 8.1 audit. The generic edition API now rejects `status: published`, and SQLite migration 29 adds direct-SQL guards against published-edition insertion, edition snapshot mutation, and deletion. Approved edition records remain staging candidates and are not live publications. The Section 8.10 approval ledger remains explicitly non-authorizing; a separate controlled release workflow is still required.
+
+GitHub Actions run [#44926616175](https://github.com/Amiroudro/new-sngso/actions/runs/44926616175) passed the full Python 3.12 suite: **809 passed in 10.05 seconds** on head `b7b48878f121c477481a245454f552965cacf71c`. This is repository test evidence, not a production release or deployment test.
+
+
+### Section 8.12: two-person controlled release authorization
+
+Added an independent release-authorization role and immutable ledger. A different, recently authenticated human than the staging approver must authorize the exact artifact. The original approver must remain active. The registry requires a prior `approve` decision, exact manifest/revision/hash binding, and fresh whole-edition verification including current bilingual review evidence and endpoint-scoped republication grants. The release authorization is append-only and audited.
+
+This gate sets `release_authorized: true` only for a later controlled promotion stage. It explicitly leaves `publication_authorized: false` and performs no live destination writes or edition status changes. Actual promotion, rollback, correction/supersession, and last-known-good handling remain the next implementation work.
+
+GitHub Actions [run #44927171126](https://github.com/Amiroudro/new-sngso/actions/runs/44927171126) passed the full Python 3.12 suite: **815 passed in 7.03 seconds** on head `27624dcc98e394bf6d60f8533405c6be77e518dc`. This is repository CI evidence, not production deployment or a live publication test.
+
+
+### Section 8.13: verified staging-only export package
+
+Added a strict staging export contract and read-only in-memory builder. It requires the exact stored artifact, a prior independent editorial approval, a distinct release authorization, currently active human principals in both roles, and fresh whole-edition verification at export time. The package carries the canonical payload, provenance manifest, approval, and release authorization, with its own deterministic identifier and SHA-256 package fingerprint.
+
+The export is explicitly staging-only (`target: staging`) and non-publishing (`publication_authorized: false`). It does not write files, call a network destination, update the frontend, or alter a live edition. Integration with an actual staging consumer, runtime/golden tests, correction/supersession, rollback, and last-known-good handling remain open.
+
+GitHub Actions [run #44927518850](https://github.com/Amiroudro/new-sngso/actions/runs/44927518850) passed the full Python 3.12 suite: **818 passed in 11.06 seconds** on head `be21a13b05eeef8fa8ad3d2687b414a0964dc1cb`. This is repository CI evidence only.
+
+
+### Section 8.14: staging correction and rollback safety contract
+
+Documented the required staging-only promotion, correction, rollback, and last-known-good invariants in `docs/SECTION_8_14_STAGING_CORRECTION_ROLLBACK_DESIGN.md`. The design requires fresh re-verification, immutable correction artifacts, separate approval and release authorization, a distinct authenticated staging operator, append-only event history, atomic compare-and-swap pointer changes, and preservation of the previous known-good staging export. Rollback is a new event, never deletion or rewriting of history.
+
+**Design only at this checkpoint.** The migration, authenticated staging operator, atomic registry methods, and acceptance tests remain to be implemented. No staging channel is operational and no live publication is authorized.
+
+
+### Section 8.14: atomic staging promotion, correction and rollback
+
+Implemented SQLite migration 31, append-only staging events, guarded current/LKG channel state, a distinct authenticated staging-operator role, and authenticated facade operations for promotion and rollback. Both operations freshly rebuild and verify the staging export inside the write transaction and compare-and-swap the expected state revision and current export. Corrections require new immutable artifacts and fresh dual authorization. Rollback creates a new event and restores only an earlier successfully promoted export. The staging channel is fixed to staging and remains explicitly non-publishing.
+
+GitHub Actions run [#44932795855](https://github.com/Amiroudro/new-sngso/actions/runs/44932795855) passed the full Python 3.12 suite: **824 passed in 9.62 seconds** on code/test head `11bb329f8a207914160ab6f335d2eedd2b5bcf9f`.
+
+The implementation is registry-level staging only. Genuine human review, current real publisher permissions, deployed identity/revocation, cross-process concurrency acceptance, backup/restore drills and a downstream staging consumer remain external acceptance gates. No live edition was published.
+
+
+### Section 8.15: end-to-end acceptance and operational readiness
+
+Added a gate-by-gate acceptance register in `docs/SECTION_8_15_END_TO_END_ACCEPTANCE.md`. The current PR head's full Python 3.12 suite passed: **824 passed in 11.04 seconds**, run [#44932902651](https://github.com/Amiroudro/new-sngso/actions/runs/44932902651). This verifies repository tests, not real-world acceptance. The Section 8.14 lifecycle tests use synthetic records and a mocked whole-edition verifier. Remaining engineering acceptance includes a separate-connection concurrency test, transaction-failure atomicity, rights/principal revocation at promotion time, and one integrated real-registry path through assembly, approval, release authorization, export, promotion and rollback. Genuine human review, publisher permissions, deployed identity/revocation, backup/restore and staging-consumer integration also remain open. Section 8 is therefore implementation-substantially-complete, not production-ready or operationally accepted. No live destination or frontend was changed.
+
+
+### Section 8.16: cross-connection staging safety verified
+
+Added a two-connection SQLite promotion race test, transaction-failure rollback test, and pre-promotion operator-revocation test. GitHub Actions run [#44937132497](https://github.com/Amiroudro/new-sngso/actions/runs/44937132497) passed the full Python 3.12 suite: **827 passed in 7.61 seconds** on commit `d85d661fe5d54e6c1988ccb49239eae3608bb515`.
+
+The repository-level concurrency, atomicity, and operator-revocation test gaps are now covered. The next Section 8 acceptance task is an integrated real-registry lifecycle test with no mocked whole-edition verifier. Genuine editorial/permission/identity evidence, production backup/restore, and staging-consumer runtime tests remain external gates. Section 8 is not production-ready or operationally accepted.
+
+## Additional authorization-revocation regression
+
+A further staging test revokes the original human approver after the approval and separate release authorization have been recorded, but before staging promotion. Promotion must re-run export checks, reject the now-inactive approver, and leave the staging pointer and event ledger unchanged.
+
+The first test run exposed an expected exception-wrapping boundary: the staging API translates the lower-level export rejection into `EditionStagingError`. The assertion was corrected to check the public staging API contract. The corrected full Python 3.12 suite passed: **828 passed in 11.22 seconds**, GitHub Actions run [#44937450038](https://github.com/Amiroudro/new-sngso/actions/runs/44937450038), commit `39ca24dd512f8ca4bca7f0d59c79eccd61a03d0f`.
+
+This is repository-level regression evidence using synthetic staging fixtures. It does not replace the still-open integrated genuine-record lifecycle test or external operational acceptance gates.
+
+## Integrated real-registry lifecycle verification (Section 8 acceptance update)
+
+The previous open engineering gate for an integrated registry-backed staging lifecycle is now covered by `test_real_registry_bilingual_edition_lifecycle_through_rollback` in `tests/test_edition_assembly.py`.
+
+The test creates actual SQLite registry records for a source, endpoint, verified permission evidence, scoped republication grant, article, story, supported claim/evidence, two independently reviewed language variants, pipeline runs, editions and immutable artifact records. It then exercises the unmocked registry-backed whole-edition verifier through artifact persistence, separate human-classified approval, independent release authorization, staging export, two promotions and rollback. It verifies the final channel pointer, last-known-good pointer, three-event history and audit chain.
+
+The first genuine promotion attempt exposed a real integration defect: staging held a write transaction while nested registry verification helpers opened their own transactions on the same SQLite connection. SQLite rejected this with `cannot start a transaction within a transaction`. The registry transaction manager now uses nested SQLite savepoints under its existing re-entrant lock. This preserves the outer atomic transaction while allowing composed registry reads and verification. Two direct regression tests cover inner-savepoint rollback and outer-transaction rollback of successful nested work.
+
+GitHub Actions run [#44938061164](https://github.com/Amiroudro/new-sngso/actions/runs/44938061164) passed the full Python 3.12 suite: **831 passed in 11.35 seconds** on code commit `7fa89bc5aa36231c47839fb3a02a554da791718e`.
+
+**Evidence boundary:** this is a real SQLite registry integration test with synthetic fixture data and test identities. The language-review records, publisher permission grant and human-classified principals are test fixtures, not proof of genuine human review or an actual publisher licence. The pipeline output hash is precomputed in a test-only preview step; the actual assembly, pipeline binding, whole-edition verification, persistence, approval, release authorization, export, promotion and rollback then run without mocking the whole-edition verifier. No production database, deployed identity provider, real publisher grant, external staging consumer, live publication or production acceptance is established.
+
+### Current republication-rights revocation before promotion
+
+The integrated real-registry lifecycle test now also suspends the registered republication grant after approval and release authorization but immediately before promotion. The promotion attempt is rejected, with the staging state revision and event ledger unchanged. The test then restores the fixture grant and completes the two promotions and rollback.
+
+GitHub Actions run [#44938218038](https://github.com/Amiroudro/new-sngso/actions/runs/44938218038) passed the full Python 3.12 suite: **831 passed in 7.60 seconds** on code commit `86b6793ac55aac824326c2e584996b1e7013aad0`.
+
+This closes the repository-level rights-revocation-before-promotion regression gap for the tested SQLite path. The grant is synthetic test data, not a real publisher authorization.
+
+## Section 8 implementation closeout
+
+The repository-level engineering acceptance work for Section 8 is now complete for the Python engine boundary. The verified scope includes immutable bilingual artifact/manifest integrity, successful pipeline binding, registry-backed assembly and persistence, whole-edition rights and reviewer rechecks, append-only approval and separate release authorization, staging-only export, atomic promotion, last-known-good tracking, correction by new immutable artifacts, rollback, cross-connection compare-and-swap, transaction-failure rollback, and current operator/approver/permission revocation checks.
+
+The integrated real-SQLite test covers assembly → immutable persistence → approval → separate release authorization → export → promotion of two editions → rollback. It uses synthetic fixture data and test identities, but the production code paths for registry-backed verification and staging are exercised without mocking the whole-edition verifier. Nested transaction savepoints are separately tested.
+
+Final code verification: [run #44938218038](https://github.com/Amiroudro/new-sngso/actions/runs/44938218038), **831 passed in 7.60 seconds** on code commit `86b6793ac55aac824326c2e584996b1e7013aad0`. The latest documentation head also passed [run #44938291655](https://github.com/Amiroudro/new-sngso/actions/runs/44938291655), **831 passed in 8.44 seconds**.
+
+**Section 8 status:** implementation workstream complete at the Python repository boundary. This is not production acceptance. External gates remain: real publisher republication grants, genuine independent Bangla/English human reviews, deployed OIDC/JWKS/revocation and protected administrator bootstrap, operational backup/restore evidence, and a real downstream staging-consumer runtime/golden test. The Flutter app, website and published editions remain untouched. No live publication is authorized.
+
+**Next master-plan section:** Section 9, operations, observability and free-first automation. Section 10 remains end-to-end verification and controlled handover.
+
+## Section 9.1: operations, observability and free-first automation baseline audit
+
+**Status: audit complete; implementation not yet started.** This audit covers the Python engine repository only. It does not assume the separate daily content pipeline or Flutter client is deployed as part of this repository.
+
+### Current evidence
+
+- **CI:** one GitHub Actions workflow, .github/workflows/contracts.yml, runs the complete pytest suite on relevant pushes and pull requests. It uses Python 3.12, read-only repository permissions, and a five-minute job timeout. There is no scheduled production pipeline, deployment workflow, release workflow, or environment-protected promotion job.
+- **Pipeline tracking:** SQLite schema version 31 persists pipeline-run identity, status, input/output fingerprints, revisions, and audit events. This is a durable run ledger, not a scheduler, worker, or end-to-end orchestrator.
+- **Audit:** the registry exposes hash-chain verification and an audit checkpoint (sequence plus chain tip). The checkpoint is useful only if copied to an independently controlled location. No external checkpoint publisher or alert exists.
+- **Database operations:** file-backed SQLite uses WAL mode and a 10-second busy timeout; write transactions are serialized and nested composition now uses savepoints. The repository has concurrency and rollback tests. No backup command, automated backup schedule, restore command, restore drill, retention policy, or encrypted backup process is implemented.
+- **Collection and network boundary:** the collection module is permission-first orchestration with injected connectors. It explicitly does not implement network transport. No live publisher connector or permitted production source set is configured.
+- **Identity:** an OIDC verification adapter and authenticated facades exist, but the repository contains no production issuer configuration, JWKS resolver, revocation service, secret store, or protected administrator bootstrap.
+- **Observability:** there is no application health endpoint, structured operational log contract, metrics exporter, trace correlation layer, alert routing, or operator dashboard. Existing audit events and pipeline-run records are not substitutes for runtime telemetry.
+- **Recovery and support:** no operations runbook, incident severity model, stuck-run recovery procedure, database corruption response, or service-level objective is defined.
+- **Cost posture:** current runtime dependencies remain modest and there is no paid hosted infrastructure configured. GitHub Actions is the only demonstrated automation service, currently used for CI rather than scheduled production work.
+
+### Principal risks
+
+1. A durable pipeline-run record can exist without an actual orchestrator reliably starting, supervising, retrying, or terminating work.
+2. An audit chain can be locally verified but its tail can be truncated by a sufficiently privileged operator unless checkpoints are stored externally.
+3. SQLite concurrency is tested, but operational backup, restore, filesystem protection, and multi-user hosted workload behaviour are not established.
+4. Failed, delayed, or partially completed work has no central alerting or operator-facing diagnosis.
+5. No production automation should be scheduled until real source grants, real identity infrastructure, and a human-controlled review/release process exist.
+
+### Bounded implementation sequence
+
+1. Define a small structured run/health report using existing pipeline-run and audit records; include correlation IDs, stage outcome, timestamps, bounded error categories, and no secrets or article-body leakage.
+2. Add deterministic retry classification and idempotency rules at the orchestration boundary. Do not retry permission denial, contract failure, revoked identity, or other permanent failures.
+3. Add local SQLite backup and restore utilities with integrity checks, audit-chain verification, and automated temporary-database restore tests before considering hosted operations.
+4. Define operator runbooks for failed runs, permission revocation, database lock/corruption, restore, and last-known-good staging recovery.
+5. Add free-first CI checks for the new operational utilities. Consider scheduled automation only after a separately authorized, genuinely permitted input pipeline exists.
+6. Document alert thresholds and external audit checkpoint handling without introducing a paid monitoring dependency.
+
+**Safety boundary:** no scheduled collection, live source access, automatic release, production deployment, external secret configuration, paid service, or live edition publication is authorized by this audit. Section 9 implementation must preserve the existing Section 8 staging-only boundary.
+
+### Section 9.2: read-only operational health report
+
+Added bounded, newest-first pipeline-run listing to SQLiteRegistry and its repository port. Added a read-only operational report that summarizes run counts, stale active runs, recent failed/rejected runs, audit-chain verification and the external audit checkpoint value. It excludes failure detail and content payloads, flags empty history as not observed, and always returns production_ready=false. It does not schedule or execute work.
+
+Tests cover ordering/filtering/limits, stale and failed run detection, empty history, invalid parameters and failure-detail non-disclosure. GitHub Actions [run #44938730003](https://github.com/Amiroudro/new-sngso/actions/runs/44938730003) passed **839 tests in 11.54 seconds** on 9092d8137474dfb119af893d570f38c661201db4.
+
+The separate Section 9 audit is in docs/SECTION_9_AUDIT.md. Next: retry classification/idempotency, SQLite backup/restore, and operator runbooks. No scheduled or live pipeline is authorized.
+
+### Section 9.3: verified local SQLite backup and restore
+
+Added non-overwriting SQLite online-backup and restore helpers. Backups are created through a temporary file, verified for SQLite integrity, expected schema version, contiguous audit sequence and hash-chain integrity, then atomically installed with owner-only permissions. Restore verifies the backup and installs it at a new path; it refuses to overwrite. Backups cannot be started inside an active registry transaction.
+
+Tests cover backup/restore state preservation, audit checkpoint preservation, overwrite refusal, active-transaction rejection and tampered audit-chain rejection. GitHub Actions [run #44939132297](https://github.com/Amiroudro/new-sngso/actions/runs/44939132297) passed **842 tests in 8.91 seconds** on code commit 120a07f2f822e84f9863651f0153a219ec3116fa.
+
+This does not provide scheduling, off-site storage, encryption, retention, an independently stored checkpoint, or a production restore drill. These remain explicit Section 9 gates.
+
+### Section 9.4: deterministic retry classification
+
+Added a pure, fail-closed retry policy for a narrow set of known transient network/HTTP/SQLite-busy errors. It applies bounded exponential backoff and an attempt cap. Permission, identity, authentication, contract/schema, policy, source/endpoint and integrity failures are permanent; unknown failure codes are not retried. The classifier performs no retries or scheduling.
+
+GitHub Actions [run #44939277125](https://github.com/Amiroudro/new-sngso/actions/runs/44939277125) passed **859 tests in 11.54 seconds** on code commit 9dad74539a50cb6a548dd09932781013a71c4371.
+
+The next step is idempotency and orchestration design before implementing any retry loop. Runbooks, external audit anchoring, backup encryption/retention/off-site copies, and a production-like restore drill remain open.
+
+### Section 9.5: deterministic idempotent pipeline-run creation
+
+Added a stable run ID derived from run kind, software version, config hash, ordered input hashes, initiator and attempt number. Repeated or concurrent submissions for the same logical attempt reuse one durable run; changed inputs or a deliberate retry attempt create a distinct ID. The helper does not start workers or schedule work.
+
+GitHub Actions [run #44939558764](https://github.com/Amiroudro/new-sngso/actions/runs/44939558764) passed **869 tests in 6.65 seconds** on commit e2728fa5f3df0c97999398815862535fc1b3c826.
+
+The remaining Section 9 work is a genuine orchestrator/worker boundary, operational runbooks, external audit checkpoint storage, backup encryption/retention/off-site storage, production restore drills and monitoring/alert routing. No scheduled live pipeline is authorized.
+
+### Section 9.6: initial local operations runbook
+
+Added docs/OPERATIONS_RUNBOOK.md with local procedures for health reports, verified backup/restore, retry classification, idempotent run submission, audit limitations and stop/escalation conditions. It explicitly documents missing production facilities and does not claim to be an on-call or production recovery plan.
+
+### Section 9.7: external audit checkpoint export and verification
+
+Added owner-only, non-overwriting JSON checkpoint export and verification against a later registry. A valid checkpoint remains verifiable after later appends; truncation before the checkpoint or a changed hash at the checkpoint sequence is rejected. The operator must manually copy the file to separately controlled storage; no external upload or alert integration exists.
+
+GitHub Actions [run #44939874419](https://github.com/Amiroudro/new-sngso/actions/runs/44939874419) passed **871 tests in 11.11 seconds** on commit 751352dc92c7bdb90f0f3b8d8866d362b3c34db2.
+
+### Section 9.8: synchronous injected-stage pipeline runner
+
+Added a bounded execution seam that atomically claims a queued run, checks the exact input-context fingerprint, invokes caller-supplied stages sequentially, passes prior outputs forward in memory, and records stage fingerprints and terminal outcomes. It stops on the first failure, blocks later stages, omits raw outputs and unexpected exception messages from persisted history, and classifies failures without automatically retrying them. A two-connection test verifies that a queued run cannot be executed twice.
+
+GitHub Actions [run #44940389931](https://github.com/Amiroudro/new-sngso/actions/runs/44940389931) passed **881 tests in 10.71 seconds** on code commit c56f745e39fe419d64176038d426d6654e2d5110.
+
+The runner is synchronous and accepts only injected handlers. It has no network transport, live publisher connector, scheduler, worker pool, lease, heartbeat, resume, cancellation, or publication action. A process interruption leaves a running record for manual reconciliation; no stage checkpoint or automatic retry exists. See docs/PIPELINE_WORKER_CONTRACT.md for the contract and limits.
+
+### Section 9.9: guarded deliberate retry-run creation
+
+Added an explicit operator-triggered retry helper. It verifies that the supplied prior attempt number matches the failed run's deterministic identity, requires a known transient failure within the attempt limit, preserves the exact configuration and ordered input hashes, and creates a distinct queued attempt. Permanent/unknown failures and exhausted attempts are rejected. The operator must attest that prior side effects have been reconciled and permissions rechecked; this is an audit-recorded assertion, not provider-authenticated proof or a replacement for fresh checks in each stage handler. The helper does not execute or automatically retry the run.
+
+Tests cover retry creation and duplicate reuse, immutable input preservation, forbidden failures, mismatched attempt identity, non-failed records, and missing attestations. GitHub Actions [run #44941002132](https://github.com/Amiroudro/new-sngso/actions/runs/44941002132) passed **888 tests in 12.34 seconds** on aed9cb26ef85334f330e3600f05c6c55eb8f218e.
+
+### Section 9.10: immutable retry lineage
+
+Pipeline-run records now optionally carry `attempt` and `retry_of`. The registry verifies that a retry parent exists and is failed, the new attempt immediately follows it, and all immutable execution inputs are preserved. Transitions cannot rewrite the lineage. Legacy attempt-one records without these fields remain compatible with idempotent reuse.
+
+GitHub Actions [run #44941362943](https://github.com/Amiroudro/new-sngso/actions/runs/44941362943) passed **893 tests in 9.84 seconds** on cad4c823976791f3d9801b1add21bb52e45bf716.
+
+Section 9's consolidated implementation and remaining acceptance gates are recorded in [docs/SECTION_9_ACCEPTANCE.md](SECTION_9_ACCEPTANCE.md). The section remains partial and is not accepted for production.

@@ -63,6 +63,7 @@ def _prepared():
         }],
         "created_at": STAMP,
     })
+    _link_claim_evidence(registry)
     return registry
 
 
@@ -140,6 +141,8 @@ def test_vocabulary_and_question_content_require_kind_specific_fields():
         "content": {
             "term": "accountability",
             "glossary_entry_id": "glossary:accountability",
+            "source_evidence_id": "evidence:source-context",
+            "source_evidence_revision": 1,
             "term_language": "en",
             "part_of_speech": "noun",
             "meaning": "দায়বদ্ধতা",
@@ -157,6 +160,7 @@ def test_vocabulary_and_question_content_require_kind_specific_fields():
             "answer": "A public notice.",
             "explanation": "The linked claim records the notice.",
             "answer_claim_ids": ["claim:one"],
+            "answer_evidence": [{"claim_id": "claim:one", "evidence_id": "evidence:one", "evidence_revision": 1}],
         },
     })
     validate_payload("learning-object", question)
@@ -363,6 +367,7 @@ def test_question_answer_claim_links_must_be_in_the_learning_object_claim_set():
                 "answer": "A public notice.",
                 "explanation": "The answer is supported by a claim.",
                 "answer_claim_ids": ["claim:outside"],
+                "answer_evidence": [{"claim_id": "claim:outside", "evidence_id": "evidence:one", "evidence_revision": 1}],
             },
         })
         with pytest.raises(RegistryIntegrityError, match="answer claim links must be a non-empty subset"):
@@ -387,20 +392,159 @@ def test_question_schema_requires_answer_claim_links():
         validate_payload("learning-object", question)
 
 
-def _support_claim_with_evidence(registry):
-    registry.add_domain_record("evidence", {
-        "schema_version": "1.0.0",
-        "id": "evidence:one",
-        "claim_id": "claim:one",
-        "source_id": "source:publisher",
-        "article_id": "article:one",
-        "relationship": "supports",
-        "locator": {"uri": "https://publisher.example.org/one"},
-        "assessed_at": "2026-11-19T01:00:00Z",
-        "assessed_by": "reviewer",
-    })
+
+
+def test_question_requires_evidence_for_each_answer_claim_and_rejects_unknown_or_stale_refs():
+    registry = _prepared()
+    try:
+        question = _summary("learning:question-without-evidence")
+        question.update({
+            "kind": "comprehension_question",
+            "content": {
+                "question": "What did the authority issue?",
+                "answer": "A public notice.",
+                "explanation": "The claim records the notice.",
+                "answer_claim_ids": ["claim:one"],
+            },
+        })
+        with pytest.raises(ValueError):
+            validate_payload("learning-object", question)
+
+        question = _summary("learning:question-unknown-evidence")
+        question.update({
+            "kind": "comprehension_question",
+            "content": {
+                "question": "What did the authority issue?",
+                "answer": "A public notice.",
+                "explanation": "The claim records the notice.",
+                "answer_claim_ids": ["claim:one"],
+                "answer_evidence": [{
+                    "claim_id": "claim:one",
+                    "evidence_id": "evidence:missing",
+                    "evidence_revision": 1,
+                }],
+            },
+        })
+        with pytest.raises(RegistryIntegrityError, match="unknown claim or evidence"):
+            registry.add_learning_object(
+                question, actor="editor", reason="Reject a missing answer evidence record."
+            )
+
+        question["id"] = "learning:question-stale-evidence"
+        question["content"]["answer_evidence"][0].update({
+            "evidence_id": "evidence:one",
+            "evidence_revision": 2,
+        })
+        with pytest.raises(RegistryIntegrityError, match="evidence revision is stale"):
+            registry.add_learning_object(
+                question, actor="editor", reason="Reject a stale answer evidence revision."
+            )
+    finally:
+        registry.close()
+
+
+def test_question_quality_report_fails_closed_after_answer_evidence_is_unlinked():
+    registry = _prepared()
+    try:
+        question = _summary("learning:question-stale-link")
+        question.update({
+            "kind": "comprehension_question",
+            "content": {
+                "question": "What did the authority issue?",
+                "answer": "A public notice.",
+                "explanation": "The claim records the notice.",
+                "answer_claim_ids": ["claim:one"],
+                "answer_evidence": [{
+                    "claim_id": "claim:one",
+                    "evidence_id": "evidence:one",
+                    "evidence_revision": 1,
+                }],
+            },
+        })
+        item = registry.add_learning_object(
+            question, actor="editor", reason="Create a source-grounded question."
+        )
+        claim_row = registry._connection.execute(
+            "SELECT revision, payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:one'"
+        ).fetchone()
+        claim = json.loads(claim_row["payload_json"])
+        claim["evidence_ids"] = []
+        registry.revise_domain_record(
+            "claim", "claim:one", claim, expected_revision=claim_row["revision"],
+            actor="editor", reason="Remove the stale answer evidence link.",
+        )
+        report = registry.learning_object_quality_report(item.id)
+        assert report["meets_registry_quality_gates"] is False
+        assert any(blocker["check"] == "answer_evidence" for blocker in report["blockers"])
+    finally:
+        registry.close()
+
+
+def test_sqlite_boundary_rejects_question_with_stale_answer_evidence_revision():
+    registry = _prepared()
+    try:
+        payload = _summary("learning:question-direct-stale-evidence")
+        payload.update({
+            "kind": "comprehension_question",
+            "content": {
+                "question": "What did the authority issue?",
+                "answer": "A public notice.",
+                "explanation": "The claim records the notice.",
+                "answer_claim_ids": ["claim:one"],
+                "answer_evidence": [{
+                    "claim_id": "claim:one",
+                    "evidence_id": "evidence:one",
+                    "evidence_revision": 2,
+                }],
+            },
+        })
+        with pytest.raises(sqlite3.IntegrityError, match="question answer evidence"):
+            registry._connection.execute(
+                """INSERT INTO learning_objects
+                (id, story_id, kind, language, status, revision, created_at, updated_at,
+                 last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (
+                    payload["id"], payload["story_id"], payload["kind"], payload["language"],
+                    payload["status"], payload["created_at"], payload["created_at"],
+                    "editor", "Direct SQL stale answer evidence test.", json.dumps(payload),
+                ),
+            )
+    finally:
+        registry.close()
+
+def _link_claim_evidence(registry):
+    exists = registry._connection.execute(
+        "SELECT 1 FROM domain_records WHERE record_type = 'evidence' AND id = 'evidence:one'"
+    ).fetchone()
+    if exists is None:
+        registry.add_domain_record("evidence", {
+            "schema_version": "1.0.0",
+            "id": "evidence:one",
+            "claim_id": "claim:one",
+            "source_id": "source:publisher",
+            "article_id": "article:one",
+            "relationship": "supports",
+            "locator": {"uri": "https://publisher.example.org/one"},
+            "assessed_at": "2026-11-19T01:00:00Z",
+            "assessed_by": "reviewer",
+        })
     claim_row = registry._connection.execute(
-        "SELECT payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:one'"
+        "SELECT revision, payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:one'"
+    ).fetchone()
+    claim = json.loads(claim_row["payload_json"])
+    if "evidence:one" not in claim.get("evidence_ids", []):
+        claim["evidence_ids"] = [*claim.get("evidence_ids", []), "evidence:one"]
+        registry.revise_domain_record(
+            "claim", "claim:one", claim, expected_revision=claim_row["revision"],
+            actor="editor", reason="Attach the answer's source evidence locator.",
+        )
+
+
+def _support_claim_with_evidence(registry):
+    _link_claim_evidence(registry)
+    claim_row = registry._connection.execute(
+        "SELECT revision, payload_json FROM domain_records WHERE record_type = 'claim' AND id = 'claim:one'"
     ).fetchone()
     claim = json.loads(claim_row["payload_json"])
     claim.update({
@@ -410,7 +554,7 @@ def _support_claim_with_evidence(registry):
         "review_note": "The linked evidence directly supports this proposition.",
     })
     registry.revise_domain_record(
-        "claim", "claim:one", claim, expected_revision=1,
+        "claim", "claim:one", claim, expected_revision=claim_row["revision"],
         actor="reviewer", reason="Assess the claim against linked evidence.",
     )
 
@@ -420,11 +564,43 @@ def _approve_learning_object(registry, payload):
         payload, actor="editor", reason="Create editorial draft."
     )
     approved = draft.to_payload()
+    reviewed_at = "2026-11-19T03:00:00Z"
+    language = approved["language"]
+    if language == "bn":
+        rubric_version = "bn-editorial-v1"
+        dimensions = {
+            "grammar_and_spelling": "pass",
+            "naturalness_and_register": "pass",
+            "terminology_consistency": "pass",
+            "factual_fidelity": "pass",
+            "attribution": "pass",
+            "omissions": "pass",
+            "translation_fidelity": "pass",
+        }
+    else:
+        rubric_version = "en-editorial-v1"
+        dimensions = {
+            "grammar_and_style": "pass",
+            "clarity_and_readability": "pass",
+            "terminology_consistency": "pass",
+            "factual_fidelity": "pass",
+            "attribution": "pass",
+            "omissions": "pass",
+            "translation_fidelity": "pass",
+        }
     approved.update({
         "status": "approved",
-        "reviewed_at": "2026-11-19T03:00:00Z",
+        "reviewed_at": reviewed_at,
         "reviewed_by": "reviewer",
         "review_note": "The content and claim links were reviewed.",
+        "language_review": {
+            "language": language,
+            "rubric_version": rubric_version,
+            "reviewer_id": "reviewer",
+            "reviewed_at": reviewed_at,
+            "note": "The exact language-specific rubric was reviewed.",
+            "dimensions": dimensions,
+        },
     })
     return registry.revise_learning_object(
         draft.id, approved, expected_revision=1,
@@ -470,6 +646,7 @@ def test_quality_report_requires_supported_claims_for_question_answers():
                 "answer": "A public notice.",
                 "explanation": "The linked claim records the notice.",
                 "answer_claim_ids": ["claim:one"],
+                "answer_evidence": [{"claim_id": "claim:one", "evidence_id": "evidence:one", "evidence_revision": 1}],
             },
         })
         _approve_learning_object(registry, question)
@@ -492,6 +669,7 @@ def _mcq(identifier="learning:mcq"):
             "question": "Which statement best describes public accountability?",
             "explanation": "The linked claim provides the factual basis for the answer.",
             "answer_claim_ids": ["claim:one"],
+            "answer_evidence": [{"claim_id": "claim:one", "evidence_id": "evidence:one", "evidence_revision": 1}],
             "options": [
                 {"id": "A", "text": "Being answerable for decisions and actions"},
                 {"id": "B", "text": "Avoiding public disclosure"},
@@ -499,6 +677,11 @@ def _mcq(identifier="learning:mcq"):
                 {"id": "D", "text": "Delegating all responsibility"},
             ],
             "correct_option_id": "A",
+            "distractor_rationales": [
+                {"option_id": "B", "rationale": "This describes withholding transparency, not accountability.", "basis_claim_ids": ["claim:one"]},
+                {"option_id": "C", "rationale": "Oversight is a separate control and does not define answerability.", "basis_claim_ids": ["claim:one"]},
+                {"option_id": "D", "rationale": "Delegation does not remove the institution's accountability.", "basis_claim_ids": ["claim:one"]},
+            ],
             "difficulty": "moderate",
         },
         "claim_ids": ["claim:one"],
@@ -516,6 +699,38 @@ def test_mcq_learning_object_stores_one_keyed_correct_option_and_claim_links():
         )
         assert record.kind == "mcq_question"
         assert record.to_payload()["content"]["correct_option_id"] == "A"
+    finally:
+        registry.close()
+
+
+def test_mcq_quality_report_exposes_rationale_coverage_and_human_review_limit():
+    registry = _prepared()
+    try:
+        payload = _mcq()
+        registry.add_learning_object(
+            payload, actor="question-editor", reason="Create MCQ for quality report."
+        )
+        report = registry.learning_object_quality_report(payload["id"])
+        coverage = next(
+            item for item in report["checks"]
+            if item["name"] == "mcq_distractor_rationale_coverage"
+        )
+        assert coverage["passed"] is True
+        source_support = next(
+            item for item in report["checks"]
+            if item["name"] == "mcq_distractor_rationale_source_support"
+        )
+        assert source_support["passed"] is False
+        assert any(
+            item["check"] == "mcq_distractor_rationale_source_support"
+            for item in report["blockers"]
+        )
+        warning = next(
+            item for item in report["warnings"]
+            if item["check"] == "mcq_human_distractor_review"
+        )
+        assert "plausible" in warning["detail"]
+        assert "does not prove distractor quality" in warning["detail"]
     finally:
         registry.close()
 
@@ -542,6 +757,40 @@ def test_mcq_learning_object_rejects_duplicate_option_ids_and_unknown_answer_key
         with pytest.raises(RegistryIntegrityError, match="correct option must reference"):
             registry.add_learning_object(
                 unknown_key, actor="editor", reason="Reject unknown answer key."
+            )
+    finally:
+        registry.close()
+
+
+def test_mcq_requires_exactly_one_explanation_for_each_distractor():
+    registry = _prepared()
+    try:
+        missing = _mcq("learning:mcq-missing-rationale")
+        missing["content"]["distractor_rationales"].pop()
+        with pytest.raises(RegistryIntegrityError, match="exactly one rationale"):
+            registry.add_learning_object(
+                missing, actor="editor", reason="Reject incomplete distractor rationale coverage."
+            )
+
+        includes_key = _mcq("learning:mcq-rationale-for-key")
+        includes_key["content"]["distractor_rationales"][0]["option_id"] = "A"
+        with pytest.raises(RegistryIntegrityError, match="exactly one rationale"):
+            registry.add_learning_object(
+                includes_key, actor="editor", reason="Reject rationale assigned to correct option."
+            )
+
+        duplicate = _mcq("learning:mcq-duplicate-rationale")
+        duplicate["content"]["distractor_rationales"][1]["option_id"] = "B"
+        with pytest.raises(RegistryIntegrityError, match="rationale option IDs must be unique"):
+            registry.add_learning_object(
+                duplicate, actor="editor", reason="Reject duplicate distractor rationale IDs."
+            )
+
+        unlinked = _mcq("learning:mcq-unlinked-rationale")
+        unlinked["content"]["distractor_rationales"][0]["basis_claim_ids"] = ["claim:outside"]
+        with pytest.raises(RegistryIntegrityError, match="basis claims must be a non-empty subset"):
+            registry.add_learning_object(
+                unlinked, actor="editor", reason="Reject distractor rationale without linked story claim."
             )
     finally:
         registry.close()
@@ -613,5 +862,552 @@ def test_sqlite_boundary_rejects_variant_group_kind_mismatch():
                     "Direct SQL variant guard.", json.dumps(wrong_kind),
                 ),
             )
+    finally:
+        registry.close()
+
+
+def test_story_summary_tier_report_keeps_bangla_and_english_review_independent():
+    registry = _prepared()
+    try:
+        bn = _summary("learning:headline-bn", "bn")
+        bn["kind"] = "headline_summary"
+        bn["variant_group_id"] = "variant:headline"
+        en = _summary("learning:headline-en", "en")
+        en["kind"] = "headline_summary"
+        en["content"] = {"text": "The authority issued a public notice.", "segments": [
+            {"text": "The authority issued a public notice.", "claim_ids": ["claim:one"], "role": "fact"}
+        ]}
+        en["variant_group_id"] = "variant:headline"
+        for payload, actor in ((bn, "editor:bn"), (en, "editor:en")):
+            registry.add_learning_object(payload, actor=actor, reason="Create a language-specific headline.")
+        report = registry.story_summary_tier_report("story:one")
+        assert report["languages"]["bn"]["tiers"]["headline_summary"]["artifact_count"] == 1
+        assert report["languages"]["en"]["tiers"]["headline_summary"]["artifact_count"] == 1
+        assert report["languages"]["bn"]["complete_reviewed_set"] is False
+        assert report["languages"]["en"]["complete_reviewed_set"] is False
+        assert report["production_ready"] is False
+    finally:
+        registry.close()
+
+
+def test_story_summary_tier_report_detects_missing_and_duplicate_tiers():
+    registry = _prepared()
+    try:
+        first = _summary("learning:brief-bn-a", "bn")
+        second = _summary("learning:brief-bn-b", "bn")
+        registry.add_learning_object(first, actor="editor", reason="Create first brief summary.")
+        registry.add_learning_object(second, actor="editor", reason="Create duplicate brief summary.")
+        report = registry.story_summary_tier_report("story:one")
+        bn = report["languages"]["bn"]
+        assert bn["missing_tiers"] == ["headline_summary", "detailed_summary"]
+        assert bn["duplicate_tiers"] == ["brief_summary"]
+        assert bn["complete_reviewed_set"] is False
+        assert report["languages"]["en"]["missing_tiers"] == [
+            "headline_summary", "brief_summary", "detailed_summary"
+        ]
+    finally:
+        registry.close()
+
+
+def test_structured_language_review_is_bound_to_language_reviewer_and_timestamp():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary(), actor="editor", reason="Create language review fixture."
+        )
+        approved = _summary()
+        approved.update({
+            "status": "approved",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "reviewed_by": "reviewer:bn",
+            "review_note": "Independent Bangla review completed.",
+            "language_review": {
+                "language": "bn",
+                "rubric_version": "bn-editorial-v1",
+                "reviewer_id": "reviewer:bn",
+                "reviewed_at": "2026-11-20T01:00:00Z",
+                "note": "Checked language, fidelity, attribution and omissions.",
+                "dimensions": {
+                    "grammar_and_spelling": "pass",
+                    "naturalness_and_register": "pass",
+                    "terminology_consistency": "pass",
+                    "factual_fidelity": "pass",
+                    "attribution": "pass",
+                    "omissions": "pass",
+                    "translation_fidelity": "not_applicable"
+                }
+            }
+        })
+        registry.revise_learning_object(
+            draft.id, approved, expected_revision=1,
+            actor="reviewer:bn", reason="Record structured Bangla review."
+        )
+        report = registry.story_summary_tier_report("story:one")
+        tier = report["languages"]["bn"]["tiers"]["brief_summary"]
+        assert tier["language_review_pass"] is True
+        assert tier["artifacts"][0]["language_review"]["reviewer_id"] == "reviewer:bn"
+    finally:
+        registry.close()
+
+
+def test_structured_language_review_rejects_language_mismatch():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary(), actor="editor", reason="Create language review fixture."
+        )
+        approved = _summary()
+        approved.update({
+            "status": "approved",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "reviewed_by": "reviewer:bn",
+            "review_note": "Review.",
+            "language_review": {
+                "language": "en",
+                "rubric_version": "en-editorial-v1",
+                "reviewer_id": "reviewer:bn",
+                "reviewed_at": "2026-11-20T01:00:00Z",
+                "note": "Incorrect language binding.",
+                "dimensions": {
+                    "grammar_and_style": "pass",
+                    "clarity_and_readability": "pass",
+                    "terminology_consistency": "pass",
+                    "factual_fidelity": "pass",
+                    "attribution": "pass",
+                    "omissions": "pass",
+                    "translation_fidelity": "not_applicable"
+                }
+            }
+        })
+        with pytest.raises(RegistryIntegrityError, match="language review language mismatch"):
+            registry.revise_learning_object(
+                draft.id, approved, expected_revision=1,
+                actor="reviewer:bn", reason="Reject mismatched language review."
+            )
+    finally:
+        registry.close()
+
+
+
+def test_language_review_uses_distinct_versioned_bangla_and_english_rubrics():
+    registry = _prepared()
+    try:
+        for language, reviewer, version, dimensions in (
+            ("bn", "reviewer:bn", "bn-editorial-v1", {
+                "grammar_and_spelling": "pass",
+                "naturalness_and_register": "pass",
+                "terminology_consistency": "pass",
+                "factual_fidelity": "pass",
+                "attribution": "pass",
+                "omissions": "pass",
+                "translation_fidelity": "not_applicable",
+            }),
+            ("en", "reviewer:en", "en-editorial-v1", {
+                "grammar_and_style": "pass",
+                "clarity_and_readability": "pass",
+                "terminology_consistency": "pass",
+                "factual_fidelity": "pass",
+                "attribution": "pass",
+                "omissions": "pass",
+                "translation_fidelity": "not_applicable",
+            }),
+        ):
+            payload = _summary(f"learning:language-review-{language}", language)
+            payload.update({
+                "status": "approved",
+                "reviewed_at": "2026-11-20T01:00:00Z",
+                "reviewed_by": reviewer,
+                "review_note": "Independent language review completed.",
+                "language_review": {
+                    "language": language,
+                    "rubric_version": version,
+                    "reviewer_id": reviewer,
+                    "reviewed_at": "2026-11-20T01:00:00Z",
+                    "note": "Language-specific editorial checks completed.",
+                    "dimensions": dimensions,
+                },
+            })
+            validate_payload("learning-object", payload)
+            draft_payload = _summary(payload["id"], language)
+            registry.add_learning_object(
+                draft_payload, actor="editor", reason="Create language-specific draft."
+            )
+            record = registry.revise_learning_object(
+                payload["id"], payload, expected_revision=1,
+                actor=reviewer, reason="Record independent language review."
+            )
+            report = registry.learning_object_quality_report(record.id)
+            assert report["status"] == "approved"
+    finally:
+        registry.close()
+
+
+def test_rejected_language_review_must_record_a_revision_finding():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary(), actor="editor", reason="Create review fixture."
+        )
+        rejected = _summary()
+        rejected.update({
+            "status": "rejected",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "reviewed_by": "reviewer:bn",
+            "review_note": "A material Bangla wording issue remains.",
+            "language_review": {
+                "language": "bn",
+                "rubric_version": "bn-editorial-v1",
+                "reviewer_id": "reviewer:bn",
+                "reviewed_at": "2026-11-20T01:00:00Z",
+                "note": "Revise the wording before approval.",
+                "dimensions": {
+                    "grammar_and_spelling": "pass",
+                    "naturalness_and_register": "needs_revision",
+                    "terminology_consistency": "pass",
+                    "factual_fidelity": "pass",
+                    "attribution": "pass",
+                    "omissions": "pass",
+                    "translation_fidelity": "not_applicable",
+                },
+            },
+        })
+        revised = registry.revise_learning_object(
+            draft.id, rejected, expected_revision=1,
+            actor="reviewer:bn", reason="Record a language-specific rejection."
+        )
+        assert revised.status == "rejected"
+        report = registry.story_summary_tier_report("story:one")
+        tier = report["languages"]["bn"]["tiers"]["brief_summary"]
+        assert tier["language_review_pass"] is False
+        assert tier["approved"] is False
+    finally:
+        registry.close()
+
+
+def test_approved_language_review_rejects_needs_revision_dimension():
+    payload = _summary()
+    payload.update({
+        "status": "approved",
+        "reviewed_at": "2026-11-20T01:00:00Z",
+        "reviewed_by": "reviewer:bn",
+        "review_note": "Review.",
+        "language_review": {
+            "language": "bn",
+            "rubric_version": "bn-editorial-v1",
+            "reviewer_id": "reviewer:bn",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "note": "A finding remains.",
+            "dimensions": {
+                "grammar_and_spelling": "pass",
+                "naturalness_and_register": "needs_revision",
+                "terminology_consistency": "pass",
+                "factual_fidelity": "pass",
+                "attribution": "pass",
+                "omissions": "pass",
+                "translation_fidelity": "not_applicable",
+            },
+        },
+    })
+    with pytest.raises(RegistryIntegrityError, match="approved language review cannot contain"):
+        from sngso_engine.registry import _validate_learning_object_language_review
+        _validate_learning_object_language_review(payload)
+
+
+
+def test_language_review_identity_attestation_is_bound_to_reviewer_and_timestamp():
+    from sngso_engine.registry import _validate_learning_object_language_review
+
+    payload = _summary()
+    payload.update({
+        "status": "approved",
+        "reviewed_at": "2026-11-20T01:00:00Z",
+        "reviewed_by": "reviewer:bn",
+        "review_note": "Authenticated review.",
+        "language_review": {
+            "language": "bn",
+            "rubric_version": "bn-editorial-v1",
+            "reviewer_id": "reviewer:bn",
+            "reviewed_at": "2026-11-20T01:00:00Z",
+            "note": "Reviewed.",
+            "dimensions": {
+                "grammar_and_spelling": "pass",
+                "naturalness_and_register": "pass",
+                "terminology_consistency": "pass",
+                "factual_fidelity": "pass",
+                "attribution": "pass",
+                "omissions": "pass",
+                "translation_fidelity": "not_applicable",
+            },
+            "identity_attestation": {
+                "principal_id": "reviewer:bn",
+                "issuer": "https://login.example.test/",
+                "subject": "oidc-subject-bn",
+                "provider_key_id": "key-1",
+                "provider_adapter": "oidc-adapter/1",
+                "authenticated_at": "2026-11-20T00:59:00Z",
+                "attested_at": "2026-11-20T01:00:00Z",
+                "authentication_methods": ["pwd", "mfa"],
+                "authentication_context": "urn:example:loa:2",
+            },
+        },
+    })
+    _validate_learning_object_language_review(payload)
+    payload["language_review"]["identity_attestation"]["principal_id"] = "reviewer:other"
+    with pytest.raises(RegistryIntegrityError, match="principal mismatch"):
+        _validate_learning_object_language_review(payload)
+    payload["language_review"]["identity_attestation"]["principal_id"] = "reviewer:bn"
+    payload["language_review"]["identity_attestation"]["attested_at"] = "2026-11-20T01:01:00Z"
+    with pytest.raises(RegistryIntegrityError, match="timestamp mismatch"):
+        _validate_learning_object_language_review(payload)
+
+
+
+def test_revision_card_segments_must_map_exactly_to_claims_and_text():
+    registry = _prepared()
+    try:
+        revision_card = _summary("learning:revision-card-traceability")
+        revision_card["kind"] = "revision_card"
+        revision_card["content"]["segments"][0]["claim_ids"] = ["claim:outside"]
+        with pytest.raises(RegistryIntegrityError, match="claim outside the learning object"):
+            registry.add_learning_object(
+                revision_card, actor="editor", reason="Reject an unlinked revision-card claim."
+            )
+
+        revision_card = _summary("learning:revision-card-text")
+        revision_card["kind"] = "revision_card"
+        revision_card["content"]["text"] = "Text omitted from the revision-card segments."
+        with pytest.raises(RegistryIntegrityError, match="exactly match its claim-mapped segments"):
+            registry.add_learning_object(
+                revision_card, actor="editor", reason="Reject untraceable revision-card text."
+            )
+    finally:
+        registry.close()
+
+
+def test_revision_card_quality_report_blocks_unassessed_factual_claims():
+    registry = _prepared()
+    try:
+        revision_card = _summary("learning:revision-card-unassessed")
+        revision_card["kind"] = "revision_card"
+        item = registry.add_learning_object(
+            revision_card, actor="editor", reason="Create a revision-card draft."
+        )
+        report = registry.learning_object_quality_report(item.id)
+        assert report["meets_registry_quality_gates"] is False
+        assert any(
+            blocker["check"] == "factual_segment_assessment"
+            and "unassessed" in blocker["detail"]
+            for blocker in report["blockers"]
+        )
+    finally:
+        registry.close()
+
+
+
+def test_quality_report_blocks_approved_learning_object_without_language_rubric():
+    registry = _prepared()
+    try:
+        draft = registry.add_learning_object(
+            _summary("learning:generic-approval"),
+            actor="editor", reason="Create a generic approval fixture.",
+        )
+        approved = draft.to_payload()
+        approved.update({
+            "status": "approved",
+            "reviewed_at": "2026-11-19T03:00:00Z",
+            "reviewed_by": "reviewer",
+            "review_note": "Generic editorial approval without a language rubric.",
+        })
+        registry.revise_learning_object(
+            draft.id, approved, expected_revision=1,
+            actor="reviewer", reason="Record generic approval.",
+        )
+
+        report = registry.learning_object_quality_report(draft.id)
+        assert report["meets_registry_quality_gates"] is False
+        language_check = next(
+            item for item in report["checks"] if item["name"] == "language_review"
+        )
+        assert language_check["passed"] is False
+        assert any(item["check"] == "language_review" for item in report["blockers"])
+    finally:
+        registry.close()
+
+
+def test_approved_mcq_quality_gate_requires_complete_all_pass_pedagogical_review():
+    registry = _prepared()
+    try:
+        _support_claim_with_evidence(registry)
+        approved = _approve_learning_object(registry, _mcq("learning:mcq-review-gate"))
+        report = registry.learning_object_quality_report(approved.id)
+        check = next(
+            item for item in report["checks"]
+            if item["name"] == "mcq_pedagogical_review"
+        )
+        assert check["passed"] is False
+        assert any(
+            item["check"] == "mcq_pedagogical_review"
+            for item in report["blockers"]
+        )
+
+        payload = approved.to_payload()
+        reviewed_at = payload["reviewed_at"]
+        payload["mcq_review"] = {
+            "language": "en",
+            "rubric_version": "mcq-editorial-v1",
+            "reviewer_id": payload["reviewed_by"],
+            "reviewed_at": reviewed_at,
+            "note": "All ten pedagogical dimensions pass.",
+            "dimensions": {
+                "single_defensible_key": "pass",
+                "stem_clarity_and_precision": "pass",
+                "distractor_plausibility": "pass",
+                "distractors_unambiguously_incorrect": "pass",
+                "distractor_rationale_quality": "pass",
+                "learner_level_fit": "pass",
+                "misconception_alignment": "pass",
+                "option_parallelism": "pass",
+                "no_accidental_clues": "pass",
+                "explanation_fidelity": "pass",
+            },
+            "identity_attestation": {
+                "principal_id": payload["reviewed_by"],
+                "issuer": "https://login.example.org/",
+                "subject": "reviewer-subject",
+                "provider_key_id": "test-key-1",
+                "provider_adapter": "test-oidc-adapter/1.0",
+                "authenticated_at": reviewed_at,
+                "attested_at": reviewed_at,
+                "authentication_methods": ["pwd", "mfa"],
+                "authentication_context": "urn:test:loa:2",
+            },
+        }
+        registry.revise_learning_object(
+            approved.id, payload, expected_revision=2,
+            actor=payload["reviewed_by"],
+            reason="Record the structured MCQ pedagogical review.",
+        )
+        report = registry.learning_object_quality_report(approved.id)
+        check = next(
+            item for item in report["checks"]
+            if item["name"] == "mcq_pedagogical_review"
+        )
+        assert check["passed"] is True
+    finally:
+        registry.close()
+
+
+def _approved_bilingual_pair(registry, *, shared_identity=False, bn_language="bn"):
+    from sngso_engine import verify_independent_bilingual_variants
+    _support_claim_with_evidence(registry)
+
+    approved = {}
+    for language, reviewer in (("bn", "reviewer:bn"), ("en", "reviewer:en")):
+        registry.register_benchmark_principal(
+            reviewer,
+            display_name=f"{language} reviewer",
+            roles=["benchmark_reviewer"],
+            provisioned_by="operator:test",
+            reason="Provision a test language reviewer.",
+            languages=[bn_language if language == "bn" else "en"],
+            principal_kind="human",
+        )
+        object_id = f"learning:paired-{language}"
+        payload = _summary(object_id, language)
+        payload["variant_group_id"] = "variant:paired-one"
+        registry.add_learning_object(
+            payload, actor="editor:test", reason="Create a language-specific draft."
+        )
+        reviewed_at = "2026-11-20T01:00:00Z"
+        subject = "same-human" if shared_identity else f"subject-{language}"
+        reviewed = payload | {
+            "status": "approved",
+            "reviewed_at": reviewed_at,
+            "reviewed_by": reviewer,
+            "review_note": "Reviewed against the shared claim set and source evidence.",
+            "language_review": {
+                "language": language,
+                "rubric_version": f"{language}-editorial-v1",
+                "reviewer_id": reviewer,
+                "reviewed_at": reviewed_at,
+                "note": "Language-specific review completed independently.",
+                "dimensions": (
+                    {
+                        "grammar_and_spelling": "pass",
+                        "naturalness_and_register": "pass",
+                        "terminology_consistency": "pass",
+                        "factual_fidelity": "pass",
+                        "attribution": "pass",
+                        "omissions": "pass",
+                        "translation_fidelity": "pass",
+                    } if language == "bn" else {
+                        "grammar_and_style": "pass",
+                        "clarity_and_readability": "pass",
+                        "terminology_consistency": "pass",
+                        "factual_fidelity": "pass",
+                        "attribution": "pass",
+                        "omissions": "pass",
+                        "translation_fidelity": "pass",
+                    }
+                ),
+                "identity_attestation": {
+                    "principal_id": reviewer,
+                    "issuer": "https://identity.example.test/",
+                    "subject": subject,
+                    "provider_key_id": "test-key-1",
+                    "provider_adapter": "oidc-test-adapter/1",
+                    "authenticated_at": "2026-11-20T00:59:00Z",
+                    "attested_at": reviewed_at,
+                    "authentication_methods": ["pwd", "mfa"],
+                    "authentication_context": "urn:example:loa:2",
+                },
+            },
+        }
+        registry.revise_learning_object(
+            object_id, reviewed, expected_revision=1,
+            actor=reviewer, reason="Record the independent language review."
+        )
+        approved[language] = object_id
+    return approved
+
+
+def test_bilingual_pair_requires_independent_language_qualified_human_reviewers():
+    from sngso_engine import verify_independent_bilingual_variants
+
+    registry = _prepared()
+    try:
+        pair = _approved_bilingual_pair(registry)
+        result = verify_independent_bilingual_variants(
+            registry, pair["bn"], pair["en"]
+        )
+        assert result["status"] == "verified_for_bilingual_staging_only"
+        assert result["publication_authorized"] is False
+        assert result["variant_group_id"] == "variant:paired-one"
+        assert result["claim_ids"] == ["claim:one"]
+        assert result["independent_reviewer_identities"] is True
+    finally:
+        registry.close()
+
+
+def test_bilingual_pair_rejects_two_principal_ids_for_the_same_provider_identity():
+    from sngso_engine import BilingualVariantError, verify_independent_bilingual_variants
+
+    registry = _prepared()
+    try:
+        pair = _approved_bilingual_pair(registry, shared_identity=True)
+        with pytest.raises(BilingualVariantError, match="different authenticated reviewer identities"):
+            verify_independent_bilingual_variants(registry, pair["bn"], pair["en"])
+    finally:
+        registry.close()
+
+
+def test_bilingual_pair_rejects_reviewer_without_language_qualification():
+    from sngso_engine import BilingualVariantError, verify_independent_bilingual_variants
+
+    registry = _prepared()
+    try:
+        pair = _approved_bilingual_pair(registry, bn_language="en")
+        with pytest.raises(BilingualVariantError, match="qualified for bn"):
+            verify_independent_bilingual_variants(registry, pair["bn"], pair["en"])
     finally:
         registry.close()

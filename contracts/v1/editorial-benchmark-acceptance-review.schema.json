@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sarangsho.example/contracts/v1/editorial-benchmark-acceptance-review.schema.json",
+  "title": "Independent editorial benchmark acceptance review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "review_id",
+    "study_id",
+    "study_version",
+    "protocol_fingerprint",
+    "execution_id",
+    "execution_fingerprint",
+    "benchmark_id",
+    "benchmark_fingerprint",
+    "rubric_version",
+    "reviewer_id",
+    "reviewer_role",
+    "reviewed_at",
+    "conflict_declaration",
+    "domains",
+    "decision",
+    "intended_use",
+    "scope_limitations",
+    "evidence_references",
+    "rationale"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "review_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160
+    },
+    "study_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160
+    },
+    "study_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "protocol_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "execution_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160
+    },
+    "execution_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "benchmark_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "benchmark_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "rubric_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "reviewer_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "reviewer_role": {
+      "const": "independent_acceptance_reviewer"
+    },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "conflict_declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "no_conflict",
+        "conflicts",
+        "rationale"
+      ],
+      "properties": {
+        "no_conflict": {
+          "type": "boolean"
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 300
+          }
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 30,
+          "maxLength": 2000
+        }
+      }
+    },
+    "domains": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "statistical_validity",
+        "editorial_validity",
+        "operational_security"
+      ],
+      "properties": {
+        "statistical_validity": {
+          "$ref": "#/$defs/domain"
+        },
+        "editorial_validity": {
+          "$ref": "#/$defs/domain"
+        },
+        "operational_security": {
+          "$ref": "#/$defs/domain"
+        }
+      }
+    },
+    "decision": {
+      "enum": [
+        "not_reviewed",
+        "needs_revision",
+        "rejected",
+        "accepted_for_limited_use",
+        "accepted_for_proposed_use"
+      ]
+    },
+    "intended_use": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 2000
+    },
+    "scope_limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 1000
+      }
+    },
+    "evidence_references": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 500
+      }
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 50,
+      "maxLength": 4000
+    }
+  },
+  "$defs": {
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "findings",
+        "evidence_references",
+        "rationale"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "needs_revision",
+            "fail"
+          ]
+        },
+        "findings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 1000
+          }
+        },
+        "evidence_references": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 30,
+          "maxLength": 2000
+        }
+      }
+    }
+  }
+}

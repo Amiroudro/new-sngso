@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://new-sngso.local/contracts/v1/flutter-staging-provenance.schema.json",
+  "title": "Flutter staging provenance manifest",
+  "description": "Versioned, non-publication provenance contract for the story-only Flutter staging adapter.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target_contract",
+    "edition_id",
+    "edition_revision",
+    "edition_date",
+    "payload_sha256",
+    "story_bindings",
+    "source_permissions"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "target_contract": { "const": "flutter-edition-v1" },
+    "edition_id": { "$ref": "common.schema.json#/$defs/id" },
+    "edition_revision": { "type": "integer", "minimum": 1 },
+    "edition_date": { "$ref": "common.schema.json#/$defs/date" },
+    "payload_sha256": { "$ref": "common.schema.json#/$defs/hash" },
+    "story_bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/storyBinding" }
+    },
+    "source_permissions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/sourcePermission" }
+    }
+  },
+  "$defs": {
+    "storyBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["story_id", "story_revision", "snapshot_sha256", "fields"],
+      "properties": {
+        "story_id": { "$ref": "common.schema.json#/$defs/id" },
+        "story_revision": { "type": "integer", "minimum": 1 },
+        "snapshot_sha256": { "$ref": "common.schema.json#/$defs/hash" },
+        "fields": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["headline", "summary"],
+          "properties": {
+            "headline": { "$ref": "#/$defs/learningObjectBinding" },
+            "summary": { "$ref": "#/$defs/learningObjectBinding" }
+          }
+        }
+      }
+    },
+    "learningObjectBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["learning_object_id", "revision", "sha256"],
+      "properties": {
+        "learning_object_id": { "$ref": "common.schema.json#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "common.schema.json#/$defs/hash" }
+      }
+    },
+    "sourcePermission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "endpoint_id", "grant_id", "operation"],
+      "properties": {
+        "source_id": { "$ref": "common.schema.json#/$defs/id" },
+        "endpoint_id": { "$ref": "common.schema.json#/$defs/id" },
+        "grant_id": { "$ref": "common.schema.json#/$defs/id" },
+        "operation": { "const": "republication" }
+      }
+    }
+  }
+}
