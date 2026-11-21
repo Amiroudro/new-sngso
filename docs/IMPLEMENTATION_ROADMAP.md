@@ -394,3 +394,12 @@ Added SQLite migration 27 and an immutable edition-artifact store for canonical 
 GitHub Actions [run #44919212598](https://github.com/Amiroudro/new-sngso/actions/runs/44919212598) passed the full Python 3.12 suite: **792 passed in 10.19 seconds** on head `4b0411595680910b29b4c18cfb002b6cc3650611`.
 
 Remaining: bilingual edition assembly, append-only approval/release decisions, guarded publication transitions, correction/supersession and last-known-good handling, staging export, and end-to-end acceptance. No live edition or frontend was changed.
+
+ 
+### Section 8.9: deterministic bilingual edition assembly
+
+Added and exported `assemble_bilingual_edition_artifact`. It requires explicit approved learning-object IDs for every edition story, validates exact current revisions and quality gates, requires complete Bangla/English pairs for each selected kind, invokes the independent reviewer gate, and preserves exact content, claim links, story snapshot fingerprints, article/source metadata, and permission bindings. It emits canonical staging payload/manifest bytes and verifies the successful pipeline output hash and timestamps. It does not mutate edition records, store artifacts, approve, or publish.
+
+GitHub Actions [run #44921515577](https://github.com/Amiroudro/new-sngso/actions/runs/44921515577) passed the full Python 3.12 suite: **799 passed in 5.51 seconds** on code head `6911dde2ced74f01df71c8075d922f436cb6ce70`. The focused assembly tests isolate the existing independent-review and pipeline-binding helpers; a live end-to-end assembly with genuine reviewer attestations and active publisher grants remains an acceptance gate.
+
+Remaining Section 8: approval/release ledger, guarded publication transitions, correction/supersession and last-known-good handling, staging export, and end-to-end acceptance. No live edition, website, frontend, or schedule was changed.
