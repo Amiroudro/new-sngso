@@ -7,6 +7,7 @@ operator or a future health adapter.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 from typing import Any
 import os
@@ -113,7 +114,7 @@ def verify_registry_backup(
     backup_path: str | Path, *, expected_schema_version: int | None = None
 ) -> dict[str, Any]:
     """Verify SQLite integrity, schema version, and the retained audit chain read-only."""
-    path = Path(backup_path)
+    path = Path(backup_path).expanduser().resolve()
     if not path.is_file():
         raise OperationalReportError("backup file does not exist")
     connection = None
@@ -135,7 +136,7 @@ def verify_registry_backup(
         for row in rows:
             if row[0] != previous_sequence + 1:
                 raise OperationalReportError("backup audit sequence is not contiguous")
-            payload = __import__("json").loads(row[7])
+            payload = json.loads(row[7])
             expected_hash = sha256_fingerprint({
                 "event_id": row[1], "event_type": row[2], "entity_type": row[3],
                 "entity_id": row[4], "occurred_at": row[5], "policy_version": row[6],
@@ -167,7 +168,7 @@ def _install_database_copy(
     *,
     expected_schema_version: int,
 ) -> dict[str, Any]:
-    destination = Path(destination_path)
+    destination = Path(destination_path).expanduser().resolve()
     if destination.exists():
         raise FileExistsError(f"destination already exists: {destination}")
     if not destination.parent.is_dir():
@@ -208,6 +209,8 @@ def backup_registry_database(registry: Any, destination_path: str | Path) -> dic
     if not hasattr(registry, "_connection") or not hasattr(registry, "_lock"):
         raise OperationalReportError("backup requires a SQLiteRegistry-compatible adapter")
     with registry._lock:
+        if registry._connection.in_transaction:
+            raise OperationalReportError("backup cannot start inside an active registry transaction")
         expected_schema_version = registry.schema_version()
         return _install_database_copy(
             registry._connection, destination_path,
@@ -222,7 +225,7 @@ def restore_registry_backup(
     from .registry import _SCHEMA_VERSION
 
     verify_registry_backup(backup_path, expected_schema_version=_SCHEMA_VERSION)
-    source = Path(backup_path)
+    source = Path(backup_path).expanduser().resolve()
     source_connection = None
     try:
         source_connection = sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)
