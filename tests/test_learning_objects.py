@@ -1295,3 +1295,118 @@ def test_approved_mcq_quality_gate_requires_complete_all_pass_pedagogical_review
         assert check["passed"] is True
     finally:
         registry.close()
+
+
+def _approved_bilingual_pair(registry, *, shared_identity=False, bn_language="bn"):
+    from sngso_engine import verify_independent_bilingual_variants
+
+    approved = {}
+    for language, reviewer in (("bn", "reviewer:bn"), ("en", "reviewer:en")):
+        registry.register_benchmark_principal(
+            reviewer,
+            display_name=f"{language} reviewer",
+            roles=["benchmark_reviewer"],
+            provisioned_by="operator:test",
+            reason="Provision a test language reviewer.",
+            languages=[bn_language if language == "bn" else "en"],
+            principal_kind="human",
+        )
+        object_id = f"learning:paired-{language}"
+        payload = _summary(object_id, language)
+        payload["variant_group_id"] = "variant:paired-one"
+        registry.add_learning_object(
+            payload, actor="editor:test", reason="Create a language-specific draft."
+        )
+        reviewed_at = "2026-11-20T01:00:00Z"
+        subject = "same-human" if shared_identity else f"subject-{language}"
+        reviewed = payload | {
+            "status": "approved",
+            "reviewed_at": reviewed_at,
+            "reviewed_by": reviewer,
+            "review_note": "Reviewed against the shared claim set and source evidence.",
+            "language_review": {
+                "language": language,
+                "rubric_version": f"{language}-editorial-v1",
+                "reviewer_id": reviewer,
+                "reviewed_at": reviewed_at,
+                "note": "Language-specific review completed independently.",
+                "dimensions": (
+                    {
+                        "grammar_and_spelling": "pass",
+                        "naturalness_and_register": "pass",
+                        "terminology_consistency": "pass",
+                        "factual_fidelity": "pass",
+                        "attribution": "pass",
+                        "omissions": "pass",
+                        "translation_fidelity": "pass",
+                    } if language == "bn" else {
+                        "grammar_and_style": "pass",
+                        "clarity_and_readability": "pass",
+                        "terminology_consistency": "pass",
+                        "factual_fidelity": "pass",
+                        "attribution": "pass",
+                        "omissions": "pass",
+                        "translation_fidelity": "pass",
+                    }
+                ),
+                "identity_attestation": {
+                    "principal_id": reviewer,
+                    "issuer": "https://identity.example.test/",
+                    "subject": subject,
+                    "provider_key_id": "test-key-1",
+                    "provider_adapter": "oidc-test-adapter/1",
+                    "authenticated_at": "2026-11-20T00:59:00Z",
+                    "attested_at": reviewed_at,
+                    "authentication_methods": ["pwd", "mfa"],
+                    "authentication_context": "urn:example:loa:2",
+                },
+            },
+        }
+        registry.revise_learning_object(
+            object_id, reviewed, expected_revision=1,
+            actor=reviewer, reason="Record the independent language review."
+        )
+        approved[language] = object_id
+    return approved
+
+
+def test_bilingual_pair_requires_independent_language_qualified_human_reviewers():
+    from sngso_engine import verify_independent_bilingual_variants
+
+    registry = _prepared()
+    try:
+        pair = _approved_bilingual_pair(registry)
+        result = verify_independent_bilingual_variants(
+            registry, pair["bn"], pair["en"]
+        )
+        assert result["status"] == "verified_for_bilingual_staging_only"
+        assert result["publication_authorized"] is False
+        assert result["variant_group_id"] == "variant:paired-one"
+        assert result["claim_ids"] == ["claim:one"]
+        assert result["independent_reviewer_identities"] is True
+    finally:
+        registry.close()
+
+
+def test_bilingual_pair_rejects_two_principal_ids_for_the_same_provider_identity():
+    from sngso_engine import BilingualVariantError, verify_independent_bilingual_variants
+
+    registry = _prepared()
+    try:
+        pair = _approved_bilingual_pair(registry, shared_identity=True)
+        with pytest.raises(BilingualVariantError, match="different authenticated reviewer identities"):
+            verify_independent_bilingual_variants(registry, pair["bn"], pair["en"])
+    finally:
+        registry.close()
+
+
+def test_bilingual_pair_rejects_reviewer_without_language_qualification():
+    from sngso_engine import BilingualVariantError, verify_independent_bilingual_variants
+
+    registry = _prepared()
+    try:
+        pair = _approved_bilingual_pair(registry, bn_language="en")
+        with pytest.raises(BilingualVariantError, match="qualified for bn"):
+            verify_independent_bilingual_variants(registry, pair["bn"], pair["en"])
+    finally:
+        registry.close()
