@@ -328,3 +328,95 @@ def classify_retry_policy(
         "delay_seconds": delay,
         "reason": reason,
     }
+
+def pipeline_run_idempotency_key(
+    *,
+    run_kind: str,
+    software_version: str,
+    config_hash: str,
+    input_hashes: list[str],
+    initiated_by: str,
+    attempt: int = 1,
+) -> str:
+    """Build a stable run ID from the logical work request, excluding wall-clock time."""
+    import re
+
+    for name, value in (
+        ("run_kind", run_kind), ("software_version", software_version),
+        ("config_hash", config_hash), ("initiated_by", initiated_by),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            raise OperationalReportError(f"{name} is required")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", config_hash):
+        raise OperationalReportError("config_hash must be a lowercase SHA-256 fingerprint")
+    if not isinstance(input_hashes, list) or len(input_hashes) != len(set(input_hashes)):
+        raise OperationalReportError("input_hashes must be a unique list")
+    if any(not isinstance(item, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", item) for item in input_hashes):
+        raise OperationalReportError("every input hash must be a lowercase SHA-256 fingerprint")
+    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
+        raise OperationalReportError("attempt must be a positive integer")
+    digest = sha256_fingerprint({
+        "run_kind": run_kind.strip(),
+        "software_version": software_version.strip(),
+        "config_hash": config_hash,
+        "input_hashes": sorted(input_hashes),
+        "initiated_by": initiated_by.strip(),
+        "attempt": attempt,
+    })
+    return "pipeline-run:" + digest.removeprefix("sha256:")
+
+
+def create_pipeline_run_idempotently(
+    registry: Any,
+    payload: dict[str, Any],
+    *,
+    run_kind: str,
+    actor: str,
+    reason: str,
+    attempt: int = 1,
+) -> dict[str, Any]:
+    """Create one logical pipeline run once; duplicate requests reuse its durable record.
+
+    A retry attempt is a new logical attempt and therefore receives a distinct
+    deterministic run ID. Concurrent duplicate submissions converge on the
+    same stored run. This function starts no worker and performs no retry.
+    """
+    import sqlite3
+
+    if not isinstance(payload, dict):
+        raise OperationalReportError("pipeline run payload must be an object")
+    if payload.get("status") not in {"queued", "running"}:
+        raise OperationalReportError("idempotent creation requires a queued or running run")
+    expected_id = pipeline_run_idempotency_key(
+        run_kind=run_kind,
+        software_version=payload.get("software_version"),
+        config_hash=payload.get("config_hash"),
+        input_hashes=payload.get("input_hashes"),
+        initiated_by=payload.get("initiated_by"),
+        attempt=attempt,
+    )
+    supplied_id = payload.get("id")
+    if supplied_id not in (None, expected_id):
+        raise OperationalReportError("supplied pipeline run ID does not match its idempotency key")
+    candidate = dict(payload, id=expected_id)
+
+    def reuse_existing(existing: dict[str, Any]) -> dict[str, Any]:
+        record = existing["record"]
+        immutable = ("software_version", "config_hash", "input_hashes", "initiated_by")
+        if any(record.get(field) != candidate.get(field) for field in immutable):
+            raise OperationalReportError("idempotency key is bound to different immutable run inputs")
+        return {"created": False, "revision": existing["revision"], "record": record}
+
+    existing = registry.get_pipeline_run(expected_id)
+    if existing is not None:
+        return reuse_existing(existing)
+    try:
+        created = registry.add_pipeline_run(candidate, actor=actor, reason=reason)
+        return {"created": True, "revision": created["revision"], "record": created["record"]}
+    except sqlite3.IntegrityError:
+        # A competing connection may have inserted the same deterministic ID.
+        existing = registry.get_pipeline_run(expected_id)
+        if existing is None:
+            raise
+        return reuse_existing(existing)
+
