@@ -40,7 +40,7 @@ def prepare_candidate(registry: SQLiteRegistry, monkeypatch, *, approver_roles=N
         "manifest_id": manifest_id,
         "edition_id": edition_id,
         "edition_revision": 1,
-        "edition_key": suffix,
+        "edition_key": suffix.removeprefix("daily-"),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "pipeline_run_id": "pipeline-run:release-test",
         "payload_sha256": payload_hash,
@@ -637,6 +637,10 @@ def test_staging_compare_and_swap_and_role_separation_fail_closed(monkeypatch):
                 reason="Stale operator view", expected_state_revision=1,
                 expected_current_export_id=None,
             )
+        registry._connection.execute(
+            "UPDATE benchmark_principals SET roles_json = ? WHERE principal_id = 'approver:one'",
+            (json.dumps(["edition_approver", "edition_staging_operator"]),),
+        )
         with pytest.raises(RegistryIntegrityError, match="independent"):
             edition_staging.promote_edition_to_staging(
                 registry, manifest_id, identity=identity(principal_id="approver:one"),
