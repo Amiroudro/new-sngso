@@ -16,6 +16,11 @@ from .benchmark_study_execution import BenchmarkStudyExecutionError, validate_be
 from .benchmark_acceptance_review import BenchmarkAcceptanceReviewError, validate_benchmark_acceptance_review
 from .benchmarks import evaluate_editorial_benchmark
 from .canonical import canonical_json_bytes, sha256_fingerprint
+from .edition_artifacts import (
+    EditionArtifactIntegrityError,
+    VerifiedEditionArtifact,
+    verify_edition_artifact,
+)
 from .collection import (
     CollectionError,
     CollectionExecutionContext,
@@ -84,6 +89,9 @@ __all__ = [
     "ConnectorCapabilities",
     "ContractValidationError",
     "EditionRecord",
+    "EditionArtifactIntegrityError",
+    "VerifiedEditionArtifact",
+    "verify_edition_artifact",
     "EditorialRepository",
     "EngineRepository",
     "EvidenceRecord",
