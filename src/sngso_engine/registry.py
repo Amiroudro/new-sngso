@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 30
+_SCHEMA_VERSION = 31
 
 
 _MIGRATION_14 = (
@@ -912,6 +912,118 @@ _MIGRATION_30 = (
        BEFORE DELETE ON edition_release_authorizations
        BEGIN SELECT RAISE(ABORT, 'edition release authorizations are append-only'); END""",
 )
+
+
+_MIGRATION_31 = (
+    """CREATE TABLE edition_staging_events (
+        event_id TEXT PRIMARY KEY,
+        state_revision INTEGER NOT NULL UNIQUE CHECK (state_revision >= 1),
+        channel TEXT NOT NULL CHECK (channel = 'staging'),
+        operation TEXT NOT NULL CHECK (operation IN ('promote', 'rollback')),
+        manifest_id TEXT NOT NULL,
+        edition_id TEXT NOT NULL,
+        edition_revision INTEGER NOT NULL CHECK (edition_revision >= 1),
+        payload_sha256 TEXT NOT NULL CHECK (payload_sha256 GLOB 'sha256:*'),
+        export_id TEXT NOT NULL,
+        export_sha256 TEXT NOT NULL CHECK (export_sha256 GLOB 'sha256:*'),
+        previous_current_export_id TEXT,
+        lkg_export_id TEXT,
+        operator_principal_id TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        export_package_json TEXT NOT NULL CHECK (json_valid(export_package_json)),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        FOREIGN KEY (manifest_id) REFERENCES edition_artifacts(manifest_id) ON DELETE RESTRICT,
+        FOREIGN KEY (operator_principal_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT
+    )""",
+    """CREATE TABLE edition_staging_channel_state (
+        channel TEXT PRIMARY KEY CHECK (channel = 'staging'),
+        state_revision INTEGER NOT NULL CHECK (state_revision >= 0),
+        current_event_id TEXT,
+        current_export_id TEXT,
+        lkg_event_id TEXT,
+        lkg_export_id TEXT,
+        FOREIGN KEY (current_event_id) REFERENCES edition_staging_events(event_id) ON DELETE RESTRICT,
+        FOREIGN KEY (lkg_event_id) REFERENCES edition_staging_events(event_id) ON DELETE RESTRICT,
+        CHECK ((current_event_id IS NULL) = (current_export_id IS NULL)),
+        CHECK ((lkg_event_id IS NULL) = (lkg_export_id IS NULL))
+    )""",
+    """INSERT INTO edition_staging_channel_state
+       (channel, state_revision, current_event_id, current_export_id, lkg_event_id, lkg_export_id)
+       VALUES ('staging', 0, NULL, NULL, NULL, NULL)""",
+    """CREATE TRIGGER edition_staging_events_insert_guard
+       BEFORE INSERT ON edition_staging_events
+       WHEN json_extract(NEW.payload_json, '$.event_id') IS NOT NEW.event_id
+         OR json_extract(NEW.payload_json, '$.state_revision') IS NOT NEW.state_revision
+         OR json_extract(NEW.payload_json, '$.channel') IS NOT 'staging'
+         OR json_extract(NEW.payload_json, '$.operation') IS NOT NEW.operation
+         OR json_extract(NEW.payload_json, '$.manifest_id') IS NOT NEW.manifest_id
+         OR json_extract(NEW.payload_json, '$.edition_id') IS NOT NEW.edition_id
+         OR json_extract(NEW.payload_json, '$.edition_revision') IS NOT NEW.edition_revision
+         OR json_extract(NEW.payload_json, '$.payload_sha256') IS NOT NEW.payload_sha256
+         OR json_extract(NEW.payload_json, '$.export_id') IS NOT NEW.export_id
+         OR json_extract(NEW.payload_json, '$.export_sha256') IS NOT NEW.export_sha256
+         OR json_extract(NEW.payload_json, '$.previous_current_export_id') IS NOT NEW.previous_current_export_id
+         OR json_extract(NEW.payload_json, '$.lkg_export_id') IS NOT NEW.lkg_export_id
+         OR json_extract(NEW.payload_json, '$.operator_principal_id') IS NOT NEW.operator_principal_id
+         OR json_extract(NEW.payload_json, '$.occurred_at') IS NOT NEW.occurred_at
+         OR json_extract(NEW.payload_json, '$.reason') IS NOT NEW.reason
+         OR json_extract(NEW.payload_json, '$.publication_authorized') IS NOT 0
+         OR json_extract(NEW.payload_json, '$.target') IS NOT 'staging'
+         OR NOT EXISTS (
+             SELECT 1 FROM edition_artifacts a
+             JOIN edition_decisions d ON d.manifest_id = a.manifest_id
+             JOIN edition_release_authorizations r ON r.manifest_id = a.manifest_id
+             WHERE a.manifest_id = NEW.manifest_id
+               AND a.edition_id = NEW.edition_id
+               AND a.edition_revision = NEW.edition_revision
+               AND a.payload_sha256 = NEW.payload_sha256
+               AND d.decision = 'approve'
+               AND d.decision_id = json_extract(NEW.payload_json, '$.staging_decision.decision_id')
+               AND r.authorization_id = json_extract(NEW.payload_json, '$.release_authorization.authorization_id')
+               AND r.approval_decision_id = d.decision_id
+               AND r.approver_principal_id = d.principal_id
+               AND r.authorizer_principal_id <> d.principal_id
+         )
+         OR NOT EXISTS (
+             SELECT 1 FROM benchmark_principals p
+             WHERE p.principal_id = NEW.operator_principal_id
+               AND p.active = 1 AND p.principal_kind = 'human'
+               AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role WHERE role.value = 'edition_staging_operator')
+         )
+         OR NEW.operator_principal_id = json_extract(NEW.payload_json, '$.staging_decision.principal_id')
+         OR NEW.operator_principal_id = json_extract(NEW.payload_json, '$.release_authorization.authorizer_principal_id')
+         OR NEW.state_revision <> (SELECT state_revision + 1 FROM edition_staging_channel_state WHERE channel = 'staging')
+         OR NEW.previous_current_export_id IS NOT (SELECT current_export_id FROM edition_staging_channel_state WHERE channel = 'staging')
+         OR (NEW.operation = 'rollback' AND NOT EXISTS (
+             SELECT 1 FROM edition_staging_events prior
+             WHERE prior.export_id = NEW.export_id AND prior.operation = 'promote'
+         ))
+       BEGIN SELECT RAISE(ABORT, 'staging event failed immutable artifact, authority, operator, or state guard'); END""",
+    """CREATE TRIGGER edition_staging_events_no_update
+       BEFORE UPDATE ON edition_staging_events
+       BEGIN SELECT RAISE(ABORT, 'staging event history is append-only'); END""",
+    """CREATE TRIGGER edition_staging_events_no_delete
+       BEFORE DELETE ON edition_staging_events
+       BEGIN SELECT RAISE(ABORT, 'staging event history is append-only'); END""",
+    """CREATE TRIGGER edition_staging_state_update_guard
+       BEFORE UPDATE ON edition_staging_channel_state
+       WHEN NEW.channel IS NOT OLD.channel
+         OR NEW.state_revision <> OLD.state_revision + 1
+         OR NOT EXISTS (
+             SELECT 1 FROM edition_staging_events e
+             WHERE e.event_id = NEW.current_event_id
+               AND e.state_revision = NEW.state_revision
+               AND e.export_id = NEW.current_export_id
+               AND e.lkg_export_id IS NEW.lkg_export_id
+               AND e.previous_current_export_id IS OLD.current_export_id
+         )
+       BEGIN SELECT RAISE(ABORT, 'staging state must advance atomically from a matching append-only event'); END""",
+    """CREATE TRIGGER edition_staging_state_no_delete
+       BEFORE DELETE ON edition_staging_channel_state
+       BEGIN SELECT RAISE(ABORT, 'staging channel state cannot be deleted'); END""",
+)
+
 
 class RegistryIntegrityError(ValueError):
     """Raised when a record references missing or incompatible registry data."""
@@ -2607,6 +2719,19 @@ class SQLiteRegistry:
                     version = 30
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 30 failed; transaction rolled back") from exc
+
+            if version == 30 and _SCHEMA_VERSION >= 31:
+                try:
+                    for statement in _MIGRATION_31:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (31, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 31")
+                    version = 31
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 31 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
