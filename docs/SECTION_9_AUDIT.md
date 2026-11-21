@@ -146,3 +146,7 @@ Legacy attempt-one records without the new fields remain compatible with idempot
 Tests cover valid parentage, missing and non-failed parents, mismatched attempt number, changed immutable inputs, immutable lineage during transitions, and legacy record reuse.
 
 GitHub Actions [run #44941362943](https://github.com/Amiroudro/new-sngso/actions/runs/44941362943) passed **893 tests in 9.84 seconds** on code commit `cad4c823976791f3d9801b1add21bb52e45bf716`.
+
+## Acceptance register
+
+The consolidated implementation and production-gate matrix is maintained in [docs/SECTION_9_ACCEPTANCE.md](SECTION_9_ACCEPTANCE.md). Section 9 remains partially implemented and is not accepted for production.
