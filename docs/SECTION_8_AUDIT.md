@@ -117,3 +117,22 @@ Added verify_pipeline_run_for_artifact as a staging verification gate. It resolv
 The helper is exported from the engine package and has registry-backed tests using actual SQLiteRegistry records. GitHub Actions run [#44918034521](https://github.com/Amiroudro/new-sngso/actions/runs/44918034521) passed the full Python 3.12 suite: **785 passed in 10.02 seconds** on code head 90d787a618e55ac51f41f62ad2179a73f5f5748d.
 
 **Remaining:** this is one registry binding, not the complete edition verifier. Story snapshot revisions/fingerprints, exact approved learning-object revisions/fingerprints and quality gates, and current endpoint-scoped republication grants still need to be verified together before the bilingual assembler can rely on the manifest.
+
+
+## Section 8.7: whole-edition registry-backed staging verification
+
+Added `verify_registry_backed_edition_artifact` as the single fail-closed read-only gate for a complete bilingual edition artifact. It composes the canonical payload/manifest verifier and successful pipeline-output verifier, then checks the live registry references before returning a staging-only verification result.
+
+The verifier now requires:
+- The registered edition exists at the exact manifest revision, remains approved, matches the edition key and pipeline-run ID, and binds the canonical artifact hash in its `content_hash`.
+- Manifest story bindings cover every edition story exactly once. Each story must still be at the exact current revision, and its current deterministic editorial snapshot fingerprint must equal the manifest fingerprint.
+- Every learning object exists at the exact current revision and canonical fingerprint, belongs to the bound story, has the declared kind/language, and remains approved. Every declared kind must have both Bangla and English variants. The existing independent bilingual review gate is invoked for each pair.
+- Every active source article in every included story has a registered active source and canonical URL. Each manifest republication grant is re-evaluated at the supplied timezone-aware evaluation time, must match the exact source and endpoint, and its registered endpoint URL must cover each included article URL using the hardened URL-boundary validator. Missing, unused, or duplicate endpoint bindings are rejected.
+
+The result includes immutable artifact bytes, verified pipeline-run evidence, the exact story and learning-object IDs, and the number of current permission checks. It is explicitly staging-only and never grants publication authority. The verifier performs no writes.
+
+Regression tests cover a successful bilingual staging bundle, a stale story snapshot, and a denied/expired republication grant. The integration fixture uses the real SQLite pipeline-run registry; other registry read interfaces and the bilingual verifier are exercised through focused fixtures and their existing dedicated tests. These tests do not establish real human review, live publisher permission, or production security.
+
+GitHub Actions [run #44918763573](https://github.com/Amiroudro/new-sngso/actions/runs/44918763573) passed the complete Python 3.12 suite: **788 passed in 7.73 seconds** on head `937f054ac69124a9c02d7b102fe6ae41bc1489f1`.
+
+**Remaining:** artifact persistence and retrieval, bilingual assembly from reviewed records, append-only approval/release decisions, guarded publication transitions, correction/supersession and last-known-good handling, and end-to-end acceptance are still open. This verifier is not a publication state machine and does not authorize release.
