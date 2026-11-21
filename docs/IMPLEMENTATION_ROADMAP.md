@@ -403,3 +403,12 @@ Added and exported `assemble_bilingual_edition_artifact`. It requires explicit a
 GitHub Actions [run #44921515577](https://github.com/Amiroudro/new-sngso/actions/runs/44921515577) passed the full Python 3.12 suite: **799 passed in 5.51 seconds** on code head `6911dde2ced74f01df71c8075d922f436cb6ce70`. The focused assembly tests isolate the existing independent-review and pipeline-binding helpers; a live end-to-end assembly with genuine reviewer attestations and active publisher grants remains an acceptance gate.
 
 Remaining Section 8: approval/release ledger, guarded publication transitions, correction/supersession and last-known-good handling, staging export, and end-to-end acceptance. No live edition, website, frontend, or schedule was changed.
+
+
+### Section 8.10: append-only edition staging decision ledger
+
+Added a strict decision contract and SQLite migration 28. An authenticated, recently re-verified human principal with the distinct `edition_approver` role can approve or reject one exact stored staging artifact. The decision binds the manifest ID, edition revision, payload fingerprint, reason, and provider identity attestation; the raw session ID is reduced to a SHA-256 fingerprint. The approver must not be one of the candidate's language reviewers.
+
+Before recording a decision, the registry reruns the whole-edition staging verifier, including current bilingual reviewer evidence, story and learning-object revisions, successful pipeline output binding, and current endpoint-scoped republication grants. Each artifact manifest accepts only one immutable final decision. SQLite triggers prohibit direct updates and deletion, and the audit chain records the event.
+
+An approval is **not publication authorization**. The decision contract explicitly fixes `publication_authorized` to false; it cannot change edition status or write to a live destination. Guarded release authorization, controlled promotion, correction/supersession, last-known-good handling, and end-to-end acceptance remain open. Production OIDC/JWKS/revocation and protected approver provisioning are still deployment acceptance gates.
