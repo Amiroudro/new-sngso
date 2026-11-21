@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 29
+_SCHEMA_VERSION = 30
 
 
 _MIGRATION_14 = (
@@ -842,6 +842,75 @@ _MIGRATION_29 = (
        BEFORE DELETE ON domain_records
        WHEN OLD.record_type = 'edition'
        BEGIN SELECT RAISE(ABORT, 'edition snapshots are immutable'); END""",
+)
+
+
+_MIGRATION_30 = (
+    """CREATE TABLE edition_release_authorizations (
+        authorization_id TEXT PRIMARY KEY,
+        manifest_id TEXT NOT NULL UNIQUE,
+        edition_id TEXT NOT NULL,
+        edition_revision INTEGER NOT NULL CHECK (edition_revision >= 1),
+        payload_sha256 TEXT NOT NULL CHECK (payload_sha256 GLOB 'sha256:*'),
+        approval_decision_id TEXT NOT NULL,
+        approver_principal_id TEXT NOT NULL,
+        authorizer_principal_id TEXT NOT NULL,
+        authorized_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        FOREIGN KEY (manifest_id) REFERENCES edition_artifacts(manifest_id) ON DELETE RESTRICT,
+        FOREIGN KEY (approval_decision_id) REFERENCES edition_decisions(decision_id) ON DELETE RESTRICT,
+        FOREIGN KEY (approver_principal_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT,
+        FOREIGN KEY (authorizer_principal_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT,
+        CHECK (approver_principal_id <> authorizer_principal_id)
+    )""",
+    """CREATE TRIGGER edition_release_authorizations_insert_guard
+       BEFORE INSERT ON edition_release_authorizations
+       WHEN json_extract(NEW.payload_json, '$.authorization_id') IS NOT NEW.authorization_id
+         OR json_extract(NEW.payload_json, '$.manifest_id') IS NOT NEW.manifest_id
+         OR json_extract(NEW.payload_json, '$.edition_id') IS NOT NEW.edition_id
+         OR json_extract(NEW.payload_json, '$.edition_revision') IS NOT NEW.edition_revision
+         OR json_extract(NEW.payload_json, '$.payload_sha256') IS NOT NEW.payload_sha256
+         OR json_extract(NEW.payload_json, '$.approval_decision_id') IS NOT NEW.approval_decision_id
+         OR json_extract(NEW.payload_json, '$.approver_principal_id') IS NOT NEW.approver_principal_id
+         OR json_extract(NEW.payload_json, '$.authorizer_principal_id') IS NOT NEW.authorizer_principal_id
+         OR json_extract(NEW.payload_json, '$.authorized_at') IS NOT NEW.authorized_at
+         OR json_extract(NEW.payload_json, '$.scope') IS NOT 'controlled_release_gate'
+         OR json_extract(NEW.payload_json, '$.release_authorized') IS NOT 1
+         OR json_extract(NEW.payload_json, '$.publication_authorized') IS NOT 0
+         OR NOT EXISTS (
+           SELECT 1 FROM edition_artifacts artifact
+           WHERE artifact.manifest_id = NEW.manifest_id
+             AND artifact.edition_id = NEW.edition_id
+             AND artifact.edition_revision = NEW.edition_revision
+             AND artifact.payload_sha256 = NEW.payload_sha256
+         )
+         OR NOT EXISTS (
+           SELECT 1 FROM edition_decisions decision
+           WHERE decision.decision_id = NEW.approval_decision_id
+             AND decision.manifest_id = NEW.manifest_id
+             AND decision.edition_id = NEW.edition_id
+             AND decision.edition_revision = NEW.edition_revision
+             AND decision.payload_sha256 = NEW.payload_sha256
+             AND decision.decision = 'approve'
+             AND decision.principal_id = NEW.approver_principal_id
+         )
+         OR NOT EXISTS (
+           SELECT 1 FROM benchmark_principals principal
+           WHERE principal.principal_id = NEW.authorizer_principal_id
+             AND principal.active = 1
+             AND principal.principal_kind = 'human'
+             AND EXISTS (
+               SELECT 1 FROM json_each(principal.roles_json) role
+               WHERE role.value = 'edition_release_authorizer'
+             )
+         )
+       BEGIN SELECT RAISE(ABORT, 'release authorization must bind an approved artifact and independent active human authorizer'); END""",
+    """CREATE TRIGGER edition_release_authorizations_no_update
+       BEFORE UPDATE ON edition_release_authorizations
+       BEGIN SELECT RAISE(ABORT, 'edition release authorizations are append-only'); END""",
+    """CREATE TRIGGER edition_release_authorizations_no_delete
+       BEFORE DELETE ON edition_release_authorizations
+       BEGIN SELECT RAISE(ABORT, 'edition release authorizations are append-only'); END""",
 )
 
 class RegistryIntegrityError(ValueError):
@@ -2524,6 +2593,20 @@ class SQLiteRegistry:
                     version = 29
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 29 failed; transaction rolled back") from exc
+
+
+            if version == 29 and _SCHEMA_VERSION >= 30:
+                try:
+                    for statement in _MIGRATION_30:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (30, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 30")
+                    version = 30
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 30 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -7020,6 +7103,143 @@ class SQLiteRegistry:
                 )
         return payload
 
+
+    def authorize_edition_release(
+        self, manifest_id: str, *, identity: Any, reason: str
+    ) -> dict[str, Any]:
+        """Authorize an exact approved staging artifact for a separate promotion gate.
+
+        This is a second-person authorization only. It never writes a live destination,
+        changes an edition status, or sets publication_authorized.
+        """
+        from datetime import timedelta
+        from .benchmark_access import AuthenticatedIdentity
+        from .edition_artifacts import verify_registry_backed_edition_artifact
+
+        if not isinstance(identity, AuthenticatedIdentity):
+            raise RegistryIntegrityError("release authorization requires a trusted authenticated identity")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("release authorization reason is required")
+        now = datetime.now(timezone.utc)
+        if (
+            identity.authenticated_at.tzinfo is None or identity.expires_at.tzinfo is None
+            or identity.authenticated_at > now or identity.expires_at <= now
+            or now - identity.authenticated_at > timedelta(minutes=15)
+        ):
+            raise RegistryIntegrityError("release authorization requires a valid session and authentication within 15 minutes")
+        if not all(isinstance(value, str) and value.strip() for value in (
+            identity.principal_id, identity.issuer, identity.audience, identity.subject,
+            identity.session_id, identity.authentication_context, identity.provider_key_id,
+            identity.provider_adapter,
+        )) or not identity.authentication_methods:
+            raise RegistryIntegrityError("release authorizer identity attestation is incomplete")
+
+        with self._lock:
+            principal = self.get_benchmark_principal(identity.principal_id)
+            if (
+                principal is None or not principal["active"]
+                or principal.get("principal_kind") != "human"
+                or "edition_release_authorizer" not in principal["roles"]
+            ):
+                raise RegistryIntegrityError("release authorization requires an active human edition_release_authorizer")
+            approval = self.get_edition_decision(manifest_id)
+            if approval is None or approval.get("decision") != "approve":
+                raise RegistryIntegrityError("release authorization requires an approved staging decision")
+            if approval.get("principal_id") == identity.principal_id:
+                raise RegistryIntegrityError("release authorizer must be different from the staging approver")
+            artifact = self.get_edition_artifact(manifest_id)
+            if artifact is None:
+                raise RegistryIntegrityError("unknown stored edition artifact")
+            if (
+                approval.get("edition_id") != artifact["edition_id"]
+                or approval.get("edition_revision") != artifact["edition_revision"]
+                or approval.get("payload_sha256") != artifact["payload_sha256"]
+            ):
+                raise RegistryIntegrityError("staging approval does not bind the exact stored artifact")
+            verified = verify_registry_backed_edition_artifact(
+                self, artifact["payload"], artifact["manifest"], now=now
+            )
+            if verified.artifact.payload_sha256 != artifact["payload_sha256"]:
+                raise RegistryIntegrityError("stored edition artifact changed during release verification")
+
+            for object_id in verified.learning_object_ids:
+                record = self.get_learning_object(object_id)
+                if record is None:
+                    raise RegistryIntegrityError("edition learning object disappeared during release verification")
+                object_payload = record.to_payload()
+                review = object_payload.get("language_review", {})
+                reviewer_id = review.get("reviewer_id") or object_payload.get("reviewed_by")
+                if not isinstance(reviewer_id, str) or not reviewer_id.strip():
+                    raise RegistryIntegrityError("release authorization requires recorded reviewer identity for every selected object")
+                if reviewer_id == identity.principal_id:
+                    raise RegistryIntegrityError("release authorizer must be independent of the candidate's language reviewers")
+
+            authorized_at = now.isoformat()
+            import hashlib
+            payload = {
+                "schema_version": "1.0.0",
+                "authorization_id": f"edition-release-authorization:{uuid.uuid4().hex}",
+                "manifest_id": manifest_id,
+                "edition_id": artifact["edition_id"],
+                "edition_revision": artifact["edition_revision"],
+                "payload_sha256": artifact["payload_sha256"],
+                "approval_decision_id": approval["decision_id"],
+                "approver_principal_id": approval["principal_id"],
+                "authorizer_principal_id": identity.principal_id,
+                "authorized_at": authorized_at,
+                "scope": "controlled_release_gate",
+                "reason": reason.strip(),
+                "identity_attestation": {
+                    "issuer": identity.issuer,
+                    "audience": identity.audience,
+                    "subject": identity.subject,
+                    "authenticated_at": identity.authenticated_at.isoformat(),
+                    "expires_at": identity.expires_at.isoformat(),
+                    "authentication_methods": list(identity.authentication_methods),
+                    "authentication_context": identity.authentication_context,
+                    "provider_key_id": identity.provider_key_id,
+                    "provider_adapter": identity.provider_adapter,
+                    "session_fingerprint": "sha256:" + hashlib.sha256(identity.session_id.encode("utf-8")).hexdigest(),
+                },
+                "release_authorized": True,
+                "publication_authorized": False,
+            }
+            validate_payload("edition-release-authorization", payload)
+            with self._transaction() as connection:
+                self._require_benchmark_role(connection, identity.principal_id, "edition_release_authorizer")
+                try:
+                    connection.execute(
+                        """INSERT INTO edition_release_authorizations
+                        (authorization_id, manifest_id, edition_id, edition_revision,
+                         payload_sha256, approval_decision_id, approver_principal_id,
+                         authorizer_principal_id, authorized_at, payload_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            payload["authorization_id"], manifest_id, payload["edition_id"],
+                            payload["edition_revision"], payload["payload_sha256"],
+                            payload["approval_decision_id"], payload["approver_principal_id"],
+                            identity.principal_id, authorized_at, _json_text(payload),
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise RegistryIntegrityError(
+                        "this artifact already has a release authorization or failed its database guard"
+                    ) from exc
+                self._append_audit(
+                    connection, event_type="edition_release.authorized",
+                    entity_type="edition_artifact", entity_id=manifest_id,
+                    payload=payload,
+                )
+        return payload
+
+    def get_edition_release_authorization(self, manifest_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload_json FROM edition_release_authorizations WHERE manifest_id = ?",
+                (manifest_id,),
+            ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
     def get_edition_decision(self, manifest_id: str) -> dict[str, Any] | None:
         with self._lock:
             row = self._connection.execute(
@@ -7184,7 +7404,7 @@ class SQLiteRegistry:
         principal_kind: str = "unverified"
     ) -> dict[str, Any]:
         """Provision a registry principal; caller must be a trusted operator."""
-        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist", "benchmark_acceptance_reviewer", "edition_approver"}
+        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist", "benchmark_acceptance_reviewer", "edition_approver", "edition_release_authorizer"}
         supported_languages = {"bn", "en"}
         if principal_kind not in {"human", "synthetic", "automation", "unverified"}:
             raise ValueError("principal_kind must be human, synthetic, automation, or unverified")
