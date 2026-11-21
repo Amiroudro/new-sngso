@@ -798,7 +798,27 @@ _MIGRATION_28 = (
          OR json_extract(NEW.payload_json, '$.decision') IS NOT NEW.decision
          OR json_extract(NEW.payload_json, '$.principal_id') IS NOT NEW.principal_id
          OR json_extract(NEW.payload_json, '$.decided_at') IS NOT NEW.decided_at
-       BEGIN SELECT RAISE(ABORT, 'edition decision columns must match payload'); END""",
+         OR json_extract(NEW.payload_json, '$.role') IS NOT 'edition_approver'
+         OR json_extract(NEW.payload_json, '$.scope') IS NOT 'staging_candidate_review'
+         OR json_extract(NEW.payload_json, '$.publication_authorized') IS NOT 0
+         OR NOT EXISTS (
+           SELECT 1 FROM edition_artifacts artifact
+           WHERE artifact.manifest_id = NEW.manifest_id
+             AND artifact.edition_id = NEW.edition_id
+             AND artifact.edition_revision = NEW.edition_revision
+             AND artifact.payload_sha256 = NEW.payload_sha256
+         )
+         OR NOT EXISTS (
+           SELECT 1 FROM benchmark_principals principal
+           WHERE principal.principal_id = NEW.principal_id
+             AND principal.active = 1
+             AND principal.principal_kind = 'human'
+             AND EXISTS (
+               SELECT 1 FROM json_each(principal.roles_json) role
+               WHERE role.value = 'edition_approver'
+             )
+         )
+       BEGIN SELECT RAISE(ABORT, 'edition decision must bind an exact artifact and active human approver'); END""",
     """CREATE TRIGGER edition_decisions_no_update
        BEFORE UPDATE ON edition_decisions
        BEGIN SELECT RAISE(ABORT, 'edition decisions are append-only'); END""",
