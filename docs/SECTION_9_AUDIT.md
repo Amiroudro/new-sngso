@@ -136,3 +136,13 @@ GitHub Actions [run #44941002132](https://github.com/Amiroudro/new-sngso/actions
 Implemented: operational health reporting, local verified backup/restore, bounded retry classification, deterministic idempotent run creation, external audit checkpoint export/verification, a local operations runbook, a synchronous injected-stage runner, and guarded deliberate retry-run creation.
 
 Still open: actual production identity/authorization, live source-specific handlers and permission verification, durable stage checkpoints and crash reconciliation, worker leases/heartbeats/supervision/cancellation, automated alert delivery, backup encryption/off-site storage/retention, production-like restore drills, external checkpoint delivery, and authorized scheduling. No live collection or publication is enabled.
+
+## 9.10 Immutable retry lineage
+
+The pipeline-run contract now supports optional `attempt` and `retry_of` fields. Explicit retry creation writes both fields into the new queued run. The registry checks the parent exists and is failed, the child attempt immediately follows the parent's attempt, and software version/configuration/input hashes/initiator are unchanged. Run transitions cannot rewrite attempt or parentage.
+
+Legacy attempt-one records without the new fields remain compatible with idempotent reuse. This avoids forcing a destructive rewrite of existing append-only run history.
+
+Tests cover valid parentage, missing and non-failed parents, mismatched attempt number, changed immutable inputs, immutable lineage during transitions, and legacy record reuse.
+
+GitHub Actions [run #44941362943](https://github.com/Amiroudro/new-sngso/actions/runs/44941362943) passed **893 tests in 9.84 seconds** on code commit `cad4c823976791f3d9801b1add21bb52e45bf716`.
