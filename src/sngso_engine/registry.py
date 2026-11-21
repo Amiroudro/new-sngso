@@ -1017,6 +1017,7 @@ _MIGRATION_31 = (
                AND e.export_id = NEW.current_export_id
                AND e.lkg_export_id IS NEW.lkg_export_id
                AND e.previous_current_export_id IS OLD.current_export_id
+               AND NEW.lkg_event_id IS OLD.current_event_id
          )
        BEGIN SELECT RAISE(ABORT, 'staging state must advance atomically from a matching append-only event'); END""",
     """CREATE TRIGGER edition_staging_state_no_delete
