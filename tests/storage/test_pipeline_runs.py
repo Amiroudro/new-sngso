@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from sngso_engine.registry import RegistryIntegrityError, SQLiteRegistry, RegistryMigrationError
@@ -102,3 +104,25 @@ def test_pipeline_run_unknown_id_and_future_schema_are_rejected(tmp_path, monkey
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 26)
     with SQLiteRegistry(database) as migrated:
         assert migrated.schema_version() == 26
+
+
+def test_sqlite_guards_reject_illegal_direct_transition_and_deletion() -> None:
+    with SQLiteRegistry() as registry:
+        queued = run_record("queued")
+        registry.add_pipeline_run(queued, actor="scheduler", reason="queued")
+        forged_success = dict(queued)
+        forged_success.update(
+            status="succeeded",
+            finished_at="2026-11-21T05:10:00Z",
+            output_hashes=["sha256:" + "c" * 64],
+        )
+        with pytest.raises(Exception, match="invalid pipeline run status transition"):
+            registry._connection.execute(
+                """UPDATE pipeline_runs SET status = ?, revision = 2, payload_json = ?
+                   WHERE id = ?""",
+                ("succeeded", json.dumps(forged_success), queued["id"]),
+            )
+        with pytest.raises(Exception, match="pipeline run records cannot be deleted"):
+            registry._connection.execute(
+                "DELETE FROM pipeline_runs WHERE id = ?", (queued["id"],)
+            )
