@@ -459,3 +459,37 @@ def test_explicit_retry_requires_recovery_and_permission_attestations():
                 previous_attempt=1, actor="operator", reason="Omit safety attestations.",
             )
 
+
+def test_explicit_retry_refuses_an_exhausted_attempt_limit():
+    from sngso_engine.operations import create_pipeline_retry_run
+    from sngso_engine.orchestrator import PipelineStage, PipelineStageFailure, execute_pipeline_run
+    from sngso_engine.canonical import sha256_fingerprint
+
+    context = {"batch": "attempt-limit"}
+    payload = _idempotent_run_payload()
+    payload["status"] = "queued"
+    payload["input_hashes"] = [sha256_fingerprint(context)]
+    with SQLiteRegistry() as registry:
+        created = create_pipeline_run_idempotently(
+            registry, payload, run_kind="daily-edition",
+            actor="test", reason="Create final allowed attempt.", attempt=3,
+        )
+        execute_pipeline_run(
+            registry, created["record"]["id"], input_context=context,
+            stages=[PipelineStage(
+                "failure",
+                lambda _: (_ for _ in ()).throw(
+                    PipelineStageFailure("network_timeout", "Temporary failure.")
+                ),
+            )],
+            actor="test-worker", reason="Fail final allowed attempt.",
+        )
+        with pytest.raises(OperationalReportError, match="attempt_limit_reached"):
+            create_pipeline_retry_run(
+                registry, created["record"]["id"], run_kind="daily-edition",
+                previous_attempt=3, max_attempts=3,
+                recovery_confirmed=True, permissions_rechecked=True,
+                actor="operator", reason="Attempt beyond retry limit.",
+            )
+        assert len(registry.list_pipeline_runs(limit=10)) == 1
+
