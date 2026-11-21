@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .canonical import sha256_fingerprint
+from .contracts import validate_payload
 
 
 class FlutterCompatibilityError(ValueError):
@@ -252,6 +253,10 @@ def verify_flutter_staging_candidate(
 
     if not isinstance(client_edition, dict) or not isinstance(provenance_manifest, dict):
         raise FlutterCompatibilityError("edition and provenance manifest must be JSON objects")
+    try:
+        validate_payload("flutter-staging-provenance", provenance_manifest)
+    except ValueError as exc:
+        raise FlutterCompatibilityError(f"provenance manifest schema validation failed: {exc}") from exc
     supported_manifest_fields = {
         "schema_version", "target_contract", "edition_id", "edition_revision",
         "edition_date", "payload_sha256", "story_bindings", "source_permissions",
