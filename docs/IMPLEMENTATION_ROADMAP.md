@@ -344,3 +344,10 @@ Added `docs/SECTION_8_AUDIT.md` after inspecting the edition schema, typed recor
 A critical gap is recorded: the schema permits `status: published`, and generic edition insertion does not require a separate approval decision or guarded transition. Section 8 must close this before any publication workflow is considered safe.
 
 The work is bounded to five implementation gates plus one end-to-end acceptance pass: artifact/manifest contract; bilingual assembly; whole-edition validation; approval/release state machine; correction/last-known-good/staging export. No live edition or publication target is touched.
+
+
+### Section 8.2 implementation update: immutable artifact manifest
+
+Added a strict Draft 2020-12 `edition-artifact-manifest` contract and runtime/schema regression tests. It binds edition identity/revision, pipeline-run identity, canonical payload fingerprint, exact story revisions/snapshot fingerprints, language-specific learning-object revisions/fingerprints, and source/endpoint/republication-grant references. Every story binding requires both Bangla and English content; all objects reject unknown fields and non-canonical hashes.
+
+The manifest records provenance; it does not grant publication permission. Structural validation does not yet prove the referenced registry records exist, that their fingerprints match, or that permission grants and pipeline runs are currently valid. Those checks remain required before assembly/review. No live edition or publication destination was changed.
