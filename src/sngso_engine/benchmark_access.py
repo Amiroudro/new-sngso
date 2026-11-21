@@ -537,6 +537,36 @@ class AuthenticatedBenchmarkAccess:
             manifest_id, identity=identity, decision=decision, reason=reason
         )
 
+
+    def authorize_edition_release(
+        self, request_context: Any, manifest_id: str, *, reason: str
+    ) -> dict[str, Any]:
+        """Authorize a previously approved candidate for a separate promotion gate."""
+        identity = self._identity(request_context)
+        principal = self._registry.get_benchmark_principal(identity.principal_id)
+        if (
+            principal is None or not principal["active"]
+            or principal.get("principal_kind") != "human"
+            or "edition_release_authorizer" not in principal["roles"]
+        ):
+            raise RegistryIntegrityError(
+                "release authorization requires an active human edition_release_authorizer"
+            )
+        if self._clock() - identity.authenticated_at > timedelta(minutes=15):
+            raise RegistryIntegrityError(
+                "release authorization requires recent authentication within 15 minutes"
+            )
+        if (
+            not identity.authentication_methods or not identity.authentication_context.strip()
+            or not identity.provider_key_id.strip() or not identity.provider_adapter.strip()
+        ):
+            raise RegistryIntegrityError(
+                "release authorizer requires provider-backed identity and authentication context"
+            )
+        return self._registry.authorize_edition_release(
+            manifest_id, identity=identity, reason=reason
+        )
+
     def reviewer_assignment_queue(
         self, request_context: Any, *, status: str | None = None,
         language: str | None = None
