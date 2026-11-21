@@ -2290,6 +2290,7 @@ class SQLiteRegistry:
     def __init__(self, database: str | Path = ":memory:") -> None:
         self.database = str(database)
         self._lock = RLock()
+        self._transaction_depth = 0
         self._connection = sqlite3.connect(
             self.database,
             timeout=10,
@@ -2319,23 +2320,44 @@ class SQLiteRegistry:
 
     @contextmanager
     def _transaction(self, mode: str = "IMMEDIATE") -> Iterator[sqlite3.Connection]:
+        """Open an atomic transaction, nesting with savepoints on this connection.
+
+        Registry workflows compose read/verification helpers inside larger
+        write transactions. SQLite does not permit a second BEGIN on the same
+        connection, so nested calls use savepoints and remain part of the
+        outer transaction. The re-entrant lock is held for the full scope.
+        """
         with self._lock:
-            self._connection.execute(f"BEGIN {mode}")
+            depth = self._transaction_depth
+            savepoint = f"registry_nested_{depth}"
+            if depth == 0:
+                self._connection.execute(f"BEGIN {mode}")
+            else:
+                self._connection.execute(f"SAVEPOINT {savepoint}")
+            self._transaction_depth = depth + 1
             try:
                 yield self._connection
             except Exception:
-                self._connection.rollback()
+                self._transaction_depth = depth
+                if depth == 0:
+                    self._connection.rollback()
+                else:
+                    self._connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    self._connection.execute(f"RELEASE SAVEPOINT {savepoint}")
                 raise
             else:
-                try:
-                    self._connection.commit()
-                except Exception:
-                    # A deferred constraint or I/O error can fail at COMMIT,
-                    # after the context body has returned successfully. Roll
-                    # back explicitly so this connection is not left inside
-                    # a failed, partially open transaction.
-                    self._connection.rollback()
-                    raise
+                self._transaction_depth = depth
+                if depth == 0:
+                    try:
+                        self._connection.commit()
+                    except Exception:
+                        # A deferred constraint or I/O error can fail at COMMIT,
+                        # after the context body has returned successfully. Roll
+                        # back explicitly so the connection is not left open.
+                        self._connection.rollback()
+                        raise
+                else:
+                    self._connection.execute(f"RELEASE SAVEPOINT {savepoint}")
 
     def migrate(self) -> None:
         """Apply ordered migrations atomically; reject unknown future versions."""
