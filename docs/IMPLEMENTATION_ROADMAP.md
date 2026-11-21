@@ -551,3 +551,11 @@ Added bounded, newest-first pipeline-run listing to SQLiteRegistry and its repos
 Tests cover ordering/filtering/limits, stale and failed run detection, empty history, invalid parameters and failure-detail non-disclosure. GitHub Actions [run #44938730003](https://github.com/Amiroudro/new-sngso/actions/runs/44938730003) passed **839 tests in 11.54 seconds** on 9092d8137474dfb119af893d570f38c661201db4.
 
 The separate Section 9 audit is in docs/SECTION_9_AUDIT.md. Next: retry classification/idempotency, SQLite backup/restore, and operator runbooks. No scheduled or live pipeline is authorized.
+
+### Section 9.3: verified local SQLite backup and restore
+
+Added non-overwriting SQLite online-backup and restore helpers. Backups are created through a temporary file, verified for SQLite integrity, expected schema version, contiguous audit sequence and hash-chain integrity, then atomically installed with owner-only permissions. Restore verifies the backup and installs it at a new path; it refuses to overwrite. Backups cannot be started inside an active registry transaction.
+
+Tests cover backup/restore state preservation, audit checkpoint preservation, overwrite refusal, active-transaction rejection and tampered audit-chain rejection. GitHub Actions [run #44939132297](https://github.com/Amiroudro/new-sngso/actions/runs/44939132297) passed **842 tests in 8.91 seconds** on code commit 120a07f2f822e84f9863651f0153a219ec3116fa.
+
+This does not provide scheduling, off-site storage, encryption, retention, an independently stored checkpoint, or a production restore drill. These remain explicit Section 9 gates.
