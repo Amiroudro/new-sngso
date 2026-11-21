@@ -985,6 +985,23 @@ _MIGRATION_31 = (
                AND r.approver_principal_id = d.principal_id
                AND r.authorizer_principal_id <> d.principal_id
          )
+         OR json_extract(NEW.export_package_json, '$.export_id') IS NOT NEW.export_id
+         OR json_extract(NEW.export_package_json, '$.manifest_id') IS NOT NEW.manifest_id
+         OR json_extract(NEW.export_package_json, '$.payload_sha256') IS NOT NEW.payload_sha256
+         OR json_extract(NEW.export_package_json, '$.target') IS NOT 'staging'
+         OR json_extract(NEW.export_package_json, '$.publication_authorized') IS NOT 0
+         OR NOT EXISTS (
+             SELECT 1 FROM benchmark_principals approver
+             WHERE approver.principal_id = json_extract(NEW.payload_json, '$.staging_decision.principal_id')
+               AND approver.active = 1 AND approver.principal_kind = 'human'
+               AND EXISTS (SELECT 1 FROM json_each(approver.roles_json) role WHERE role.value = 'edition_approver')
+         )
+         OR NOT EXISTS (
+             SELECT 1 FROM benchmark_principals authorizer
+             WHERE authorizer.principal_id = json_extract(NEW.payload_json, '$.release_authorization.authorizer_principal_id')
+               AND authorizer.active = 1 AND authorizer.principal_kind = 'human'
+               AND EXISTS (SELECT 1 FROM json_each(authorizer.roles_json) role WHERE role.value = 'edition_release_authorizer')
+         )
          OR NOT EXISTS (
              SELECT 1 FROM benchmark_principals p
              WHERE p.principal_id = NEW.operator_principal_id
