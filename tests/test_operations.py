@@ -406,3 +406,22 @@ def test_explicit_retry_refuses_runs_that_are_not_failed():
                 previous_attempt=1, actor="operator", reason="Attempt active retry.",
             )
 
+
+def test_idempotent_pipeline_creation_validates_actor_and_reason_even_on_reuse():
+    with SQLiteRegistry() as registry:
+        payload = _idempotent_run_payload()
+        create_pipeline_run_idempotently(
+            registry, payload, run_kind="daily-edition",
+            actor="operator", reason="Create initial run.",
+        )
+        with pytest.raises(OperationalReportError, match="actor and reason"):
+            create_pipeline_run_idempotently(
+                registry, payload, run_kind="daily-edition",
+                actor="", reason="Duplicate request.",
+            )
+        with pytest.raises(OperationalReportError, match="actor and reason"):
+            create_pipeline_run_idempotently(
+                registry, payload, run_kind="daily-edition",
+                actor="operator", reason=" ",
+            )
+
