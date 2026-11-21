@@ -7035,6 +7035,31 @@ class SQLiteRegistry:
         ]
 
 
+    def list_pipeline_runs(
+        self, *, status: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """List recent pipeline runs without exposing unbounded history or payload detail."""
+        allowed_statuses = {"queued", "running", "succeeded", "failed", "cancelled", "rejected"}
+        if status is not None and status not in allowed_statuses:
+            raise ValueError("unsupported pipeline run status filter")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 5000:
+            raise ValueError("limit must be an integer between 1 and 5000")
+        query = "SELECT revision, payload_json FROM pipeline_runs"
+        params: tuple[Any, ...] = ()
+        if status is not None:
+            query += " WHERE status = ?"
+            params = (status,)
+        query += " ORDER BY started_at DESC, id DESC LIMIT ?"
+        params = (*params, limit)
+        with self._lock:
+            rows = self._connection.execute(query, params).fetchall()
+        results = []
+        for row in rows:
+            record = json.loads(row["payload_json"])
+            validate_payload("pipeline-run", record)
+            results.append({"revision": row["revision"], "record": record})
+        return results
+
     def store_verified_edition_artifact(
         self, verified: Any, *, actor: str, reason: str
     ) -> dict[str, Any]:
