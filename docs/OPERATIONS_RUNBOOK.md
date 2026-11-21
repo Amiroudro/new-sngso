@@ -100,7 +100,7 @@ A deliberate retry is a new attempt. Do not edit a terminal pipeline-run record.
 
 The idempotent pipeline-run helper derives a stable run ID from run kind, software version, configuration hash, ordered input hashes, initiator and attempt. Concurrent duplicate submissions for the same logical attempt converge on one record. A new attempt gets a new ID.
 
-This prevents duplicate run-record creation; it does not yet prevent duplicate external side effects because no worker/orchestrator is implemented. Any future worker must make its stage effects idempotent as well.
+This prevents duplicate run-record creation. A synchronous injected-stage runner now claims queued records and prevents two workers from executing the same queued revision. It still cannot guarantee exactly-once external side effects: handlers must use their own durable idempotency keys and reconciliation. The runner does not retry or resume interrupted work.
 
 ## 7. Audit-chain limitations
 
@@ -153,3 +153,52 @@ with SQLiteRegistry("data/registry.sqlite") as registry:
 ~~~
 
 Verification permits new events after the checkpoint, but detects a broken chain, truncation before the saved sequence, or a changed hash at that sequence. External copying and alerting are manual; no upload service is configured.
+
+## 10. Run a local injected-stage validation
+
+The synchronous runner is suitable only for local/pre-production validation with explicitly supplied stage functions. See docs/PIPELINE_WORKER_CONTRACT.md for the full interface and limitations.
+
+~~~python
+from datetime import datetime, timezone
+
+from sngso_engine import (
+    PipelineStage,
+    SQLiteRegistry,
+    create_pipeline_run_idempotently,
+    execute_pipeline_run,
+    sha256_fingerprint,
+)
+
+context = {"fixture": "no-network", "edition_date": "2026-11-22"}
+with SQLiteRegistry("data/registry.sqlite") as registry:
+    queued = create_pipeline_run_idempotently(
+        registry,
+        {
+            "schema_version": "1.0.0",
+            "status": "queued",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "software_version": "engine/0.1.0",
+            "config_hash": "sha256:" + "a" * 64,
+            "input_hashes": [sha256_fingerprint(context)],
+            "initiated_by": "local-operator",
+        },
+        run_kind="local-validation",
+        actor="local-operator",
+        reason="Create local validation run.",
+    )
+    result = execute_pipeline_run(
+        registry,
+        queued["record"]["id"],
+        input_context=context,
+        stages=[
+            PipelineStage("validate-fixture", lambda stage_context: {"valid": True}),
+            PipelineStage("prepare-result", lambda stage_context: {"prepared": True}),
+        ],
+        actor="local-worker",
+        reason="Run local fixture validation.",
+    )
+    print(result["status"], result["stage_results"])
+~~~
+
+Use only synthetic or otherwise authorized inputs. Do not connect a live publisher handler. The runner does not resume a running record, persist raw stage outputs, retry, supervise processes, or publish. If a process stops mid-run, preserve the record and reconcile any possible external side effects before creating a deliberate new attempt.
+
