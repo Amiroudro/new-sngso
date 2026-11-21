@@ -19,7 +19,9 @@ from .canonical import canonical_json_bytes, sha256_fingerprint
 from .edition_artifacts import (
     EditionArtifactIntegrityError,
     VerifiedEditionArtifact,
+    VerifiedPipelineRun,
     verify_edition_artifact,
+    verify_pipeline_run_for_artifact,
 )
 from .collection import (
     CollectionError,
@@ -91,7 +93,9 @@ __all__ = [
     "EditionRecord",
     "EditionArtifactIntegrityError",
     "VerifiedEditionArtifact",
+    "VerifiedPipelineRun",
     "verify_edition_artifact",
+    "verify_pipeline_run_for_artifact",
     "EditorialRepository",
     "EngineRepository",
     "EvidenceRecord",
