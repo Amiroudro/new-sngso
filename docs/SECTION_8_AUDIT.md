@@ -236,3 +236,16 @@ Regression tests cover schema 30→31 migration, first and second promotion, LKG
 Added [`docs/SECTION_8_15_END_TO_END_ACCEPTANCE.md`](SECTION_8_15_END_TO_END_ACCEPTANCE.md), which records the verified Section 8.14 implementation, the full Python 3.12 suite result (**824 passed in 11.04 seconds**, run [#44932902651](https://github.com/Amiroudro/new-sngso/actions/runs/44932902651)), and a gate-by-gate acceptance matrix. The current staging lifecycle tests use synthetic records and a monkeypatched whole-edition verifier; they do not yet prove one fully connected genuine-record lifecycle. Open engineering tests include separate-connection concurrency, transaction-failure atomicity, revocation immediately before promotion, and a real-registry integrated assembly-to-rollback path. Real human reviews, publisher grants, deployed identity/revocation, backup/restore and a downstream staging consumer remain external acceptance gates.
 
 **Decision:** Section 8 implementation is substantially complete, but end-to-end acceptance and production readiness are not. No live destination or frontend was changed; publication remains unauthorized.
+
+
+## Section 8.16: staging concurrency and failure-path verification
+
+Added cross-connection and failure-path regression coverage in `tests/storage/test_edition_decisions.py`.
+
+- Two separate `SQLiteRegistry` connections to one temporary database attempt promotion against the same expected channel revision. The compare-and-swap gate permits exactly one; the competing operation receives a stale-state rejection. The durable state contains one event and one pointer update.
+- An injected SQLite trigger failure between event insertion and channel-pointer update proves transaction rollback removes both effects.
+- A staging operator revoked before promotion is rejected, with no event or channel-state mutation.
+
+GitHub Actions run [#44937132497](https://github.com/Amiroudro/new-sngso/actions/runs/44937132497) passed the full Python 3.12 suite: **827 passed in 7.61 seconds** on commit `d85d661fe5d54e6c1988ccb49239eae3608bb515`.
+
+**Limit:** the concurrency and failure tests use synthetic staging fixtures and a mocked whole-edition verifier. They establish SQLite transaction/CAS behavior for this tested path, not the complete genuine-record lifecycle or production database behavior. The integrated real-registry assembly-to-rollback test, real human/rights/identity evidence, operational backup/restore, and downstream staging consumer remain outstanding.
