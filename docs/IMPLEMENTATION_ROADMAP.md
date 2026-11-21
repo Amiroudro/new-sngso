@@ -488,3 +488,11 @@ The first genuine promotion attempt exposed a real integration defect: staging h
 GitHub Actions run [#44938061164](https://github.com/Amiroudro/new-sngso/actions/runs/44938061164) passed the full Python 3.12 suite: **831 passed in 11.35 seconds** on code commit `7fa89bc5aa36231c47839fb3a02a554da791718e`.
 
 **Evidence boundary:** this is a real SQLite registry integration test with synthetic fixture data and test identities. The language-review records, publisher permission grant and human-classified principals are test fixtures, not proof of genuine human review or an actual publisher licence. The pipeline output hash is precomputed in a test-only preview step; the actual assembly, pipeline binding, whole-edition verification, persistence, approval, release authorization, export, promotion and rollback then run without mocking the whole-edition verifier. No production database, deployed identity provider, real publisher grant, external staging consumer, live publication or production acceptance is established.
+
+### Current republication-rights revocation before promotion
+
+The integrated real-registry lifecycle test now also suspends the registered republication grant after approval and release authorization but immediately before promotion. The promotion attempt is rejected, with the staging state revision and event ledger unchanged. The test then restores the fixture grant and completes the two promotions and rollback.
+
+GitHub Actions run [#44938218038](https://github.com/Amiroudro/new-sngso/actions/runs/44938218038) passed the full Python 3.12 suite: **831 passed in 7.60 seconds** on code commit `86b6793ac55aac824326c2e584996b1e7013aad0`.
+
+This closes the repository-level rights-revocation-before-promotion regression gap for the tested SQLite path. The grant is synthetic test data, not a real publisher authorization.
