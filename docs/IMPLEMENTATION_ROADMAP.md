@@ -1,6 +1,6 @@
 # Engine Implementation Programme
 
-Status: Sections 1–6 implemented to their documented local/fixture-first scope; Section 7 in progress; Sections 8–10 planned  
+Status: Sections 1–6 implemented to their documented local/fixture-first scope; Section 7 implementation scope closed with external acceptance gates outstanding; Sections 8–10 planned  
 Baseline branch: `fix/engine-ci-source-triggers`  
 Scope: the new `new-sngso` engine repository only
 
@@ -324,3 +324,14 @@ Added a direct regression validating the staging builder's generated provenance 
 ### Section 7.51 implementation update
 
 Added `verify_independent_bilingual_variants` as a fail-closed gate for paired Bangla and English learning objects. It requires separate approved records, matching story/kind/variant group and claim coverage, passing language-specific quality gates, explicit passing translation-fidelity review, active human benchmark reviewers qualified for their respective languages, and different provider-attested (issuer, subject) identities. Regression tests cover a valid pair, duplicate provider identity under different local principal IDs, and a reviewer lacking Bangla qualification. The result is staging-only and does not authorize publication. GitHub Actions run [#44906408948](https://github.com/Amiroudro/new-sngso/actions/runs/44906408948) passed the full Python 3.12 suite: **753 passed in 8.83 seconds** on code head `14ad3d02bdb285d98c995e7082785824805cf4c8`.
+
+
+## Section 7 close and Section 8 handoff
+
+Section 7's engine-side implementation scope is closed. The work includes structured editorial learning objects, claim/evidence traceability, story narrative and attribution reports, language-specific quality gates, bilingual variant coverage, independent reviewer-identity checks, and a narrow English-only staging compatibility adapter.
+
+This is a scope boundary, not production acceptance. Genuine independent Bangla/English reviews, real provider authentication and revocation, current publisher permissions, independent benchmark assessment, deployed security and backup/restore evidence, and Flutter runtime/golden tests remain external acceptance gates. Track these in the relevant operational and end-to-end work in Sections 9 and 10, and enforce any required publication prerequisites in Section 8. Do not keep extending Section 7 with edition assembly, publishing, scheduling, or app integration features.
+
+**Verification caution:** the recorded workflow runs #44906408948 and #44906480066 executed the contract-validation job, not the full Python test suite. Although a 753-test result was previously attributed to run #44906408948, inspection of its actual job steps does not substantiate that claim. A dedicated full-suite CI run on the current code head is still required before claiming CI verification of all tests.
+
+**Next:** Section 8, Edition assembly and publication safety. PR #7 remains draft and unmerged; no live editions, schedules, frontend repositories, or production destinations were changed.
