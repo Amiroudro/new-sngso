@@ -6932,6 +6932,23 @@ class SQLiteRegistry:
         _aware_datetime(payload["started_at"], "started_at")
         payload_json = _json_text(payload)
         with self._transaction() as connection:
+            retry_of = payload.get("retry_of")
+            if retry_of is not None:
+                if retry_of == payload["id"]:
+                    raise RegistryIntegrityError("pipeline run cannot retry itself")
+                parent_row = connection.execute(
+                    "SELECT payload_json FROM pipeline_runs WHERE id = ?", (retry_of,)
+                ).fetchone()
+                if parent_row is None:
+                    raise RegistryIntegrityError("retry parent pipeline run does not exist")
+                parent = json.loads(parent_row["payload_json"])
+                if parent["status"] != "failed":
+                    raise RegistryIntegrityError("retry parent pipeline run must be failed")
+                if payload.get("attempt") != parent.get("attempt", 1) + 1:
+                    raise RegistryIntegrityError("retry attempt must immediately follow its parent")
+                inherited = ("software_version", "config_hash", "input_hashes", "initiated_by")
+                if any(payload.get(field) != parent.get(field) for field in inherited):
+                    raise RegistryIntegrityError("retry must preserve its parent's immutable inputs")
             connection.execute(
                 """INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json)
                    VALUES (?, ?, 1, ?, ?)""",
