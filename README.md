@@ -39,6 +39,7 @@ The current engineering branch contains versioned contracts, permission-aware co
 - docs/DOMAIN_MODEL.md
 - docs/IMPLEMENTATION_ROADMAP.md
 - docs/SECTION_9_AUDIT.md
+- docs/OPERATIONS_RUNBOOK.md
 - docs/HANDOVER_FOR_PREMIUM_CHATGPT.md
 - docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md
 - docs/BASELINE_AUDIT.md
