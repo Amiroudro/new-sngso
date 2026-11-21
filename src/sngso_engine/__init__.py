@@ -28,6 +28,7 @@ from .collection import (
     PermissionFirstCollector,
 )
 from .contracts import ContractValidationError, load_schema, validate_payload
+from .language_variants import BilingualVariantError, verify_independent_bilingual_variants
 from .ingestion import (
     IngestionError,
     canonicalize_article_url,
@@ -67,6 +68,7 @@ from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegi
 __all__ = [
     "ArticleRecord",
     "BenchmarkAssignmentError",
+    "BilingualVariantError",
     "BenchmarkStudyError",
     "BenchmarkStudyExecutionError",
     "BenchmarkAcceptanceReviewError",
@@ -108,6 +110,7 @@ __all__ = [
     "canonicalize_article_url",
     "evaluate_editorial_benchmark",
     "validate_human_benchmark_review",
+    "verify_independent_bilingual_variants",
     "validate_benchmark_assignment",
     "transition_benchmark_assignment",
     "validate_benchmark_adjudication",
