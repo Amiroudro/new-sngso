@@ -376,3 +376,12 @@ Verification: the first full test run found three stale schema-version assertion
 Added a registry-backed staging verifier that resolves the manifest's pipeline run, requires a succeeded current run, checks that its output hash list contains the exact canonical edition payload fingerprint, and rejects manifests created before pipeline completion. Regression tests use actual SQLite registry records and cover missing, running, mismatched-output, and timestamp failure paths.
 
 GitHub Actions run [#44918034521](https://github.com/Amiroudro/new-sngso/actions/runs/44918034521) passed the full Python 3.12 suite (**785 passed in 10.02 seconds**) on code head 90d787a618e55ac51f41f62ad2179a73f5f5748d. Next: bind story snapshots, approved learning-object revisions, and current endpoint-scoped republication grants in one fail-closed edition verification pass.
+
+ 
+### Section 8.7: whole-edition registry-backed staging verification
+
+Added and exported `verify_registry_backed_edition_artifact`. The single read-only gate verifies canonical payload/manifest integrity, a succeeded pipeline run bound to the exact output hash, the exact approved edition revision and content hash, every current story revision/snapshot fingerprint, every approved learning-object revision/fingerprint, paired Bangla/English variants through the existing independent-review gate, and current endpoint-scoped republication permissions covering every active article URL. Duplicate, missing, stale, denied, or unused bindings fail closed.
+
+The verifier returns staging-only evidence and never writes, approves, publishes, or grants publication authority. GitHub Actions [run #44918763573](https://github.com/Amiroudro/new-sngso/actions/runs/44918763573) passed the full Python 3.12 suite: **788 passed in 7.73 seconds** on head `937f054ac69124a9c02d7b102fe6ae41bc1489f1`.
+
+Remaining Section 8 work: artifact persistence/retrieval, bilingual assembly, append-only approval/release ledger, guarded publication transitions, correction/supersession and last-known-good handling, staging export, and end-to-end acceptance. No live edition or frontend was changed.
