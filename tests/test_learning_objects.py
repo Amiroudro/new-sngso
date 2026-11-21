@@ -1299,6 +1299,7 @@ def test_approved_mcq_quality_gate_requires_complete_all_pass_pedagogical_review
 
 def _approved_bilingual_pair(registry, *, shared_identity=False, bn_language="bn"):
     from sngso_engine import verify_independent_bilingual_variants
+    _support_claim_with_evidence(registry)
 
     approved = {}
     for language, reviewer in (("bn", "reviewer:bn"), ("en", "reviewer:en")):
