@@ -335,3 +335,12 @@ This is a scope boundary, not production acceptance. Genuine independent Bangla/
 **Verification caution:** the recorded workflow runs #44906408948 and #44906480066 executed the contract-validation job, not the full Python test suite. Although a 753-test result was previously attributed to run #44906408948, inspection of its actual job steps does not substantiate that claim. A dedicated full-suite CI run on the current code head is still required before claiming CI verification of all tests.
 
 **Next:** Section 8, Edition assembly and publication safety. PR #7 remains draft and unmerged; no live editions, schedules, frontend repositories, or production destinations were changed.
+
+
+### Section 8.1 implementation update: baseline audit
+
+Added `docs/SECTION_8_AUDIT.md` after inspecting the edition schema, typed record, registry reference checks, immutable-revision guard, and existing edition tests. The audit confirms that edition metadata and post-insert immutability already exist, but full artifact storage, successful pipeline-run binding, bilingual edition assembly, publication-time rights/evidence rechecks, an append-only approval ledger, guarded state transitions, correction/supersession, last-known-good protection, and complete staging export do not yet exist.
+
+A critical gap is recorded: the schema permits `status: published`, and generic edition insertion does not require a separate approval decision or guarded transition. Section 8 must close this before any publication workflow is considered safe.
+
+The work is bounded to five implementation gates plus one end-to-end acceptance pass: artifact/manifest contract; bilingual assembly; whole-edition validation; approval/release state machine; correction/last-known-good/staging export. No live edition or publication target is touched.
