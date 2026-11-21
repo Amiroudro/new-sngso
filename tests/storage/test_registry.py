@@ -67,7 +67,7 @@ def evidence_record(
         "evidence_uri": f"https://{name}.example.org/permissions/letter",
         "captured_at": STAMP,
         "content_fingerprint": "sha256:" + "a" * 64,
-        "scope_description": "Written permission for discovery of the named RSS endpoint.",
+        "scope_description": "Written permission for discovery and benchmark excerpt storage at the named RSS endpoint.",
         "review_status": review_status,
     }
     if review_status != "unreviewed":
@@ -79,10 +79,10 @@ def grant_record() -> dict:
     evidence_id = "permission-evidence:publisher-a-001"
     operations = {
         operation: {
-            "allowed": operation == "discovery",
-            "status": "approved" if operation == "discovery" else "denied",
+            "allowed": operation in {"discovery", "excerpt_storage"},
+            "status": "approved" if operation in {"discovery", "excerpt_storage"} else "denied",
             "conditions": [],
-            **({"evidence_ids": [evidence_id]} if operation == "discovery" else {}),
+            **({"evidence_ids": [evidence_id]} if operation in {"discovery", "excerpt_storage"} else {}),
         }
         for operation in (
             "discovery",
@@ -120,10 +120,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 12
+        assert registry.schema_version() == 30
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 12
+        assert reopened.schema_version() == 30
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -531,13 +531,13 @@ def test_domain_record_revision_is_audited_and_uses_optimistic_locking() -> None
             )
 
 
-def test_published_edition_snapshot_cannot_be_revised() -> None:
+def test_edition_snapshot_cannot_be_revised() -> None:
     with SQLiteRegistry() as registry:
         registry.add_source(source_record())
         registry.add_domain_record("article", article_record())
         registry.add_domain_record("story", story_record())
         edition = edition_record()
-        edition["status"] = "published"
+        edition["status"] = "approved"
         registry.add_domain_record("edition", edition)
         with pytest.raises(RegistryIntegrityError, match="snapshots are immutable"):
             registry.revise_domain_record(
@@ -568,11 +568,12 @@ def test_pending_grant_requires_verified_evidence_before_approval() -> None:
         registry.add_permission_evidence(evidence_record(review_status="unreviewed"))
         pending = grant_record()
         pending["status"] = "pending"
-        pending["operations"]["discovery"] = {
-            "allowed": False,
-            "status": "denied",
-            "conditions": [],
-        }
+        for operation in ("discovery", "excerpt_storage"):
+            pending["operations"][operation] = {
+                "allowed": False,
+                "status": "denied",
+                "conditions": [],
+            }
         pending.pop("reviewed_at")
         pending.pop("reviewed_by")
         registry.add_permission_grant(pending)
@@ -1366,3 +1367,1271 @@ def test_existing_schema_v11_database_migrates_to_v12(tmp_path, monkeypatch) -> 
         ).fetchone() is not None
         migrated.migrate()
         assert migrated.schema_version() == 12
+
+
+def _benchmark_review_payload() -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "review_id": "review:benchmark-en-001",
+        "benchmark_id": "benchmark:headline-en-v1",
+        "benchmark_fingerprint": registry_module.sha256_fingerprint({"schema_version": "1.0.0", "items": [{"item_id": "headline-en-001", "task_type": "headline", "input": "A report about a verified event", "expected_output": "Verified event report", "scoring_criteria": ["Preserves the central fact", "Does not add unsupported detail"]}]}),
+        "language": "en",
+        "status": "approved",
+        "reviewer": {
+            "reviewer_id": "editor:lead",
+            "role": "English editor",
+            "language": "en",
+            "qualification_basis": "Professional English copy-editing and newsroom experience.",
+        },
+        "reviewed_at": "2026-11-20T00:00:00Z",
+        "source_materials": [{
+            "article_id": "article:publisher-a-001",
+            "source_id": "source:publisher-a",
+            "canonical_uri": "https://publisher-a.example.org/news/001",
+            "content_fingerprint": "sha256:" + "d" * 64,
+            "checked_at": "2026-11-19T18:00:00Z",
+            "approved_use_reference": "permission-evidence:publisher-a-001",
+            "permission_grant_id": "permission:publisher-a-discovery-001",
+            "endpoint_id": "endpoint:publisher-a-rss",
+            "permission_operation": "excerpt_storage",
+        }],
+        "corrections": [],
+        "adjudication_note": "Checked against the registered article and source evidence.",
+    }
+
+
+
+def _register_benchmark_test_principals(registry: SQLiteRegistry, *, reviewer_kind: str = "unverified") -> None:
+    registry.register_benchmark_principal(
+        "benchmark-curator", display_name="Test curator",
+        roles=["benchmark_curator"], provisioned_by="test-bootstrap",
+        reason="Provision test curator",
+    )
+    registry.register_benchmark_principal(
+        "curator", display_name="Curator",
+        roles=["benchmark_curator"], provisioned_by="test-bootstrap",
+        reason="Provision test curator",
+    )
+    for principal in ("editor:lead", "editor:second", "editor:en-01"):
+        registry.register_benchmark_principal(
+            principal, display_name=principal,
+            roles=["benchmark_reviewer"], provisioned_by="test-bootstrap",
+            reason="Provision test reviewer", languages=["en"], principal_kind=reviewer_kind,
+        )
+    registry.register_benchmark_principal(
+        "adjudicator:senior", display_name="Senior adjudicator",
+        roles=["benchmark_adjudicator"], provisioned_by="test-bootstrap",
+        reason="Provision test adjudicator",
+    )
+
+
+def _populate_benchmark_review_sources(registry: SQLiteRegistry, *, reviewer_kind: str = "unverified") -> None:
+    _register_benchmark_test_principals(registry, reviewer_kind=reviewer_kind)
+    registry.add_source(source_record())
+    registry.add_endpoint(endpoint_record())
+    registry.add_permission_evidence(evidence_record())
+    registry.add_permission_grant(grant_record())
+    registry.add_domain_record("article", article_record())
+    registry.register_benchmark_artifact(
+        "benchmark:headline-en-v1",
+        language="en",
+        content={"schema_version": "1.0.0", "items": [{"item_id": "headline-en-001", "task_type": "headline", "input": "A report about a verified event", "expected_output": "Verified event report", "scoring_criteria": ["Preserves the central fact", "Does not add unsupported detail"]}]},
+        actor="benchmark-curator",
+        reason="register immutable test artifact",
+    )
+
+
+def _benchmark_assignment_payload(**overrides):
+    payload = {
+        "schema_version": "1.0.0",
+        "assignment_id": "assignment:headline-en-001",
+        "artifact_id": "benchmark:headline-en-v1",
+        "artifact_fingerprint": registry_module.sha256_fingerprint({
+            "schema_version": "1.0.0",
+            "items": [{
+                "item_id": "headline-en-001",
+                "task_type": "headline",
+                "input": "A report about a verified event",
+                "expected_output": "Verified event report",
+                "scoring_criteria": ["Preserves the central fact", "Does not add unsupported detail"],
+            }],
+        }),
+        "language": "en",
+        "reviewer_id": "editor:lead",
+        "assigned_by": "curator",
+        "assigned_at": "2026-11-20T00:00:00Z",
+        "due_at": "2026-11-21T00:00:00Z",
+        "status": "assigned",
+        "reason": "Independent English benchmark review",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_assignment_persists_with_immutable_revision_history_and_audit():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        saved = registry.create_benchmark_review_assignment(
+            payload, actor="curator", reason="Assign independent English review",
+        )
+        assert saved["status"] == "assigned"
+        assert saved["revision"] == 1
+        history = registry.benchmark_review_assignment_history(payload["assignment_id"])
+        assert len(history) == 1
+        assert history[0]["actor"] == "curator"
+        assert history[0]["assignment"]["artifact_fingerprint"] == payload["artifact_fingerprint"]
+        assert registry.audit_events(entity_id=payload["assignment_id"])[0]["event_type"] == "benchmark_review_assignment.created"
+        with pytest.raises(sqlite3.IntegrityError, match="cannot be deleted"):
+            registry._connection.execute(
+                "DELETE FROM benchmark_review_assignments WHERE assignment_id = ?",
+                (payload["assignment_id"],),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="matching append-only revision"):
+            registry._connection.execute(
+                "UPDATE benchmark_review_assignments SET revision = 2 WHERE assignment_id = ?",
+                (payload["assignment_id"],),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "UPDATE benchmark_review_assignment_revisions SET reason = 'tampered' WHERE assignment_id = ?",
+                (payload["assignment_id"],),
+            )
+
+
+def test_assignment_requires_exact_artifact_and_current_language_qualified_reviewer():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload(artifact_fingerprint="sha256:" + "f" * 64)
+        with pytest.raises(RegistryIntegrityError, match="exact artifact"):
+            registry.create_benchmark_review_assignment(payload, actor="curator", reason="wrong fingerprint")
+        registry.register_benchmark_principal(
+            "editor:bangla-only", display_name="Bangla reviewer",
+            roles=["benchmark_reviewer"], languages=["bn"],
+            provisioned_by="test-bootstrap", reason="Bangla qualification",
+        )
+        payload = _benchmark_assignment_payload(
+            assignment_id="assignment:wrong-language-reviewer",
+            reviewer_id="editor:bangla-only",
+        )
+        with pytest.raises(RegistryIntegrityError, match="not qualified"):
+            registry.create_benchmark_review_assignment(payload, actor="curator", reason="wrong language")
+
+
+def test_assignment_requires_curator_and_prevents_duplicate_active_assignment():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload(assigned_by="editor:second")
+        with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+            registry.create_benchmark_review_assignment(payload, actor="editor:second", reason="not curator")
+        payload["assigned_by"] = "curator"
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="first assignment")
+        duplicate = _benchmark_assignment_payload(assignment_id="assignment:duplicate")
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
+            registry.create_benchmark_review_assignment(duplicate, actor="curator", reason="duplicate active assignment")
+
+
+def test_assignment_queue_filters_by_reviewer_status_and_language():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="assign")
+        assert len(registry.list_benchmark_review_assignments(reviewer_id="editor:lead")) == 1
+        assert len(registry.list_benchmark_review_assignments(status="assigned", language="en")) == 1
+        assert registry.list_benchmark_review_assignments(reviewer_id="editor:second") == []
+        with pytest.raises(ValueError, match="unsupported assignment status"):
+            registry.list_benchmark_review_assignments(status="approved")
+
+
+def test_assignment_acceptance_and_cancellation_are_persisted_as_revisions():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="assign")
+        accepted = registry.transition_benchmark_review_assignment(
+            payload["assignment_id"], event="accept", actor="editor:lead",
+            at="2026-11-20T01:00:00Z", reason="Reviewer accepted",
+        )
+        assert accepted["status"] == "accepted"
+        cancelled = registry.transition_benchmark_review_assignment(
+            payload["assignment_id"], event="cancel", actor="curator",
+            at="2026-11-20T02:00:00Z", reason="Reassigned by curator",
+        )
+        assert cancelled["status"] == "cancelled"
+        assert [entry["revision"] for entry in registry.benchmark_review_assignment_history(payload["assignment_id"])] == [1, 2, 3]
+
+
+def test_revoked_reviewer_cannot_accept_existing_assignment():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="assign")
+        registry.revoke_benchmark_principal(
+            "editor:lead", actor="test-bootstrap", reason="Reviewer access withdrawn",
+        )
+        with pytest.raises(RegistryIntegrityError, match="active registered principal"):
+            registry.transition_benchmark_review_assignment(
+                payload["assignment_id"], event="accept", actor="editor:lead",
+                at="2026-11-20T01:00:00Z", reason="revoked reviewer attempt",
+            )
+
+
+def test_assignment_submission_requires_stored_review_for_same_reviewer_and_artifact():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="assign")
+        registry.transition_benchmark_review_assignment(
+            payload["assignment_id"], event="accept", actor="editor:lead",
+            at="2026-11-20T01:00:00Z", reason="accepted",
+        )
+        with pytest.raises(RegistryIntegrityError, match="stored human review"):
+            registry.transition_benchmark_review_assignment(
+                payload["assignment_id"], event="submit", actor="editor:lead",
+                at="2026-11-20T02:00:00Z", reason="submit missing review",
+                submitted_review_id="review:missing",
+            )
+        review = _benchmark_review_payload()
+        registry.add_benchmark_review(review, actor="editor:lead", reason="complete assigned review")
+        submitted = registry.transition_benchmark_review_assignment(
+            payload["assignment_id"], event="submit", actor="editor:lead",
+            at="2026-11-20T03:00:00Z", reason="submit actual review",
+            submitted_review_id=review["review_id"],
+        )
+        assert submitted["status"] == "submitted"
+        assert submitted["submitted_review_id"] == review["review_id"]
+        assert len(registry.benchmark_review_assignment_history(payload["assignment_id"])) == 3
+
+
+def test_assignment_submission_rejects_review_for_different_reviewer():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(payload, actor="curator", reason="assign")
+        registry.transition_benchmark_review_assignment(
+            payload["assignment_id"], event="accept", actor="editor:lead",
+            at="2026-11-20T01:00:00Z", reason="accepted",
+        )
+        review = _benchmark_review_payload()
+        review["review_id"] = "review:benchmark-en-other"
+        review["reviewer"]["reviewer_id"] = "editor:second"
+        registry.add_benchmark_review(review, actor="editor:second", reason="other review")
+        with pytest.raises(RegistryIntegrityError, match="exact artifact"):
+            registry.transition_benchmark_review_assignment(
+                payload["assignment_id"], event="submit", actor="editor:lead",
+                at="2026-11-20T03:00:00Z", reason="wrong reviewer",
+                submitted_review_id=review["review_id"],
+            )
+
+
+def test_schema_v16_migrates_to_v17_assignment_ledger(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v16.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 16)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 16
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 17)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 17
+        tables = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "benchmark_review_assignments" in tables
+        assert "benchmark_review_assignment_revisions" in tables
+        columns = {
+            row["name"] for row in migrated._connection.execute(
+                "PRAGMA table_info(benchmark_principals)"
+            )
+        }
+        assert "languages_json" in columns
+        triggers = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert "benchmark_review_assignment_initial_revision" in triggers
+        assert "benchmark_review_assignment_update_requires_revision" in triggers
+        migrated.migrate()
+        assert migrated.schema_version() == 17
+
+
+def test_schema_17_migrates_principals_to_unverified_classification(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v17.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 17)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 17
+        old_registry._connection.execute(
+            """INSERT INTO benchmark_principals
+            (principal_id, display_name, roles_json, active, created_at, created_by, reason, languages_json)
+            VALUES (?, ?, ?, 1, ?, ?, ?, ?)""",
+            ("legacy:reviewer", "Legacy reviewer", '["benchmark_reviewer"]',
+             STAMP, "legacy-bootstrap", "Pre-migration reviewer", '["en"]'),
+        )
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 18)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 18
+        assert migrated.get_benchmark_principal("legacy:reviewer")["principal_kind"] == "unverified"
+        trigger = migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'benchmark_principal_kind_immutable'"
+        ).fetchone()
+        assert trigger is not None
+        with pytest.raises(sqlite3.IntegrityError, match="classification is immutable"):
+            migrated._connection.execute(
+                "UPDATE benchmark_principals SET principal_kind = 'human' WHERE principal_id = 'legacy:reviewer'"
+            )
+        migrated.migrate()
+        assert migrated.schema_version() == 18
+
+
+def test_schema_18_migrates_to_19_identity_attestation_ledger(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v18.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 18)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 18
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 19)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 19
+        tables = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "benchmark_review_identity_attestations" in tables
+        triggers = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert "benchmark_review_identity_attestations_no_update" in triggers
+        assert "benchmark_review_identity_attestations_no_delete" in triggers
+        migrated.migrate()
+        assert migrated.schema_version() == 19
+
+
+def _identity_attestation(review: dict, actor: str) -> dict:
+    return {
+        "attestation_id": f"identity-attestation:{review['review_id']}:1",
+        "review_id": review["review_id"],
+        "review_revision": 1,
+        "principal_id": actor,
+        "issuer": "https://login.example.test/",
+        "audience": "sngso-benchmark",
+        "subject": f"oidc:{actor}",
+        "authenticated_at": "2026-11-20T00:00:00Z",
+        "expires_at": "2026-11-20T01:00:00Z",
+        "authentication_methods": ["pwd", "mfa"],
+        "authentication_context": "urn:example:loa:2",
+        "provider_key_id": "key-2026-01",
+        "provider_adapter": "example-oidc-adapter/1.0",
+        "session_fingerprint": "sha256:" + "b" * 64,
+        "attested_at": "2026-11-20T00:01:00Z",
+    }
+
+
+def test_benchmark_readiness_never_confuses_test_principals_with_verified_humans():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="fixture review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Independent editorial experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second fixture review")
+        report = registry.benchmark_readiness_report(first["benchmark_id"])
+        assert report["status"] == "human_review_pending"
+        assert report["eligible_approved_review_count"] == 2
+        assert report["reviewer_classifications"] == ["unverified"]
+        assert report["production_ready"] is False
+        assert any("identity-provider attestation" in item for item in report["blockers"])
+
+
+def test_benchmark_readiness_requires_adjudication_even_for_two_human_classified_reviewers():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry, reviewer_kind="human")
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="human-classified review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Independent editorial experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second human-classified review")
+        report = registry.benchmark_readiness_report(first["benchmark_id"])
+        for review in (first, second):
+            registry.record_benchmark_review_identity_attestation(
+                _identity_attestation(review, review["reviewer"]["reviewer_id"]),
+                actor=review["reviewer"]["reviewer_id"],
+                reason="test trusted provider assertion",
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="identity attestations are immutable"):
+            registry._connection.execute(
+                "UPDATE benchmark_review_identity_attestations SET subject = 'forged' WHERE review_id = ?",
+                (first["review_id"],),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="identity attestations are immutable"):
+            registry._connection.execute(
+                "DELETE FROM benchmark_review_identity_attestations WHERE review_id = ?",
+                (first["review_id"],),
+            )
+        report = registry.benchmark_readiness_report(first["benchmark_id"])
+        assert report["status"] == "ready_for_adjudication"
+        assert report["distinct_eligible_reviewer_count"] == 2
+        assert report["production_ready"] is False
+        assert report["blockers"] == ["No independent final adjudication is recorded."]
+
+
+def test_identity_attestation_must_be_fresh_and_match_current_review_revision():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry, reviewer_kind="human")
+        review = _benchmark_review_payload()
+        registry.add_benchmark_review(review, actor="editor:lead", reason="initial review")
+        stale = _identity_attestation(review, "editor:lead")
+        stale["attested_at"] = "2026-11-20T00:20:00Z"
+        with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+            registry.record_benchmark_review_identity_attestation(
+                stale, actor="editor:lead", reason="stale identity assertion",
+            )
+        valid = _identity_attestation(review, "editor:lead")
+        registry.record_benchmark_review_identity_attestation(
+            valid, actor="editor:lead", reason="fresh identity assertion",
+        )
+        revised = {**review, "adjudication_note": "Reviewed again with a clearer rationale."}
+        registry.revise_benchmark_review(
+            review["review_id"], revised, expected_revision=1,
+            actor="editor:lead", reason="revised review rationale",
+        )
+        report = registry.benchmark_readiness_report(review["benchmark_id"])
+        assert report["reviews"][0]["identity_provider_attested"] is False
+        assert report["status"] == "human_review_pending"
+
+
+def test_synthetic_only_benchmark_is_never_reported_as_human_ready():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry, reviewer_kind="synthetic")
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="synthetic fixture review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Synthetic test fixture reviewer with no verified human identity."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second synthetic fixture review")
+        report = registry.benchmark_readiness_report(first["benchmark_id"])
+        assert report["status"] == "synthetic_only"
+        assert report["production_ready"] is False
+
+
+def test_benchmark_review_persists_with_registered_source_references_and_history():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        saved = registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+        assert saved["revision"] == 1
+        assert registry.get_benchmark_review(payload["review_id"])["status"] == "approved"
+        history = registry.benchmark_review_history(payload["review_id"])
+        assert len(history) == 1
+        assert history[0]["actor"] == "editor:lead"
+        assert history[0]["reason"] == "initial review"
+
+
+def test_benchmark_review_revision_is_append_only_and_optimistically_locked():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+        revised = {**payload, "status": "rejected", "adjudication_note": "Source attribution needs correction."}
+        revised["reviewer"]["reviewer_id"] = "editor:second"
+        result = registry.revise_benchmark_review(
+            payload["review_id"], revised, expected_revision=1,
+            actor="editor:second", reason="independent challenge",
+        )
+        assert result["revision"] == 2
+        history = registry.benchmark_review_history(payload["review_id"])
+        assert [item["revision"] for item in history] == [1, 2]
+        assert history[1]["actor"] == "editor:second"
+        with pytest.raises(RegistryIntegrityError, match="revision conflict"):
+            registry.revise_benchmark_review(
+                payload["review_id"], revised, expected_revision=1,
+                actor="editor:second", reason="stale update",
+            )
+
+
+def test_benchmark_review_rejects_unregistered_or_mismatched_source_material():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        payload["source_materials"][0]["source_id"] = "source:unknown"
+        with pytest.raises(RegistryIntegrityError, match="registered article"):
+            registry.add_benchmark_review(payload, actor="editor:lead", reason="bad source")
+
+
+def test_benchmark_review_requires_exact_operation_and_endpoint_grant():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        payload["source_materials"][0]["permission_operation"] = "translation"
+        with pytest.raises(RegistryIntegrityError, match="does not explicitly authorize"):
+            registry.add_benchmark_review(payload, actor="editor:lead", reason="operation not covered")
+
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        payload["source_materials"][0]["endpoint_id"] = "endpoint:publisher-b-rss"
+        with pytest.raises(RegistryIntegrityError, match="does not cover the declared endpoint"):
+            registry.add_benchmark_review(payload, actor="editor:lead", reason="endpoint not covered")
+
+
+def test_benchmark_review_quality_report_rechecks_current_permission():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+
+        report = registry.benchmark_review_quality_report(payload["review_id"])
+        assert report["eligible_for_current_use"] is True
+        assert all(item["passed"] for item in report["checks"])
+
+        registry.transition_permission_grant(
+            "permission:publisher-a-discovery-001",
+            "suspended",
+            actor="rights-reviewer",
+            reason="Permission requires renewed confirmation.",
+        )
+        report = registry.benchmark_review_quality_report(payload["review_id"])
+        assert report["eligible_for_current_use"] is False
+        assert any(
+            item["name"] == "current_source_permission" and not item["passed"]
+            for item in report["checks"]
+        )
+
+
+def test_story_snapshot_includes_linked_benchmark_review_provenance():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        registry.add_domain_record("story", story_record())
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+
+        snapshot = registry.story_editorial_snapshot("story:sample-event")
+        assert len(snapshot["benchmark_reviews"]) == 1
+        item = snapshot["benchmark_reviews"][0]
+        assert item["review_id"] == payload["review_id"]
+        assert item["revision"] == 1
+        assert item["quality_report"]["eligible_for_current_use"] is True
+        assert item["history"][0]["actor"] == "editor:lead"
+
+        registry.transition_permission_grant(
+            "permission:publisher-a-discovery-001",
+            "suspended",
+            actor="rights-reviewer",
+            reason="Permission requires renewed confirmation.",
+        )
+        refreshed = registry.story_editorial_snapshot("story:sample-event")
+        assert refreshed["benchmark_reviews"][0]["quality_report"]["eligible_for_current_use"] is False
+
+
+def test_benchmark_review_history_cannot_be_updated_or_deleted():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "DELETE FROM benchmark_review_revisions WHERE review_id = ?",
+                (payload["review_id"],),
+            )
+
+
+def test_existing_schema_v13_database_migrates_to_v14(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v13.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 13)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 13
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_artifacts'"
+        ).fetchone() is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 14)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 14
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'benchmark_artifacts_no_update'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 14
+
+
+def test_benchmark_artifact_fingerprint_is_computed_from_canonical_content():
+    with SQLiteRegistry() as registry:
+        _register_benchmark_test_principals(registry)
+        first = registry.register_benchmark_artifact(
+            "benchmark:canonical-en-v1", language="en",
+            content={"schema_version": "1.0.0", "items": [{"item_id": "canonical-1", "task_type": "summary", "input": {"z": 2, "a": [1]}, "expected_output": "Short accurate summary", "scoring_criteria": ["Faithful"]}]},
+            actor="curator", reason="initial registration",
+        )
+        second = registry.get_benchmark_artifact("benchmark:canonical-en-v1")
+        assert first["content_fingerprint"] == registry_module.sha256_fingerprint(
+            {"schema_version": "1.0.0", "items": [{"item_id": "canonical-1", "task_type": "summary", "input": {"a": [1], "z": 2}, "expected_output": "Short accurate summary", "scoring_criteria": ["Faithful"]}]}
+        )
+        assert second["fingerprint_verified"] is True
+        assert second["content"] == {"schema_version": "1.0.0", "items": [{"item_id": "canonical-1", "task_type": "summary", "input": {"a": [1], "z": 2}, "expected_output": "Short accurate summary", "scoring_criteria": ["Faithful"]}]}
+
+
+def test_benchmark_artifact_rejects_unstructured_or_incomplete_items():
+    with SQLiteRegistry() as registry:
+        with pytest.raises(RegistryIntegrityError, match="canonical editorial benchmark contract"):
+            registry.register_benchmark_artifact(
+                "benchmark:invalid-en-v1", language="en",
+                content={"items": [{"prompt": "Only a prompt"}]},
+                actor="curator", reason="invalid item fixture",
+            )
+
+
+def test_benchmark_artifact_rejects_duplicate_item_ids():
+    with SQLiteRegistry() as registry:
+        _register_benchmark_test_principals(registry)
+        item = {
+            "item_id": "duplicate-1",
+            "task_type": "headline",
+            "input": "Input",
+            "expected_output": "Output",
+            "scoring_criteria": ["Accurate"],
+        }
+        with pytest.raises(RegistryIntegrityError, match="item IDs must be unique"):
+            registry.register_benchmark_artifact(
+                "benchmark:duplicate-en-v1", language="en",
+                content={"schema_version": "1.0.0", "items": [item, dict(item)]},
+                actor="curator", reason="duplicate fixture",
+            )
+
+
+def test_benchmark_artifacts_cannot_be_updated_or_deleted():
+    with SQLiteRegistry() as registry:
+        _register_benchmark_test_principals(registry)
+        artifact = registry.register_benchmark_artifact(
+            "benchmark:immutable-en-v1", language="en",
+            content={"schema_version": "1.0.0", "items": [{"item_id": "item-1", "task_type": "headline", "input": "Input", "expected_output": "Output", "scoring_criteria": ["Accurate"]}]}, actor="curator", reason="initial registration",
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            registry._connection.execute(
+                "UPDATE benchmark_artifacts SET reason = 'tampered' WHERE artifact_id = ?",
+                (artifact["artifact_id"],),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            registry._connection.execute(
+                "DELETE FROM benchmark_artifacts WHERE artifact_id = ?",
+                (artifact["artifact_id"],),
+            )
+
+
+def test_benchmark_review_requires_exact_registered_artifact_and_language():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        payload["benchmark_fingerprint"] = "sha256:" + "f" * 64
+        with pytest.raises(RegistryIntegrityError, match="does not match registered artifact"):
+            registry.add_benchmark_review(payload, actor="editor:lead", reason="wrong fingerprint")
+
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        payload["language"] = "bn"
+        payload["reviewer"]["language"] = "bn"
+        with pytest.raises(RegistryIntegrityError, match="language does not match"):
+            registry.add_benchmark_review(payload, actor="editor:lead", reason="wrong language")
+
+
+def test_existing_schema_v12_database_migrates_to_v13(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v12.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 12)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 12
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_reviews'"
+        ).fetchone() is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 13)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 13
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'benchmark_reviews_record_update'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 13
+
+
+def test_direct_review_head_update_also_creates_history_via_trigger():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+        changed = {**payload, "status": "rejected", "adjudication_note": "Second review required."}
+        registry._connection.execute(
+            """UPDATE benchmark_reviews
+            SET status = 'rejected', revision = 2, updated_at = ?,
+                last_actor = ?, last_reason = ?, payload_json = ?
+            WHERE review_id = ?""",
+            (registry_module._utc_now(), "editor:second", "direct SQL revision", __import__("json").dumps(changed), payload["review_id"]),
+        )
+        history = registry.benchmark_review_history(payload["review_id"])
+        assert [item["revision"] for item in history] == [1, 2]
+        assert history[1]["actor"] == "editor:second"
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "UPDATE benchmark_review_revisions SET reason = 'tampered' WHERE review_id = ? AND revision = 1",
+                (payload["review_id"],),
+            )
+
+
+def test_benchmark_review_cannot_be_rebound_to_a_different_fingerprint():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_review_payload()
+        registry.add_benchmark_review(payload, actor="editor:lead", reason="initial review")
+        changed = {**payload, "benchmark_fingerprint": "sha256:" + "e" * 64}
+        with pytest.raises(RegistryIntegrityError, match="does not match registered artifact"):
+            registry.revise_benchmark_review(
+                payload["review_id"], changed, expected_revision=1,
+                actor="editor:second", reason="attempt to rebind old review",
+            )
+
+
+def test_benchmark_principal_roles_and_revocation_are_enforced_for_curators():
+    with SQLiteRegistry() as registry:
+        registry.register_benchmark_principal(
+            "reviewer-only", display_name="Reviewer only",
+            roles=["benchmark_reviewer"], provisioned_by="trusted-bootstrap",
+            reason="Test role boundary",
+        )
+        content = {"schema_version": "1.0.0", "items": [{
+            "item_id": "role-test", "task_type": "headline", "input": "Input",
+            "expected_output": "Output", "scoring_criteria": ["Accurate"],
+        }]}
+        with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+            registry.register_benchmark_artifact(
+                "benchmark:role-denied", language="en", content=content,
+                actor="reviewer-only", reason="Must be denied",
+            )
+        registry.register_benchmark_principal(
+            "curator-active", display_name="Curator",
+            roles=["benchmark_curator"], provisioned_by="trusted-bootstrap",
+            reason="Test curator role",
+        )
+        registry.revoke_benchmark_principal(
+            "curator-active", actor="trusted-bootstrap", reason="Access withdrawn",
+        )
+        assert registry.get_benchmark_principal("curator-active")["active"] is False
+        with pytest.raises(RegistryIntegrityError, match="active registered principal"):
+            registry.register_benchmark_artifact(
+                "benchmark:revoked", language="en", content=content,
+                actor="curator-active", reason="Must be denied after revocation",
+            )
+
+
+def test_benchmark_principal_role_assignments_are_validated_and_audited():
+    with SQLiteRegistry() as registry:
+        with pytest.raises(ValueError, match="roles must be"):
+            registry.register_benchmark_principal(
+                "unknown-role", display_name="Unknown",
+                roles=["superuser"], provisioned_by="trusted-bootstrap",
+                reason="Invalid role",
+            )
+        principal = registry.register_benchmark_principal(
+            "curator-one", display_name="Curator One",
+            roles=["benchmark_curator"], provisioned_by="trusted-bootstrap",
+            reason="Approved curator",
+        )
+        assert principal["active"] is True
+        assert principal["roles"] == ["benchmark_curator"]
+        events = registry.audit_events(entity_id="curator-one")
+        assert [event["event_type"] for event in events] == ["benchmark_principal.provisioned"]
+
+
+def test_existing_schema_v14_database_migrates_to_v15(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v14.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 14)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 14
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_principals'"
+        ).fetchone() is None
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 15)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 15
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_adjudications'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 15
+
+
+def test_benchmark_adjudication_is_persisted_against_two_stored_reviews():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first independent review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Experienced English editor with independent verification experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second independent review")
+        adjudication = {
+            "schema_version": "1.0.0",
+            "adjudication_id": "adjudication:benchmark-en-001",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": "split_accepted_answers",
+            "rationale": "Both answers preserve the verified facts while representing distinct acceptable editorial choices.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
+        }
+        saved = registry.add_benchmark_adjudication(
+            adjudication, actor="adjudicator:senior", reason="Resolve reviewer disagreement",
+        )
+        assert saved["adjudication_id"] == adjudication["adjudication_id"]
+        assert saved["outcome"] == "split_accepted_answers"
+        assert saved["actor"] == "adjudicator:senior"
+        assert registry.audit_events(entity_id=adjudication["adjudication_id"])[0]["event_type"] == "benchmark_adjudication.recorded"
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            registry._connection.execute(
+                "DELETE FROM benchmark_adjudications WHERE adjudication_id = ?",
+                (adjudication["adjudication_id"],),
+            )
+
+
+def test_benchmark_adjudication_rejects_reviewers_and_wrong_artifact_binding():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        registry.add_benchmark_review(second, actor="editor:second", reason="second review")
+        payload = {
+            "schema_version": "1.0.0",
+            "adjudication_id": "adjudication:benchmark-en-bad",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": "uphold_existing",
+            "rationale": "The first review is supported by the registered source evidence and the second review is resolved.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
+        }
+        payload["reviewer_ids"] = ["editor:lead", "editor:second"]
+        payload["adjudicator"]["principal_id"] = "editor:lead"
+        with pytest.raises(RegistryIntegrityError, match="contract or independence|lacks required role|independent"):
+            registry.add_benchmark_adjudication(
+                payload, actor="editor:lead", reason="Invalid self-adjudication",
+            )
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_eligible"),
+    [
+        ("uphold_existing", True),
+        ("return_for_revision", False),
+        ("reject_benchmark_item", False),
+        ("split_accepted_answers", False),
+    ],
+)
+def test_adjudication_outcome_controls_current_use_eligibility(outcome, expected_eligible):
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Experienced English editor with independent verification experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second review")
+        adjudication = {
+            "schema_version": "1.0.0",
+            "adjudication_id": f"adjudication:policy-{outcome}",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": outcome,
+            "rationale": "The adjudicator compared both independent reviews against the registered evidence and resolved their disagreement.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
+        }
+        if outcome == "uphold_existing":
+            adjudication["upheld_review_ids"] = [first["review_id"]]
+        registry.add_benchmark_adjudication(
+            adjudication, actor="adjudicator:senior", reason="Apply adjudication policy",
+        )
+        report = registry.benchmark_review_quality_report(first["review_id"])
+        assert report["eligible_for_current_use"] is expected_eligible
+        policy_check = next(item for item in report["checks"] if item["name"] == "adjudication_policy")
+        assert policy_check["passed"] is expected_eligible
+        assert report["adjudication"]["outcome"] == outcome
+
+
+def test_benchmark_adjudication_rejects_multiple_final_decisions_for_one_artifact():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Experienced English editor with independent verification experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second review")
+        payload = {
+            "schema_version": "1.0.0",
+            "adjudication_id": "adjudication:final-one",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": "reject_benchmark_item",
+            "rationale": "The benchmark item contains a material ambiguity that cannot be accepted in its current form.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
+        }
+        registry.add_benchmark_adjudication(payload, actor="adjudicator:senior", reason="Final decision")
+        second_decision = dict(payload)
+        second_decision["adjudication_id"] = "adjudication:final-two"
+        second_decision["outcome"] = "uphold_existing"
+        second_decision["upheld_review_ids"] = [first["review_id"]]
+        second_decision["resolved_at"] = "2026-11-20T00:01:00Z"
+        with pytest.raises(sqlite3.IntegrityError, match="already has a final adjudication"):
+            registry.add_benchmark_adjudication(second_decision, actor="adjudicator:senior", reason="Attempt to supersede final decision")
+        report = registry.benchmark_review_quality_report(first["review_id"])
+        assert report["eligible_for_current_use"] is False
+        assert report["adjudication"]["outcome"] == "reject_benchmark_item"
+
+
+def test_final_adjudication_freezes_review_revision_for_that_artifact():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Experienced English editor with independent verification experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second review")
+        adjudication = {
+            "schema_version": "1.0.0",
+            "adjudication_id": "adjudication:freeze-review",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": "reject_benchmark_item",
+            "rationale": "The benchmark item is rejected because its expected output cannot be justified by the supplied source evidence.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
+        }
+        registry.add_benchmark_adjudication(adjudication, actor="adjudicator:senior", reason="Final rejection")
+        revised = dict(first)
+        revised["status"] = "rejected"
+        revised["adjudication_note"] = "The adjudicator rejected this item."
+        with pytest.raises(RegistryIntegrityError, match="finally adjudicated"):
+            registry.revise_benchmark_review(
+                first["review_id"], revised, expected_revision=1,
+                actor="editor:lead", reason="Attempt revision after final adjudication",
+            )
+
+
+def test_uphold_existing_only_preserves_the_explicitly_selected_approved_review():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        first = _benchmark_review_payload()
+        registry.add_benchmark_review(first, actor="editor:lead", reason="first review")
+        second = _benchmark_review_payload()
+        second["review_id"] = "review:benchmark-en-002"
+        second["reviewer"]["reviewer_id"] = "editor:second"
+        second["reviewer"]["qualification_basis"] = "Experienced English editor with independent verification experience."
+        registry.add_benchmark_review(second, actor="editor:second", reason="second review")
+        payload = {
+            "schema_version": "1.0.0",
+            "adjudication_id": "adjudication:select-one",
+            "benchmark_id": first["benchmark_id"],
+            "benchmark_fingerprint": first["benchmark_fingerprint"],
+            "review_ids": [first["review_id"], second["review_id"]],
+            "reviewer_ids": ["editor:lead", "editor:second"],
+            "adjudicator": {
+                "principal_id": "adjudicator:senior",
+                "role": "benchmark_adjudicator",
+                "qualification_basis": "Senior bilingual editor with documented adjudication experience.",
+                "independent_of_reviewers": True,
+            },
+            "outcome": "uphold_existing",
+            "upheld_review_ids": [first["review_id"]],
+            "rationale": "The first approved review correctly applies the evidence while the second review is not accepted.",
+            "evidence_references": ["permission-evidence:publisher-a-001"],
+            "resolved_at": "2026-11-20T00:00:00Z",
+            "issue_resolutions": [{
+                "issue_id": "claim-support-1",
+                "category": "source_support",
+                "severity": "major",
+                "description": "The reviewers disagree about whether the source supports the benchmark answer.",
+                "reviewer_positions": {
+                    first["review_id"]: "The cited source directly supports the answer.",
+                    second["review_id"]: "The cited source does not establish the answer as written."
+                },
+                "disposition": "reviewer_one_upheld",
+                "resolution": "The registered primary-source evidence supports the answer, while the alternate reading omits the relevant source context.",
+                "evidence_references": ["permission-evidence:publisher-a-001"]
+            }],
+        }
+        registry.add_benchmark_adjudication(payload, actor="adjudicator:senior", reason="Select accepted review")
+        assert registry.benchmark_review_quality_report(first["review_id"])["eligible_for_current_use"] is True
+        assert registry.benchmark_review_quality_report(second["review_id"])["eligible_for_current_use"] is False
+
+
+def test_schema_v15_migrates_to_v16_with_single_final_adjudication_guard(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v15.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 15)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 15
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 16)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 16
+        trigger = migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'benchmark_adjudications_one_per_artifact'"
+        ).fetchone()
+        assert trigger is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 16
+
+
+
+
+
+def test_latest_registry_contains_append_only_score_study_execution_and_acceptance_stores():
+    with SQLiteRegistry() as registry:
+        assert registry.schema_version() == 30
+        tables = {
+            row["name"] for row in registry._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        triggers = {
+            row["name"] for row in registry._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert "edition_artifacts" in tables
+        assert "benchmark_scores" in tables
+        assert "edition_artifacts_no_update" in triggers
+        assert "edition_artifacts_no_delete" in triggers
+        assert "benchmark_scores_no_update" in triggers
+        assert "benchmark_scores_no_delete" in triggers
+        assert "benchmark_study_protocols" in tables
+        assert "benchmark_study_protocols_no_update" in triggers
+        assert "benchmark_study_protocols_no_delete" in triggers
+        assert "benchmark_study_executions" in tables
+        assert "benchmark_study_executions_no_update" in triggers
+        assert "benchmark_study_executions_no_delete" in triggers
+        assert "benchmark_acceptance_reviews" in tables
+        assert "benchmark_acceptance_reviews_no_update" in triggers
+        assert "benchmark_acceptance_reviews_no_delete" in triggers
+
+
+def test_existing_schema_v20_database_migrates_to_v21(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v20.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 20)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 20
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_study_protocols'"
+        ).fetchone() is None
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 21)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 21
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_study_protocols'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 21
+
+
+def test_existing_schema_v21_database_migrates_to_v23(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v21.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 21)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 21
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_study_executions'"
+        ).fetchone() is None
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 23)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 23
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_study_executions'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 23
+
+
+def test_existing_schema_v24_database_migrates_to_v25(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v24.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 24)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 24
+        trigger = old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND name='learning_object_question_answer_evidence_insert'"
+        ).fetchone()
+        assert trigger is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 25)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 25
+        trigger_names = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger'"
+            )
+        }
+        assert "learning_object_question_answer_evidence_insert" in trigger_names
+        assert "learning_object_question_answer_evidence_update" in trigger_names
+        migrated.migrate()
+        assert migrated.schema_version() == 25
+
+
+def test_existing_schema_v23_database_migrates_to_v24(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v23.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 23)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 23
+        trigger = old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND name='learning_object_vocabulary_source_evidence_insert'"
+        ).fetchone()
+        assert trigger is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 24)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 24
+        trigger_names = {
+            row["name"] for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger'"
+            )
+        }
+        assert "learning_object_vocabulary_source_evidence_insert" in trigger_names
+        assert "learning_object_vocabulary_source_evidence_update" in trigger_names
+        migrated.migrate()
+        assert migrated.schema_version() == 24
+
+
+def test_existing_schema_v22_database_migrates_to_v23(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v22.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 22)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 22
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_study_executions'"
+        ).fetchone() is not None
+        assert old_registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_acceptance_reviews'"
+        ).fetchone() is None
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 23)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 23
+        assert migrated._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_acceptance_reviews'"
+        ).fetchone() is not None
+        migrated.migrate()
+        assert migrated.schema_version() == 23

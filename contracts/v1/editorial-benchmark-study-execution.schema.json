@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sarangsho.example/contracts/v1/editorial-benchmark-study-execution.schema.json",
+  "title": "Editorial benchmark study execution record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "execution_id",
+    "study_id",
+    "study_version",
+    "protocol_fingerprint",
+    "benchmark_id",
+    "benchmark_fingerprint",
+    "rubric_version",
+    "started_at",
+    "completed_at",
+    "score_records",
+    "missing_records",
+    "analysis"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "execution_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160
+    },
+    "study_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160
+    },
+    "study_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "protocol_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "benchmark_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "benchmark_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "rubric_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "score_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "score_id",
+          "item_id",
+          "evaluator_id"
+        ],
+        "properties": {
+          "score_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "evaluator_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        }
+      }
+    },
+    "missing_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "evaluator_id",
+          "reason"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "evaluator_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 1000
+          },
+          "score_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        }
+      }
+    },
+    "analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurement_scale",
+        "statistic_name",
+        "estimate",
+        "confidence_interval",
+        "confidence_level",
+        "sampled_item_count",
+        "scored_pair_count",
+        "missing_pair_count",
+        "analysis_artifact_fingerprint",
+        "missing_data_handling",
+        "independence_assessment",
+        "methodologist_id",
+        "methodologist_rationale",
+        "reviewed_at"
+      ],
+      "properties": {
+        "measurement_scale": {
+          "enum": [
+            "nominal",
+            "ordinal",
+            "interval",
+            "ratio"
+          ]
+        },
+        "statistic_name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "estimate": {
+          "type": "number"
+        },
+        "confidence_interval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lower",
+            "upper"
+          ],
+          "properties": {
+            "lower": {
+              "type": "number"
+            },
+            "upper": {
+              "type": "number"
+            }
+          }
+        },
+        "confidence_level": {
+          "type": "number",
+          "exclusiveMinimum": 0.5,
+          "exclusiveMaximum": 1
+        },
+        "sampled_item_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scored_pair_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "missing_pair_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "analysis_artifact_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "missing_data_handling": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 2000
+        },
+        "independence_assessment": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 2000
+        },
+        "methodologist_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "methodologist_rationale": {
+          "type": "string",
+          "minLength": 30,
+          "maxLength": 3000
+        },
+        "reviewed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 1000
+      }
+    }
+  }
+}

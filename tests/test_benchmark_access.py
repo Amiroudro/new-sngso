@@ -1,0 +1,714 @@
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from sngso_engine.benchmark_access import (
+    AuthenticatedBenchmarkAccess,
+    AuthenticatedIdentity,
+)
+from sngso_engine.registry import RegistryIntegrityError
+
+
+NOW = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
+
+
+class FakeIdentityProvider:
+    def __init__(self, identity):
+        self.identity = identity
+
+    def authenticate(self, request_context):
+        if request_context != "trusted-request":
+            raise RegistryIntegrityError("untrusted request context")
+        return self.identity
+
+
+class FakeRegistry:
+    def __init__(self, *, roles=("benchmark_curator",), active=True):
+        self.principal = {
+            "principal_id": "person:42",
+            "roles": list(roles),
+            "languages": ["en", "bn"],
+            "active": active,
+            "principal_kind": "human",
+        }
+        self.calls = []
+
+    def register_benchmark_principal(self, principal_id, **kwargs):
+        self.calls.append(("provision", principal_id, kwargs))
+        return {"principal_id": principal_id, "active": True, **kwargs}
+
+    def revoke_benchmark_principal(self, principal_id, **kwargs):
+        self.calls.append(("revoke", principal_id, kwargs))
+        return {"principal_id": principal_id, "active": False}
+
+    def reinstate_benchmark_principal(self, principal_id, **kwargs):
+        self.calls.append(("reinstate", principal_id, kwargs))
+        return {"principal_id": principal_id, "active": True}
+
+    def get_benchmark_principal(self, principal_id):
+        return self.principal if principal_id == self.principal["principal_id"] else None
+
+    def register_benchmark_acceptance_review(self, payload, **kwargs):
+        self.calls.append(("acceptance_review", payload, kwargs))
+        return {"review_id": payload["review_id"], "reviewer_id": kwargs["actor"], "decision": payload["decision"]}
+
+    def get_benchmark_acceptance_review(self, review_id):
+        self.calls.append(("get_acceptance_review", review_id))
+        return {"review_id": review_id, "reviewer_id": "person:42"}
+
+    def list_benchmark_acceptance_reviews(self, **kwargs):
+        self.calls.append(("list_acceptance_reviews", kwargs))
+        return [{"study_id": kwargs.get("study_id")}]
+
+    def register_benchmark_study_execution(self, payload, **kwargs):
+        self.calls.append(("study_execution", payload, kwargs))
+        return {"execution_id": payload["execution_id"], **kwargs}
+
+    def get_benchmark_study_execution(self, execution_id):
+        self.calls.append(("get_study_execution", execution_id))
+        return {"execution_id": execution_id}
+
+    def list_benchmark_study_executions(self, study_id):
+        self.calls.append(("list_study_executions", study_id))
+        return [{"study_id": study_id}]
+
+    def register_benchmark_study_protocol(self, payload, **kwargs):
+        self.calls.append(("study_protocol", payload, kwargs))
+        return {"study_id": payload["study_id"], **kwargs}
+
+    def get_benchmark_study_protocol(self, study_id, study_version=None):
+        self.calls.append(("get_study_protocol", study_id, study_version))
+        return {"study_id": study_id, "study_version": study_version}
+
+    def benchmark_study_protocol_history(self, study_id):
+        self.calls.append(("study_protocol_history", study_id))
+        return [{"study_id": study_id, "study_version": 1}]
+
+    def register_benchmark_artifact(self, artifact_id, **kwargs):
+        self.calls.append(("artifact", artifact_id, kwargs))
+        return {"artifact_id": artifact_id, **kwargs}
+
+    def add_benchmark_review(self, review, **kwargs):
+        self.calls.append(("review", review, kwargs))
+        return {**review, "revision": 1}
+
+    def record_benchmark_review_identity_attestation(self, attestation, **kwargs):
+        self.calls.append(("identity_attestation", attestation, kwargs))
+        return attestation
+
+    def add_benchmark_adjudication(self, payload, **kwargs):
+        self.calls.append(("adjudication", payload, kwargs))
+        return payload
+
+    def add_benchmark_score(self, score, **kwargs):
+        self.calls.append(("score", score, kwargs))
+        return {"score_id": "score:assignment:item", "evaluator_id": kwargs["actor"]}
+
+    def create_benchmark_review_assignment(self, payload, **kwargs):
+        self.calls.append(("assignment", payload, kwargs))
+        return payload
+
+    def get_benchmark_review_assignment(self, assignment_id):
+        return {"assignment_id": assignment_id, "assigned_by": "person:42", "reviewer_id": "person:42"}
+
+    def transition_benchmark_review_assignment(self, assignment_id, **kwargs):
+        self.calls.append(("assignment_transition", assignment_id, kwargs))
+        return {"assignment_id": assignment_id, **kwargs}
+
+    def list_benchmark_review_assignments(self, **kwargs):
+        self.calls.append(("assignment_queue", kwargs))
+        return [{"reviewer_id": kwargs.get("reviewer_id"), "status": kwargs.get("status")}]
+
+
+def identity(**overrides):
+    values = {
+        "principal_id": "person:42",
+        "issuer": "https://login.example.test/",
+        "audience": "sngso-benchmark",
+        "authenticated_at": NOW - timedelta(minutes=2),
+        "expires_at": NOW + timedelta(minutes=10),
+        "session_id": "session:opaque",
+        "subject": "oidc-subject-42",
+        "authentication_methods": ("pwd", "mfa"),
+        "authentication_context": "urn:example:loa:2",
+        "provider_key_id": "key-2026-01",
+        "provider_adapter": "example-oidc-adapter/1.0",
+    }
+    values.update(overrides)
+    return AuthenticatedIdentity(**values)
+
+
+def access(registry=None, session=None):
+    return AuthenticatedBenchmarkAccess(
+        registry or FakeRegistry(),
+        FakeIdentityProvider(session or identity()),
+        expected_issuer="https://login.example.test/",
+        expected_audience="sngso-benchmark",
+        subject_to_principal=lambda issuer, subject: "person:42" if (issuer, subject) == ("https://login.example.test/", "oidc-subject-42") else None,
+        clock=lambda: NOW,
+    )
+
+
+def test_trusted_session_can_register_artifact_without_client_supplied_actor():
+    registry = FakeRegistry()
+    result = access(registry).register_artifact(
+        "trusted-request", "bn-editorial-001", language="bn",
+        content={"items": []}, reason="Curated initial benchmark",
+    )
+    assert result["artifact_id"] == "bn-editorial-001"
+    assert registry.calls[0][2]["actor"] == "person:42"
+
+
+@pytest.mark.parametrize(
+    "claims, message",
+    [
+        ({"issuer": "https://attacker.example/"}, "issuer mismatch"),
+        ({"audience": "other-app"}, "audience mismatch"),
+        ({"expires_at": NOW}, "not currently valid"),
+        ({"authenticated_at": NOW + timedelta(seconds=1)}, "not currently valid"),
+    ],
+)
+def test_invalid_or_expired_identity_is_rejected(claims, message):
+    with pytest.raises(RegistryIntegrityError, match=message):
+        access(session=identity(**claims)).register_artifact(
+            "trusted-request", "artifact", language="en",
+            content={"items": []}, reason="test",
+        )
+
+
+def test_inactive_registry_principal_is_rejected_even_with_valid_login():
+    registry = FakeRegistry(active=False)
+    with pytest.raises(RegistryIntegrityError, match="not active"):
+        access(registry).register_artifact(
+            "trusted-request", "artifact", language="en",
+            content={"items": []}, reason="test",
+        )
+
+
+def test_missing_registry_role_is_rejected():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+        access(registry).register_artifact(
+            "trusted-request", "artifact", language="en",
+            content={"items": []}, reason="test",
+        )
+
+
+def test_untrusted_request_context_is_rejected_by_provider():
+    with pytest.raises(RegistryIntegrityError, match="untrusted request"):
+        access().register_artifact(
+            "client-supplied-id", "artifact", language="en",
+            content={"items": []}, reason="test",
+        )
+
+
+def test_review_submission_persists_provider_identity_attestation_without_raw_session_id():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    review = {"review_id": "review:one", "reviewer": {"reviewer_id": "person:42"}}
+    access(registry).submit_review("trusted-request", review, reason="review submitted")
+    attestation = next(call[1] for call in registry.calls if call[0] == "identity_attestation")
+    assert attestation["subject"] == "oidc-subject-42"
+    assert attestation["authentication_methods"] == ["pwd", "mfa"]
+    assert attestation["provider_key_id"] == "key-2026-01"
+    assert attestation["provider_adapter"] == "example-oidc-adapter/1.0"
+    assert attestation["session_fingerprint"].startswith("sha256:")
+    assert "session:opaque" not in str(attestation)
+    assert attestation["review_revision"] == 1
+
+
+def test_review_submission_rejects_stale_authentication():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    stale = identity(authenticated_at=NOW - timedelta(minutes=16))
+    with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+        access(registry, stale).submit_review(
+            "trusted-request", {"reviewer": {"reviewer_id": "person:42"}},
+            reason="stale session",
+        )
+    assert registry.calls == []
+
+
+def test_review_submission_rejects_identity_without_provider_verification_metadata():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    session = identity(provider_key_id="", provider_adapter="")
+    with pytest.raises(RegistryIntegrityError, match="verification key and adapter"):
+        access(registry, session).submit_review(
+            "trusted-request", {"reviewer": {"reviewer_id": "person:42"}},
+            reason="missing provider metadata",
+        )
+    assert registry.calls == []
+
+
+def test_review_identity_must_match_authenticated_principal():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    review = {"reviewer": {"reviewer_id": "person:attacker"}}
+    with pytest.raises(RegistryIntegrityError, match="must match"):
+        access(registry).submit_review("trusted-request", review, reason="test")
+    assert registry.calls == []
+
+
+def test_adjudicator_identity_must_match_authenticated_principal():
+    registry = FakeRegistry(roles=("benchmark_adjudicator",))
+    payload = {"adjudicator": {"principal_id": "person:attacker"}}
+    with pytest.raises(RegistryIntegrityError, match="must match"):
+        access(registry).adjudicate("trusted-request", payload, reason="test")
+    assert registry.calls == []
+
+
+def test_assignment_actor_is_derived_from_authenticated_curator():
+    registry = FakeRegistry()
+    payload = {"assigned_by": "person:42", "reviewer_id": "person:reviewer"}
+    access(registry).assign_review("trusted-request", payload, reason="Assign review")
+    assert registry.calls[-1][0] == "assignment"
+    assert registry.calls[-1][2]["actor"] == "person:42"
+
+
+def test_assignment_cannot_claim_another_assigner():
+    registry = FakeRegistry()
+    with pytest.raises(RegistryIntegrityError, match="must match"):
+        access(registry).assign_review(
+            "trusted-request", {"assigned_by": "person:attacker"},
+            reason="Attempted actor substitution",
+        )
+    assert registry.calls == []
+
+
+def test_acceptance_uses_authenticated_reviewer_and_not_request_actor():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    result = access(registry).transition_review_assignment(
+        "trusted-request", "assignment:001", event="accept",
+        at="2026-11-20T12:00:00Z", reason="Accepted",
+    )
+    assert result["assignment_id"] == "assignment:001"
+    assert registry.calls[-1][2]["actor"] == "person:42"
+
+
+def test_assignment_expiry_requires_authenticated_curator():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    access(registry).transition_review_assignment(
+        "trusted-request", "assignment:001", event="expire",
+        at="2026-11-21T12:00:00Z", reason="Deadline passed",
+    )
+    assert registry.calls[-1][2]["actor"] == "person:42"
+
+
+def test_reviewer_queue_is_scoped_to_authenticated_principal():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    result = access(registry).reviewer_assignment_queue(
+        "trusted-request", status="assigned", language="en",
+    )
+    assert result[0]["reviewer_id"] == "person:42"
+    assert registry.calls[-1][1]["reviewer_id"] == "person:42"
+
+
+def test_reviewer_queue_rejects_unqualified_language():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.principal["languages"] = ["bn"]
+    with pytest.raises(RegistryIntegrityError, match="not qualified"):
+        access(registry).reviewer_assignment_queue(
+            "trusted-request", language="en",
+        )
+
+
+def test_assignment_transition_rejects_authenticated_non_assignee():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.get_benchmark_review_assignment = lambda assignment_id: {
+        "assignment_id": assignment_id,
+        "assigned_by": "person:curator",
+        "reviewer_id": "person:someone-else",
+    }
+    with pytest.raises(RegistryIntegrityError, match="must match the assigned reviewer"):
+        access(registry).transition_review_assignment(
+            "trusted-request", "assignment:001", event="accept",
+            at="2026-11-20T12:00:00Z", reason="wrong reviewer",
+        )
+    assert not any(call[0] == "assignment_transition" for call in registry.calls)
+
+
+
+def test_provider_subject_must_be_bound_to_the_authenticated_registry_principal():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    mismatched = identity(subject="some-other-person")
+    with pytest.raises(RegistryIntegrityError, match="not bound"):
+        access(registry, mismatched).submit_review(
+            "trusted-request",
+            {"review_id": "review:spoofed", "reviewer": {"reviewer_id": "person:42"}},
+            reason="subject substitution",
+        )
+    assert registry.calls == []
+
+
+def test_missing_provider_subject_is_rejected_before_registry_access():
+    registry = FakeRegistry()
+    missing = identity(subject="")
+    with pytest.raises(RegistryIntegrityError, match="subject is missing"):
+        access(registry, missing).register_artifact(
+            "trusted-request", "artifact", language="en",
+            content={"items": []}, reason="missing subject",
+        )
+    assert registry.calls == []
+
+
+
+def test_only_authenticated_security_admin_can_provision_principals():
+    registry = FakeRegistry(roles=("benchmark_security_admin",))
+    result = access(registry).provision_principal(
+        "trusted-request", "person:new", display_name="New reviewer",
+        roles=["benchmark_reviewer"], languages=["bn"],
+        principal_kind="human", reason="Approved reviewer onboarding",
+    )
+    assert result["principal_id"] == "person:new"
+    assert registry.calls[-1][0] == "provision"
+    assert registry.calls[-1][2]["provisioned_by"] == "person:42"
+
+
+def test_curator_cannot_provision_or_grant_security_roles():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+        access(registry).provision_principal(
+            "trusted-request", "person:new", display_name="New admin",
+            roles=["benchmark_security_admin"], reason="unauthorized",
+        )
+    assert registry.calls == []
+
+
+def test_security_admin_cannot_provision_themselves():
+    registry = FakeRegistry(roles=("benchmark_security_admin",))
+    with pytest.raises(RegistryIntegrityError, match="cannot provision themselves"):
+        access(registry).provision_principal(
+            "trusted-request", "person:42", display_name="Self",
+            roles=["benchmark_security_admin"], reason="self grant",
+        )
+    assert registry.calls == []
+
+
+def test_security_admin_can_revoke_and_reinstate_other_principal():
+    registry = FakeRegistry(roles=("benchmark_security_admin",))
+    facade = access(registry)
+    revoked = facade.revoke_principal("trusted-request", "person:other", reason="Access review")
+    reinstated = facade.reinstate_principal("trusted-request", "person:other", reason="Reapproved")
+    assert revoked["active"] is False
+    assert reinstated["active"] is True
+    assert [call[0] for call in registry.calls] == ["revoke", "reinstate"]
+
+
+def test_security_admin_cannot_revoke_or_reinstate_self():
+    registry = FakeRegistry(roles=("benchmark_security_admin",))
+    facade = access(registry)
+    with pytest.raises(RegistryIntegrityError, match="cannot revoke their own"):
+        facade.revoke_principal("trusted-request", "person:42", reason="self revoke")
+    with pytest.raises(RegistryIntegrityError, match="cannot reinstate their own"):
+        facade.reinstate_principal("trusted-request", "person:42", reason="self restore")
+    assert registry.calls == []
+
+
+
+def test_score_submission_uses_authenticated_recent_human_reviewer_identity():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    score = {"evaluator_id": "person:42", "item_id": "item-1"}
+    result = access(registry).submit_score(
+        "trusted-request", "assignment-1", score, reason="Criterion scoring completed"
+    )
+    assert result["evaluator_id"] == "person:42"
+    call = next(entry for entry in registry.calls if entry[0] == "score")
+    assert call[2]["assignment_id"] == "assignment-1"
+    assert call[2]["identity"]["subject"] == "oidc-subject-42"
+    assert call[2]["identity"]["provider_key_id"] == "key-2026-01"
+
+
+def test_score_submission_rejects_stale_authentication_before_registry_write():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    stale = identity(authenticated_at=NOW - timedelta(minutes=16))
+    with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+        access(registry, stale).submit_score(
+            "trusted-request", "assignment-1",
+            {"evaluator_id": "person:42"}, reason="stale",
+        )
+    assert registry.calls == []
+
+
+def test_score_submission_rejects_synthetic_or_unverified_evaluator():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.principal["principal_kind"] = "synthetic"
+    with pytest.raises(RegistryIntegrityError, match="human-classified"):
+        access(registry).submit_score(
+            "trusted-request", "assignment-1",
+            {"evaluator_id": "person:42"}, reason="synthetic",
+        )
+    assert registry.calls == []
+
+
+def test_study_protocol_registration_uses_authenticated_curator_identity():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    payload = {"study_id": "study:bn:one", "study_version": 1}
+    result = access(registry).register_study_protocol(
+        "trusted-request", payload, reason="Register prespecified study",
+    )
+    assert result["study_id"] == payload["study_id"]
+    assert registry.calls[-1][0] == "study_protocol"
+    assert registry.calls[-1][2]["actor"] == "person:42"
+
+
+def test_reviewer_cannot_register_or_read_study_protocols():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    facade = access(registry)
+    with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+        facade.register_study_protocol(
+            "trusted-request", {"study_id": "study:bn:one"}, reason="Unauthorized",
+        )
+    with pytest.raises(RegistryIntegrityError, match="lacks required role"):
+        facade.get_study_protocol("trusted-request", "study:bn:one")
+    assert registry.calls == []
+
+
+def test_curator_can_read_protocol_history_through_facade():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    result = access(registry).study_protocol_history("trusted-request", "study:bn:one")
+    assert result == [{"study_id": "study:bn:one", "study_version": 1}]
+    assert registry.calls == [("study_protocol_history", "study:bn:one")]
+
+
+def test_study_execution_requires_authenticated_independent_methodologist():
+    registry = FakeRegistry(roles=("benchmark_methodologist",))
+    payload = {"execution_id": "execution:one", "analysis": {"methodologist_id": "person:42"}}
+    result = access(registry).register_study_execution(
+        "trusted-request", payload, reason="Submit reviewed study analysis",
+    )
+    assert result["execution_id"] == "execution:one"
+    call = registry.calls[-1]
+    assert call[0] == "study_execution"
+    assert call[2]["actor"] == "person:42"
+    assert call[2]["identity"]["subject"] == "oidc-subject-42"
+
+
+def test_curator_cannot_submit_study_execution_as_methodologist():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    with pytest.raises(RegistryIntegrityError, match="methodologist"):
+        access(registry).register_study_execution(
+            "trusted-request",
+            {"execution_id": "execution:one", "analysis": {"methodologist_id": "person:42"}},
+            reason="Unauthorized analysis submission",
+        )
+    assert registry.calls == []
+
+
+def test_methodologist_cannot_submit_analysis_for_another_principal():
+    registry = FakeRegistry(roles=("benchmark_methodologist",))
+    with pytest.raises(RegistryIntegrityError, match="must match"):
+        access(registry).register_study_execution(
+            "trusted-request",
+            {"execution_id": "execution:one", "analysis": {"methodologist_id": "someone-else"}},
+            reason="Identity substitution",
+        )
+    assert registry.calls == []
+
+
+def test_acceptance_review_submission_uses_authenticated_human_role_and_provider_provenance():
+    registry = FakeRegistry(roles=("benchmark_acceptance_reviewer",))
+    payload = {"review_id": "acceptance:one", "reviewer_id": "person:42",
+               "reviewer_role": "independent_acceptance_reviewer",
+               "decision": "accepted_for_limited_use"}
+    result = access(registry).submit_acceptance_review(
+        "trusted-request", payload, reason="independent review"
+    )
+    call = next(call for call in registry.calls if call[0] == "acceptance_review")
+    assert result["reviewer_id"] == "person:42"
+    assert call[2]["actor"] == "person:42"
+    assert call[2]["identity"]["subject"] == "oidc-subject-42"
+    assert call[2]["identity"]["provider_key_id"] == "key-2026-01"
+    assert "session:opaque" not in str(call[2])
+
+
+def test_acceptance_review_rejects_wrong_role_or_reviewer_identity():
+    registry = FakeRegistry(roles=("benchmark_curator",))
+    payload = {"reviewer_id": "person:42"}
+    with pytest.raises(RegistryIntegrityError, match="acceptance reviewer"):
+        access(registry).submit_acceptance_review(
+            "trusted-request", payload, reason="wrong role"
+        )
+    registry = FakeRegistry(roles=("benchmark_acceptance_reviewer",))
+    payload = {"reviewer_id": "person:attacker"}
+    with pytest.raises(RegistryIntegrityError, match="must match"):
+        access(registry).submit_acceptance_review(
+            "trusted-request", payload, reason="identity substitution"
+        )
+
+
+def test_acceptance_review_rejects_stale_authentication():
+    registry = FakeRegistry(roles=("benchmark_acceptance_reviewer",))
+    stale = identity(authenticated_at=NOW - timedelta(minutes=16))
+    with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+        access(registry, stale).submit_acceptance_review(
+            "trusted-request", {"reviewer_id": "person:42"}, reason="stale"
+        )
+    assert registry.calls == []
+
+
+
+def test_authenticated_editorial_review_binds_human_identity_language_and_provider_provenance():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.get_learning_object = lambda object_id: type("Record", (), {
+        "payload_json": __import__("json").dumps({
+            "id": object_id, "story_id": "story:one", "kind": "brief_summary",
+            "language": "bn", "status": "draft", "created_at": "2026-11-19T00:00:00Z",
+            "content": {"text": "বাংলা", "segments": [{"text": "বাংলা", "claim_ids": ["claim:one"], "role": "fact"}]},
+            "claim_ids": ["claim:one"],
+        }), "revision": 1
+    })()
+    registry.revise_learning_object = lambda object_id, payload, **kwargs: (
+        registry.calls.append(("learning_object_revision", object_id, {"payload": payload, **kwargs}))
+        or {"id": object_id, "revision": 2, "status": payload["status"]}
+    )
+    dimensions = {
+        "grammar_and_spelling": "pass", "naturalness_and_register": "pass",
+        "terminology_consistency": "pass", "factual_fidelity": "pass",
+        "attribution": "pass", "omissions": "pass", "translation_fidelity": "not_applicable",
+    }
+    result = access(registry).review_learning_object(
+        "trusted-request", "learning:bn:one", expected_revision=1,
+        decision="approved", dimensions=dimensions, note="Reviewed in Bangla.",
+        reason="Authenticated Bangla editorial review",
+    )
+    assert result["status"] == "approved"
+    payload = registry.calls[-1][2]["payload"]
+    attestation = payload["language_review"]["identity_attestation"]
+    assert attestation["principal_id"] == "person:42"
+    assert attestation["subject"] == "oidc-subject-42"
+    assert attestation["provider_key_id"] == "key-2026-01"
+    assert attestation["provider_adapter"] == "example-oidc-adapter/1.0"
+    assert "session:opaque" not in str(attestation)
+
+
+def test_authenticated_editorial_review_rejects_wrong_language_qualification():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.principal["languages"] = ["en"]
+    registry.get_learning_object = lambda object_id: type("Record", (), {
+        "payload_json": __import__("json").dumps({"id": object_id, "language": "bn"}),
+        "revision": 1
+    })()
+    with pytest.raises(RegistryIntegrityError, match="not qualified"):
+        access(registry).review_learning_object(
+            "trusted-request", "learning:bn:one", expected_revision=1,
+            decision="approved", dimensions={}, note="Review.",
+            reason="Wrong language",
+        )
+    assert registry.calls == []
+
+
+def test_authenticated_editorial_review_rejects_stale_or_synthetic_reviewer():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    stale = identity(authenticated_at=NOW - timedelta(minutes=16))
+    with pytest.raises(RegistryIntegrityError, match="within 15 minutes"):
+        access(registry, stale).review_learning_object(
+            "trusted-request", "learning:bn:one", expected_revision=1,
+            decision="approved", dimensions={}, note="Review.", reason="Stale",
+        )
+    registry.principal["principal_kind"] = "synthetic"
+    with pytest.raises(RegistryIntegrityError, match="human-classified"):
+        access(registry).review_learning_object(
+            "trusted-request", "learning:bn:one", expected_revision=1,
+            decision="approved", dimensions={}, note="Review.", reason="Synthetic",
+        )
+    assert registry.calls == []
+
+
+def _mcq_review_dimensions(**overrides):
+    dimensions = {
+        "single_defensible_key": "pass",
+        "stem_clarity_and_precision": "pass",
+        "distractor_plausibility": "pass",
+        "distractors_unambiguously_incorrect": "pass",
+        "distractor_rationale_quality": "pass",
+        "learner_level_fit": "pass",
+        "misconception_alignment": "pass",
+        "option_parallelism": "pass",
+        "no_accidental_clues": "pass",
+        "explanation_fidelity": "pass",
+    }
+    dimensions.update(overrides)
+    return dimensions
+
+
+def _reviewable_mcq_registry():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.get_learning_object = lambda object_id: type("Record", (), {
+        "payload_json": __import__("json").dumps({
+            "id": object_id, "story_id": "story:one", "kind": "mcq_question",
+            "language": "en", "status": "draft", "created_at": "2026-11-19T00:00:00Z",
+            "content": {"question": "Question", "options": []},
+            "claim_ids": ["claim:one"],
+        }), "revision": 1
+    })()
+    registry.revise_learning_object = lambda object_id, payload, **kwargs: (
+        registry.calls.append(("learning_object_revision", object_id, {"payload": payload, **kwargs}))
+        or {"id": object_id, "revision": 2, "status": payload["status"]}
+    )
+    return registry
+
+
+def test_authenticated_mcq_review_records_complete_rubric_and_provider_attestation():
+    registry = _reviewable_mcq_registry()
+    language_dimensions = {
+        "grammar_and_style": "pass", "clarity_and_readability": "pass",
+        "terminology_consistency": "pass", "factual_fidelity": "pass",
+        "attribution": "pass", "omissions": "pass",
+        "translation_fidelity": "not_applicable",
+    }
+    result = access(registry).review_learning_object(
+        "trusted-request", "learning:mcq:one", expected_revision=1,
+        decision="approved", dimensions=language_dimensions,
+        mcq_dimensions=_mcq_review_dimensions(),
+        note="Reviewed question, options, rationale, and level.",
+        reason="Authenticated MCQ pedagogical review",
+    )
+    assert result["status"] == "approved"
+    payload = registry.calls[-1][2]["payload"]
+    review = payload["mcq_review"]
+    assert review["rubric_version"] == "mcq-editorial-v1"
+    assert set(review["dimensions"]) == set(_mcq_review_dimensions())
+    attestation = review["identity_attestation"]
+    assert attestation["principal_id"] == "person:42"
+    assert attestation["subject"] == "oidc-subject-42"
+    assert attestation["provider_key_id"] == "key-2026-01"
+    assert "session:opaque" not in str(attestation)
+
+
+def test_authenticated_mcq_review_rejects_missing_or_failed_rubric_before_writing():
+    language_dimensions = {
+        "grammar_and_style": "pass", "clarity_and_readability": "pass",
+        "terminology_consistency": "pass", "factual_fidelity": "pass",
+        "attribution": "pass", "omissions": "pass",
+        "translation_fidelity": "not_applicable",
+    }
+    registry = _reviewable_mcq_registry()
+    with pytest.raises(RegistryIntegrityError, match="requires every pedagogical rubric dimension"):
+        access(registry).review_learning_object(
+            "trusted-request", "learning:mcq:one", expected_revision=1,
+            decision="approved", dimensions=language_dimensions,
+            note="Review.", reason="Missing MCQ rubric",
+        )
+    assert registry.calls == []
+
+    registry = _reviewable_mcq_registry()
+    with pytest.raises(RegistryIntegrityError, match="cannot contain needs_revision"):
+        access(registry).review_learning_object(
+            "trusted-request", "learning:mcq:one", expected_revision=1,
+            decision="approved", dimensions=language_dimensions,
+            mcq_dimensions=_mcq_review_dimensions(learner_level_fit="needs_revision"),
+            note="Review.", reason="Failing MCQ rubric",
+        )
+    assert registry.calls == []
+
+
+def test_authenticated_non_mcq_review_rejects_mcq_dimensions():
+    registry = FakeRegistry(roles=("benchmark_reviewer",))
+    registry.get_learning_object = lambda object_id: type("Record", (), {
+        "payload_json": __import__("json").dumps({"id": object_id, "kind": "brief_summary", "language": "en"}),
+        "revision": 1
+    })()
+    with pytest.raises(RegistryIntegrityError, match="only valid for MCQ"):
+        access(registry).review_learning_object(
+            "trusted-request", "learning:summary:one", expected_revision=1,
+            decision="approved", dimensions={}, mcq_dimensions=_mcq_review_dimensions(),
+            note="Review.", reason="Not an MCQ",
+        )
+    assert registry.calls == []

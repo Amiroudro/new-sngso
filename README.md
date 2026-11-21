@@ -28,7 +28,7 @@ Transform lawfully accessible, attributable reporting into accurate, explainable
 
 ## Project status
 
-Foundation milestone in progress. Versioned domain contracts, runtime schema validation, deterministic content hashing, a fail-closed permission evaluator, and a SQLite registry with cross-record checks and an append-only audit trail are implemented. Collection, editorial production, and publication are not implemented yet. No production pipeline or publisher permission is implied.
+The project has progressed beyond the initial foundation. The current engineering branch contains versioned contracts, permission-aware registry workflows, SQLite persistence and audit history, story/claim/evidence reporting, bilingual editorial review, benchmark and learning-object quality controls, and extensive automated tests. Section 7 (editorial production and bilingual quality) remains in progress; Sections 8–10 (edition assembly/publication safety, operations/automation, and end-to-end handover) have not started. This is not a claim of production readiness, live publisher permission, a genuine human-reviewed benchmark dataset, or an operating daily publication pipeline. See `docs/HANDOVER_FOR_PREMIUM_CHATGPT.md` for the verified project checkpoint, boundaries, next steps, and continuation prompt.
 
 ## Documents
 
@@ -38,6 +38,8 @@ Foundation milestone in progress. Versioned domain contracts, runtime schema val
 - docs/QUALITY_GATES.md
 - docs/DOMAIN_MODEL.md
 - docs/IMPLEMENTATION_ROADMAP.md
+- docs/HANDOVER_FOR_PREMIUM_CHATGPT.md
+- docs/ENGINE_TO_FLUTTER_COMPATIBILITY.md
 - docs/BASELINE_AUDIT.md
 - docs/SOURCE_GOVERNANCE.md
 - docs/PERSISTENCE.md

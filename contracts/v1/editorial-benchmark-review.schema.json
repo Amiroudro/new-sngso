@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sarangsho.example/contracts/v1/editorial-benchmark-review.schema.json",
+  "title": "Editorial benchmark human review record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "review_id", "benchmark_id", "benchmark_fingerprint", "language", "status", "reviewer", "reviewed_at", "source_materials", "corrections", "adjudication_note"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "review_id": {"type": "string", "minLength": 1, "maxLength": 160},
+    "benchmark_id": {"type": "string", "minLength": 1, "maxLength": 160},
+    "benchmark_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "language": {"type": "string", "enum": ["bn", "en"]},
+    "status": {"type": "string", "enum": ["draft", "approved", "rejected"]},
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_id", "role", "language", "qualification_basis"],
+      "properties": {
+        "reviewer_id": {"type": "string", "minLength": 1, "maxLength": 160},
+        "role": {"type": "string", "minLength": 1, "maxLength": 120},
+        "language": {"type": "string", "enum": ["bn", "en"]},
+        "qualification_basis": {"type": "string", "minLength": 1, "maxLength": 2000}
+      }
+    },
+    "reviewed_at": {"type": "string", "format": "date-time"},
+    "source_materials": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["article_id", "source_id", "canonical_uri", "content_fingerprint", "checked_at", "approved_use_reference", "permission_grant_id", "endpoint_id", "permission_operation"],
+        "properties": {
+          "article_id": {"type": "string", "minLength": 1, "maxLength": 160},
+          "source_id": {"type": "string", "minLength": 1, "maxLength": 160},
+          "canonical_uri": {"type": "string", "format": "uri"},
+          "content_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "checked_at": {"type": "string", "format": "date-time"},
+          "approved_use_reference": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "permission_grant_id": {"type": "string", "minLength": 1, "maxLength": 160},
+          "endpoint_id": {"type": "string", "minLength": 1, "maxLength": 160},
+          "permission_operation": {"enum": ["excerpt_storage", "full_text_storage", "translation"]}
+        }
+      }
+    },
+    "corrections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "original", "corrected", "rationale"],
+        "properties": {
+          "field": {"type": "string", "minLength": 1, "maxLength": 160},
+          "original": {"type": "string", "maxLength": 10000},
+          "corrected": {"type": "string", "maxLength": 10000},
+          "rationale": {"type": "string", "minLength": 1, "maxLength": 2000}
+        }
+      }
+    },
+    "adjudication_note": {"type": "string", "maxLength": 4000}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "approved"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "source_materials": {"minItems": 1},
+          "adjudication_note": {"minLength": 1},
+          "reviewer": {
+            "properties": {
+              "qualification_basis": {"minLength": 20}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

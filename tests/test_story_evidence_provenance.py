@@ -666,12 +666,11 @@ def test_story_decision_preview_is_read_only_and_has_stable_impact_fingerprint()
             "id": "edition:preview-impact",
             "edition_key": "2026-11-20",
             "created_at": STAMP,
-            "status": "published",
+            "status": "approved",
             "content_hash": "sha256:" + "a" * 64,
             "pipeline_run_id": "pipeline:fixture",
             "story_ids": ["story:shared-event"],
-            "language_variants": [{"language": "en", "status": "approved", "text": "Historical edition."}],
-            "published_at": STAMP,
+            "language_variants": [{"language": "en", "status": "approved", "text": "Historical staging candidate."}],
         })
         registry.add_domain_record(
             "story_decision",
@@ -698,7 +697,7 @@ def test_story_decision_preview_is_read_only_and_has_stable_impact_fingerprint()
         assert first["evidence"][0]["evidence_id"] == "evidence:source-a"
         assert first["editions"] == [{
             "edition_id": "edition:preview-impact",
-            "status": "published",
+            "status": "approved",
             "content_hash": "sha256:" + "a" * 64,
             "affected_story_ids": ["story:shared-event"],
         }]
@@ -754,7 +753,7 @@ def test_story_decision_application_ledger_is_unique_and_append_only():
                 [article_a, article_b],
             ),
         )
-        assert registry.schema_version() == 12
+        assert registry.schema_version() == 30
 
         registry._connection.execute(
             """INSERT INTO story_decision_applications

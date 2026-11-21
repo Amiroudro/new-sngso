@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any, Iterator
@@ -34,11 +35,883 @@ from .models import (
     GlossaryEntryRecord,
 )
 from .permissions import OPERATIONS, PermissionDecision, evaluate_permission as evaluate_permission_record
+from .benchmark_reviews import validate_human_benchmark_review
+from .benchmark_scoring import validate_benchmark_scoring
+from .benchmark_agreement import benchmark_evaluator_agreement, BenchmarkAgreementError
+from .benchmark_adjudication import validate_benchmark_adjudication
+from .benchmark_study import validate_benchmark_study_protocol, BenchmarkStudyError
+from .benchmark_study_execution import validate_benchmark_study_execution, BenchmarkStudyExecutionError
+from .benchmark_acceptance_review import validate_benchmark_acceptance_review, BenchmarkAcceptanceReviewError
+from .benchmark_assignments import (
+    BenchmarkAssignmentError,
+    transition_benchmark_assignment,
+    validate_benchmark_assignment,
+)
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 12
+_SCHEMA_VERSION = 30
 
+
+_MIGRATION_14 = (
+    """CREATE TABLE benchmark_artifacts (
+        artifact_id TEXT PRIMARY KEY,
+        language TEXT NOT NULL CHECK (language IN ('bn', 'en')),
+        canonicalization TEXT NOT NULL CHECK (canonicalization = 'canonical-json-v1'),
+        content_fingerprint TEXT NOT NULL CHECK (content_fingerprint GLOB 'sha256:*'),
+        content_json TEXT NOT NULL CHECK (json_valid(content_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0)
+    )""",
+    """CREATE TRIGGER benchmark_artifacts_no_update
+        BEFORE UPDATE ON benchmark_artifacts
+        BEGIN SELECT RAISE(ABORT, 'benchmark artifacts are immutable'); END""",
+    """CREATE TRIGGER benchmark_artifacts_no_delete
+        BEFORE DELETE ON benchmark_artifacts
+        BEGIN SELECT RAISE(ABORT, 'benchmark artifacts are immutable'); END""",
+)
+
+
+_MIGRATION_15 = (
+    """CREATE TABLE benchmark_principals (
+        principal_id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL CHECK (length(trim(display_name)) > 0),
+        roles_json TEXT NOT NULL CHECK (json_valid(roles_json)),
+        active INTEGER NOT NULL CHECK (active IN (0, 1)),
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL CHECK (length(trim(created_by)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0)
+    )""",
+    """CREATE TABLE benchmark_adjudications (
+        adjudication_id TEXT PRIMARY KEY,
+        benchmark_id TEXT NOT NULL,
+        benchmark_fingerprint TEXT NOT NULL,
+        adjudicator_id TEXT NOT NULL,
+        resolved_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL
+    )""",
+    """CREATE TRIGGER benchmark_adjudications_no_update
+        BEFORE UPDATE ON benchmark_adjudications
+        BEGIN SELECT RAISE(ABORT, 'benchmark adjudications are immutable'); END""",
+    """CREATE TRIGGER benchmark_adjudications_no_delete
+        BEFORE DELETE ON benchmark_adjudications
+        BEGIN SELECT RAISE(ABORT, 'benchmark adjudications are immutable'); END""",
+)
+
+_MIGRATION_16 = (
+    """CREATE TRIGGER benchmark_adjudications_one_per_artifact
+        BEFORE INSERT ON benchmark_adjudications
+        WHEN EXISTS (
+            SELECT 1 FROM benchmark_adjudications
+            WHERE benchmark_id = NEW.benchmark_id
+        )
+        BEGIN SELECT RAISE(ABORT, 'benchmark artifact already has a final adjudication'); END""",
+)
+
+
+_MIGRATION_17 = (
+    """ALTER TABLE benchmark_principals
+       ADD COLUMN languages_json TEXT NOT NULL DEFAULT '[]'
+       CHECK (json_valid(languages_json))""",
+    """CREATE TABLE benchmark_review_assignments (
+        assignment_id TEXT PRIMARY KEY,
+        artifact_id TEXT NOT NULL,
+        artifact_fingerprint TEXT NOT NULL,
+        language TEXT NOT NULL CHECK (language IN ('bn', 'en')),
+        reviewer_id TEXT NOT NULL,
+        assigned_by TEXT NOT NULL,
+        assigned_at TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('assigned', 'accepted', 'submitted', 'cancelled', 'expired')),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        updated_at TEXT NOT NULL,
+        last_actor TEXT NOT NULL,
+        last_reason TEXT NOT NULL,
+        FOREIGN KEY (artifact_id) REFERENCES benchmark_artifacts(artifact_id) ON DELETE RESTRICT,
+        FOREIGN KEY (reviewer_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT,
+        FOREIGN KEY (assigned_by) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT
+    )""",
+    """CREATE TABLE benchmark_review_assignment_revisions (
+        assignment_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (assignment_id, revision),
+        FOREIGN KEY (assignment_id) REFERENCES benchmark_review_assignments(assignment_id) ON DELETE RESTRICT
+    )""",
+    """CREATE UNIQUE INDEX benchmark_review_assignment_one_active_per_reviewer
+       ON benchmark_review_assignments(artifact_id, reviewer_id)
+       WHERE status IN ('assigned', 'accepted')""",
+    """CREATE INDEX benchmark_review_assignment_reviewer_status
+       ON benchmark_review_assignments(reviewer_id, status, due_at)""",
+    """CREATE TRIGGER benchmark_review_assignment_revision_guard
+       BEFORE UPDATE ON benchmark_review_assignments
+       BEGIN
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'assignment revisions must increment sequentially') END;
+         SELECT CASE WHEN NEW.assignment_id != OLD.assignment_id
+              OR NEW.artifact_id != OLD.artifact_id
+              OR NEW.artifact_fingerprint != OLD.artifact_fingerprint
+              OR NEW.language != OLD.language
+              OR NEW.reviewer_id != OLD.reviewer_id
+              OR NEW.assigned_by != OLD.assigned_by
+              OR NEW.assigned_at != OLD.assigned_at
+              OR NEW.due_at != OLD.due_at
+           THEN RAISE(ABORT, 'assignment identity and artifact binding are immutable') END;
+       END""",
+    """CREATE TRIGGER benchmark_review_assignment_payload_guard_insert
+       BEFORE INSERT ON benchmark_review_assignments
+       WHEN json_extract(NEW.payload_json, '$.assignment_id') IS NOT NEW.assignment_id
+         OR json_extract(NEW.payload_json, '$.artifact_id') IS NOT NEW.artifact_id
+         OR json_extract(NEW.payload_json, '$.artifact_fingerprint') IS NOT NEW.artifact_fingerprint
+         OR json_extract(NEW.payload_json, '$.language') IS NOT NEW.language
+         OR json_extract(NEW.payload_json, '$.reviewer_id') IS NOT NEW.reviewer_id
+         OR json_extract(NEW.payload_json, '$.assigned_by') IS NOT NEW.assigned_by
+         OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+       BEGIN SELECT RAISE(ABORT, 'assignment payload does not match indexed fields'); END""",
+    """CREATE TRIGGER benchmark_review_assignment_payload_guard_update
+       BEFORE UPDATE ON benchmark_review_assignments
+       WHEN json_extract(NEW.payload_json, '$.assignment_id') IS NOT NEW.assignment_id
+         OR json_extract(NEW.payload_json, '$.artifact_id') IS NOT NEW.artifact_id
+         OR json_extract(NEW.payload_json, '$.artifact_fingerprint') IS NOT NEW.artifact_fingerprint
+         OR json_extract(NEW.payload_json, '$.language') IS NOT NEW.language
+         OR json_extract(NEW.payload_json, '$.reviewer_id') IS NOT NEW.reviewer_id
+         OR json_extract(NEW.payload_json, '$.assigned_by') IS NOT NEW.assigned_by
+         OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+       BEGIN SELECT RAISE(ABORT, 'assignment payload does not match indexed fields'); END""",
+    """CREATE TRIGGER benchmark_review_assignments_no_delete
+       BEFORE DELETE ON benchmark_review_assignments
+       BEGIN SELECT RAISE(ABORT, 'benchmark review assignments cannot be deleted'); END""",
+    """CREATE TRIGGER benchmark_review_assignment_initial_revision
+       AFTER INSERT ON benchmark_review_assignments
+       BEGIN
+         INSERT INTO benchmark_review_assignment_revisions
+         (assignment_id, revision, created_at, actor, reason, payload_json)
+         VALUES (NEW.assignment_id, NEW.revision, NEW.updated_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+       END""",
+    """CREATE TRIGGER benchmark_review_assignment_update_requires_revision
+       BEFORE UPDATE ON benchmark_review_assignments
+       WHEN NOT EXISTS (
+         SELECT 1 FROM benchmark_review_assignment_revisions
+         WHERE assignment_id = NEW.assignment_id AND revision = NEW.revision
+           AND actor = NEW.last_actor AND reason = NEW.last_reason
+           AND payload_json = NEW.payload_json
+       )
+       BEGIN SELECT RAISE(ABORT, 'assignment update requires matching append-only revision'); END""",
+    """CREATE TRIGGER benchmark_review_assignment_revisions_no_update
+       BEFORE UPDATE ON benchmark_review_assignment_revisions
+       BEGIN SELECT RAISE(ABORT, 'assignment revisions are append-only'); END""",
+    """CREATE TRIGGER benchmark_review_assignment_revisions_no_delete
+       BEFORE DELETE ON benchmark_review_assignment_revisions
+       BEGIN SELECT RAISE(ABORT, 'assignment revisions are append-only'); END""",
+)
+
+
+_MIGRATION_18 = (
+    """ALTER TABLE benchmark_principals
+       ADD COLUMN principal_kind TEXT NOT NULL DEFAULT 'unverified'
+       CHECK (principal_kind IN ('human', 'synthetic', 'automation', 'unverified'))""",
+    """CREATE TRIGGER benchmark_principal_kind_immutable
+       BEFORE UPDATE OF principal_kind ON benchmark_principals
+       BEGIN SELECT RAISE(ABORT, 'benchmark principal classification is immutable'); END""",
+)
+
+
+_MIGRATION_19 = (
+    """CREATE TABLE benchmark_review_identity_attestations (
+        attestation_id TEXT PRIMARY KEY,
+        review_id TEXT NOT NULL,
+        review_revision INTEGER NOT NULL CHECK (review_revision >= 1),
+        principal_id TEXT NOT NULL,
+        issuer TEXT NOT NULL CHECK (length(trim(issuer)) > 0),
+        audience TEXT NOT NULL CHECK (length(trim(audience)) > 0),
+        subject TEXT NOT NULL CHECK (length(trim(subject)) > 0),
+        authenticated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        authentication_methods_json TEXT NOT NULL CHECK (json_valid(authentication_methods_json)),
+        authentication_context TEXT NOT NULL CHECK (length(trim(authentication_context)) > 0),
+        provider_key_id TEXT NOT NULL CHECK (length(trim(provider_key_id)) > 0),
+        provider_adapter TEXT NOT NULL CHECK (length(trim(provider_adapter)) > 0),
+        session_fingerprint TEXT NOT NULL CHECK (session_fingerprint GLOB 'sha256:*'),
+        attested_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        UNIQUE (review_id, review_revision),
+        FOREIGN KEY (review_id) REFERENCES benchmark_reviews(review_id) ON DELETE RESTRICT,
+        FOREIGN KEY (principal_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT
+    )""",
+    """CREATE TRIGGER benchmark_review_identity_attestations_no_update
+       BEFORE UPDATE ON benchmark_review_identity_attestations
+       BEGIN SELECT RAISE(ABORT, 'identity attestations are immutable'); END""",
+    """CREATE TRIGGER benchmark_review_identity_attestations_no_delete
+       BEFORE DELETE ON benchmark_review_identity_attestations
+       BEGIN SELECT RAISE(ABORT, 'identity attestations are immutable'); END""",
+)
+
+
+_MIGRATION_20 = (
+    """CREATE TABLE benchmark_scores (
+        score_id TEXT PRIMARY KEY,
+        assignment_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        artifact_fingerprint TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        task_type TEXT NOT NULL,
+        language TEXT NOT NULL CHECK (language IN ('bn', 'en')),
+        evaluator_id TEXT NOT NULL,
+        evaluated_at TEXT NOT NULL,
+        weighted_score TEXT NOT NULL,
+        eligible_for_comparison INTEGER NOT NULL CHECK (eligible_for_comparison IN (0, 1)),
+        score_fingerprint TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        provider_key_id TEXT NOT NULL,
+        provider_adapter TEXT NOT NULL,
+        authenticated_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        FOREIGN KEY (assignment_id) REFERENCES benchmark_review_assignments(assignment_id) ON DELETE RESTRICT,
+        FOREIGN KEY (artifact_id) REFERENCES benchmark_artifacts(artifact_id) ON DELETE RESTRICT,
+        FOREIGN KEY (evaluator_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT,
+        UNIQUE (assignment_id, item_id)
+    )""",
+    """CREATE INDEX benchmark_scores_artifact_item
+       ON benchmark_scores(artifact_id, item_id, language)""",
+    """CREATE TRIGGER benchmark_scores_payload_guard_insert
+       BEFORE INSERT ON benchmark_scores
+       WHEN json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.artifact_id
+         OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.artifact_fingerprint
+         OR json_extract(NEW.payload_json, '$.item_id') IS NOT NEW.item_id
+         OR json_extract(NEW.payload_json, '$.task_type') IS NOT NEW.task_type
+         OR json_extract(NEW.payload_json, '$.language') IS NOT NEW.language
+         OR json_extract(NEW.payload_json, '$.evaluator_id') IS NOT NEW.evaluator_id
+         OR json_extract(NEW.payload_json, '$.evaluated_at') IS NOT NEW.evaluated_at
+       BEGIN SELECT RAISE(ABORT, 'score payload does not match indexed score fields'); END""",
+    """CREATE TRIGGER benchmark_scores_no_update
+       BEFORE UPDATE ON benchmark_scores
+       BEGIN SELECT RAISE(ABORT, 'benchmark score records are immutable'); END""",
+    """CREATE TRIGGER benchmark_scores_no_delete
+       BEFORE DELETE ON benchmark_scores
+       BEGIN SELECT RAISE(ABORT, 'benchmark score records are append-only'); END""",
+)
+
+
+_MIGRATION_21 = (
+    """CREATE TABLE benchmark_study_protocols (
+        protocol_record_id TEXT PRIMARY KEY,
+        study_id TEXT NOT NULL,
+        study_version INTEGER NOT NULL CHECK (study_version >= 1),
+        benchmark_id TEXT NOT NULL,
+        benchmark_fingerprint TEXT NOT NULL,
+        rubric_version TEXT NOT NULL,
+        protocol_fingerprint TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status = 'protocol_only'),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        UNIQUE (study_id, study_version),
+        FOREIGN KEY (benchmark_id) REFERENCES benchmark_artifacts(artifact_id) ON DELETE RESTRICT
+    )""",
+    """CREATE INDEX benchmark_study_protocols_benchmark
+       ON benchmark_study_protocols(benchmark_id, study_id, study_version)""",
+    """CREATE TRIGGER benchmark_study_protocols_payload_guard
+       BEFORE INSERT ON benchmark_study_protocols
+       WHEN json_extract(NEW.payload_json, '$.study_id') IS NOT NEW.study_id
+         OR json_extract(NEW.payload_json, '$.study_version') IS NOT NEW.study_version
+         OR json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.benchmark_id
+         OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.benchmark_fingerprint
+         OR json_extract(NEW.payload_json, '$.rubric_version') IS NOT NEW.rubric_version
+         OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+       BEGIN SELECT RAISE(ABORT, 'study protocol payload does not match indexed fields'); END""",
+    """CREATE TRIGGER benchmark_study_protocols_version_guard
+       BEFORE INSERT ON benchmark_study_protocols
+       WHEN (NEW.study_version = 1 AND EXISTS (
+                SELECT 1 FROM benchmark_study_protocols WHERE study_id = NEW.study_id
+             ))
+         OR (NEW.study_version > 1 AND NOT EXISTS (
+                SELECT 1 FROM benchmark_study_protocols
+                WHERE study_id = NEW.study_id AND study_version = NEW.study_version - 1
+                  AND benchmark_id = NEW.benchmark_id
+                  AND benchmark_fingerprint = NEW.benchmark_fingerprint
+                  AND rubric_version = NEW.rubric_version
+             ))
+       BEGIN SELECT RAISE(ABORT, 'study protocol versions must be sequential and preserve benchmark/rubric binding'); END""",
+    """CREATE TRIGGER benchmark_study_protocols_no_update
+       BEFORE UPDATE ON benchmark_study_protocols
+       BEGIN SELECT RAISE(ABORT, 'study protocol versions are immutable'); END""",
+    """CREATE TRIGGER benchmark_study_protocols_no_delete
+       BEFORE DELETE ON benchmark_study_protocols
+       BEGIN SELECT RAISE(ABORT, 'study protocol history is append-only'); END""",
+)
+
+
+_MIGRATION_22 = (
+    """CREATE TABLE benchmark_study_executions (
+        execution_id TEXT PRIMARY KEY,
+        protocol_record_id TEXT NOT NULL,
+        study_id TEXT NOT NULL,
+        study_version INTEGER NOT NULL,
+        protocol_fingerprint TEXT NOT NULL,
+        benchmark_id TEXT NOT NULL,
+        benchmark_fingerprint TEXT NOT NULL,
+        rubric_version TEXT NOT NULL,
+        execution_fingerprint TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status = 'analysis_reviewed'),
+        methodologist_id TEXT NOT NULL,
+        issuer TEXT NOT NULL CHECK (length(trim(issuer)) > 0),
+        subject TEXT NOT NULL CHECK (length(trim(subject)) > 0),
+        provider_key_id TEXT NOT NULL CHECK (length(trim(provider_key_id)) > 0),
+        provider_adapter TEXT NOT NULL CHECK (length(trim(provider_adapter)) > 0),
+        authenticated_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        FOREIGN KEY (protocol_record_id) REFERENCES benchmark_study_protocols(protocol_record_id) ON DELETE RESTRICT,
+        FOREIGN KEY (benchmark_id) REFERENCES benchmark_artifacts(artifact_id) ON DELETE RESTRICT,
+        FOREIGN KEY (methodologist_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT
+    )""",
+    """CREATE INDEX benchmark_study_executions_study
+       ON benchmark_study_executions(study_id, study_version, created_at)""",
+    """CREATE TRIGGER benchmark_study_executions_payload_guard
+       BEFORE INSERT ON benchmark_study_executions
+       WHEN json_extract(NEW.payload_json, '$.execution_id') IS NOT NEW.execution_id
+         OR json_extract(NEW.payload_json, '$.study_id') IS NOT NEW.study_id
+         OR json_extract(NEW.payload_json, '$.study_version') IS NOT NEW.study_version
+         OR json_extract(NEW.payload_json, '$.protocol_fingerprint') IS NOT NEW.protocol_fingerprint
+         OR json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.benchmark_id
+         OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.benchmark_fingerprint
+         OR json_extract(NEW.payload_json, '$.rubric_version') IS NOT NEW.rubric_version
+         OR json_extract(NEW.payload_json, '$.analysis.methodologist_id') IS NOT NEW.methodologist_id
+       BEGIN SELECT RAISE(ABORT, 'study execution payload does not match indexed fields'); END""",
+    """CREATE TRIGGER benchmark_study_executions_no_update
+       BEFORE UPDATE ON benchmark_study_executions
+       BEGIN SELECT RAISE(ABORT, 'study execution records are immutable'); END""",
+    """CREATE TRIGGER benchmark_study_executions_no_delete
+       BEFORE DELETE ON benchmark_study_executions
+       BEGIN SELECT RAISE(ABORT, 'study execution history is append-only'); END""",
+)
+
+
+_MIGRATION_23 = (
+    """CREATE TABLE benchmark_acceptance_reviews (
+        review_id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL UNIQUE,
+        protocol_record_id TEXT NOT NULL,
+        study_id TEXT NOT NULL,
+        study_version INTEGER NOT NULL,
+        protocol_fingerprint TEXT NOT NULL,
+        execution_fingerprint TEXT NOT NULL,
+        acceptance_fingerprint TEXT NOT NULL UNIQUE,
+        benchmark_id TEXT NOT NULL,
+        benchmark_fingerprint TEXT NOT NULL,
+        rubric_version TEXT NOT NULL,
+        reviewer_id TEXT NOT NULL,
+        reviewer_role TEXT NOT NULL CHECK (reviewer_role = 'independent_acceptance_reviewer'),
+        decision TEXT NOT NULL CHECK (decision IN (
+            'not_reviewed', 'needs_revision', 'rejected',
+            'accepted_for_limited_use', 'accepted_for_proposed_use'
+        )),
+        issuer TEXT NOT NULL CHECK (length(trim(issuer)) > 0),
+        subject TEXT NOT NULL CHECK (length(trim(subject)) > 0),
+        provider_key_id TEXT NOT NULL CHECK (length(trim(provider_key_id)) > 0),
+        provider_adapter TEXT NOT NULL CHECK (length(trim(provider_adapter)) > 0),
+        authenticated_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        FOREIGN KEY (execution_id) REFERENCES benchmark_study_executions(execution_id) ON DELETE RESTRICT,
+        FOREIGN KEY (protocol_record_id) REFERENCES benchmark_study_protocols(protocol_record_id) ON DELETE RESTRICT,
+        FOREIGN KEY (benchmark_id) REFERENCES benchmark_artifacts(artifact_id) ON DELETE RESTRICT,
+        FOREIGN KEY (reviewer_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT
+    )""",
+    """CREATE INDEX benchmark_acceptance_reviews_study
+       ON benchmark_acceptance_reviews(study_id, study_version, created_at)""",
+    """CREATE TRIGGER benchmark_acceptance_reviews_payload_guard
+       BEFORE INSERT ON benchmark_acceptance_reviews
+       WHEN json_extract(NEW.payload_json, '$.review_id') IS NOT NEW.review_id
+         OR json_extract(NEW.payload_json, '$.execution_id') IS NOT NEW.execution_id
+         OR json_extract(NEW.payload_json, '$.study_id') IS NOT NEW.study_id
+         OR json_extract(NEW.payload_json, '$.study_version') IS NOT NEW.study_version
+         OR json_extract(NEW.payload_json, '$.protocol_fingerprint') IS NOT NEW.protocol_fingerprint
+         OR json_extract(NEW.payload_json, '$.execution_fingerprint') IS NOT NEW.execution_fingerprint
+         OR json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.benchmark_id
+         OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.benchmark_fingerprint
+         OR json_extract(NEW.payload_json, '$.rubric_version') IS NOT NEW.rubric_version
+         OR json_extract(NEW.payload_json, '$.reviewer_id') IS NOT NEW.reviewer_id
+         OR json_extract(NEW.payload_json, '$.reviewer_role') IS NOT NEW.reviewer_role
+         OR json_extract(NEW.payload_json, '$.decision') IS NOT NEW.decision
+       BEGIN SELECT RAISE(ABORT, 'acceptance review payload does not match indexed evidence'); END""",
+    """CREATE TRIGGER benchmark_acceptance_reviews_no_update
+       BEFORE UPDATE ON benchmark_acceptance_reviews
+       BEGIN SELECT RAISE(ABORT, 'benchmark acceptance decisions are immutable'); END""",
+    """CREATE TRIGGER benchmark_acceptance_reviews_no_delete
+       BEFORE DELETE ON benchmark_acceptance_reviews
+       BEGIN SELECT RAISE(ABORT, 'benchmark acceptance decisions are append-only'); END""",
+)
+
+
+
+_MIGRATION_24 = (
+    """CREATE TRIGGER learning_object_vocabulary_source_evidence_insert
+       BEFORE INSERT ON learning_objects
+       WHEN json_extract(NEW.payload_json, '$.kind') = 'vocabulary'
+       BEGIN
+         SELECT CASE WHEN NOT EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.claim_ids') object_claim
+           JOIN domain_records claim_record
+             ON claim_record.record_type = 'claim' AND claim_record.id = object_claim.value
+           JOIN domain_records evidence_record
+             ON evidence_record.record_type = 'evidence'
+            AND evidence_record.id = json_extract(NEW.payload_json, '$.content.source_evidence_id')
+            AND evidence_record.revision = json_extract(NEW.payload_json, '$.content.source_evidence_revision')
+           WHERE json_extract(evidence_record.payload_json, '$.claim_id') = claim_record.id
+             AND EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.evidence_ids') claim_evidence
+               WHERE claim_evidence.value = evidence_record.id
+             )
+             AND EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.provenance') provenance
+               WHERE json_extract(provenance.value, '$.source_id') =
+                     json_extract(evidence_record.payload_json, '$.source_id')
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.article_id') IS NULL
+                   OR json_extract(provenance.value, '$.article_id') =
+                      json_extract(evidence_record.payload_json, '$.article_id')
+                 )
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.observation_id') IS NULL
+                   OR json_extract(provenance.value, '$.observation_id') =
+                      json_extract(evidence_record.payload_json, '$.observation_id')
+                 )
+             )
+         ) THEN RAISE(ABORT, 'vocabulary source evidence must be current and linked to an object claim') END;
+       END""",
+    """CREATE TRIGGER learning_object_vocabulary_source_evidence_update
+       BEFORE UPDATE OF payload_json ON learning_objects
+       WHEN json_extract(NEW.payload_json, '$.kind') = 'vocabulary'
+       BEGIN
+         SELECT CASE WHEN NOT EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.claim_ids') object_claim
+           JOIN domain_records claim_record
+             ON claim_record.record_type = 'claim' AND claim_record.id = object_claim.value
+           JOIN domain_records evidence_record
+             ON evidence_record.record_type = 'evidence'
+            AND evidence_record.id = json_extract(NEW.payload_json, '$.content.source_evidence_id')
+            AND evidence_record.revision = json_extract(NEW.payload_json, '$.content.source_evidence_revision')
+           WHERE json_extract(evidence_record.payload_json, '$.claim_id') = claim_record.id
+             AND EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.evidence_ids') claim_evidence
+               WHERE claim_evidence.value = evidence_record.id
+             )
+             AND EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.provenance') provenance
+               WHERE json_extract(provenance.value, '$.source_id') =
+                     json_extract(evidence_record.payload_json, '$.source_id')
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.article_id') IS NULL
+                   OR json_extract(provenance.value, '$.article_id') =
+                      json_extract(evidence_record.payload_json, '$.article_id')
+                 )
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.observation_id') IS NULL
+                   OR json_extract(provenance.value, '$.observation_id') =
+                      json_extract(evidence_record.payload_json, '$.observation_id')
+                 )
+             )
+         ) THEN RAISE(ABORT, 'vocabulary source evidence must be current and linked to an object claim') END;
+       END""",
+)
+
+
+_MIGRATION_25 = (
+    """CREATE TRIGGER learning_object_question_answer_evidence_insert
+       BEFORE INSERT ON learning_objects
+       WHEN json_extract(NEW.payload_json, '$.kind') IN (
+           'comprehension_question', 'analysis_question', 'mcq_question'
+       )
+       BEGIN
+         SELECT CASE WHEN json_array_length(NEW.payload_json, '$.content.answer_evidence') IS NULL
+           OR json_array_length(NEW.payload_json, '$.content.answer_evidence') = 0
+         THEN RAISE(ABORT, 'question answer evidence is required') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_ref
+           GROUP BY json_extract(answer_ref.value, '$.claim_id'),
+                    json_extract(answer_ref.value, '$.evidence_id')
+           HAVING COUNT(*) > 1
+         ) THEN RAISE(ABORT, 'question answer evidence references must be unique') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_claim_ids') answer_claim
+           WHERE NOT EXISTS (
+             SELECT 1 FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_evidence
+             WHERE json_extract(answer_evidence.value, '$.claim_id') = answer_claim.value
+           )
+         ) THEN RAISE(ABORT, 'question answer evidence must cover every answer claim') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_ref
+           LEFT JOIN domain_records claim_record
+             ON claim_record.record_type = 'claim'
+            AND claim_record.id = json_extract(answer_ref.value, '$.claim_id')
+           LEFT JOIN domain_records evidence_record
+             ON evidence_record.record_type = 'evidence'
+            AND evidence_record.id = json_extract(answer_ref.value, '$.evidence_id')
+           WHERE claim_record.id IS NULL OR evidence_record.id IS NULL
+             OR json_type(answer_ref.value, '$.evidence_revision') IS NOT 'integer'
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(NEW.payload_json, '$.content.answer_claim_ids') answer_claim
+               WHERE answer_claim.value = claim_record.id
+             )
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(NEW.payload_json, '$.claim_ids') object_claim
+               WHERE object_claim.value = claim_record.id
+             )
+             OR json_extract(evidence_record.payload_json, '$.claim_id') IS NOT claim_record.id
+             OR evidence_record.revision IS NOT json_extract(answer_ref.value, '$.evidence_revision')
+             OR json_extract(evidence_record.payload_json, '$.relationship') IS NOT 'supports'
+             OR json_extract(evidence_record.payload_json, '$.locator.uri') IS NULL
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.evidence_ids') claim_evidence
+               WHERE claim_evidence.value = evidence_record.id
+             )
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.provenance') provenance
+               WHERE json_extract(provenance.value, '$.source_id') =
+                     json_extract(evidence_record.payload_json, '$.source_id')
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.article_id') IS NULL
+                   OR json_extract(provenance.value, '$.article_id') =
+                      json_extract(evidence_record.payload_json, '$.article_id')
+                 )
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.observation_id') IS NULL
+                   OR json_extract(provenance.value, '$.observation_id') =
+                      json_extract(evidence_record.payload_json, '$.observation_id')
+                 )
+             )
+         ) THEN RAISE(ABORT, 'question answer evidence must be current and linked to its answer claim') END;
+       END""",
+    """CREATE TRIGGER learning_object_question_answer_evidence_update
+       BEFORE UPDATE OF payload_json ON learning_objects
+       WHEN json_extract(NEW.payload_json, '$.kind') IN (
+           'comprehension_question', 'analysis_question', 'mcq_question'
+       )
+       BEGIN
+         SELECT CASE WHEN json_array_length(NEW.payload_json, '$.content.answer_evidence') IS NULL
+           OR json_array_length(NEW.payload_json, '$.content.answer_evidence') = 0
+         THEN RAISE(ABORT, 'question answer evidence is required') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_ref
+           GROUP BY json_extract(answer_ref.value, '$.claim_id'),
+                    json_extract(answer_ref.value, '$.evidence_id')
+           HAVING COUNT(*) > 1
+         ) THEN RAISE(ABORT, 'question answer evidence references must be unique') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_claim_ids') answer_claim
+           WHERE NOT EXISTS (
+             SELECT 1 FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_evidence
+             WHERE json_extract(answer_evidence.value, '$.claim_id') = answer_claim.value
+           )
+         ) THEN RAISE(ABORT, 'question answer evidence must cover every answer claim') END;
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM json_each(NEW.payload_json, '$.content.answer_evidence') answer_ref
+           LEFT JOIN domain_records claim_record
+             ON claim_record.record_type = 'claim'
+            AND claim_record.id = json_extract(answer_ref.value, '$.claim_id')
+           LEFT JOIN domain_records evidence_record
+             ON evidence_record.record_type = 'evidence'
+            AND evidence_record.id = json_extract(answer_ref.value, '$.evidence_id')
+           WHERE claim_record.id IS NULL OR evidence_record.id IS NULL
+             OR json_type(answer_ref.value, '$.evidence_revision') IS NOT 'integer'
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(NEW.payload_json, '$.content.answer_claim_ids') answer_claim
+               WHERE answer_claim.value = claim_record.id
+             )
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(NEW.payload_json, '$.claim_ids') object_claim
+               WHERE object_claim.value = claim_record.id
+             )
+             OR json_extract(evidence_record.payload_json, '$.claim_id') IS NOT claim_record.id
+             OR evidence_record.revision IS NOT json_extract(answer_ref.value, '$.evidence_revision')
+             OR json_extract(evidence_record.payload_json, '$.relationship') IS NOT 'supports'
+             OR json_extract(evidence_record.payload_json, '$.locator.uri') IS NULL
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.evidence_ids') claim_evidence
+               WHERE claim_evidence.value = evidence_record.id
+             )
+             OR NOT EXISTS (
+               SELECT 1 FROM json_each(claim_record.payload_json, '$.provenance') provenance
+               WHERE json_extract(provenance.value, '$.source_id') =
+                     json_extract(evidence_record.payload_json, '$.source_id')
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.article_id') IS NULL
+                   OR json_extract(provenance.value, '$.article_id') =
+                      json_extract(evidence_record.payload_json, '$.article_id')
+                 )
+                 AND (
+                   json_extract(evidence_record.payload_json, '$.observation_id') IS NULL
+                   OR json_extract(provenance.value, '$.observation_id') =
+                      json_extract(evidence_record.payload_json, '$.observation_id')
+                 )
+             )
+         ) THEN RAISE(ABORT, 'question answer evidence must be current and linked to its answer claim') END;
+       END""",
+)
+
+_MIGRATION_26 = (
+    """CREATE TABLE pipeline_runs (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'rejected')),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        started_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json))
+    )""",
+    """CREATE TABLE pipeline_run_revisions (
+        pipeline_run_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (pipeline_run_id, revision),
+        FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_runs(id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX pipeline_runs_status_started ON pipeline_runs(status, started_at)",
+    """CREATE TRIGGER pipeline_run_payload_guard_insert
+       BEFORE INSERT ON pipeline_runs
+       WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
+         OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+         OR json_extract(NEW.payload_json, '$.started_at') IS NOT NEW.started_at
+       BEGIN SELECT RAISE(ABORT, 'pipeline run indexed fields must match payload'); END""",
+    """CREATE TRIGGER pipeline_run_payload_guard_update
+       BEFORE UPDATE ON pipeline_runs
+       WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
+         OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+         OR json_extract(NEW.payload_json, '$.started_at') IS NOT NEW.started_at
+       BEGIN SELECT RAISE(ABORT, 'pipeline run indexed fields must match payload'); END""",
+    """CREATE TRIGGER pipeline_run_identity_guard
+       BEFORE UPDATE ON pipeline_runs
+       BEGIN
+         SELECT CASE WHEN NEW.id != OLD.id
+           OR NEW.started_at != OLD.started_at
+           OR json_extract(NEW.payload_json, '$.software_version') IS NOT json_extract(OLD.payload_json, '$.software_version')
+           OR json_extract(NEW.payload_json, '$.config_hash') IS NOT json_extract(OLD.payload_json, '$.config_hash')
+           OR json_extract(NEW.payload_json, '$.input_hashes') IS NOT json_extract(OLD.payload_json, '$.input_hashes')
+           OR json_extract(NEW.payload_json, '$.initiated_by') IS NOT json_extract(OLD.payload_json, '$.initiated_by')
+         THEN RAISE(ABORT, 'pipeline run identity and inputs are immutable') END;
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'pipeline run revision must increment by one') END;
+         SELECT CASE WHEN NOT (
+           (OLD.status = 'queued' AND NEW.status IN ('running', 'cancelled', 'rejected'))
+           OR (OLD.status = 'running' AND NEW.status IN ('succeeded', 'failed', 'cancelled'))
+         ) THEN RAISE(ABORT, 'invalid pipeline run status transition') END;
+       END""",
+    """CREATE TRIGGER pipeline_runs_no_delete
+       BEFORE DELETE ON pipeline_runs
+       BEGIN SELECT RAISE(ABORT, 'pipeline run records cannot be deleted'); END""",
+    """CREATE TRIGGER pipeline_run_revision_no_update
+       BEFORE UPDATE ON pipeline_run_revisions
+       BEGIN SELECT RAISE(ABORT, 'pipeline run revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_run_revision_no_delete
+       BEFORE DELETE ON pipeline_run_revisions
+       BEGIN SELECT RAISE(ABORT, 'pipeline run revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_run_revision_matches_current
+       BEFORE INSERT ON pipeline_run_revisions
+       BEGIN
+         SELECT CASE WHEN NOT EXISTS (
+           SELECT 1 FROM pipeline_runs
+           WHERE id = NEW.pipeline_run_id AND revision = NEW.revision
+             AND payload_json = NEW.payload_json
+         ) THEN RAISE(ABORT, 'pipeline run revision must match current record') END;
+       END""",
+)
+
+
+_MIGRATION_27 = (
+    """CREATE TABLE edition_artifacts (
+        manifest_id TEXT PRIMARY KEY,
+        edition_id TEXT NOT NULL,
+        edition_revision INTEGER NOT NULL CHECK (edition_revision >= 1),
+        payload_sha256 TEXT NOT NULL CHECK (payload_sha256 GLOB 'sha256:*'),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        manifest_json TEXT NOT NULL CHECK (json_valid(manifest_json)),
+        verification_json TEXT NOT NULL CHECK (json_valid(verification_json)),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        UNIQUE (edition_id, edition_revision)
+    )""",
+    """CREATE TRIGGER edition_artifacts_payload_guard
+       BEFORE INSERT ON edition_artifacts
+       WHEN json_extract(NEW.manifest_json, '$.manifest_id') IS NOT NEW.manifest_id
+         OR json_extract(NEW.manifest_json, '$.edition_id') IS NOT NEW.edition_id
+         OR json_extract(NEW.manifest_json, '$.edition_revision') IS NOT NEW.edition_revision
+         OR json_extract(NEW.manifest_json, '$.payload_sha256') IS NOT NEW.payload_sha256
+       BEGIN SELECT RAISE(ABORT, 'stored edition artifact columns must match manifest'); END""",
+    """CREATE TRIGGER edition_artifacts_no_update
+       BEFORE UPDATE ON edition_artifacts
+       BEGIN SELECT RAISE(ABORT, 'edition artifacts are immutable'); END""",
+    """CREATE TRIGGER edition_artifacts_no_delete
+       BEFORE DELETE ON edition_artifacts
+       BEGIN SELECT RAISE(ABORT, 'edition artifacts are immutable'); END""",
+)
+
+
+_MIGRATION_28 = (
+    """CREATE TABLE edition_decisions (
+        decision_id TEXT PRIMARY KEY,
+        manifest_id TEXT NOT NULL UNIQUE,
+        edition_id TEXT NOT NULL,
+        edition_revision INTEGER NOT NULL CHECK (edition_revision >= 1),
+        payload_sha256 TEXT NOT NULL CHECK (payload_sha256 GLOB 'sha256:*'),
+        decision TEXT NOT NULL CHECK (decision IN ('approve', 'reject')),
+        principal_id TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        FOREIGN KEY (manifest_id) REFERENCES edition_artifacts(manifest_id) ON DELETE RESTRICT
+    )""",
+    """CREATE TRIGGER edition_decisions_payload_guard
+       BEFORE INSERT ON edition_decisions
+       WHEN json_extract(NEW.payload_json, '$.decision_id') IS NOT NEW.decision_id
+         OR json_extract(NEW.payload_json, '$.manifest_id') IS NOT NEW.manifest_id
+         OR json_extract(NEW.payload_json, '$.edition_id') IS NOT NEW.edition_id
+         OR json_extract(NEW.payload_json, '$.edition_revision') IS NOT NEW.edition_revision
+         OR json_extract(NEW.payload_json, '$.payload_sha256') IS NOT NEW.payload_sha256
+         OR json_extract(NEW.payload_json, '$.decision') IS NOT NEW.decision
+         OR json_extract(NEW.payload_json, '$.principal_id') IS NOT NEW.principal_id
+         OR json_extract(NEW.payload_json, '$.decided_at') IS NOT NEW.decided_at
+         OR json_extract(NEW.payload_json, '$.role') IS NOT 'edition_approver'
+         OR json_extract(NEW.payload_json, '$.scope') IS NOT 'staging_candidate_review'
+         OR json_extract(NEW.payload_json, '$.publication_authorized') IS NOT 0
+         OR NOT EXISTS (
+           SELECT 1 FROM edition_artifacts artifact
+           WHERE artifact.manifest_id = NEW.manifest_id
+             AND artifact.edition_id = NEW.edition_id
+             AND artifact.edition_revision = NEW.edition_revision
+             AND artifact.payload_sha256 = NEW.payload_sha256
+         )
+         OR NOT EXISTS (
+           SELECT 1 FROM benchmark_principals principal
+           WHERE principal.principal_id = NEW.principal_id
+             AND principal.active = 1
+             AND principal.principal_kind = 'human'
+             AND EXISTS (
+               SELECT 1 FROM json_each(principal.roles_json) role
+               WHERE role.value = 'edition_approver'
+             )
+         )
+       BEGIN SELECT RAISE(ABORT, 'edition decision must bind an exact artifact and active human approver'); END""",
+    """CREATE TRIGGER edition_decisions_no_update
+       BEFORE UPDATE ON edition_decisions
+       BEGIN SELECT RAISE(ABORT, 'edition decisions are append-only'); END""",
+    """CREATE TRIGGER edition_decisions_no_delete
+       BEFORE DELETE ON edition_decisions
+       BEGIN SELECT RAISE(ABORT, 'edition decisions are append-only'); END""",
+)
+
+
+_MIGRATION_29 = (
+    """CREATE TRIGGER edition_domain_records_no_published_insert
+       BEFORE INSERT ON domain_records
+       WHEN NEW.record_type = 'edition'
+         AND json_extract(NEW.payload_json, '$.status') = 'published'
+       BEGIN SELECT RAISE(ABORT, 'published editions require the controlled release workflow'); END""",
+    """CREATE TRIGGER edition_domain_records_no_update
+       BEFORE UPDATE ON domain_records
+       WHEN OLD.record_type = 'edition' OR NEW.record_type = 'edition'
+       BEGIN SELECT RAISE(ABORT, 'edition snapshots are immutable'); END""",
+    """CREATE TRIGGER edition_domain_records_no_delete
+       BEFORE DELETE ON domain_records
+       WHEN OLD.record_type = 'edition'
+       BEGIN SELECT RAISE(ABORT, 'edition snapshots are immutable'); END""",
+)
+
+
+_MIGRATION_30 = (
+    """CREATE TABLE edition_release_authorizations (
+        authorization_id TEXT PRIMARY KEY,
+        manifest_id TEXT NOT NULL UNIQUE,
+        edition_id TEXT NOT NULL,
+        edition_revision INTEGER NOT NULL CHECK (edition_revision >= 1),
+        payload_sha256 TEXT NOT NULL CHECK (payload_sha256 GLOB 'sha256:*'),
+        approval_decision_id TEXT NOT NULL,
+        approver_principal_id TEXT NOT NULL,
+        authorizer_principal_id TEXT NOT NULL,
+        authorized_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        FOREIGN KEY (manifest_id) REFERENCES edition_artifacts(manifest_id) ON DELETE RESTRICT,
+        FOREIGN KEY (approval_decision_id) REFERENCES edition_decisions(decision_id) ON DELETE RESTRICT,
+        FOREIGN KEY (approver_principal_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT,
+        FOREIGN KEY (authorizer_principal_id) REFERENCES benchmark_principals(principal_id) ON DELETE RESTRICT,
+        CHECK (approver_principal_id <> authorizer_principal_id)
+    )""",
+    """CREATE TRIGGER edition_release_authorizations_insert_guard
+       BEFORE INSERT ON edition_release_authorizations
+       WHEN json_extract(NEW.payload_json, '$.authorization_id') IS NOT NEW.authorization_id
+         OR json_extract(NEW.payload_json, '$.manifest_id') IS NOT NEW.manifest_id
+         OR json_extract(NEW.payload_json, '$.edition_id') IS NOT NEW.edition_id
+         OR json_extract(NEW.payload_json, '$.edition_revision') IS NOT NEW.edition_revision
+         OR json_extract(NEW.payload_json, '$.payload_sha256') IS NOT NEW.payload_sha256
+         OR json_extract(NEW.payload_json, '$.approval_decision_id') IS NOT NEW.approval_decision_id
+         OR json_extract(NEW.payload_json, '$.approver_principal_id') IS NOT NEW.approver_principal_id
+         OR json_extract(NEW.payload_json, '$.authorizer_principal_id') IS NOT NEW.authorizer_principal_id
+         OR json_extract(NEW.payload_json, '$.authorized_at') IS NOT NEW.authorized_at
+         OR json_extract(NEW.payload_json, '$.scope') IS NOT 'controlled_release_gate'
+         OR json_extract(NEW.payload_json, '$.release_authorized') IS NOT 1
+         OR json_extract(NEW.payload_json, '$.publication_authorized') IS NOT 0
+         OR NOT EXISTS (
+           SELECT 1 FROM edition_artifacts artifact
+           WHERE artifact.manifest_id = NEW.manifest_id
+             AND artifact.edition_id = NEW.edition_id
+             AND artifact.edition_revision = NEW.edition_revision
+             AND artifact.payload_sha256 = NEW.payload_sha256
+         )
+         OR NOT EXISTS (
+           SELECT 1 FROM edition_decisions decision
+           WHERE decision.decision_id = NEW.approval_decision_id
+             AND decision.manifest_id = NEW.manifest_id
+             AND decision.edition_id = NEW.edition_id
+             AND decision.edition_revision = NEW.edition_revision
+             AND decision.payload_sha256 = NEW.payload_sha256
+             AND decision.decision = 'approve'
+             AND decision.principal_id = NEW.approver_principal_id
+         )
+         OR NOT EXISTS (
+           SELECT 1 FROM benchmark_principals principal
+           WHERE principal.principal_id = NEW.authorizer_principal_id
+             AND principal.active = 1
+             AND principal.principal_kind = 'human'
+             AND EXISTS (
+               SELECT 1 FROM json_each(principal.roles_json) role
+               WHERE role.value = 'edition_release_authorizer'
+             )
+         )
+       BEGIN SELECT RAISE(ABORT, 'release authorization must bind an approved artifact and independent active human authorizer'); END""",
+    """CREATE TRIGGER edition_release_authorizations_no_update
+       BEFORE UPDATE ON edition_release_authorizations
+       BEGIN SELECT RAISE(ABORT, 'edition release authorizations are append-only'); END""",
+    """CREATE TRIGGER edition_release_authorizations_no_delete
+       BEFORE DELETE ON edition_release_authorizations
+       BEGIN SELECT RAISE(ABORT, 'edition release authorizations are append-only'); END""",
+)
 
 class RegistryIntegrityError(ValueError):
     """Raised when a record references missing or incompatible registry data."""
@@ -755,9 +1628,160 @@ _MIGRATION_11 = (
 )
 
 
+_LANGUAGE_REVIEW_RUBRICS = {
+    "bn": {
+        "version": "bn-editorial-v1",
+        "dimensions": {
+            "grammar_and_spelling", "naturalness_and_register",
+            "terminology_consistency", "factual_fidelity", "attribution",
+            "omissions", "translation_fidelity",
+        },
+    },
+    "en": {
+        "version": "en-editorial-v1",
+        "dimensions": {
+            "grammar_and_style", "clarity_and_readability",
+            "terminology_consistency", "factual_fidelity", "attribution",
+            "omissions", "translation_fidelity",
+        },
+    },
+}
+
+
+def _language_review_passes(review: dict[str, Any] | None, language: str) -> bool:
+    rubric = _LANGUAGE_REVIEW_RUBRICS.get(language)
+    if not isinstance(review, dict) or rubric is None:
+        return False
+    dimensions = review.get("dimensions")
+    if not isinstance(dimensions, dict) or set(dimensions) != rubric["dimensions"]:
+        return False
+    if review.get("rubric_version") != rubric["version"] or review.get("language") != language:
+        return False
+    return all(
+        value == "pass" or (name == "translation_fidelity" and value == "not_applicable")
+        for name, value in dimensions.items()
+    )
+
+_MCQ_REVIEW_RUBRIC = {
+    "version": "mcq-editorial-v1",
+    "dimensions": {
+        "single_defensible_key",
+        "stem_clarity_and_precision",
+        "distractor_plausibility",
+        "distractors_unambiguously_incorrect",
+        "distractor_rationale_quality",
+        "learner_level_fit",
+        "misconception_alignment",
+        "option_parallelism",
+        "no_accidental_clues",
+        "explanation_fidelity",
+    },
+}
+
+
+def _mcq_review_passes(review: dict[str, Any] | None, language: str) -> bool:
+    if not isinstance(review, dict):
+        return False
+    dimensions = review.get("dimensions")
+    return (
+        review.get("language") == language
+        and review.get("rubric_version") == _MCQ_REVIEW_RUBRIC["version"]
+        and isinstance(dimensions, dict)
+        and set(dimensions) == _MCQ_REVIEW_RUBRIC["dimensions"]
+        and all(value == "pass" for value in dimensions.values())
+    )
+
+
+def _validate_learning_object_mcq_review(payload: dict[str, Any]) -> None:
+    review = payload.get("mcq_review")
+    if review is None:
+        return
+    if payload.get("kind") != "mcq_question":
+        raise RegistryIntegrityError("MCQ pedagogical review requires an MCQ learning object")
+    if payload.get("status") not in {"approved", "rejected"}:
+        raise RegistryIntegrityError("MCQ pedagogical review requires an approved or rejected decision")
+    if review.get("language") != payload.get("language"):
+        raise RegistryIntegrityError("MCQ pedagogical review language mismatch")
+    if review.get("rubric_version") != _MCQ_REVIEW_RUBRIC["version"]:
+        raise RegistryIntegrityError("MCQ pedagogical review rubric version mismatch")
+    dimensions = review.get("dimensions")
+    if not isinstance(dimensions, dict) or set(dimensions) != _MCQ_REVIEW_RUBRIC["dimensions"]:
+        raise RegistryIntegrityError("MCQ pedagogical review dimensions do not match the rubric")
+    if review.get("reviewer_id") != payload.get("reviewed_by"):
+        raise RegistryIntegrityError("MCQ pedagogical reviewer mismatch")
+    if review.get("reviewed_at") != payload.get("reviewed_at"):
+        raise RegistryIntegrityError("MCQ pedagogical review timestamp mismatch")
+    _aware_datetime(review["reviewed_at"], "mcq_review.reviewed_at")
+    attestation = review.get("identity_attestation")
+    if attestation is not None:
+        required_attestation = {
+            "principal_id", "issuer", "subject", "provider_key_id",
+            "provider_adapter", "authenticated_at", "attested_at",
+            "authentication_methods", "authentication_context",
+        }
+        if set(attestation) != required_attestation:
+            raise RegistryIntegrityError("MCQ review identity attestation is incomplete")
+        if attestation["principal_id"] != review["reviewer_id"]:
+            raise RegistryIntegrityError("MCQ review identity attestation principal mismatch")
+        if attestation["attested_at"] != review["reviewed_at"]:
+            raise RegistryIntegrityError("MCQ review identity attestation timestamp mismatch")
+        _aware_datetime(attestation["authenticated_at"], "mcq_review.identity_attestation.authenticated_at")
+        _aware_datetime(attestation["attested_at"], "mcq_review.identity_attestation.attested_at")
+        if not attestation["authentication_methods"] or not attestation["subject"].strip():
+            raise RegistryIntegrityError("MCQ review identity attestation lacks provider evidence")
+    needs_revision = any(value == "needs_revision" for value in dimensions.values())
+    if payload.get("status") == "approved" and needs_revision:
+        raise RegistryIntegrityError("approved MCQ review cannot contain needs_revision findings")
+    if payload.get("status") == "rejected" and not needs_revision:
+        raise RegistryIntegrityError("rejected MCQ review must identify at least one needs_revision finding")
+
+
+def _validate_learning_object_language_review(payload: dict[str, Any]) -> None:
+    review = payload.get("language_review")
+    if review is None:
+        return
+    if payload.get("status") not in {"approved", "rejected"}:
+        raise RegistryIntegrityError("structured language review requires an approved or rejected decision")
+    language = payload.get("language")
+    rubric = _LANGUAGE_REVIEW_RUBRICS.get(language)
+    if rubric is None or review.get("language") != language:
+        raise RegistryIntegrityError("language review language mismatch")
+    if review.get("rubric_version") != rubric["version"]:
+        raise RegistryIntegrityError("language review rubric version mismatch")
+    if set(review.get("dimensions", {})) != rubric["dimensions"]:
+        raise RegistryIntegrityError("language review dimensions do not match the language rubric")
+    if review.get("reviewer_id") != payload.get("reviewed_by"):
+        raise RegistryIntegrityError("language review reviewer mismatch")
+    if review.get("reviewed_at") != payload.get("reviewed_at"):
+        raise RegistryIntegrityError("language review timestamp mismatch")
+    _aware_datetime(review["reviewed_at"], "language_review.reviewed_at")
+    attestation = review.get("identity_attestation")
+    if attestation is not None:
+        required_attestation = {
+            "principal_id", "issuer", "subject", "provider_key_id",
+            "provider_adapter", "authenticated_at", "attested_at",
+            "authentication_methods", "authentication_context",
+        }
+        if set(attestation) != required_attestation:
+            raise RegistryIntegrityError("language review identity attestation is incomplete")
+        if attestation["principal_id"] != review["reviewer_id"]:
+            raise RegistryIntegrityError("language review identity attestation principal mismatch")
+        if attestation["attested_at"] != review["reviewed_at"]:
+            raise RegistryIntegrityError("language review identity attestation timestamp mismatch")
+        _aware_datetime(attestation["authenticated_at"], "language_review.identity_attestation.authenticated_at")
+        _aware_datetime(attestation["attested_at"], "language_review.identity_attestation.attested_at")
+        if not attestation["authentication_methods"] or not attestation["subject"].strip():
+            raise RegistryIntegrityError("language review identity attestation lacks provider evidence")
+    needs_revision = any(value == "needs_revision" for value in review["dimensions"].values())
+    if payload.get("status") == "approved" and needs_revision:
+        raise RegistryIntegrityError("approved language review cannot contain needs_revision findings")
+    if payload.get("status") == "rejected" and not needs_revision:
+        raise RegistryIntegrityError("rejected language review must identify at least one needs_revision finding")
+
+
 def _validate_learning_object_traceability(payload: dict[str, Any]) -> None:
-    """Require every summary segment to map exactly to the object's claim set."""
-    if payload.get("kind") not in {"headline_summary", "brief_summary", "detailed_summary"}:
+    """Require summary and revision-card segments to map exactly to object claims."""
+    if payload.get("kind") not in {"headline_summary", "brief_summary", "detailed_summary", "revision_card"}:
         return
     content = payload.get("content", {})
     segments = content.get("segments", [])
@@ -786,6 +1810,24 @@ def _validate_learning_object_answer_links(payload: dict[str, Any]) -> None:
     object_claims = set(payload.get("claim_ids", []))
     if not answer_claims or not answer_claims.issubset(object_claims):
         raise RegistryIntegrityError("question answer claim links must be a non-empty subset of the object's claims")
+    evidence_refs = content.get("answer_evidence", [])
+    evidence_claims = {item.get("claim_id") for item in evidence_refs}
+    evidence_pairs = [(item.get("claim_id"), item.get("evidence_id")) for item in evidence_refs]
+    if (
+        not evidence_refs
+        or evidence_claims != answer_claims
+        or len(evidence_pairs) != len(set(evidence_pairs))
+    ):
+        raise RegistryIntegrityError(
+            "question answer evidence must uniquely cover every answer claim and no unrelated claim"
+        )
+    if any(
+        not isinstance(item.get("evidence_revision"), int)
+        or isinstance(item.get("evidence_revision"), bool)
+        or item["evidence_revision"] < 1
+        for item in evidence_refs
+    ):
+        raise RegistryIntegrityError("question answer evidence must pin a positive evidence revision")
     if kind == "mcq_question":
         options = content.get("options", [])
         option_ids = [item["id"] for item in options]
@@ -796,6 +1838,24 @@ def _validate_learning_object_answer_links(payload: dict[str, Any]) -> None:
             raise RegistryIntegrityError("MCQ option text must be unique")
         if content.get("correct_option_id") not in set(option_ids):
             raise RegistryIntegrityError("MCQ correct option must reference one of its options")
+        rationales = content.get("distractor_rationales", [])
+        rationale_ids = [item.get("option_id") for item in rationales]
+        expected_distractors = set(option_ids) - {content.get("correct_option_id")}
+        if len(rationale_ids) != len(set(rationale_ids)):
+            raise RegistryIntegrityError("MCQ distractor rationale option IDs must be unique")
+        if set(rationale_ids) != expected_distractors:
+            raise RegistryIntegrityError("MCQ must provide exactly one rationale for every incorrect option and none for the correct option")
+        if any(not isinstance(item.get("rationale"), str) or not item["rationale"].strip() for item in rationales):
+            raise RegistryIntegrityError("MCQ distractor rationales must be non-empty")
+        object_claims = set(payload.get("claim_ids", []))
+        if any(
+            not item.get("basis_claim_ids")
+            or not set(item["basis_claim_ids"]).issubset(object_claims)
+            for item in rationales
+        ):
+            raise RegistryIntegrityError(
+                "MCQ distractor rationale basis claims must be a non-empty subset of the object's claims"
+            )
 
 
 _MIGRATION_12 = (
@@ -1001,6 +2061,90 @@ _MIGRATION_12 = (
             ) != 'approved'
             THEN RAISE(ABORT, 'approved vocabulary requires an approved glossary entry') END;
         END""",
+)
+
+
+_MIGRATION_13 = (
+    """CREATE TABLE benchmark_reviews (
+        review_id TEXT PRIMARY KEY,
+        benchmark_id TEXT NOT NULL,
+        benchmark_fingerprint TEXT NOT NULL CHECK (benchmark_fingerprint GLOB 'sha256:*'),
+        language TEXT NOT NULL CHECK (language IN ('bn', 'en')),
+        status TEXT NOT NULL CHECK (status IN ('draft', 'approved', 'rejected')),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_actor TEXT NOT NULL CHECK (length(trim(last_actor)) > 0),
+        last_reason TEXT NOT NULL CHECK (length(trim(last_reason)) > 0),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json))
+    )""",
+    """CREATE TABLE benchmark_review_revisions (
+        review_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        PRIMARY KEY (review_id, revision),
+        FOREIGN KEY (review_id) REFERENCES benchmark_reviews(review_id) ON DELETE RESTRICT
+    )""",
+    """CREATE TRIGGER benchmark_reviews_validate_insert
+        BEFORE INSERT ON benchmark_reviews
+        BEGIN
+            SELECT CASE WHEN NEW.revision != 1
+                THEN RAISE(ABORT, 'benchmark review must start at revision one') END;
+        END""",
+    """CREATE TRIGGER benchmark_reviews_validate_update
+        BEFORE UPDATE ON benchmark_reviews
+        BEGIN
+            SELECT CASE WHEN NEW.review_id != OLD.review_id
+                OR NEW.benchmark_id != OLD.benchmark_id
+                OR NEW.benchmark_fingerprint != OLD.benchmark_fingerprint
+                OR NEW.language != OLD.language
+                OR NEW.created_at != OLD.created_at
+                THEN RAISE(ABORT, 'benchmark review identity and fingerprint binding are immutable') END;
+            SELECT CASE WHEN NEW.revision != OLD.revision + 1
+                THEN RAISE(ABORT, 'benchmark review revision must increment by one') END;
+            SELECT CASE WHEN julianday(NEW.updated_at) < julianday(OLD.updated_at)
+                THEN RAISE(ABORT, 'benchmark review update time cannot move backwards') END;
+            SELECT CASE WHEN trim(NEW.last_actor) = '' OR trim(NEW.last_reason) = ''
+                THEN RAISE(ABORT, 'benchmark review revision requires actor and reason') END;
+        END""",
+    """CREATE TRIGGER benchmark_reviews_no_delete
+        BEFORE DELETE ON benchmark_reviews
+        BEGIN SELECT RAISE(ABORT, 'benchmark reviews cannot be deleted'); END""",
+    """CREATE TRIGGER benchmark_reviews_record_insert
+        AFTER INSERT ON benchmark_reviews
+        BEGIN
+            INSERT INTO benchmark_review_revisions
+            (review_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.review_id, NEW.revision, NEW.created_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
+    """CREATE TRIGGER benchmark_reviews_record_update
+        AFTER UPDATE ON benchmark_reviews
+        BEGIN
+            INSERT INTO benchmark_review_revisions
+            (review_id, revision, created_at, actor, reason, payload_json)
+            VALUES (NEW.review_id, NEW.revision, NEW.updated_at, NEW.last_actor, NEW.last_reason, NEW.payload_json);
+        END""",
+    """CREATE TRIGGER benchmark_review_revisions_validate_insert
+        BEFORE INSERT ON benchmark_review_revisions
+        BEGIN
+            SELECT CASE WHEN NOT EXISTS (
+                SELECT 1 FROM benchmark_reviews
+                WHERE review_id = NEW.review_id AND revision = NEW.revision
+                  AND payload_json = NEW.payload_json
+            ) THEN RAISE(ABORT, 'benchmark review revision must match the current review') END;
+            SELECT CASE WHEN trim(NEW.actor) = '' OR trim(NEW.reason) = ''
+                THEN RAISE(ABORT, 'benchmark review revision requires actor and reason') END;
+        END""",
+    """CREATE TRIGGER benchmark_review_revisions_no_update
+        BEFORE UPDATE ON benchmark_review_revisions
+        BEGIN SELECT RAISE(ABORT, 'benchmark review revisions are append-only'); END""",
+    """CREATE TRIGGER benchmark_review_revisions_no_delete
+        BEFORE DELETE ON benchmark_review_revisions
+        BEGIN SELECT RAISE(ABORT, 'benchmark review revisions are append-only'); END""",
+    "CREATE INDEX idx_benchmark_reviews_benchmark ON benchmark_reviews(benchmark_id, language, status)",
 )
 
 
@@ -1220,6 +2364,249 @@ class SQLiteRegistry:
                     version = 12
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 12 failed; transaction rolled back") from exc
+
+            if version == 12 and _SCHEMA_VERSION >= 13:
+                try:
+                    for statement in _MIGRATION_13:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (13, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 13")
+                    version = 13
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 13 failed; transaction rolled back") from exc
+
+            if version == 13 and _SCHEMA_VERSION >= 14:
+                try:
+                    for statement in _MIGRATION_14:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (14, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 14")
+                    version = 14
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 14 failed; transaction rolled back") from exc
+
+            if version == 14 and _SCHEMA_VERSION >= 15:
+                try:
+                    for statement in _MIGRATION_15:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (15, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 15")
+                    version = 15
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 15 failed; transaction rolled back") from exc
+
+            if version == 15 and _SCHEMA_VERSION >= 16:
+                try:
+                    for statement in _MIGRATION_16:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (16, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 16")
+                    version = 16
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 16 failed; transaction rolled back") from exc
+
+            if version == 16 and _SCHEMA_VERSION >= 17:
+                try:
+                    for statement in _MIGRATION_17:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (17, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 17")
+                    version = 17
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 17 failed; transaction rolled back") from exc
+
+            if version == 17 and _SCHEMA_VERSION >= 18:
+                try:
+                    for statement in _MIGRATION_18:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (18, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 18")
+                    version = 18
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 18 failed; transaction rolled back") from exc
+
+            if version == 18 and _SCHEMA_VERSION >= 19:
+                try:
+                    for statement in _MIGRATION_19:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (19, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 19")
+                    version = 19
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 19 failed; transaction rolled back") from exc
+
+            
+            if version == 19 and _SCHEMA_VERSION >= 20:
+                try:
+                    for statement in _MIGRATION_20:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (20, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 20")
+                    version = 20
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 20 failed; transaction rolled back") from exc
+
+
+            if version == 20 and _SCHEMA_VERSION >= 21:
+                try:
+                    for statement in _MIGRATION_21:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (21, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 21")
+                    version = 21
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 21 failed; transaction rolled back") from exc
+
+
+            if version == 21 and _SCHEMA_VERSION >= 22:
+                try:
+                    for statement in _MIGRATION_22:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (22, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 22")
+                    version = 22
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 22 failed; transaction rolled back") from exc
+
+
+
+            if version == 22 and _SCHEMA_VERSION >= 23:
+                try:
+                    for statement in _MIGRATION_23:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (23, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 23")
+                    version = 23
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 23 failed; transaction rolled back") from exc
+
+            if version == 23 and _SCHEMA_VERSION >= 24:
+                try:
+                    for statement in _MIGRATION_24:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (24, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 24")
+                    version = 24
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 24 failed; transaction rolled back") from exc
+
+            if version == 24 and _SCHEMA_VERSION >= 25:
+                try:
+                    for statement in _MIGRATION_25:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (25, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 25")
+                    version = 25
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 25 failed; transaction rolled back") from exc
+
+            if version == 25 and _SCHEMA_VERSION >= 26:
+                try:
+                    for statement in _MIGRATION_26:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (26, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 26")
+                    version = 26
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 26 failed; transaction rolled back") from exc
+
+
+            if version == 26 and _SCHEMA_VERSION >= 27:
+                try:
+                    for statement in _MIGRATION_27:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (27, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 27")
+                    version = 27
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 27 failed; transaction rolled back") from exc
+
+
+            if version == 27 and _SCHEMA_VERSION >= 28:
+                try:
+                    for statement in _MIGRATION_28:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (28, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 28")
+                    version = 28
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 28 failed; transaction rolled back") from exc
+
+
+            if version == 28 and _SCHEMA_VERSION >= 29:
+                try:
+                    for statement in _MIGRATION_29:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (29, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 29")
+                    version = 29
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 29 failed; transaction rolled back") from exc
+
+
+            if version == 29 and _SCHEMA_VERSION >= 30:
+                try:
+                    for statement in _MIGRATION_30:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (30, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 30")
+                    version = 30
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 30 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -2902,6 +4289,10 @@ class SQLiteRegistry:
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
             raise ValueError(f"unsupported domain record type: {record_type}")
+        if record_type == "edition" and payload.get("status") == "published":
+            raise RegistryIntegrityError(
+                "published editions require the controlled release workflow; generic insertion is blocked"
+            )
         validate_payload(record_type, payload)
         record = model.from_payload(payload)
         created_at = self._domain_record_timestamp(record_type, payload)
@@ -3054,6 +4445,72 @@ class SQLiteRegistry:
             "reviewed_distinct_count": reviewed_distinct,
             "no_candidate_count": no_candidate,
             "independence_claim": "not_established_by_publisher_count_or_no_candidate",
+        }
+
+    def story_source_independence_evidence_report(self, story_id: str) -> dict[str, Any]:
+        """Expose article-identity review separately from evidence of independent reporting."""
+        independence = self.story_reporting_independence(story_id)
+        story = self.get_domain_record("story", story_id)
+        if story is None:
+            raise RegistryIntegrityError(f"unknown story: {story_id}")
+        article_map = {}
+        for article_id in story.to_payload().get("article_ids", []):
+            article = self.get_domain_record("article", article_id)
+            if article is None:
+                raise RegistryIntegrityError(f"story references a missing article: {article_id}")
+            article_map[article_id] = article.to_payload()
+
+        articles = []
+        for item in independence["articles"]:
+            article = article_map[item["article_id"]]
+            duplicate_status = item["duplicate_status"]
+            if duplicate_status == "confirmed_duplicate":
+                duplicate_review = "confirmed_duplicate"
+            elif duplicate_status == "distinct":
+                duplicate_review = "reviewed_distinct_article_only"
+            elif duplicate_status == "possible_duplicate":
+                duplicate_review = "unresolved_duplicate_candidate"
+            else:
+                duplicate_review = "not_reviewed"
+
+            articles.append({
+                "article_id": item["article_id"],
+                "source_id": item["source_id"],
+                "title": article.get("title"),
+                "canonical_uri": article.get("canonical_uri"),
+                "duplicate_review_status": duplicate_review,
+                "duplicate_of_article_id": item["duplicate_of_article_id"],
+                "independent_reporting_status": "not_established",
+                "independence_evidence": {
+                    "original_reporting_provenance": "not_assessed",
+                    "syndication_or_republication": "not_assessed",
+                    "shared_source_or_common_origin": "not_assessed",
+                    "direct_interview_or_primary_document": "not_assessed",
+                },
+            })
+
+        return {
+            "story_id": story_id,
+            "article_count": len(articles),
+            "publisher_count": independence["publisher_count"],
+            "articles": articles,
+            "confirmed_duplicate_groups": independence["confirmed_duplicate_groups"],
+            "unresolved_duplicate_candidates": independence["unresolved_candidates"],
+            "independent_reporting_count": None,
+            "independence_status": "not_established",
+            "interpretation": (
+                "A distinct-article review addresses whether two article records are duplicates; "
+                "it does not establish independent reporting. Publisher identity, article count, "
+                "different wording, and absence of a duplicate candidate are insufficient evidence."
+            ),
+            "evidence_required_before_independence_claim": [
+                "reviewed original-reporting provenance for each article",
+                "syndication and republication checks",
+                "shared-source and common-origin checks",
+                "where relevant, direct interviews or primary-document evidence",
+            ],
+            "production_ready": False,
+            "authorization_granted": False,
         }
 
     def _preview_story_decision_application(
@@ -3746,6 +5203,85 @@ class SQLiteRegistry:
             if not item["is_superseded"]
         ]
 
+    def story_perspective_attribution_report(self, story_id: str) -> dict[str, Any]:
+        """Return a read-only, source-attributed view of current perspectives and reviewed claim conflicts."""
+        perspectives = self.story_perspectives(story_id)
+        relations = [
+            item for item in self.claim_relation_history(story_id)
+            if not item["is_superseded"]
+        ]
+        reporting = self.story_reporting_independence(story_id)
+        by_kind: dict[str, int] = {}
+        by_language: dict[str, int] = {}
+        by_source: dict[str, list[str]] = {}
+        entries: list[dict[str, Any]] = []
+        unreviewed: list[str] = []
+        unattributed: list[str] = []
+        claim_coverage: set[str] = set()
+        for item in perspectives:
+            record = item["record"]
+            kind = record["kind"]
+            language = record["language"]
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+            by_language[language] = by_language.get(language, 0) + 1
+            source_id = item["source_id"]
+            article_id = item["article_id"]
+            if source_id:
+                by_source.setdefault(source_id, []).append(item["perspective_id"])
+            else:
+                unattributed.append(item["perspective_id"])
+            if record.get("review_status") != "approved":
+                unreviewed.append(item["perspective_id"])
+            claim_coverage.update(record.get("claim_ids", []))
+            entries.append({
+                "perspective_id": item["perspective_id"],
+                "kind": kind,
+                "attribution": record["attribution"],
+                "source_id": source_id,
+                "article_id": article_id,
+                "language": language,
+                "text": record["text"],
+                "claim_ids": sorted(record.get("claim_ids", [])),
+                "review_status": record.get("review_status", "unreviewed"),
+                "reviewed_by": record.get("reviewed_by"),
+                "reviewed_at": record.get("reviewed_at"),
+            })
+        contradictions = [
+            {
+                "relation_id": item["relation_id"],
+                "claim_id": item["claim_id"],
+                "related_claim_id": item["related_claim_id"],
+                "review_status": item["record"]["review_status"],
+                "reviewed_by": item["record"].get("reviewed_by"),
+                "reviewed_at": item["record"].get("reviewed_at"),
+                "resolution_note": item["record"].get("review_note"),
+            }
+            for item in relations if item["relationship"] == "contradicts"
+        ]
+        return {
+            "story_id": story_id,
+            "perspective_count": len(entries),
+            "reviewed_count": sum(1 for item in entries if item["review_status"] == "approved"),
+            "unreviewed_perspective_ids": sorted(unreviewed),
+            "unattributed_perspective_ids": sorted(unattributed),
+            "by_kind": dict(sorted(by_kind.items())),
+            "by_language": dict(sorted(by_language.items())),
+            "source_attributions": [
+                {"source_id": source_id, "perspective_ids": sorted(ids)}
+                for source_id, ids in sorted(by_source.items())
+            ],
+            "perspectives": entries,
+            "claim_ids_with_perspectives": sorted(claim_coverage),
+            "contradictions": contradictions,
+            "reporting_independence": reporting,
+            "independence_caveat": (
+                "Distinct publisher IDs and distinct articles do not establish independent reporting; "
+                "syndication, shared sourcing, and common-origin material require separate evidence."
+            ),
+            "production_ready": False,
+            "authorization_granted": False,
+        }
+
     def add_claim_relation(self, payload: dict[str, Any]) -> ClaimRelationRecord:
         """Append an explicit relationship between two claims in one story."""
         validate_payload("claim-relation", payload)
@@ -3848,6 +5384,240 @@ class SQLiteRegistry:
             if not item["is_superseded"]
         ]
 
+    @staticmethod
+    def _story_narrative_assembly_from_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Assemble reviewed, language-separated narrative segments with claim/evidence traces."""
+        claims = {item["id"]: item["record"] for item in snapshot["claims"]}
+        evidence_by_claim: dict[str, list[dict[str, Any]]] = {}
+        for item in snapshot["evidence"]:
+            evidence_by_claim.setdefault(item["record"]["claim_id"], []).append(item["record"])
+
+        by_language: dict[str, dict[str, Any]] = {
+            "bn": {"language": "bn", "objects": [], "segments": [], "blockers": []},
+            "en": {"language": "en", "objects": [], "segments": [], "blockers": []},
+        }
+        for item in snapshot["learning_objects"]:
+            record = item["record"]
+            language = record["language"]
+            if language not in by_language:
+                continue
+            segments = record.get("content", {}).get("segments", [])
+            if not segments:
+                continue
+            language_report = by_language[language]
+            language_review = record.get("language_review")
+            language_review_pass = _language_review_passes(language_review, language)
+            object_entry = {
+                "learning_object_id": item["id"],
+                "revision": item["revision"],
+                "kind": record["kind"],
+                "status": record["status"],
+                "language_review": language_review,
+                "language_review_pass": language_review_pass,
+                "segment_count": len(segments),
+            }
+            language_report["objects"].append(object_entry)
+            if record["status"] != "approved":
+                language_report["blockers"].append({
+                    "learning_object_id": item["id"],
+                    "reason": "learning object is not approved",
+                })
+            if language_review is None:
+                language_report["blockers"].append({
+                    "learning_object_id": item["id"],
+                    "reason": "independent language review evidence is missing",
+                })
+            elif not language_review_pass:
+                language_report["blockers"].append({
+                    "learning_object_id": item["id"],
+                    "reason": "language review is rejected or one or more required rubric dimensions did not pass",
+                    "reviewer_id": language_review.get("reviewer_id"),
+                    "rubric_version": language_review.get("rubric_version"),
+                })
+
+            for index, segment in enumerate(segments):
+                claim_ids = sorted(segment.get("claim_ids", []))
+                claim_entries = []
+                missing_claim_ids = []
+                unsupported_claim_ids = []
+                for claim_id in claim_ids:
+                    claim = claims.get(claim_id)
+                    if claim is None:
+                        missing_claim_ids.append(claim_id)
+                        continue
+                    evidence = sorted(
+                        evidence_by_claim.get(claim_id, []),
+                        key=lambda entry: entry["id"],
+                    )
+                    supporting_evidence = [
+                        entry for entry in evidence if entry["relationship"] == "supports"
+                    ]
+                    if claim.get("assessment") != "supported" or not supporting_evidence:
+                        unsupported_claim_ids.append(claim_id)
+                    claim_entries.append({
+                        "claim_id": claim_id,
+                        "claim_text": claim["text"],
+                        "assessment": claim["assessment"],
+                        "provenance": claim.get("provenance", []),
+                        "evidence": [
+                            {
+                                "evidence_id": entry["id"],
+                                "source_id": entry["source_id"],
+                                "article_id": entry.get("article_id"),
+                                "relationship": entry["relationship"],
+                                "locator": entry["locator"],
+                                "assessment_method": entry.get("assessment_method"),
+                            }
+                            for entry in evidence
+                        ],
+                    })
+
+                role = segment["role"]
+                if role == "fact":
+                    support_state = (
+                        "supported"
+                        if claim_ids and not missing_claim_ids and not unsupported_claim_ids
+                        else "unverified_or_disputed"
+                    )
+                elif role == "attributed":
+                    support_state = "attributed_position"
+                else:
+                    support_state = "editorial_analysis"
+                trace = {
+                    "learning_object_id": item["id"],
+                    "learning_object_revision": item["revision"],
+                    "segment_index": index,
+                    "language": language,
+                    "text": segment["text"],
+                    "role": role,
+                    "attribution": segment.get("attribution"),
+                    "support_state": support_state,
+                    "claim_ids": claim_ids,
+                    "claims": claim_entries,
+                    "missing_claim_ids": missing_claim_ids,
+                    "unsupported_claim_ids": unsupported_claim_ids,
+                    "traceable": bool(claim_ids) and not missing_claim_ids,
+                }
+                language_report["segments"].append(trace)
+                if missing_claim_ids:
+                    language_report["blockers"].append({
+                        "learning_object_id": item["id"],
+                        "segment_index": index,
+                        "reason": "segment references missing claims",
+                        "claim_ids": missing_claim_ids,
+                    })
+                if role == "fact" and support_state != "supported":
+                    language_report["blockers"].append({
+                        "learning_object_id": item["id"],
+                        "segment_index": index,
+                        "reason": "factual sentence lacks fully supported claims and supporting evidence",
+                        "claim_ids": unsupported_claim_ids or claim_ids,
+                    })
+
+        perspectives_by_language: dict[str, list[dict[str, Any]]] = {"bn": [], "en": []}
+        for item in snapshot["perspectives"]:
+            record = item["record"]
+            language = record["language"]
+            if language in perspectives_by_language:
+                perspectives_by_language[language].append({
+                    "perspective_id": item["perspective_id"],
+                    "kind": record["kind"],
+                    "attribution": record["attribution"],
+                    "source_id": item["source_id"],
+                    "article_id": item["article_id"],
+                    "text": record["text"],
+                    "claim_ids": sorted(record.get("claim_ids", [])),
+                    "review_status": record.get("review_status", "unreviewed"),
+                })
+
+        contradictions = []
+        for relation in snapshot["claim_relations"]:
+            if relation["relationship"] != "contradicts":
+                continue
+            record = relation["record"]
+            left = claims.get(relation["claim_id"], {})
+            right = claims.get(relation["related_claim_id"], {})
+            contradictions.append({
+                "relation_id": relation["relation_id"],
+                "claim_id": relation["claim_id"],
+                "claim_text": left.get("text"),
+                "related_claim_id": relation["related_claim_id"],
+                "related_claim_text": right.get("text"),
+                "review_status": record.get("review_status", "unreviewed"),
+                "reviewed_by": record.get("reviewed_by"),
+                "reviewed_at": record.get("reviewed_at"),
+                "review_note": record.get("review_note"),
+            })
+        unresolved_contradictions = [
+            item for item in contradictions
+            if item["review_status"] != "rejected"
+        ]
+
+        languages = {}
+        for language, report in by_language.items():
+            report["publisher_perspectives"] = [
+                item for item in perspectives_by_language[language]
+                if item["kind"] == "publisher_framing"
+            ]
+            report["other_attributed_perspectives"] = [
+                item for item in perspectives_by_language[language]
+                if item["kind"] != "publisher_framing"
+            ]
+            report["unresolved_contradiction_ids"] = [
+                item["relation_id"] for item in unresolved_contradictions
+            ]
+            factual_segments = [
+                item for item in report["segments"] if item["role"] == "fact"
+            ]
+            report["summary"] = {
+                "learning_object_count": len(report["objects"]),
+                "segment_count": len(report["segments"]),
+                "factual_segment_count": len(factual_segments),
+                "traceable_segment_count": sum(
+                    1 for item in report["segments"] if item["traceable"]
+                ),
+                "unsupported_factual_segment_count": sum(
+                    1 for item in factual_segments
+                    if item["support_state"] != "supported"
+                ),
+                "language_review_pass_count": sum(
+                    1 for item in report["objects"] if item["language_review_pass"]
+                ),
+                "blocker_count": len(report["blockers"]),
+            }
+            report["assembly_status"] = "blocked" if report["blockers"] else "review_required"
+            report["production_ready"] = False
+            report["authorization_granted"] = False
+            languages[language] = report
+
+        return {
+            "story_id": snapshot["story_id"],
+            "languages": languages,
+            "contradictions": contradictions,
+            "unresolved_contradictions": unresolved_contradictions,
+            "reporting_independence": snapshot["reporting_independence"],
+            "independence_caveat": (
+                "Publisher count and article count are not proof of independent reporting. "
+                "Syndication, shared sourcing, and common-origin material must be investigated separately."
+            ),
+            "assembly_policy": {
+                "facts_require_supported_claims_and_supporting_evidence": True,
+                "attributed_positions_remain_separate": True,
+                "editorial_analysis_remains_labelled": True,
+                "bangla_and_english_are_assessed_independently": True,
+                "unresolved_contradictions_are_preserved": True,
+            },
+            "production_ready": False,
+            "authorization_granted": False,
+        }
+
+    def story_narrative_assembly_report(self, story_id: str) -> dict[str, Any]:
+        """Return a deterministic, non-authorizing narrative assembly dossier."""
+        snapshot = self.story_editorial_snapshot(story_id)
+        report = snapshot["narrative_assembly_report"]
+        report["snapshot_fingerprint"] = snapshot["fingerprint"]
+        return report
+
     def story_editorial_snapshot(self, story_id: str) -> dict[str, Any]:
         """Build a deterministic, read-only editorial dossier from one SQLite snapshot."""
         with self._transaction("DEFERRED") as connection:
@@ -3905,6 +5675,7 @@ class SQLiteRegistry:
             timeline_history = self.timeline_event_history(story_id)
             perspective_history = self.perspective_history(story_id)
             claim_relation_history = self.claim_relation_history(story_id)
+            perspective_attribution_report = self.story_perspective_attribution_report(story_id)
             decisions = self.story_decision_history(story_id)
             learning_object_rows = connection.execute(
                 """SELECT id, revision, updated_at, payload_json FROM learning_objects
@@ -3935,6 +5706,49 @@ class SQLiteRegistry:
                     for row in glossary_rows
                 ]
             reporting_independence = self.story_reporting_independence(story_id)
+            source_independence_evidence_report = self.story_source_independence_evidence_report(story_id)
+            benchmark_reviews = []
+            if article_ids:
+                review_rows = connection.execute(
+                    "SELECT review_id, revision, payload_json FROM benchmark_reviews ORDER BY review_id"
+                ).fetchall()
+                story_article_ids = set(article_ids)
+                for review_row in review_rows:
+                    review_payload = json.loads(review_row["payload_json"])
+                    linked_article_ids = {
+                        item.get("article_id")
+                        for item in review_payload.get("source_materials", [])
+                        if isinstance(item, dict)
+                    }
+                    if not story_article_ids.intersection(linked_article_ids):
+                        continue
+                    benchmark_reviews.append({
+                        "review_id": review_row["review_id"],
+                        "revision": review_row["revision"],
+                        "record": review_payload,
+                        "quality_report": self._benchmark_review_quality_report(
+                            review_payload, connection
+                        ),
+                        "history": self.benchmark_review_history(review_row["review_id"]),
+                    })
+            acceptance_reviews = []
+            benchmark_ids = sorted({item["record"].get("benchmark_id") for item in benchmark_reviews
+                                    if item["record"].get("benchmark_id")})
+            if benchmark_ids:
+                placeholders = ",".join("?" for _ in benchmark_ids)
+                acceptance_rows = connection.execute(
+                    f"SELECT review_id FROM benchmark_acceptance_reviews WHERE benchmark_id IN ({placeholders}) ORDER BY created_at, review_id",
+                    tuple(benchmark_ids),
+                ).fetchall()
+                acceptance_reviews = [
+                    {
+                        "review_id": acceptance_row["review_id"],
+                        "quality_report": self._benchmark_acceptance_review_quality_report(
+                            acceptance_row["review_id"], connection
+                        ),
+                    }
+                    for acceptance_row in acceptance_rows
+                ]
             snapshot = {
                 "story_id": story_id,
                 "story_revision": story_row["revision"],
@@ -3947,13 +5761,18 @@ class SQLiteRegistry:
                 "timeline": [item for item in timeline_history if not item["is_superseded"]],
                 "perspective_history": perspective_history,
                 "perspectives": [item for item in perspective_history if not item["is_superseded"]],
+                "perspective_attribution_report": perspective_attribution_report,
                 "claim_relation_history": claim_relation_history,
                 "claim_relations": [item for item in claim_relation_history if not item["is_superseded"]],
                 "story_decisions": decisions,
                 "learning_objects": learning_objects,
                 "glossary_entries": glossary_entries,
+                "benchmark_reviews": benchmark_reviews,
+                "benchmark_acceptance_reviews": acceptance_reviews,
                 "reporting_independence": reporting_independence,
+                "source_independence_evidence_report": source_independence_evidence_report,
             }
+            snapshot["narrative_assembly_report"] = self._story_narrative_assembly_from_snapshot(snapshot)
             snapshot["fingerprint"] = sha256_fingerprint(snapshot)
             return snapshot
 
@@ -4092,6 +5911,169 @@ class SQLiteRegistry:
             for row in rows
         ]
 
+    def _validate_learning_object_answer_evidence(
+        self, connection: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        if payload.get("kind") not in {
+            "comprehension_question", "analysis_question", "mcq_question"
+        }:
+            return
+        content = payload.get("content", {})
+        raw_answer_claim_ids = content.get("answer_claim_ids", [])
+        raw_object_claim_ids = payload.get("claim_ids", [])
+        references = content.get("answer_evidence", [])
+        if (
+            not isinstance(raw_answer_claim_ids, list)
+            or not raw_answer_claim_ids
+            or any(not isinstance(item, str) or not item for item in raw_answer_claim_ids)
+            or not isinstance(raw_object_claim_ids, list)
+            or any(not isinstance(item, str) or not item for item in raw_object_claim_ids)
+            or not isinstance(references, list)
+            or any(not isinstance(item, dict) for item in references)
+        ):
+            raise RegistryIntegrityError("question answer evidence references are malformed")
+        answer_claim_ids = set(raw_answer_claim_ids)
+        object_claim_ids = set(raw_object_claim_ids)
+        if not answer_claim_ids or not references:
+            raise RegistryIntegrityError("question answer evidence is required")
+        if any(
+            not isinstance(item.get("claim_id"), str)
+            or not item.get("claim_id")
+            or not isinstance(item.get("evidence_id"), str)
+            or not item.get("evidence_id")
+            for item in references
+        ):
+            raise RegistryIntegrityError("question answer evidence IDs are malformed")
+        reference_claim_ids = {item["claim_id"] for item in references}
+        reference_pairs = [
+            (item["claim_id"], item["evidence_id"]) for item in references
+        ]
+        if (
+            len(raw_answer_claim_ids) != len(answer_claim_ids)
+            or reference_claim_ids != answer_claim_ids
+            or not answer_claim_ids.issubset(object_claim_ids)
+            or len(reference_pairs) != len(set(reference_pairs))
+        ):
+            raise RegistryIntegrityError(
+                "question answer evidence must uniquely cover every answer claim"
+            )
+        for item in references:
+            claim_id = item.get("claim_id")
+            evidence_id = item.get("evidence_id")
+            expected_revision = item.get("evidence_revision")
+            if (
+                not isinstance(expected_revision, int)
+                or isinstance(expected_revision, bool)
+                or expected_revision < 1
+            ):
+                raise RegistryIntegrityError(
+                    "question answer evidence must pin a positive evidence revision"
+                )
+            claim_row = connection.execute(
+                """SELECT payload_json FROM domain_records
+                WHERE record_type = 'claim' AND id = ?""",
+                (claim_id,),
+            ).fetchone()
+            evidence_row = connection.execute(
+                """SELECT revision, payload_json FROM domain_records
+                WHERE record_type = 'evidence' AND id = ?""",
+                (evidence_id,),
+            ).fetchone()
+            if claim_row is None or evidence_row is None:
+                raise RegistryIntegrityError(
+                    "question answer evidence references an unknown claim or evidence record"
+                )
+            if evidence_row["revision"] != expected_revision:
+                raise RegistryIntegrityError("question answer evidence revision is stale")
+            claim = json.loads(claim_row["payload_json"])
+            evidence = json.loads(evidence_row["payload_json"])
+            if evidence.get("claim_id") != claim_id:
+                raise RegistryIntegrityError(
+                    "question answer evidence must belong to its referenced answer claim"
+                )
+            if evidence_id not in claim.get("evidence_ids", []):
+                raise RegistryIntegrityError(
+                    "question answer evidence is no longer linked from its claim"
+                )
+            if evidence.get("relationship") != "supports":
+                raise RegistryIntegrityError(
+                    "question answer evidence must support its referenced answer claim"
+                )
+            provenance_matches = any(
+                item.get("source_id") == evidence.get("source_id")
+                and (
+                    evidence.get("article_id") is None
+                    or item.get("article_id") == evidence.get("article_id")
+                )
+                and (
+                    evidence.get("observation_id") is None
+                    or item.get("observation_id") == evidence.get("observation_id")
+                )
+                for item in claim.get("provenance", [])
+            )
+            if not provenance_matches or not evidence.get("locator", {}).get("uri"):
+                raise RegistryIntegrityError(
+                    "question answer evidence locator must match current claim provenance"
+                )
+
+    def _validate_learning_object_source_evidence_reference(
+        self, connection: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        if payload.get("kind") != "vocabulary":
+            return
+        content = payload["content"]
+        evidence_id = content.get("source_evidence_id")
+        expected_revision = content.get("source_evidence_revision")
+        if not isinstance(evidence_id, str) or not evidence_id.strip():
+            raise RegistryIntegrityError("vocabulary source evidence ID is required")
+        if not isinstance(expected_revision, int) or isinstance(expected_revision, bool) or expected_revision < 1:
+            raise RegistryIntegrityError("vocabulary source evidence revision is required")
+        evidence_row = connection.execute(
+            """SELECT revision, payload_json FROM domain_records
+            WHERE record_type = 'evidence' AND id = ?""",
+            (evidence_id,),
+        ).fetchone()
+        if evidence_row is None:
+            raise RegistryIntegrityError(
+                "vocabulary learning object references an unknown source evidence record"
+            )
+        if evidence_row["revision"] != expected_revision:
+            raise RegistryIntegrityError("vocabulary source evidence revision is stale")
+        evidence = json.loads(evidence_row["payload_json"])
+        claim_ids = payload.get("claim_ids", [])
+        if evidence.get("claim_id") not in claim_ids:
+            raise RegistryIntegrityError(
+                "vocabulary source evidence must belong to one of the learning object's claims"
+            )
+        claim_row = connection.execute(
+            """SELECT payload_json FROM domain_records
+            WHERE record_type = 'claim' AND id = ?""",
+            (evidence["claim_id"],),
+        ).fetchone()
+        if claim_row is None:
+            raise RegistryIntegrityError("vocabulary source evidence claim is missing")
+        claim = json.loads(claim_row["payload_json"])
+        if evidence_id not in claim.get("evidence_ids", []):
+            raise RegistryIntegrityError(
+                "vocabulary source evidence is no longer linked from its claim"
+            )
+        provenance_matches = any(
+            item.get("source_id") == evidence.get("source_id")
+            and (
+                evidence.get("article_id") is None
+                or item.get("article_id") == evidence.get("article_id")
+            )
+            and (
+                evidence.get("observation_id") is None
+                or item.get("observation_id") == evidence.get("observation_id")
+            )
+            for item in claim.get("provenance", [])
+        )
+        if not provenance_matches or not evidence.get("locator"):
+            raise RegistryIntegrityError(
+                "vocabulary source evidence locator must match the claim's current provenance"
+            )
+
     def _validate_learning_object_glossary_reference(
         self, connection: sqlite3.Connection, payload: dict[str, Any]
     ) -> None:
@@ -4127,6 +6109,8 @@ class SQLiteRegistry:
     ) -> LearningObjectRecord:
         """Create a language-specific learning object in a non-approved state."""
         validate_payload("learning-object", payload)
+        _validate_learning_object_language_review(payload)
+        _validate_learning_object_mcq_review(payload)
         _validate_learning_object_traceability(payload)
         _validate_learning_object_answer_links(payload)
         if not isinstance(actor, str) or not actor.strip():
@@ -4170,7 +6154,9 @@ class SQLiteRegistry:
                     json.loads(row["payload_json"])["story_id"] != record.story_id for row in rows
                 ):
                     raise RegistryIntegrityError("learning object claims must belong to its story")
+            self._validate_learning_object_source_evidence_reference(connection, payload)
             self._validate_learning_object_glossary_reference(connection, payload)
+            self._validate_learning_object_answer_evidence(connection, payload)
             connection.execute(
                 """INSERT INTO learning_objects
                 (id, story_id, kind, language, variant_group_id, status, revision, created_at, updated_at,
@@ -4207,6 +6193,8 @@ class SQLiteRegistry:
     ) -> LearningObjectRecord:
         """Revise an editorial object with optimistic concurrency and immutable history."""
         validate_payload("learning-object", payload)
+        _validate_learning_object_language_review(payload)
+        _validate_learning_object_mcq_review(payload)
         _validate_learning_object_traceability(payload)
         _validate_learning_object_answer_links(payload)
         if payload.get("id") != learning_object_id:
@@ -4245,7 +6233,9 @@ class SQLiteRegistry:
                     json.loads(item["payload_json"])["story_id"] != record.story_id for item in claims
                 ):
                     raise RegistryIntegrityError("learning object claims must belong to its story")
+            self._validate_learning_object_source_evidence_reference(connection, payload)
             self._validate_learning_object_glossary_reference(connection, payload)
+            self._validate_learning_object_answer_evidence(connection, payload)
             now = _utc_now()
             updated = connection.execute(
                 """UPDATE learning_objects
@@ -4332,6 +6322,23 @@ class SQLiteRegistry:
                 payload["status"] == "approved",
                 "Learning object must be approved before it can pass the registry quality gate.",
             )
+            language_review_valid = _language_review_passes(
+                payload.get("language_review"), payload.get("language")
+            )
+            check(
+                "language_review",
+                language_review_valid,
+                "A complete language-specific rubric review must pass before a learning object can pass the registry quality gate.",
+            )
+            mcq_review_valid = _mcq_review_passes(
+                payload.get("mcq_review"), payload.get("language")
+            )
+            check(
+                "mcq_pedagogical_review",
+                payload.get("kind") != "mcq_question"
+                or (payload.get("status") != "approved" or mcq_review_valid),
+                "An approved MCQ requires a complete all-pass pedagogical review rubric.",
+            )
             claim_ids = payload.get("claim_ids", [])
             placeholders = ",".join("?" for _ in claim_ids)
             claim_rows = connection.execute(
@@ -4387,7 +6394,7 @@ class SQLiteRegistry:
             )
 
             factual_claims: set[str] = set()
-            if payload["kind"] in {"headline_summary", "brief_summary", "detailed_summary"}:
+            if payload["kind"] in {"headline_summary", "brief_summary", "detailed_summary", "revision_card"}:
                 for segment in payload["content"].get("segments", []):
                     if segment["role"] == "fact":
                         factual_claims.update(segment["claim_ids"])
@@ -4433,8 +6440,73 @@ class SQLiteRegistry:
                     answer_supported,
                     "Every answer claim must be supported or partially supported and have linked evidence.",
                 )
+                if payload["kind"] == "mcq_question":
+                    options = payload["content"].get("options", [])
+                    correct_option_id = payload["content"].get("correct_option_id")
+                    distractor_ids = {item["id"] for item in options} - {correct_option_id}
+                    rationale_ids = [
+                        item.get("option_id")
+                        for item in payload["content"].get("distractor_rationales", [])
+                    ]
+                    rationale_coverage = (
+                        len(rationale_ids) == len(set(rationale_ids))
+                        and set(rationale_ids) == distractor_ids
+                    )
+                    check(
+                        "mcq_distractor_rationale_coverage",
+                        rationale_coverage,
+                        "Every incorrect option must have exactly one rationale; the correct option must not have a distractor rationale.",
+                    )
+                    rationale_claim_ids = {
+                        claim_id
+                        for item in payload["content"].get("distractor_rationales", [])
+                        for claim_id in item.get("basis_claim_ids", [])
+                    }
+                    rationale_claims_supported = bool(rationale_claim_ids) and all(
+                        claim_assessments.get(claim_id) in {"supported", "partially_supported"}
+                        and bool(claim_evidence.get(claim_id))
+                        for claim_id in rationale_claim_ids
+                    )
+                    check(
+                        "mcq_distractor_rationale_source_support",
+                        rationale_claims_supported,
+                        "Every distractor rationale must link to story claims assessed as supported or partially supported with evidence.",
+                    )
+                    warnings.append({
+                        "check": "mcq_human_distractor_review",
+                        "detail": (
+                            "Human review is still required to judge whether distractors are plausible, "
+                            "unambiguously incorrect under the question wording, misconception-based, "
+                            "parallel in form, and free of accidental clues. Rationale presence does not "
+                            "prove distractor quality."
+                        ),
+                    })
+
+            if payload["kind"] in {"comprehension_question", "analysis_question", "mcq_question"}:
+                try:
+                    self._validate_learning_object_answer_evidence(connection, payload)
+                    answer_evidence_valid = True
+                    answer_evidence_detail = (
+                        "Every answer claim has a current supporting evidence locator."
+                    )
+                except RegistryIntegrityError as exc:
+                    answer_evidence_valid = False
+                    answer_evidence_detail = str(exc)
+                check("answer_evidence", answer_evidence_valid, answer_evidence_detail)
 
             if payload["kind"] == "vocabulary":
+                try:
+                    self._validate_learning_object_source_evidence_reference(connection, payload)
+                    source_evidence_valid = True
+                    source_evidence_detail = (
+                        "The vocabulary source evidence exists, remains linked to an object claim, "
+                        "and matches current claim provenance."
+                    )
+                except RegistryIntegrityError as exc:
+                    source_evidence_valid = False
+                    source_evidence_detail = str(exc)
+                check("vocabulary_source_evidence", source_evidence_valid, source_evidence_detail)
+
                 glossary_id = payload["content"]["glossary_entry_id"]
                 glossary_row = connection.execute(
                     "SELECT status, payload_json FROM glossary_entries WHERE id = ?",
@@ -4469,6 +6541,727 @@ class SQLiteRegistry:
                 "warnings": warnings,
                 "checks": checks,
             }
+
+    def bilingual_editorial_quality_report(self, story_id: str) -> dict[str, Any]:
+        """Compare Bangla and English editorial coverage without averaging away language failures."""
+        snapshot = self.story_editorial_snapshot(story_id)
+        objects_by_language: dict[str, list[dict[str, Any]]] = {"bn": [], "en": []}
+        variant_groups: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+        for item in snapshot["learning_objects"]:
+            language = item["record"].get("language")
+            if language not in objects_by_language:
+                continue
+            record = item["record"]
+            variant_group_id = record.get("variant_group_id")
+            if isinstance(variant_group_id, str) and variant_group_id:
+                variant_groups.setdefault((record["kind"], variant_group_id), {})[language] = record
+            quality = self.learning_object_quality_report(item["id"])
+            if quality["revision"] != item["revision"]:
+                raise RegistryIntegrityError(
+                    "learning object changed while bilingual quality report was being assembled"
+                )
+            objects_by_language[language].append({
+                "learning_object_id": item["id"],
+                "revision": item["revision"],
+                "kind": item["record"]["kind"],
+                "variant_group_id": item["record"].get("variant_group_id"),
+                "claim_ids": sorted(item["record"].get("claim_ids", [])),
+                "status": quality["status"],
+                "meets_registry_quality_gates": quality["meets_registry_quality_gates"],
+                "blockers": quality["blockers"],
+                "warnings": quality["warnings"],
+                "language_review": item["record"].get("language_review"),
+            })
+
+        kinds_by_language = {
+            language: {item["kind"] for item in items}
+            for language, items in objects_by_language.items()
+        }
+        all_kinds = sorted(kinds_by_language["bn"] | kinds_by_language["en"])
+        coverage = [
+            {
+                "kind": kind,
+                "bangla_present": kind in kinds_by_language["bn"],
+                "english_present": kind in kinds_by_language["en"],
+                "paired": kind in kinds_by_language["bn"] and kind in kinds_by_language["en"],
+            }
+            for kind in all_kinds
+        ]
+        language_reports = {}
+        for language, items in objects_by_language.items():
+            language_reports[language] = {
+                "artifact_count": len(items),
+                "approved_count": sum(item["status"] == "approved" for item in items),
+                "quality_gate_pass_count": sum(item["meets_registry_quality_gates"] for item in items),
+                "blocked_count": sum(not item["meets_registry_quality_gates"] for item in items),
+                "by_kind": {
+                    kind: sum(item["kind"] == kind for item in items)
+                    for kind in sorted({item["kind"] for item in items})
+                },
+                "artifacts": items,
+            }
+
+        variant_claim_coverage = []
+        for (kind, variant_group_id), members in sorted(variant_groups.items()):
+            bangla = members.get("bn")
+            english = members.get("en")
+            bangla_claims = set(bangla.get("claim_ids", [])) if bangla else set()
+            english_claims = set(english.get("claim_ids", [])) if english else set()
+            both_present = bangla is not None and english is not None
+            variant_claim_coverage.append({
+                "kind": kind,
+                "variant_group_id": variant_group_id,
+                "bangla_learning_object_id": bangla.get("id") if bangla else None,
+                "english_learning_object_id": english.get("id") if english else None,
+                "bangla_claim_ids": sorted(bangla_claims),
+                "english_claim_ids": sorted(english_claims),
+                "bangla_only_claim_ids": sorted(bangla_claims - english_claims),
+                "english_only_claim_ids": sorted(english_claims - bangla_claims),
+                "claim_sets_match": both_present and bangla_claims == english_claims,
+                "status": (
+                    "matched" if both_present and bangla_claims == english_claims
+                    else "claim_set_mismatch" if both_present
+                    else "missing_language_counterpart"
+                ),
+            })
+
+        confirmed_snapshot = self.story_editorial_snapshot(story_id)
+        if confirmed_snapshot["fingerprint"] != snapshot["fingerprint"]:
+            raise RegistryIntegrityError(
+                "story editorial snapshot changed while bilingual quality report was being assembled"
+            )
+        return {
+            "story_id": story_id,
+            "snapshot_fingerprint": snapshot["fingerprint"],
+            "languages": language_reports,
+            "kind_coverage": coverage,
+            "missing_language_counterparts": [
+                {"kind": item["kind"], "missing_language": "en" if item["bangla_present"] else "bn"}
+                for item in coverage if not item["paired"]
+            ],
+            "variant_claim_coverage": variant_claim_coverage,
+            "overall_quality_score": None,
+            "interpretation": (
+                "Bangla and English are reported independently. Counts describe registered artifacts "
+                "and deterministic registry checks, not linguistic quality or factual truth. "
+                "A language with no artifacts is unassessed, not a zero-quality result. "
+                "No cross-language average or automatic publication approval is produced."
+            ),
+            "production_ready": False,
+            "authorization_granted": False,
+        }
+
+
+    def story_summary_tier_report(self, story_id: str) -> dict[str, Any]:
+        """Report the completeness of the three independently reviewed summary tiers."""
+        snapshot = self.story_editorial_snapshot(story_id)
+        required_tiers = ("headline_summary", "brief_summary", "detailed_summary")
+        by_language: dict[str, dict[str, list[dict[str, Any]]]] = {
+            language: {tier: [] for tier in required_tiers}
+            for language in ("bn", "en")
+        }
+        for item in snapshot["learning_objects"]:
+            record = item["record"]
+            language = record.get("language")
+            tier = record.get("kind")
+            if language not in by_language or tier not in required_tiers:
+                continue
+            quality = self.learning_object_quality_report(item["id"])
+            if quality["revision"] != item["revision"]:
+                raise RegistryIntegrityError(
+                    "learning object changed while summary-tier report was being assembled"
+                )
+            by_language[language][tier].append({
+                "learning_object_id": item["id"],
+                "revision": item["revision"],
+                "status": quality["status"],
+                "meets_registry_quality_gates": quality["meets_registry_quality_gates"],
+                "blockers": quality["blockers"],
+                "warnings": quality["warnings"],
+                "language_review": record.get("language_review"),
+            })
+
+        languages: dict[str, Any] = {}
+        for language, tiers in by_language.items():
+            tier_reports = {}
+            missing_tiers = []
+            duplicate_tiers = []
+            unapproved_tiers = []
+            quality_blocked_tiers = []
+            for tier in required_tiers:
+                artifacts = tiers[tier]
+                if not artifacts:
+                    missing_tiers.append(tier)
+                if len(artifacts) > 1:
+                    duplicate_tiers.append(tier)
+                if len(artifacts) != 1 or artifacts[0]["status"] != "approved":
+                    unapproved_tiers.append(tier)
+                review = artifacts[0]["language_review"] if len(artifacts) == 1 else None
+                review_passed = (
+                    artifacts[0]["status"] == "approved"
+                    and _language_review_passes(review, language)
+                ) if len(artifacts) == 1 else False
+                if (
+                    len(artifacts) != 1
+                    or not artifacts[0]["meets_registry_quality_gates"]
+                    or not review_passed
+                ):
+                    quality_blocked_tiers.append(tier)
+                tier_reports[tier] = {
+                    "artifact_count": len(artifacts),
+                    "exactly_one": len(artifacts) == 1,
+                    "approved": len(artifacts) == 1 and artifacts[0]["status"] == "approved",
+                    "quality_gate_pass": (
+                        len(artifacts) == 1
+                        and artifacts[0]["meets_registry_quality_gates"]
+                    ),
+                    "language_review_pass": (
+                        len(artifacts) == 1
+                        and artifacts[0]["status"] == "approved"
+                        and _language_review_passes(artifacts[0]["language_review"], language)
+                    ),
+                    "artifacts": artifacts,
+                }
+            languages[language] = {
+                "tiers": tier_reports,
+                "missing_tiers": missing_tiers,
+                "duplicate_tiers": duplicate_tiers,
+                "unapproved_or_ambiguous_tiers": unapproved_tiers,
+                "quality_blocked_or_ambiguous_tiers": quality_blocked_tiers,
+                "complete_reviewed_set": not (
+                    missing_tiers or duplicate_tiers or unapproved_tiers or quality_blocked_tiers
+                ),
+            }
+
+        confirmed_snapshot = self.story_editorial_snapshot(story_id)
+        if confirmed_snapshot["fingerprint"] != snapshot["fingerprint"]:
+            raise RegistryIntegrityError(
+                "story editorial snapshot changed while summary-tier report was being assembled"
+            )
+        return {
+            "story_id": story_id,
+            "snapshot_fingerprint": snapshot["fingerprint"],
+            "required_tiers": list(required_tiers),
+            "languages": languages,
+            "interpretation": (
+                "This report checks tier coverage, uniqueness, independent approval, and existing "
+                "deterministic registry quality gates. It does not assess prose quality, summary "
+                "length, completeness against the full source record, or factual truth. Bangla and "
+                "English are evaluated independently; an absent language is unassessed."
+            ),
+            "production_ready": False,
+            "authorization_granted": False,
+        }
+
+    def add_pipeline_run(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Register the initial queued/running state of one immutable pipeline execution."""
+        validate_payload("pipeline-run", payload)
+        if payload.get("status") not in {"queued", "running"}:
+            raise RegistryIntegrityError("new pipeline run must start queued or running")
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("pipeline run actor and reason are required")
+        _aware_datetime(payload["started_at"], "started_at")
+        payload_json = _json_text(payload)
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json)
+                   VALUES (?, ?, 1, ?, ?)""",
+                (payload["id"], payload["status"], payload["started_at"], payload_json),
+            )
+            connection.execute(
+                """INSERT INTO pipeline_run_revisions
+                   (pipeline_run_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, 1, ?, ?, ?, ?)""",
+                (payload["id"], _utc_now(), actor.strip(), reason.strip(), payload_json),
+            )
+            self._append_audit(
+                connection, event_type="pipeline_run.created",
+                entity_type="pipeline_run", entity_id=payload["id"],
+                payload={"revision": 1, "record": payload, "actor": actor.strip(), "reason": reason.strip()},
+            )
+        return {"revision": 1, "record": json.loads(payload_json)}
+
+    def get_pipeline_run(self, pipeline_run_id: str) -> dict[str, Any] | None:
+        """Return the current pipeline-run revision and its validated record."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT revision, payload_json FROM pipeline_runs WHERE id = ?",
+                (pipeline_run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        record = json.loads(row["payload_json"])
+        validate_payload("pipeline-run", record)
+        return {"revision": row["revision"], "record": record}
+
+    def transition_pipeline_run(
+        self, pipeline_run_id: str, payload: dict[str, Any], *,
+        expected_revision: int, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Append a legal lifecycle transition; run identity and inputs never change."""
+        validate_payload("pipeline-run", payload)
+        if payload.get("id") != pipeline_run_id:
+            raise RegistryIntegrityError("pipeline run identity cannot change")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+            raise ValueError("expected_revision must be a positive integer")
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("pipeline run actor and reason are required")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM pipeline_runs WHERE id = ?",
+                (pipeline_run_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("unknown pipeline run")
+            if row["revision"] != expected_revision:
+                raise RegistryIntegrityError("pipeline run revision conflict")
+            previous = json.loads(row["payload_json"])
+            transitions = {
+                "queued": {"running", "cancelled", "rejected"},
+                "running": {"succeeded", "failed", "cancelled"},
+            }
+            if payload.get("status") not in transitions.get(previous["status"], set()):
+                raise RegistryIntegrityError("invalid pipeline run status transition")
+            immutable = ("id", "started_at", "software_version", "config_hash", "input_hashes", "initiated_by")
+            if any(payload.get(field) != previous.get(field) for field in immutable):
+                raise RegistryIntegrityError("pipeline run identity and inputs are immutable")
+            _aware_datetime(payload["started_at"], "started_at")
+            if "finished_at" in payload and _aware_datetime(payload["finished_at"], "finished_at") < _aware_datetime(previous["started_at"], "started_at"):
+                raise RegistryIntegrityError("pipeline run cannot finish before it starts")
+            revision = expected_revision + 1
+            payload_json = _json_text(payload)
+            updated = connection.execute(
+                """UPDATE pipeline_runs SET status = ?, revision = ?, payload_json = ?
+                   WHERE id = ? AND revision = ?""",
+                (payload["status"], revision, payload_json, pipeline_run_id, expected_revision),
+            )
+            if updated.rowcount != 1:
+                raise RegistryIntegrityError("pipeline run revision conflict")
+            connection.execute(
+                """INSERT INTO pipeline_run_revisions
+                   (pipeline_run_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (pipeline_run_id, revision, _utc_now(), actor.strip(), reason.strip(), payload_json),
+            )
+            self._append_audit(
+                connection, event_type="pipeline_run.transitioned",
+                entity_type="pipeline_run", entity_id=pipeline_run_id,
+                payload={"from": previous["status"], "to": payload["status"], "revision": revision,
+                         "actor": actor.strip(), "reason": reason.strip(), "record": payload},
+            )
+        return {"revision": revision, "record": json.loads(payload_json)}
+
+    def pipeline_run_history(self, pipeline_run_id: str) -> list[dict[str, Any]]:
+        """Return append-only pipeline execution history."""
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, created_at, actor, reason, payload_json
+                   FROM pipeline_run_revisions WHERE pipeline_run_id = ? ORDER BY revision""",
+                (pipeline_run_id,),
+            ).fetchall()
+        return [
+            {"revision": row["revision"], "created_at": row["created_at"],
+             "actor": row["actor"], "reason": row["reason"], "record": json.loads(row["payload_json"])}
+            for row in rows
+        ]
+
+
+    def store_verified_edition_artifact(
+        self, verified: Any, *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Reverify and persist one immutable staging artifact/manifest pair."""
+        from .edition_artifacts import (
+            VerifiedRegistryEdition,
+            verify_registry_backed_edition_artifact,
+        )
+
+        if not isinstance(verified, VerifiedRegistryEdition):
+            raise RegistryIntegrityError("only a registry-verified staging artifact can be stored")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        try:
+            payload = json.loads(verified.artifact.payload_bytes)
+            manifest = json.loads(verified.artifact.manifest_bytes)
+        except (TypeError, ValueError) as exc:
+            raise RegistryIntegrityError("verified artifact bytes are not valid JSON") from exc
+
+        # Hold this registry instance's re-entrant lock across re-verification
+        # and insertion so another thread cannot revise the records in between.
+        with self._lock:
+            evaluated_at = datetime.now(timezone.utc)
+            fresh = verify_registry_backed_edition_artifact(
+                self, payload, manifest, now=evaluated_at
+            )
+            if fresh.artifact.payload_sha256 != verified.artifact.payload_sha256:
+                raise RegistryIntegrityError("staging artifact changed before persistence")
+            created_at = _utc_now()
+            receipt = {
+                "status": "verified_for_staging_only",
+                "publication_authorized": False,
+                "pipeline_run_id": fresh.pipeline_run.pipeline_run_id,
+                "pipeline_run_revision": fresh.pipeline_run.revision,
+                "story_ids": list(fresh.story_ids),
+                "learning_object_ids": list(fresh.learning_object_ids),
+                "source_permission_checks": fresh.source_permission_checks,
+                "verified_at": evaluated_at.isoformat(),
+                "reverify_required_before_release": True,
+            }
+            with self._transaction() as connection:
+                try:
+                    connection.execute(
+                        """INSERT INTO edition_artifacts
+                        (manifest_id, edition_id, edition_revision, payload_sha256,
+                         payload_json, manifest_json, verification_json, created_at, actor, reason)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            manifest["manifest_id"], manifest["edition_id"],
+                            manifest["edition_revision"], fresh.artifact.payload_sha256,
+                            fresh.artifact.payload_bytes.decode("utf-8"),
+                            fresh.artifact.manifest_bytes.decode("utf-8"),
+                            _json_text(receipt), created_at, actor.strip(), reason.strip(),
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise RegistryIntegrityError(
+                        "edition artifact already exists or violates immutable artifact constraints"
+                    ) from exc
+                self._append_audit(
+                    connection,
+                    event_type="edition_artifact.stored",
+                    entity_type="edition_artifact",
+                    entity_id=manifest["manifest_id"],
+                    payload={
+                        "edition_id": manifest["edition_id"],
+                        "edition_revision": manifest["edition_revision"],
+                        "payload_sha256": fresh.artifact.payload_sha256,
+                        "actor": actor.strip(),
+                        "reason": reason.strip(),
+                        "publication_authorized": False,
+                    },
+                )
+        return self.get_edition_artifact(manifest["manifest_id"]) or {}
+
+    def get_edition_artifact(self, manifest_id: str) -> dict[str, Any] | None:
+        """Retrieve an immutable artifact after rechecking its stored byte fingerprints.
+
+        Retrieval verifies stored integrity only. Current rights, reviewers, and
+        release eligibility must be re-evaluated before any later release decision.
+        """
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM edition_artifacts WHERE manifest_id = ?", (manifest_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload_json"])
+        manifest = json.loads(row["manifest_json"])
+        receipt = json.loads(row["verification_json"])
+        from .edition_artifacts import verify_edition_artifact
+        verified = verify_edition_artifact(payload, manifest)
+        if (
+            verified.payload_sha256 != row["payload_sha256"]
+            or row["edition_id"] != manifest["edition_id"]
+            or row["edition_revision"] != manifest["edition_revision"]
+            or receipt.get("publication_authorized") is not False
+        ):
+            raise RegistryIntegrityError("stored edition artifact integrity or receipt binding failed")
+        return {
+            "manifest_id": row["manifest_id"],
+            "edition_id": row["edition_id"],
+            "edition_revision": row["edition_revision"],
+            "payload_sha256": row["payload_sha256"],
+            "payload": payload,
+            "manifest": manifest,
+            "verification": receipt,
+            "created_at": row["created_at"],
+            "actor": row["actor"],
+            "reason": row["reason"],
+            "integrity_verified": True,
+            "publication_authorized": False,
+            "reverify_required_before_release": True,
+        }
+
+
+    def record_edition_decision(
+        self, manifest_id: str, *, identity: Any, decision: str, reason: str
+    ) -> dict[str, Any]:
+        """Record one provider-attested human approval/rejection of an exact staged artifact.
+
+        This records an editorial release-review decision only. It never authorizes
+        publication, changes edition status, or grants downstream write permission.
+        """
+        from datetime import timedelta
+        from .benchmark_access import AuthenticatedIdentity
+        from .edition_artifacts import verify_registry_backed_edition_artifact
+
+        if not isinstance(identity, AuthenticatedIdentity):
+            raise RegistryIntegrityError("edition decision requires a trusted authenticated identity")
+        if decision not in {"approve", "reject"}:
+            raise RegistryIntegrityError("edition decision must be approve or reject")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("decision reason is required")
+        now = datetime.now(timezone.utc)
+        if (
+            identity.authenticated_at.tzinfo is None or identity.expires_at.tzinfo is None
+            or identity.authenticated_at > now or identity.expires_at <= now
+            or now - identity.authenticated_at > timedelta(minutes=15)
+        ):
+            raise RegistryIntegrityError("edition decision requires a valid session and authentication within 15 minutes")
+        if not all(isinstance(value, str) and value.strip() for value in (
+            identity.principal_id, identity.issuer, identity.audience, identity.subject,
+            identity.session_id, identity.authentication_context, identity.provider_key_id,
+            identity.provider_adapter,
+        )) or not identity.authentication_methods:
+            raise RegistryIntegrityError("edition decision identity attestation is incomplete")
+
+        with self._lock:
+            principal = self.get_benchmark_principal(identity.principal_id)
+            if (
+                principal is None or not principal["active"]
+                or principal.get("principal_kind") != "human"
+                or "edition_approver" not in principal["roles"]
+            ):
+                raise RegistryIntegrityError("edition decision requires an active human edition approver")
+            artifact = self.get_edition_artifact(manifest_id)
+            if artifact is None:
+                raise RegistryIntegrityError("unknown stored edition artifact")
+            verified = verify_registry_backed_edition_artifact(
+                self, artifact["payload"], artifact["manifest"], now=now
+            )
+            if verified.artifact.payload_sha256 != artifact["payload_sha256"]:
+                raise RegistryIntegrityError("stored edition artifact changed during decision verification")
+
+            # An approver must be independent of every language reviewer on the candidate.
+            for object_id in verified.learning_object_ids:
+                record = self.get_learning_object(object_id)
+                if record is None:
+                    raise RegistryIntegrityError("edition learning object disappeared during decision verification")
+                object_payload = record.to_payload()
+                review = object_payload.get("language_review", {})
+                reviewer_id = review.get("reviewer_id") or object_payload.get("reviewed_by")
+                if not isinstance(reviewer_id, str) or not reviewer_id.strip():
+                    raise RegistryIntegrityError("edition approval requires recorded language-reviewer identity for every selected object")
+                if reviewer_id == identity.principal_id:
+                    raise RegistryIntegrityError("edition approver must be independent of the candidate's language reviewers")
+
+            decided_at = now.isoformat()
+            import hashlib
+            payload = {
+                "schema_version": "1.0.0",
+                "decision_id": f"edition-decision:{uuid.uuid4().hex}",
+                "manifest_id": manifest_id,
+                "edition_id": artifact["edition_id"],
+                "edition_revision": artifact["edition_revision"],
+                "payload_sha256": artifact["payload_sha256"],
+                "decision": decision,
+                "scope": "staging_candidate_review",
+                "principal_id": identity.principal_id,
+                "role": "edition_approver",
+                "decided_at": decided_at,
+                "reason": reason.strip(),
+                "identity_attestation": {
+                    "issuer": identity.issuer,
+                    "audience": identity.audience,
+                    "subject": identity.subject,
+                    "authenticated_at": identity.authenticated_at.isoformat(),
+                    "expires_at": identity.expires_at.isoformat(),
+                    "authentication_methods": list(identity.authentication_methods),
+                    "authentication_context": identity.authentication_context,
+                    "provider_key_id": identity.provider_key_id,
+                    "provider_adapter": identity.provider_adapter,
+                    "session_fingerprint": "sha256:" + hashlib.sha256(identity.session_id.encode("utf-8")).hexdigest(),
+                },
+                "publication_authorized": False,
+            }
+            validate_payload("edition-decision", payload)
+            with self._transaction() as connection:
+                self._require_benchmark_role(connection, identity.principal_id, "edition_approver")
+                try:
+                    connection.execute(
+                        """INSERT INTO edition_decisions
+                        (decision_id, manifest_id, edition_id, edition_revision,
+                         payload_sha256, decision, principal_id, decided_at, payload_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            payload["decision_id"], manifest_id, payload["edition_id"],
+                            payload["edition_revision"], payload["payload_sha256"],
+                            decision, identity.principal_id, decided_at, _json_text(payload),
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise RegistryIntegrityError(
+                        "this immutable artifact already has a final edition decision"
+                    ) from exc
+                self._append_audit(
+                    connection, event_type="edition_decision.recorded",
+                    entity_type="edition_artifact", entity_id=manifest_id,
+                    payload=payload,
+                )
+        return payload
+
+
+    def authorize_edition_release(
+        self, manifest_id: str, *, identity: Any, reason: str
+    ) -> dict[str, Any]:
+        """Authorize an exact approved staging artifact for a separate promotion gate.
+
+        This is a second-person authorization only. It never writes a live destination,
+        changes an edition status, or sets publication_authorized.
+        """
+        from datetime import timedelta
+        from .benchmark_access import AuthenticatedIdentity
+        from .edition_artifacts import verify_registry_backed_edition_artifact
+
+        if not isinstance(identity, AuthenticatedIdentity):
+            raise RegistryIntegrityError("release authorization requires a trusted authenticated identity")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("release authorization reason is required")
+        now = datetime.now(timezone.utc)
+        if (
+            identity.authenticated_at.tzinfo is None or identity.expires_at.tzinfo is None
+            or identity.authenticated_at > now or identity.expires_at <= now
+            or now - identity.authenticated_at > timedelta(minutes=15)
+        ):
+            raise RegistryIntegrityError("release authorization requires a valid session and authentication within 15 minutes")
+        if not all(isinstance(value, str) and value.strip() for value in (
+            identity.principal_id, identity.issuer, identity.audience, identity.subject,
+            identity.session_id, identity.authentication_context, identity.provider_key_id,
+            identity.provider_adapter,
+        )) or not identity.authentication_methods:
+            raise RegistryIntegrityError("release authorizer identity attestation is incomplete")
+
+        with self._lock:
+            principal = self.get_benchmark_principal(identity.principal_id)
+            if (
+                principal is None or not principal["active"]
+                or principal.get("principal_kind") != "human"
+                or "edition_release_authorizer" not in principal["roles"]
+            ):
+                raise RegistryIntegrityError("release authorization requires an active human edition_release_authorizer")
+            approval = self.get_edition_decision(manifest_id)
+            if approval is None or approval.get("decision") != "approve":
+                raise RegistryIntegrityError("release authorization requires an approved staging decision")
+            if approval.get("principal_id") == identity.principal_id:
+                raise RegistryIntegrityError("release authorizer must be different from the staging approver")
+            approver = self.get_benchmark_principal(approval.get("principal_id", ""))
+            if (
+                approver is None or not approver["active"]
+                or approver.get("principal_kind") != "human"
+                or "edition_approver" not in approver["roles"]
+            ):
+                raise RegistryIntegrityError("the staging approver must remain an active human edition approver")
+            artifact = self.get_edition_artifact(manifest_id)
+            if artifact is None:
+                raise RegistryIntegrityError("unknown stored edition artifact")
+            if (
+                approval.get("edition_id") != artifact["edition_id"]
+                or approval.get("edition_revision") != artifact["edition_revision"]
+                or approval.get("payload_sha256") != artifact["payload_sha256"]
+            ):
+                raise RegistryIntegrityError("staging approval does not bind the exact stored artifact")
+            verified = verify_registry_backed_edition_artifact(
+                self, artifact["payload"], artifact["manifest"], now=now
+            )
+            if verified.artifact.payload_sha256 != artifact["payload_sha256"]:
+                raise RegistryIntegrityError("stored edition artifact changed during release verification")
+
+            for object_id in verified.learning_object_ids:
+                record = self.get_learning_object(object_id)
+                if record is None:
+                    raise RegistryIntegrityError("edition learning object disappeared during release verification")
+                object_payload = record.to_payload()
+                review = object_payload.get("language_review", {})
+                reviewer_id = review.get("reviewer_id") or object_payload.get("reviewed_by")
+                if not isinstance(reviewer_id, str) or not reviewer_id.strip():
+                    raise RegistryIntegrityError("release authorization requires recorded reviewer identity for every selected object")
+                if reviewer_id == identity.principal_id:
+                    raise RegistryIntegrityError("release authorizer must be independent of the candidate's language reviewers")
+
+            authorized_at = now.isoformat()
+            import hashlib
+            payload = {
+                "schema_version": "1.0.0",
+                "authorization_id": f"edition-release-authorization:{uuid.uuid4().hex}",
+                "manifest_id": manifest_id,
+                "edition_id": artifact["edition_id"],
+                "edition_revision": artifact["edition_revision"],
+                "payload_sha256": artifact["payload_sha256"],
+                "approval_decision_id": approval["decision_id"],
+                "approver_principal_id": approval["principal_id"],
+                "authorizer_principal_id": identity.principal_id,
+                "authorized_at": authorized_at,
+                "scope": "controlled_release_gate",
+                "reason": reason.strip(),
+                "identity_attestation": {
+                    "issuer": identity.issuer,
+                    "audience": identity.audience,
+                    "subject": identity.subject,
+                    "authenticated_at": identity.authenticated_at.isoformat(),
+                    "expires_at": identity.expires_at.isoformat(),
+                    "authentication_methods": list(identity.authentication_methods),
+                    "authentication_context": identity.authentication_context,
+                    "provider_key_id": identity.provider_key_id,
+                    "provider_adapter": identity.provider_adapter,
+                    "session_fingerprint": "sha256:" + hashlib.sha256(identity.session_id.encode("utf-8")).hexdigest(),
+                },
+                "release_authorized": True,
+                "publication_authorized": False,
+            }
+            validate_payload("edition-release-authorization", payload)
+            with self._transaction() as connection:
+                self._require_benchmark_role(connection, identity.principal_id, "edition_release_authorizer")
+                try:
+                    connection.execute(
+                        """INSERT INTO edition_release_authorizations
+                        (authorization_id, manifest_id, edition_id, edition_revision,
+                         payload_sha256, approval_decision_id, approver_principal_id,
+                         authorizer_principal_id, authorized_at, payload_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            payload["authorization_id"], manifest_id, payload["edition_id"],
+                            payload["edition_revision"], payload["payload_sha256"],
+                            payload["approval_decision_id"], payload["approver_principal_id"],
+                            identity.principal_id, authorized_at, _json_text(payload),
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise RegistryIntegrityError(
+                        "this artifact already has a release authorization or failed its database guard"
+                    ) from exc
+                self._append_audit(
+                    connection, event_type="edition_release.authorized",
+                    entity_type="edition_artifact", entity_id=manifest_id,
+                    payload=payload,
+                )
+        return payload
+
+    def get_edition_release_authorization(self, manifest_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload_json FROM edition_release_authorizations WHERE manifest_id = ?",
+                (manifest_id,),
+            ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def get_edition_decision(self, manifest_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload_json FROM edition_decisions WHERE manifest_id = ?",
+                (manifest_id,),
+            ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def list_edition_decisions(self, edition_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT payload_json FROM edition_decisions WHERE edition_id = ? ORDER BY decided_at, decision_id",
+                (edition_id,),
+            ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
 
     def get_domain_record(self, record_type: str, record_id: str):
         if record_type == "story_decision":
@@ -4609,6 +7402,1761 @@ class SQLiteRegistry:
             }
             for row in rows
         ]
+
+
+
+    def register_benchmark_principal(
+        self, principal_id: str, *, display_name: str, roles: list[str],
+        provisioned_by: str, reason: str, languages: list[str] | None = None,
+        principal_kind: str = "unverified"
+    ) -> dict[str, Any]:
+        """Provision a registry principal; caller must be a trusted operator."""
+        allowed = {"benchmark_curator", "benchmark_reviewer", "benchmark_adjudicator", "benchmark_security_admin", "benchmark_methodologist", "benchmark_acceptance_reviewer", "edition_approver", "edition_release_authorizer"}
+        supported_languages = {"bn", "en"}
+        if principal_kind not in {"human", "synthetic", "automation", "unverified"}:
+            raise ValueError("principal_kind must be human, synthetic, automation, or unverified")
+        languages = [] if languages is None else languages
+        if not isinstance(languages, list) or len(languages) != len(set(languages)) or not set(languages) <= supported_languages:
+            raise ValueError("languages must be a unique subset of bn and en")
+        if languages and "benchmark_reviewer" not in roles:
+            raise ValueError("language qualifications may only be assigned to benchmark reviewers")
+        if not isinstance(principal_id, str) or not principal_id.strip():
+            raise ValueError("principal_id is required")
+        if not isinstance(display_name, str) or not display_name.strip():
+            raise ValueError("display_name is required")
+        if not isinstance(roles, list) or not roles or len(roles) != len(set(roles)) or not set(roles) <= allowed:
+            raise ValueError("roles must be a non-empty unique subset of the benchmark roles")
+        if not isinstance(provisioned_by, str) or not provisioned_by.strip() or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("provisioning actor and reason are required")
+        now = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO benchmark_principals
+                (principal_id, display_name, roles_json, active, created_at, created_by, reason, languages_json, principal_kind)
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (principal_id, display_name, _json_text(sorted(roles)), now, provisioned_by, reason, _json_text(sorted(languages)), principal_kind),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_principal.provisioned",
+                entity_type="benchmark_principal", entity_id=principal_id,
+                payload={"roles": sorted(roles), "principal_kind": principal_kind, "provisioned_by": provisioned_by, "reason": reason},
+            )
+        return self.get_benchmark_principal(principal_id) or {}
+
+    def get_benchmark_principal(self, principal_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_principals WHERE principal_id = ?", (principal_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "principal_id": row["principal_id"], "display_name": row["display_name"],
+            "roles": json.loads(row["roles_json"]), "active": bool(row["active"]),
+            "languages": json.loads(row["languages_json"]), "principal_kind": row["principal_kind"],
+            "created_at": row["created_at"], "created_by": row["created_by"], "reason": row["reason"],
+        }
+
+    def revoke_benchmark_principal(self, principal_id: str, *, actor: str, reason: str) -> dict[str, Any]:
+        if not actor.strip() or not reason.strip():
+            raise ValueError("actor and reason are required")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT active FROM benchmark_principals WHERE principal_id = ?", (principal_id,)
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot revoke an unknown benchmark principal")
+            if row["active"]:
+                connection.execute(
+                    "UPDATE benchmark_principals SET active = 0 WHERE principal_id = ?", (principal_id,)
+                )
+                self._append_audit(
+                    connection, event_type="benchmark_principal.revoked",
+                    entity_type="benchmark_principal", entity_id=principal_id,
+                    payload={"actor": actor, "reason": reason},
+                )
+        return self.get_benchmark_principal(principal_id) or {}
+
+    def reinstate_benchmark_principal(self, principal_id: str, *, actor: str, reason: str) -> dict[str, Any]:
+        """Restore a revoked principal; application access must authorize a security administrator."""
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("actor and reason are required")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT active FROM benchmark_principals WHERE principal_id = ?", (principal_id,)
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot reinstate an unknown benchmark principal")
+            if row["active"]:
+                raise RegistryIntegrityError("benchmark principal is already active")
+            connection.execute(
+                "UPDATE benchmark_principals SET active = 1 WHERE principal_id = ?", (principal_id,)
+            )
+            self._append_audit(
+                connection, event_type="benchmark_principal.reinstated",
+                entity_type="benchmark_principal", entity_id=principal_id,
+                payload={"actor": actor, "reason": reason},
+            )
+        return self.get_benchmark_principal(principal_id) or {}
+
+    @staticmethod
+    def _require_benchmark_role(
+        connection: sqlite3.Connection, principal_id: str, role: str
+    ) -> None:
+        row = connection.execute(
+            "SELECT roles_json, active FROM benchmark_principals WHERE principal_id = ?",
+            (principal_id,),
+        ).fetchone()
+        if row is None or not row["active"]:
+            raise RegistryIntegrityError("benchmark action requires an active registered principal")
+        if role not in json.loads(row["roles_json"]):
+            raise RegistryIntegrityError(f"benchmark principal lacks required role: {role}")
+
+    def register_benchmark_artifact(
+        self, artifact_id: str, *, language: str, content: Any,
+        actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Register canonical benchmark content and calculate its immutable fingerprint."""
+        if not isinstance(artifact_id, str) or not artifact_id.strip():
+            raise ValueError("artifact_id is required")
+        if language not in {"bn", "en"}:
+            raise ValueError("benchmark language must be bn or en")
+        if not isinstance(content, (dict, list)):
+            raise ValueError("benchmark content must be a JSON object or array")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        try:
+            validate_payload("editorial-benchmark-content", content)
+            content_json = _json_text(content)
+            canonical_content = json.loads(content_json)
+            fingerprint = sha256_fingerprint(canonical_content)
+        except (TypeError, ValueError) as exc:
+            raise RegistryIntegrityError("benchmark content must satisfy the canonical editorial benchmark contract") from exc
+        item_ids = [item["item_id"] for item in canonical_content["items"]]
+        if len(item_ids) != len(set(item_ids)):
+            raise RegistryIntegrityError("benchmark item IDs must be unique within an artifact")
+        created_at = _utc_now()
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_curator")
+            connection.execute(
+                """INSERT INTO benchmark_artifacts
+                (artifact_id, language, canonicalization, content_fingerprint,
+                 content_json, created_at, actor, reason)
+                VALUES (?, ?, 'canonical-json-v1', ?, ?, ?, ?, ?)""",
+                (artifact_id, language, fingerprint, content_json, created_at, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_artifact.registered",
+                entity_type="benchmark_artifact", entity_id=artifact_id,
+                payload={"language": language, "content_fingerprint": fingerprint,
+                         "canonicalization": "canonical-json-v1", "reason": reason},
+            )
+        return self.get_benchmark_artifact(artifact_id) or {}
+
+    def get_benchmark_artifact(self, artifact_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_artifacts WHERE artifact_id = ?", (artifact_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        content = json.loads(row["content_json"])
+        recomputed = sha256_fingerprint(content)
+        return {
+            "artifact_id": row["artifact_id"],
+            "language": row["language"],
+            "canonicalization": row["canonicalization"],
+            "content_fingerprint": row["content_fingerprint"],
+            "content": content,
+            "created_at": row["created_at"],
+            "actor": row["actor"],
+            "reason": row["reason"],
+            "fingerprint_verified": recomputed == row["content_fingerprint"],
+        }
+
+    def _validate_benchmark_artifact_binding(
+        self, review: dict[str, Any], *, connection: sqlite3.Connection | None = None
+    ) -> None:
+        conn = connection or self._connection
+        row = conn.execute(
+            "SELECT language, canonicalization, content_fingerprint, content_json "
+            "FROM benchmark_artifacts WHERE artifact_id = ?",
+            (review["benchmark_id"],),
+        ).fetchone()
+        if row is None:
+            raise RegistryIntegrityError("benchmark review must reference a registered benchmark artifact")
+        artifact_content = json.loads(row["content_json"])
+        actual_fingerprint = sha256_fingerprint(artifact_content)
+        if actual_fingerprint != row["content_fingerprint"]:
+            raise RegistryIntegrityError("registered benchmark artifact fingerprint verification failed")
+        if row["canonicalization"] != "canonical-json-v1":
+            raise RegistryIntegrityError("unsupported benchmark artifact canonicalization")
+        if row["language"] != review["language"]:
+            raise RegistryIntegrityError("benchmark artifact language does not match the review language")
+        if row["content_fingerprint"] != review["benchmark_fingerprint"]:
+            raise RegistryIntegrityError("benchmark review fingerprint does not match registered artifact content")
+
+    def create_benchmark_review_assignment(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Create an immutable-artifact assignment for a language-qualified reviewer."""
+        try:
+            validate_payload("editorial-benchmark-assignment", payload)
+        except (TypeError, ValueError) as exc:
+            raise RegistryIntegrityError("assignment does not satisfy its versioned JSON contract") from exc
+        report = validate_benchmark_assignment(payload)
+        if not report["valid"] or payload.get("status") != "assigned":
+            raise RegistryIntegrityError("assignment contract invalid; new assignments must start as assigned")
+        if not actor.strip() or not reason.strip() or actor != payload["assigned_by"]:
+            raise RegistryIntegrityError("assignment actor must match the declared assigner and include a reason")
+        now = _utc_now()
+        assigned_at = _aware_datetime(payload["assigned_at"], "assigned_at")
+        due_at = _aware_datetime(payload["due_at"], "due_at")
+        if assigned_at > _aware_datetime(now, "now"):
+            raise RegistryIntegrityError("assignment cannot be created in the future")
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_curator")
+            artifact = connection.execute(
+                "SELECT language, content_fingerprint FROM benchmark_artifacts WHERE artifact_id = ?",
+                (payload["artifact_id"],),
+            ).fetchone()
+            if artifact is None:
+                raise RegistryIntegrityError("assignment must reference a registered benchmark artifact")
+            if artifact["language"] != payload["language"] or artifact["content_fingerprint"] != payload["artifact_fingerprint"]:
+                raise RegistryIntegrityError("assignment must bind to the exact artifact fingerprint and language")
+            final_adjudication = connection.execute(
+                "SELECT 1 FROM benchmark_adjudications WHERE benchmark_id = ?",
+                (payload["artifact_id"],),
+            ).fetchone()
+            if final_adjudication is not None:
+                raise RegistryIntegrityError("cannot assign reviews after final artifact adjudication")
+            reviewer = connection.execute(
+                "SELECT roles_json, languages_json, active FROM benchmark_principals WHERE principal_id = ?",
+                (payload["reviewer_id"],),
+            ).fetchone()
+            if reviewer is None or not reviewer["active"]:
+                raise RegistryIntegrityError("assigned reviewer must be active")
+            if "benchmark_reviewer" not in json.loads(reviewer["roles_json"]):
+                raise RegistryIntegrityError("assigned principal lacks benchmark_reviewer role")
+            if payload["language"] not in json.loads(reviewer["languages_json"]):
+                raise RegistryIntegrityError("assigned reviewer is not qualified for the benchmark language")
+            if payload["reviewer_id"] == actor:
+                raise RegistryIntegrityError("curators cannot assign benchmark reviews to themselves")
+            payload_json = _json_text(payload)
+            connection.execute(
+                """INSERT INTO benchmark_review_assignments
+                (assignment_id, artifact_id, artifact_fingerprint, language, reviewer_id,
+                 assigned_by, assigned_at, due_at, status, revision, payload_json,
+                 updated_at, last_actor, last_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'assigned', 1, ?, ?, ?, ?)""",
+                (payload["assignment_id"], payload["artifact_id"], payload["artifact_fingerprint"],
+                 payload["language"], payload["reviewer_id"], actor, assigned_at.isoformat(),
+                 due_at.isoformat(), payload_json, now, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_review_assignment.created",
+                entity_type="benchmark_review_assignment", entity_id=payload["assignment_id"],
+                payload={"artifact_id": payload["artifact_id"], "artifact_fingerprint": payload["artifact_fingerprint"],
+                         "language": payload["language"], "reviewer_id": payload["reviewer_id"],
+                         "due_at": payload["due_at"], "actor": actor, "reason": reason},
+            )
+        return self.get_benchmark_review_assignment(payload["assignment_id"]) or {}
+
+    def get_benchmark_review_assignment(self, assignment_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT revision, assigned_at AS created_at, updated_at, last_actor, last_reason, payload_json "
+            "FROM benchmark_review_assignments WHERE assignment_id = ?", (assignment_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            **json.loads(row["payload_json"]), "revision": row["revision"],
+            "created_at": row["created_at"], "updated_at": row["updated_at"],
+            "last_actor": row["last_actor"], "last_reason": row["last_reason"],
+        }
+
+    def list_benchmark_review_assignments(
+        self, *, reviewer_id: str | None = None, status: str | None = None,
+        language: str | None = None
+    ) -> list[dict[str, Any]]:
+        """List assignment queue entries using explicit optional filters."""
+        if status is not None and status not in {"assigned", "accepted", "submitted", "cancelled", "expired"}:
+            raise ValueError("unsupported assignment status filter")
+        if language is not None and language not in {"bn", "en"}:
+            raise ValueError("unsupported assignment language filter")
+        clauses = []
+        values: list[Any] = []
+        if reviewer_id is not None:
+            clauses.append("reviewer_id = ?")
+            values.append(reviewer_id)
+        if status is not None:
+            clauses.append("status = ?")
+            values.append(status)
+        if language is not None:
+            clauses.append("language = ?")
+            values.append(language)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self._connection.execute(
+            "SELECT revision, assigned_at AS created_at, updated_at, last_actor, last_reason, payload_json "
+            "FROM benchmark_review_assignments" + where + " ORDER BY due_at, assignment_id",
+            values,
+        ).fetchall()
+        return [
+            {**json.loads(row["payload_json"]), "revision": row["revision"],
+             "created_at": row["created_at"], "updated_at": row["updated_at"],
+             "last_actor": row["last_actor"], "last_reason": row["last_reason"]}
+            for row in rows
+        ]
+
+    def benchmark_review_assignment_history(self, assignment_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            """SELECT revision, created_at, actor, reason, payload_json
+               FROM benchmark_review_assignment_revisions
+               WHERE assignment_id = ? ORDER BY revision""", (assignment_id,)
+        ).fetchall()
+        return [
+            {"revision": row["revision"], "created_at": row["created_at"],
+             "actor": row["actor"], "reason": row["reason"],
+             "assignment": json.loads(row["payload_json"])}
+            for row in rows
+        ]
+
+    def transition_benchmark_review_assignment(
+        self, assignment_id: str, *, event: str, actor: str, at: str,
+        reason: str, submitted_review_id: str | None = None
+    ) -> dict[str, Any]:
+        """Apply one authorized transition and append its immutable revision."""
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("transition actor and reason are required")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM benchmark_review_assignments WHERE assignment_id = ?",
+                (assignment_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError(f"unknown benchmark review assignment: {assignment_id}")
+            current = json.loads(row["payload_json"])
+            reviewer_id = current["reviewer_id"]
+            assigner_id = current["assigned_by"]
+            language = current["language"]
+
+            if event in {"accept", "submit"}:
+                if actor != reviewer_id:
+                    raise RegistryIntegrityError("only the assigned reviewer may accept or submit")
+                self._require_benchmark_role(connection, actor, "benchmark_reviewer")
+                principal = connection.execute(
+                    "SELECT languages_json FROM benchmark_principals WHERE principal_id = ?",
+                    (actor,),
+                ).fetchone()
+                if principal is None or language not in json.loads(principal["languages_json"]):
+                    raise RegistryIntegrityError("reviewer is not currently qualified for the assignment language")
+            elif event == "expire":
+                if actor != assigner_id:
+                    raise RegistryIntegrityError("only the assigning curator may expire an assignment")
+                self._require_benchmark_role(connection, actor, "benchmark_curator")
+            elif event == "cancel":
+                if actor == assigner_id:
+                    self._require_benchmark_role(connection, actor, "benchmark_curator")
+                elif actor == reviewer_id:
+                    self._require_benchmark_role(connection, actor, "benchmark_reviewer")
+                    principal = connection.execute(
+                        "SELECT languages_json FROM benchmark_principals WHERE principal_id = ?",
+                        (actor,),
+                    ).fetchone()
+                    if principal is None or language not in json.loads(principal["languages_json"]):
+                        raise RegistryIntegrityError("reviewer is not currently qualified for the assignment language")
+                else:
+                    raise RegistryIntegrityError("only the assigned reviewer or assigning curator may cancel")
+            else:
+                raise RegistryIntegrityError("unsupported assignment transition")
+
+            try:
+                updated = transition_benchmark_assignment(
+                    current, event=event, actor=actor, at=at, reason=reason,
+                    submitted_review_id=submitted_review_id,
+                )
+            except (TypeError, ValueError) as exc:
+                raise RegistryIntegrityError(f"invalid benchmark assignment transition: {exc}") from exc
+            try:
+                validate_payload("editorial-benchmark-assignment", updated)
+            except (TypeError, ValueError) as exc:
+                raise RegistryIntegrityError("assignment transition violates the versioned JSON contract") from exc
+
+            if event == "submit":
+                review_row = connection.execute(
+                    """SELECT benchmark_id, benchmark_fingerprint, language, payload_json
+                       FROM benchmark_reviews WHERE review_id = ?""",
+                    (submitted_review_id,),
+                ).fetchone()
+                if review_row is None:
+                    raise RegistryIntegrityError("submitted assignment must reference a stored human review")
+                review_payload = json.loads(review_row["payload_json"])
+                if (
+                    review_row["benchmark_id"] != current["artifact_id"]
+                    or review_row["benchmark_fingerprint"] != current["artifact_fingerprint"]
+                    or review_row["language"] != current["language"]
+                    or review_payload["reviewer"]["reviewer_id"] != reviewer_id
+                ):
+                    raise RegistryIntegrityError("submitted review must match the assigned reviewer, language, and exact artifact")
+                final = connection.execute(
+                    "SELECT 1 FROM benchmark_adjudications WHERE benchmark_id = ?",
+                    (current["artifact_id"],),
+                ).fetchone()
+                if final is not None:
+                    raise RegistryIntegrityError("cannot submit a review after final artifact adjudication")
+
+            now = _utc_now()
+            next_revision = row["revision"] + 1
+            payload_json = _json_text(updated)
+            connection.execute(
+                """INSERT INTO benchmark_review_assignment_revisions
+                   (assignment_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (assignment_id, next_revision, now, actor, reason, payload_json),
+            )
+            connection.execute(
+                """UPDATE benchmark_review_assignments
+                   SET status = ?, revision = ?, payload_json = ?, updated_at = ?,
+                       last_actor = ?, last_reason = ?
+                   WHERE assignment_id = ? AND revision = ?""",
+                (updated["status"], next_revision, payload_json, now, actor, reason,
+                 assignment_id, row["revision"]),
+            )
+            self._append_audit(
+                connection, event_type=f"benchmark_review_assignment.{event}",
+                entity_type="benchmark_review_assignment", entity_id=assignment_id,
+                payload={"revision": next_revision, "status": updated["status"],
+                         "actor": actor, "reason": reason,
+                         "submitted_review_id": submitted_review_id},
+            )
+        return self.get_benchmark_review_assignment(assignment_id) or {}
+
+    def add_benchmark_review(
+        self, review: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Store a validated review and its immutable initial revision."""
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        validate_payload("editorial-benchmark-review", review)
+        self._validate_benchmark_artifact_binding(review)
+        report = validate_human_benchmark_review(review)
+        if not report["valid"]:
+            raise RegistryIntegrityError("benchmark review metadata is invalid")
+        self._validate_benchmark_review_sources(review)
+        if review["status"] == "approved" and not report["approval_eligible"]:
+            raise RegistryIntegrityError("benchmark review is not eligible for approval")
+        now = _utc_now()
+        payload_json = _json_text(review)
+        with self._transaction() as connection:
+            reviewer_id = review["reviewer"]["reviewer_id"]
+            if actor != reviewer_id:
+                raise RegistryIntegrityError("review actor must match the declared reviewer principal")
+            self._require_benchmark_role(connection, actor, "benchmark_reviewer")
+            connection.execute(
+                """INSERT INTO benchmark_reviews
+                (review_id, benchmark_id, benchmark_fingerprint, language, status,
+                 revision, created_at, updated_at, last_actor, last_reason, payload_json)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (review["review_id"], review["benchmark_id"], review["benchmark_fingerprint"],
+                 review["language"], review["status"], now, now, actor, reason, payload_json),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_review.created",
+                entity_type="benchmark_review", entity_id=review["review_id"],
+                payload={"revision": 1, "actor": actor, "reason": reason, "record": review},
+            )
+        return {**review, "revision": 1, "created_at": now, "updated_at": now}
+
+    def _validate_benchmark_review_sources(
+        self, review: dict[str, Any], *, connection: sqlite3.Connection | None = None
+    ) -> None:
+        """Resolve every declared source reference against registered records."""
+        conn = connection or self._connection
+        for source in review.get("source_materials", []):
+            article_row = conn.execute(
+                "SELECT payload_json FROM domain_records WHERE record_type = 'article' AND id = ?",
+                (source["article_id"],),
+            ).fetchone()
+            publisher_row = conn.execute(
+                "SELECT id FROM sources WHERE id = ?", (source["source_id"],)
+            ).fetchone()
+            permission_row = conn.execute(
+                "SELECT source_id, review_status FROM permission_evidence WHERE id = ?",
+                (source["approved_use_reference"],),
+            ).fetchone()
+            grant_row = conn.execute(
+                "SELECT payload_json FROM permission_grants WHERE id = ?",
+                (source["permission_grant_id"],),
+            ).fetchone()
+            if article_row is None or publisher_row is None or permission_row is None or grant_row is None:
+                raise RegistryIntegrityError("benchmark source material must reference a registered article, publisher, verified evidence, and permission grant")
+            article = json.loads(article_row["payload_json"])
+            grant = json.loads(grant_row["payload_json"])
+            if article.get("source_id") != source["source_id"] or permission_row["source_id"] != source["source_id"] or grant.get("source_id") != source["source_id"]:
+                raise RegistryIntegrityError("benchmark article, publisher, evidence, and permission grant must belong to the same publisher")
+            if permission_row["review_status"] != "verified":
+                raise RegistryIntegrityError("benchmark source permission evidence must be verified")
+            if source["endpoint_id"] not in grant.get("endpoint_ids", []):
+                raise RegistryIntegrityError("benchmark permission grant does not cover the declared endpoint")
+            operation = source["permission_operation"]
+            operation_record = grant.get("operations", {}).get(operation, {})
+            if (
+                grant.get("status") != "approved"
+                or grant.get("effective_from") is None
+                or grant.get("effective_until") is None
+                or operation_record.get("allowed") is not True
+                or operation_record.get("status") != "approved"
+                or source["approved_use_reference"] not in grant.get("evidence_ids", [])
+                or source["approved_use_reference"] not in operation_record.get("evidence_ids", [])
+            ):
+                raise RegistryIntegrityError("benchmark permission grant does not explicitly authorize the required operation with this evidence")
+            decision = evaluate_permission_record(
+                grant, operation, source_id=source["source_id"],
+                endpoint_id=source["endpoint_id"],
+            )
+            if not decision.allowed:
+                raise RegistryIntegrityError(f"benchmark permission grant is not currently usable: {decision.reason}")
+            if article.get("canonical_uri") != source["canonical_uri"]:
+                raise RegistryIntegrityError("benchmark source URI must match the registered article")
+            if article.get("content_fingerprint") and article["content_fingerprint"] != source["content_fingerprint"]:
+                raise RegistryIntegrityError("benchmark source fingerprint must match the registered article")
+
+    def revise_benchmark_review(
+        self, review_id: str, review: dict[str, Any], *,
+        expected_revision: int, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Append a new review decision revision with optimistic concurrency."""
+        if review.get("review_id") != review_id:
+            raise RegistryIntegrityError("benchmark review identity cannot change")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        validate_payload("editorial-benchmark-review", review)
+        self._validate_benchmark_artifact_binding(review)
+        report = validate_human_benchmark_review(review)
+        if not report["valid"]:
+            raise RegistryIntegrityError("benchmark review metadata is invalid")
+        if review["status"] == "approved" and not report["approval_eligible"]:
+            raise RegistryIntegrityError("benchmark review is not eligible for approval")
+        now = _utc_now()
+        payload_json = _json_text(review)
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, created_at FROM benchmark_reviews WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError("cannot revise an unknown benchmark review")
+            if row["revision"] != expected_revision:
+                raise RegistryIntegrityError("benchmark review revision conflict")
+            finalized = connection.execute(
+                "SELECT 1 FROM benchmark_adjudications WHERE benchmark_id = ? LIMIT 1",
+                (review["benchmark_id"],),
+            ).fetchone()
+            if finalized is not None:
+                raise RegistryIntegrityError("a review bound to a finally adjudicated artifact cannot be revised")
+            reviewer_id = review["reviewer"]["reviewer_id"]
+            if actor != reviewer_id:
+                raise RegistryIntegrityError("review actor must match the declared reviewer principal")
+            self._require_benchmark_role(connection, actor, "benchmark_reviewer")
+            self._validate_benchmark_review_sources(review, connection=connection)
+            next_revision = expected_revision + 1
+            connection.execute(
+                """UPDATE benchmark_reviews SET benchmark_id = ?, benchmark_fingerprint = ?,
+                language = ?, status = ?, revision = ?, updated_at = ?, last_actor = ?,
+                last_reason = ?, payload_json = ?
+                WHERE review_id = ? AND revision = ?""",
+                (review["benchmark_id"], review["benchmark_fingerprint"], review["language"],
+                 review["status"], next_revision, now, actor, reason, payload_json, review_id, expected_revision),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_review.revised",
+                entity_type="benchmark_review", entity_id=review_id,
+                payload={"revision": next_revision, "actor": actor, "reason": reason, "record": review},
+            )
+        return {**review, "revision": next_revision, "created_at": row["created_at"], "updated_at": now}
+
+
+    def add_benchmark_adjudication(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Persist an immutable, independently adjudicated benchmark disagreement."""
+        try:
+            validation = validate_benchmark_adjudication(payload)
+        except (TypeError, ValueError) as exc:
+            raise RegistryIntegrityError("adjudication contract or independence validation failed") from exc
+        if not validation["eligible_for_adjudication"]:
+            raise RegistryIntegrityError("adjudication contract or independence checks failed")
+        if not actor.strip() or not reason.strip():
+            raise ValueError("actor and reason are required")
+        adjudicator_id = payload["adjudicator"]["principal_id"]
+        if actor != adjudicator_id:
+            raise RegistryIntegrityError("adjudication actor must match the declared adjudicator principal")
+        resolved_at = _aware_datetime(payload["resolved_at"], "resolved_at")
+        created_at = _utc_now()
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_adjudicator")
+            artifact = connection.execute(
+                "SELECT content_fingerprint FROM benchmark_artifacts WHERE artifact_id = ?",
+                (payload["benchmark_id"],),
+            ).fetchone()
+            if artifact is None or artifact["content_fingerprint"] != payload["benchmark_fingerprint"]:
+                raise RegistryIntegrityError("adjudication must bind to the exact registered benchmark artifact")
+            actual_reviewers = []
+            referenced_reviews = {}
+            for review_id in payload["review_ids"]:
+                row = connection.execute(
+                    "SELECT benchmark_id, benchmark_fingerprint, status, payload_json FROM benchmark_reviews WHERE review_id = ?",
+                    (review_id,),
+                ).fetchone()
+                if row is None:
+                    raise RegistryIntegrityError("adjudication references an unknown benchmark review")
+                if row["benchmark_id"] != payload["benchmark_id"] or row["benchmark_fingerprint"] != payload["benchmark_fingerprint"]:
+                    raise RegistryIntegrityError("adjudication reviews must concern the same exact benchmark artifact")
+                actual_reviewers.append(json.loads(row["payload_json"])["reviewer"]["reviewer_id"])
+                referenced_reviews[review_id] = row["status"]
+            if payload["outcome"] == "uphold_existing":
+                upheld = payload["upheld_review_ids"]
+                if any(referenced_reviews.get(review_id) != "approved" for review_id in upheld):
+                    raise RegistryIntegrityError("upheld reviews must be referenced approved review records")
+            if sorted(actual_reviewers) != sorted(payload["reviewer_ids"]):
+                raise RegistryIntegrityError("adjudication reviewer IDs must match the referenced stored reviews")
+            if adjudicator_id in actual_reviewers:
+                raise RegistryIntegrityError("adjudicator must be independent of all referenced reviewers")
+            connection.execute(
+                """INSERT INTO benchmark_adjudications
+                (adjudication_id, benchmark_id, benchmark_fingerprint, adjudicator_id,
+                 resolved_at, payload_json, created_at, actor, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (payload["adjudication_id"], payload["benchmark_id"], payload["benchmark_fingerprint"],
+                 adjudicator_id, resolved_at.isoformat(), _json_text(payload), created_at, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_adjudication.recorded",
+                entity_type="benchmark_adjudication", entity_id=payload["adjudication_id"],
+                payload={"benchmark_id": payload["benchmark_id"], "review_ids": payload["review_ids"],
+                         "outcome": payload["outcome"], "actor": actor, "reason": reason},
+            )
+        return self.get_benchmark_adjudication(payload["adjudication_id"]) or {}
+
+    def get_benchmark_adjudication(self, adjudication_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_adjudications WHERE adjudication_id = ?", (adjudication_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            **json.loads(row["payload_json"]), "created_at": row["created_at"],
+            "actor": row["actor"], "reason": row["reason"],
+        }
+
+    def get_benchmark_review(self, review_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT revision, created_at, updated_at, payload_json FROM benchmark_reviews WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {**json.loads(row["payload_json"]), "revision": row["revision"],
+                "created_at": row["created_at"], "updated_at": row["updated_at"]}
+
+    def benchmark_review_history(self, review_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT revision, created_at, actor, reason, payload_json
+                FROM benchmark_review_revisions WHERE review_id = ? ORDER BY revision""",
+                (review_id,),
+            ).fetchall()
+        return [{"revision": row["revision"], "created_at": row["created_at"],
+                 "actor": row["actor"], "reason": row["reason"],
+                 "record": json.loads(row["payload_json"])} for row in rows]
+
+    def _benchmark_acceptance_review_quality_report(
+        self, review_id: str, connection: sqlite3.Connection
+    ) -> dict[str, Any]:
+        """Recheck exact study evidence and current source-review permissions for scoped reference."""
+        row = connection.execute(
+            "SELECT * FROM benchmark_acceptance_reviews WHERE review_id = ?", (review_id,)
+        ).fetchone()
+        if row is None:
+            raise RegistryIntegrityError(f"unknown benchmark acceptance review: {review_id}")
+        payload = json.loads(row["payload_json"])
+        checks: list[dict[str, Any]] = []
+        blockers: list[str] = []
+
+        def check(name: str, passed: bool, detail: str) -> None:
+            checks.append({"name": name, "passed": bool(passed), "detail": detail})
+            if not passed:
+                blockers.append(detail)
+
+        fingerprint_ok = sha256_fingerprint(payload) == row["acceptance_fingerprint"]
+        check("acceptance_fingerprint", fingerprint_ok,
+              "Acceptance decision fingerprint is verified." if fingerprint_ok else
+              "Acceptance decision fingerprint does not match its immutable payload.")
+        protocol_row = connection.execute(
+            "SELECT * FROM benchmark_study_protocols WHERE protocol_record_id = ?",
+            (row["protocol_record_id"],),
+        ).fetchone()
+        execution_row = connection.execute(
+            "SELECT * FROM benchmark_study_executions WHERE execution_id = ?",
+            (row["execution_id"],),
+        ).fetchone()
+        protocol = json.loads(protocol_row["payload_json"]) if protocol_row else None
+        execution = json.loads(execution_row["payload_json"]) if execution_row else None
+        protocol_ok = bool(
+            protocol_row and protocol
+            and sha256_fingerprint(protocol) == protocol_row["protocol_fingerprint"] == row["protocol_fingerprint"]
+            and protocol_row["study_id"] == row["study_id"]
+            and protocol_row["study_version"] == row["study_version"]
+        )
+        execution_ok = bool(
+            execution_row and execution
+            and sha256_fingerprint(execution) == execution_row["execution_fingerprint"] == row["execution_fingerprint"]
+            and execution_row["protocol_record_id"] == row["protocol_record_id"]
+        )
+        check("registered_protocol", protocol_ok,
+              "Exact registered protocol version and fingerprint are verified." if protocol_ok else
+              "Registered protocol is missing, changed, or does not match the acceptance decision.")
+        check("registered_execution", execution_ok,
+              "Exact registered execution and protocol linkage are verified." if execution_ok else
+              "Registered execution is missing, changed, or not bound to the accepted protocol.")
+        artifact_row = connection.execute(
+            "SELECT language, content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+            (row["benchmark_id"],),
+        ).fetchone()
+        artifact_ok = bool(
+            artifact_row
+            and sha256_fingerprint(json.loads(artifact_row["content_json"])) == artifact_row["content_fingerprint"]
+            and artifact_row["content_fingerprint"] == row["benchmark_fingerprint"]
+            and execution_ok and execution_row["benchmark_id"] == row["benchmark_id"]
+            and execution_row["benchmark_fingerprint"] == row["benchmark_fingerprint"]
+        )
+        check("benchmark_artifact", artifact_ok,
+              "Registered benchmark artifact fingerprint is verified." if artifact_ok else
+              "Benchmark artifact is missing, changed, or no longer matches the study execution.")
+        try:
+            if not (protocol_ok and execution_ok and artifact_ok):
+                raise RegistryIntegrityError("exact registered study evidence is unavailable")
+            from .benchmark_acceptance_review import validate_benchmark_acceptance_review
+            acceptance_validation = validate_benchmark_acceptance_review(
+                payload, protocol=protocol, execution=execution
+            )
+            contract_ok = bool(acceptance_validation["valid"])
+        except (RegistryIntegrityError, KeyError, TypeError, ValueError):
+            contract_ok = False
+        check("acceptance_contract", contract_ok,
+              "Independent acceptance contract remains valid." if contract_ok else
+              "Acceptance decision no longer satisfies its registered study contract.")
+        domains = payload.get("domains", {})
+        all_domains_pass = (
+            set(domains) == {"statistical_validity", "editorial_validity", "operational_security"}
+            and all(isinstance(value, dict) and value.get("status") == "pass" for value in domains.values())
+        )
+        decision_accepted = row["decision"] in {"accepted_for_limited_use", "accepted_for_proposed_use"}
+        check("accepted_decision", decision_accepted and all_domains_pass,
+              "All three independent review domains passed for a scoped accepted decision."
+              if decision_accepted and all_domains_pass else
+              "Decision is not accepted for scoped use or all three review domains do not pass.")
+
+        source_rows = connection.execute(
+            "SELECT revision, payload_json FROM benchmark_reviews WHERE benchmark_id = ? ORDER BY review_id",
+            (row["benchmark_id"],),
+        ).fetchall()
+        eligible_reviewers: set[str] = set()
+        source_review_checks = []
+        for source_row in source_rows:
+            source_review = json.loads(source_row["payload_json"])
+            reviewer_id = source_review.get("reviewer", {}).get("reviewer_id")
+            principal_row = connection.execute(
+                "SELECT active, roles_json, languages_json, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                (reviewer_id,),
+            ).fetchone() if reviewer_id else None
+            principal_ok = bool(
+                principal_row and principal_row["active"]
+                and "benchmark_reviewer" in json.loads(principal_row["roles_json"])
+                and principal_row["principal_kind"] == "human"
+                and source_review.get("language") in json.loads(principal_row["languages_json"])
+            )
+            exact_binding = bool(
+                source_review.get("benchmark_id") == row["benchmark_id"]
+                and source_review.get("benchmark_fingerprint") == row["benchmark_fingerprint"]
+                and artifact_row is not None
+                and source_review.get("language") == artifact_row["language"]
+                and source_review.get("reviewer", {}).get("language") == artifact_row["language"]
+            )
+            permission_report = self._benchmark_review_quality_report(source_review, connection)
+            attestation = connection.execute(
+                """SELECT principal_id, issuer, audience, subject, provider_key_id, provider_adapter,
+                expires_at, attested_at FROM benchmark_review_identity_attestations
+                WHERE review_id = ? AND review_revision = ?""",
+                (source_review.get("review_id"), source_row["revision"]),
+            ).fetchone()
+            attested = bool(
+                attestation and attestation["principal_id"] == reviewer_id
+                and all(attestation[key] for key in (
+                    "issuer", "audience", "subject", "provider_key_id", "provider_adapter"
+                ))
+                and _aware_datetime(attestation["attested_at"], "attested_at")
+                < _aware_datetime(attestation["expires_at"], "expires_at")
+            )
+            eligible = bool(
+                source_review.get("status") == "approved" and principal_ok and exact_binding
+                and permission_report["eligible_for_current_use"] and attested
+            )
+            if eligible:
+                eligible_reviewers.add(reviewer_id)
+            source_review_checks.append({
+                "review_id": source_review.get("review_id"),
+                "reviewer_id": reviewer_id,
+                "current_permission_eligible": permission_report["eligible_for_current_use"],
+                "active_human_reviewer": principal_ok,
+                "exact_artifact_binding": exact_binding,
+                "identity_attested_for_current_revision": attested,
+                "eligible_current_source_review": eligible,
+            })
+        source_review_coverage = len(eligible_reviewers) >= 2
+        check("current_human_source_reviews", source_review_coverage,
+              "At least two distinct active, attested human reviews remain eligible under current source permissions."
+              if source_review_coverage else
+              "At least two distinct active, attested human reviews with current source permissions are required.")
+        scoped = bool(
+            fingerprint_ok and protocol_ok and execution_ok and artifact_ok and contract_ok
+            and decision_accepted and all_domains_pass and source_review_coverage
+        )
+        return {
+            "review_id": row["review_id"], "study_id": row["study_id"],
+            "study_version": row["study_version"], "execution_id": row["execution_id"],
+            "benchmark_id": row["benchmark_id"], "decision": row["decision"],
+            "intended_use": payload.get("intended_use"),
+            "scope_limitations": payload.get("scope_limitations", []),
+            "eligible_for_scoped_reference": scoped,
+            "checks": checks, "blockers": blockers,
+            "source_reviews": source_review_checks,
+            "production_ready": False, "authorization_granted": False,
+            "interpretation": (
+                "This report rechecks evidence linkage and current source permissions for editorial context. "
+                "It is not production authorization and does not establish factual correctness."
+            ),
+        }
+
+    def benchmark_acceptance_review_quality_report(self, review_id: str) -> dict[str, Any]:
+        """Return a read-only, current-use report for one acceptance decision."""
+        with self._transaction("DEFERRED") as connection:
+            return self._benchmark_acceptance_review_quality_report(review_id, connection)
+
+    def _benchmark_review_quality_report(
+        self, review: dict[str, Any], connection: sqlite3.Connection
+    ) -> dict[str, Any]:
+        """Evaluate review metadata and whether declared source permissions remain usable."""
+        metadata = validate_human_benchmark_review(review)
+        artifact_ok = True
+        artifact_detail = "Registered benchmark artifact fingerprint and language are verified."
+        try:
+            self._validate_benchmark_artifact_binding(review, connection=connection)
+        except (RegistryIntegrityError, KeyError, TypeError, ValueError) as exc:
+            artifact_ok = False
+            artifact_detail = f"Benchmark artifact check failed: {exc}"
+        checks: list[dict[str, Any]] = []
+        blockers: list[dict[str, str]] = []
+
+        def check(name: str, passed: bool, detail: str) -> None:
+            checks.append({"name": name, "passed": passed, "detail": detail})
+            if not passed:
+                blockers.append({"check": name, "detail": detail})
+
+        approved = review.get("status") == "approved"
+        check(
+            "approved_review",
+            approved,
+            "Review must be approved before it can qualify as a current benchmark reference.",
+        )
+        check(
+            "review_metadata",
+            metadata["valid"] and metadata["approval_eligible"] if approved else metadata["valid"],
+            "Review metadata satisfies the human-review contract."
+            if metadata["valid"] else "Review metadata has validation failures.",
+        )
+        check("benchmark_artifact", artifact_ok, artifact_detail)
+        permission_ok = True
+        permission_detail = "Not required for a non-approved review."
+        if approved:
+            try:
+                self._validate_benchmark_review_sources(review, connection=connection)
+                permission_detail = (
+                    "Every source still has a verified evidence record and a currently usable "
+                    "grant for its declared endpoint and operation."
+                )
+            except (RegistryIntegrityError, KeyError, TypeError, ValueError) as exc:
+                permission_ok = False
+                permission_detail = f"Current source permission check failed: {exc}"
+        check("current_source_permission", permission_ok, permission_detail)
+
+        adjudication_rows = connection.execute(
+            """SELECT adjudication_id, payload_json FROM benchmark_adjudications
+            WHERE benchmark_id = ? ORDER BY resolved_at, created_at, adjudication_id""",
+            (review.get("benchmark_id"),),
+        ).fetchall()
+        adjudication_ok = len(adjudication_rows) <= 1
+        adjudication_detail = "No adjudication currently applies to this benchmark."
+        adjudication_summary = None
+        if len(adjudication_rows) > 1:
+            adjudication_detail = "Multiple final adjudications exist for one immutable artifact; eligibility is blocked pending data review."
+            adjudication_summary = {
+                "conflict": True,
+                "adjudication_ids": [row["adjudication_id"] for row in adjudication_rows],
+            }
+        elif adjudication_rows:
+            decision = json.loads(adjudication_rows[0]["payload_json"])
+            adjudication_summary = {
+                "adjudication_id": decision["adjudication_id"],
+                "outcome": decision["outcome"],
+                "resolved_at": decision["resolved_at"],
+                "upheld_review_ids": decision.get("upheld_review_ids", []),
+            }
+            if decision["outcome"] == "uphold_existing":
+                adjudication_ok = (
+                    review.get("review_id") in decision.get("upheld_review_ids", [])
+                    and approved
+                )
+                adjudication_detail = (
+                    "This exact approved review was explicitly upheld."
+                    if adjudication_ok else
+                    "The adjudicator upheld only the explicitly listed approved reviews; this review was not selected."
+                )
+            elif decision["outcome"] == "return_for_revision":
+                adjudication_ok = False
+                adjudication_detail = "The adjudication returned this immutable artifact for revision; it remains blocked. Register a new artifact and obtain fresh reviews."
+            elif decision["outcome"] == "reject_benchmark_item":
+                adjudication_ok = False
+                adjudication_detail = "The adjudication rejected this benchmark item; it is not eligible for current use."
+            elif decision["outcome"] == "split_accepted_answers":
+                adjudication_ok = False
+                adjudication_detail = "The adjudication requires distinct accepted-answer items; register a new artifact and obtain fresh reviews."
+        check("adjudication_policy", adjudication_ok, adjudication_detail)
+        return {
+            "review_id": review.get("review_id"),
+            "benchmark_id": review.get("benchmark_id"),
+            "status": review.get("status"),
+            "adjudication": adjudication_summary,
+            "eligible_for_current_use": approved and metadata["approval_eligible"] and artifact_ok and permission_ok and adjudication_ok,
+            "blockers": blockers,
+            "checks": checks,
+            "warnings": [
+                "Registry roles control declared principal IDs but do not authenticate the person operating the account.",
+                "This report does not assess factual correctness or general editorial quality.",
+            ],
+        }
+
+    def record_benchmark_review_identity_attestation(
+        self, attestation: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Persist provider-verified identity metadata for one exact review revision."""
+        required = {
+            "attestation_id", "review_id", "review_revision", "principal_id", "issuer",
+            "audience", "subject", "authenticated_at", "expires_at",
+            "authentication_methods", "authentication_context", "provider_key_id",
+            "provider_adapter", "session_fingerprint", "attested_at",
+        }
+        if not isinstance(attestation, dict) or set(attestation) != required:
+            raise RegistryIntegrityError("identity attestation fields do not match the contract")
+        validate_payload("editorial-benchmark-identity-attestation", attestation)
+        for field in ("attestation_id", "review_id", "principal_id", "issuer", "audience",
+                      "subject", "authentication_context", "provider_key_id", "provider_adapter"):
+            if not isinstance(attestation[field], str) or not attestation[field].strip():
+                raise RegistryIntegrityError(f"identity attestation {field} is required")
+        if not isinstance(attestation["review_revision"], int) or attestation["review_revision"] < 1:
+            raise RegistryIntegrityError("identity attestation review_revision must be positive")
+        methods = attestation["authentication_methods"]
+        if not isinstance(methods, list) or not methods or any(not isinstance(x, str) or not x.strip() for x in methods):
+            raise RegistryIntegrityError("identity attestation requires non-empty authentication methods")
+        if len(set(methods)) != len(methods):
+            raise RegistryIntegrityError("identity attestation authentication methods must be unique")
+        if not isinstance(attestation["session_fingerprint"], str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", attestation["session_fingerprint"]):
+            raise RegistryIntegrityError("identity attestation session fingerprint is invalid")
+        authenticated_at = _aware_datetime(attestation["authenticated_at"], "authenticated_at")
+        expires_at = _aware_datetime(attestation["expires_at"], "expires_at")
+        attested_at = _aware_datetime(attestation["attested_at"], "attested_at")
+        if expires_at <= authenticated_at or attested_at < authenticated_at or attested_at >= expires_at:
+            raise RegistryIntegrityError("identity attestation timestamps are inconsistent")
+        if (attested_at - authenticated_at).total_seconds() > 900:
+            raise RegistryIntegrityError("identity attestation must be captured within 15 minutes of authentication")
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise RegistryIntegrityError("identity attestation actor and reason are required")
+        payload_json = _json_text(attestation)
+        with self._transaction() as connection:
+            review_row = connection.execute(
+                "SELECT revision, payload_json FROM benchmark_reviews WHERE review_id = ?",
+                (attestation["review_id"],),
+            ).fetchone()
+            if review_row is None or review_row["revision"] != attestation["review_revision"]:
+                raise RegistryIntegrityError("identity attestation must bind to the current stored review revision")
+            review = json.loads(review_row["payload_json"])
+            if actor != attestation["principal_id"] or review["reviewer"]["reviewer_id"] != actor:
+                raise RegistryIntegrityError("identity attestation actor must match the stored reviewer")
+            principal = connection.execute(
+                "SELECT active, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                (actor,),
+            ).fetchone()
+            if principal is None or not principal["active"] or principal["principal_kind"] != "human":
+                raise RegistryIntegrityError("identity attestation requires an active human-classified principal")
+            connection.execute(
+                """INSERT INTO benchmark_review_identity_attestations
+                (attestation_id, review_id, review_revision, principal_id, issuer, audience,
+                 subject, authenticated_at, expires_at, authentication_methods_json,
+                 authentication_context, provider_key_id, provider_adapter, session_fingerprint,
+                 attested_at, payload_json, actor, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (attestation["attestation_id"], attestation["review_id"], attestation["review_revision"],
+                 actor, attestation["issuer"], attestation["audience"], attestation["subject"],
+                 attestation["authenticated_at"], attestation["expires_at"], _json_text(methods),
+                 attestation["authentication_context"], attestation["provider_key_id"],
+                 attestation["provider_adapter"], attestation["session_fingerprint"],
+                 attestation["attested_at"], payload_json, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_review.identity_attested",
+                entity_type="benchmark_review", entity_id=attestation["review_id"],
+                payload={"attestation_id": attestation["attestation_id"],
+                         "review_revision": attestation["review_revision"],
+                         "principal_id": actor, "issuer": attestation["issuer"],
+                         "provider_adapter": attestation["provider_adapter"],
+                         "provider_key_id": attestation["provider_key_id"],
+                         "attestation_fingerprint": sha256_fingerprint(attestation),
+                         "reason": reason},
+            )
+        return dict(attestation)
+
+
+    def add_benchmark_score(
+        self, score: dict[str, Any], *, assignment_id: str, actor: str,
+        identity: dict[str, Any], reason: str
+    ) -> dict[str, Any]:
+        """Persist one immutable score for an accepted, exact-item assignment."""
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise RegistryIntegrityError("score actor and reason are required")
+        try:
+            report = validate_benchmark_scoring(score)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise RegistryIntegrityError("score sheet violates the versioned scoring contract") from exc
+        if not report["valid"]:
+            raise RegistryIntegrityError("score sheet has invalid criterion IDs or weights")
+        evaluated_at = _aware_datetime(score["evaluated_at"], "evaluated_at")
+        required_identity = ("issuer", "subject", "provider_key_id", "provider_adapter", "authenticated_at")
+        if not isinstance(identity, dict) or any(
+            not isinstance(identity.get(key), str) or not identity[key].strip()
+            for key in required_identity
+        ):
+            raise RegistryIntegrityError("score requires trusted provider identity evidence")
+        authenticated_at = _aware_datetime(identity["authenticated_at"], "authenticated_at")
+        if evaluated_at < authenticated_at:
+            raise RegistryIntegrityError("score timestamp cannot precede evaluator authentication")
+        with self._transaction() as connection:
+            assignment_row = connection.execute(
+                "SELECT payload_json FROM benchmark_review_assignments WHERE assignment_id = ?",
+                (assignment_id,),
+            ).fetchone()
+            if assignment_row is None:
+                raise RegistryIntegrityError("score must reference an existing reviewer assignment")
+            assignment = json.loads(assignment_row["payload_json"])
+            if assignment["status"] != "accepted":
+                raise RegistryIntegrityError("only an accepted reviewer assignment may be scored")
+            if assignment["reviewer_id"] != actor or score["evaluator_id"] != actor:
+                raise RegistryIntegrityError("score evaluator must be the reviewer assigned to this artifact")
+            if (
+                score["benchmark_id"] != assignment["artifact_id"]
+                or score["benchmark_fingerprint"] != assignment["artifact_fingerprint"]
+                or score["language"] != assignment["language"]
+            ):
+                raise RegistryIntegrityError("score must bind to the assignment's exact artifact, fingerprint, and language")
+            artifact_row = connection.execute(
+                "SELECT language, content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+                (assignment["artifact_id"],),
+            ).fetchone()
+            if artifact_row is None:
+                raise RegistryIntegrityError("score artifact is not registered")
+            artifact_content = json.loads(artifact_row["content_json"])
+            if sha256_fingerprint(artifact_content) != artifact_row["content_fingerprint"]:
+                raise RegistryIntegrityError("registered artifact fingerprint verification failed")
+            if (
+                artifact_row["content_fingerprint"] != assignment["artifact_fingerprint"]
+                or artifact_row["language"] != assignment["language"]
+            ):
+                raise RegistryIntegrityError("assignment no longer matches its immutable artifact")
+            item = next(
+                (candidate for candidate in artifact_content.get("items", [])
+                 if candidate.get("item_id") == score["item_id"]),
+                None,
+            )
+            if item is None or item.get("task_type") != score["task_type"]:
+                raise RegistryIntegrityError("score item ID and task type must match the registered artifact")
+            principal = connection.execute(
+                "SELECT active, roles_json, languages_json, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                (actor,),
+            ).fetchone()
+            if (
+                principal is None or not principal["active"]
+                or "benchmark_reviewer" not in json.loads(principal["roles_json"])
+                or assignment["language"] not in json.loads(principal["languages_json"])
+                or principal["principal_kind"] != "human"
+            ):
+                raise RegistryIntegrityError("scoring requires an active, qualified, human-classified reviewer")
+            final = connection.execute(
+                "SELECT 1 FROM benchmark_adjudications WHERE benchmark_id = ?",
+                (assignment["artifact_id"],),
+            ).fetchone()
+            if final is not None:
+                raise RegistryIntegrityError("cannot add a score after final artifact adjudication")
+            score_id = f"score:{assignment_id}:{score['item_id']}"
+            payload_json = _json_text(score)
+            score_fingerprint = sha256_fingerprint(score)
+            created_at = _utc_now()
+            connection.execute(
+                """INSERT INTO benchmark_scores
+                (score_id, assignment_id, artifact_id, artifact_fingerprint, item_id,
+                 task_type, language, evaluator_id, evaluated_at, weighted_score,
+                 eligible_for_comparison, score_fingerprint, payload_json, issuer,
+                 subject, provider_key_id, provider_adapter, authenticated_at,
+                 created_at, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (score_id, assignment_id, assignment["artifact_id"],
+                 assignment["artifact_fingerprint"], score["item_id"], score["task_type"],
+                 score["language"], actor, score["evaluated_at"], report["weighted_score"],
+                 int(report["eligible_for_comparison"]), score_fingerprint, payload_json,
+                 identity["issuer"], identity["subject"], identity["provider_key_id"],
+                 identity["provider_adapter"], identity["authenticated_at"], created_at, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_score.recorded",
+                entity_type="benchmark_score", entity_id=score_id,
+                payload={"assignment_id": assignment_id, "artifact_id": assignment["artifact_id"],
+                         "artifact_fingerprint": assignment["artifact_fingerprint"],
+                         "item_id": score["item_id"], "evaluator_id": actor,
+                         "score_fingerprint": score_fingerprint,
+                         "eligible_for_comparison": report["eligible_for_comparison"],
+                         "reason": reason},
+            )
+        return {
+            "score_id": score_id, "assignment_id": assignment_id,
+            "artifact_id": assignment["artifact_id"], "item_id": score["item_id"],
+            "evaluator_id": actor, "weighted_score": report["weighted_score"],
+            "eligible_for_comparison": report["eligible_for_comparison"],
+            "score_fingerprint": score_fingerprint, "created_at": created_at,
+        }
+
+
+    def register_benchmark_study_protocol(
+        self, payload: dict[str, Any], *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Persist an immutable, curator-approved version of a study protocol."""
+        try:
+            report = validate_benchmark_study_protocol(payload)
+        except (TypeError, ValueError, BenchmarkStudyError) as exc:
+            raise RegistryIntegrityError("study protocol does not satisfy its versioned contract") from exc
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValueError("actor is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        fingerprint = report["protocol_fingerprint"]
+        protocol_record_id = f"benchmark-study-protocol:{payload['study_id']}:{payload['study_version']}"
+        created_at = _utc_now()
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_curator")
+            artifact = connection.execute(
+                "SELECT language, content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+                (payload["benchmark_id"],),
+            ).fetchone()
+            if artifact is None:
+                raise RegistryIntegrityError("study protocol must reference a registered benchmark artifact")
+            if sha256_fingerprint(json.loads(artifact["content_json"])) != artifact["content_fingerprint"]:
+                raise RegistryIntegrityError("registered benchmark artifact fingerprint verification failed")
+            if payload["benchmark_fingerprint"] != artifact["content_fingerprint"]:
+                raise RegistryIntegrityError("study protocol benchmark fingerprint is stale or mismatched")
+            item_ids = {item["item_id"] for item in json.loads(artifact["content_json"])["items"]}
+            declared = payload["partition_membership"]
+            partition_ids = set(
+                declared["calibration_item_ids"]
+                + declared["blind_evaluation_item_ids"]
+                + declared["adjudication_item_ids"]
+            )
+            if not partition_ids.issubset(item_ids):
+                raise RegistryIntegrityError("study protocol contains item IDs outside the registered benchmark artifact")
+            if any(row["language"] != artifact["language"] for row in payload["language_task_strata"]):
+                raise RegistryIntegrityError("study protocol language strata do not match the benchmark artifact language")
+            for assignment in payload["blind_assignment_plan"]:
+                if assignment["item_id"] not in item_ids:
+                    raise RegistryIntegrityError("blind assignment references an item outside the registered benchmark artifact")
+                artifact_item = next(item for item in json.loads(artifact["content_json"])["items"] if item["item_id"] == assignment["item_id"])
+                if artifact_item["task_type"] != assignment["task_type"]:
+                    raise RegistryIntegrityError("blind assignment task type does not match the registered benchmark item")
+            connection.execute(
+                """INSERT INTO benchmark_study_protocols
+                (protocol_record_id, study_id, study_version, benchmark_id,
+                 benchmark_fingerprint, rubric_version, protocol_fingerprint,
+                 status, payload_json, created_at, actor, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'protocol_only', ?, ?, ?, ?)""",
+                (protocol_record_id, payload["study_id"], payload["study_version"],
+                 payload["benchmark_id"], payload["benchmark_fingerprint"],
+                 payload["rubric_version"], fingerprint, _json_text(payload),
+                 created_at, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_study_protocol.registered",
+                entity_type="benchmark_study_protocol", entity_id=protocol_record_id,
+                payload={"study_id": payload["study_id"], "study_version": payload["study_version"],
+                         "benchmark_id": payload["benchmark_id"],
+                         "benchmark_fingerprint": payload["benchmark_fingerprint"],
+                         "protocol_fingerprint": fingerprint, "reason": reason},
+            )
+        return self.get_benchmark_study_protocol(payload["study_id"], payload["study_version"]) or {}
+
+    def get_benchmark_study_protocol(
+        self, study_id: str, study_version: int | None = None
+    ) -> dict[str, Any] | None:
+        if study_version is None:
+            row = self._connection.execute(
+                "SELECT * FROM benchmark_study_protocols WHERE study_id = ? ORDER BY study_version DESC LIMIT 1",
+                (study_id,),
+            ).fetchone()
+        else:
+            row = self._connection.execute(
+                "SELECT * FROM benchmark_study_protocols WHERE study_id = ? AND study_version = ?",
+                (study_id, study_version),
+            ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload_json"])
+        verified = sha256_fingerprint(payload) == row["protocol_fingerprint"]
+        return {
+            "protocol_record_id": row["protocol_record_id"], "study_id": row["study_id"],
+            "study_version": row["study_version"], "benchmark_id": row["benchmark_id"],
+            "benchmark_fingerprint": row["benchmark_fingerprint"],
+            "rubric_version": row["rubric_version"],
+            "protocol_fingerprint": row["protocol_fingerprint"], "status": row["status"],
+            "protocol": payload, "created_at": row["created_at"], "actor": row["actor"],
+            "reason": row["reason"], "fingerprint_verified": verified,
+        }
+
+    def benchmark_study_protocol_history(self, study_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            "SELECT study_version FROM benchmark_study_protocols WHERE study_id = ? ORDER BY study_version",
+            (study_id,),
+        ).fetchall()
+        return [
+            self.get_benchmark_study_protocol(study_id, row["study_version"])
+            for row in rows
+        ]
+
+    def list_benchmark_study_protocols(
+        self, *, benchmark_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        if benchmark_id is None:
+            rows = self._connection.execute(
+                "SELECT study_id, study_version FROM benchmark_study_protocols ORDER BY study_id, study_version"
+            ).fetchall()
+        else:
+            rows = self._connection.execute(
+                "SELECT study_id, study_version FROM benchmark_study_protocols WHERE benchmark_id = ? ORDER BY study_id, study_version",
+                (benchmark_id,),
+            ).fetchall()
+        return [
+            self.get_benchmark_study_protocol(row["study_id"], row["study_version"])
+            for row in rows
+        ]
+
+
+    def register_benchmark_study_execution(
+        self, payload: dict[str, Any], *, actor: str,
+        identity: dict[str, Any], reason: str
+    ) -> dict[str, Any]:
+        """Persist immutable execution evidence with an independently reviewed analysis."""
+        try:
+            report = validate_benchmark_study_execution(payload)
+        except (TypeError, ValueError, BenchmarkStudyExecutionError) as exc:
+            raise RegistryIntegrityError("study execution record does not satisfy its versioned contract") from exc
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise RegistryIntegrityError("study execution actor and reason are required")
+        identity_fields = ("issuer", "subject", "provider_key_id", "provider_adapter", "authenticated_at")
+        if not isinstance(identity, dict) or any(not isinstance(identity.get(k), str) or not identity[k].strip() for k in identity_fields):
+            raise RegistryIntegrityError("study execution requires trusted methodologist identity evidence")
+        authenticated_at = _aware_datetime(identity["authenticated_at"], "authenticated_at")
+        started_at = _aware_datetime(payload["started_at"], "started_at")
+        completed_at = _aware_datetime(payload["completed_at"], "completed_at")
+        now = datetime.now(timezone.utc)
+        if completed_at > now:
+            raise RegistryIntegrityError("study execution cannot be registered before its declared completion")
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_methodologist")
+            methodologist = connection.execute(
+                "SELECT active, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                (actor,),
+            ).fetchone()
+            if methodologist is None or not methodologist["active"] or methodologist["principal_kind"] != "human":
+                raise RegistryIntegrityError("study analysis requires an active human-classified methodologist")
+            protocol_row = connection.execute(
+                "SELECT * FROM benchmark_study_protocols WHERE study_id = ? AND study_version = ?",
+                (payload["study_id"], payload["study_version"]),
+            ).fetchone()
+            if protocol_row is None:
+                raise RegistryIntegrityError("execution must reference a registered study protocol version")
+            protocol = json.loads(protocol_row["payload_json"])
+            if sha256_fingerprint(protocol) != protocol_row["protocol_fingerprint"]:
+                raise RegistryIntegrityError("registered study protocol fingerprint verification failed")
+            if payload["protocol_fingerprint"] != protocol_row["protocol_fingerprint"]:
+                raise RegistryIntegrityError("execution protocol fingerprint is stale or mismatched")
+            for field in ("benchmark_id", "benchmark_fingerprint", "rubric_version"):
+                if payload[field] != protocol_row[field]:
+                    raise RegistryIntegrityError(f"execution {field} does not match the registered protocol")
+            assigned = {
+                (item["item_id"], reviewer_id)
+                for item in protocol["blind_assignment_plan"]
+                for reviewer_id in item["reviewer_ids"]
+            }
+            scored_pairs, missing_pairs, score_ids = set(), set(), set()
+            for item in payload["score_records"]:
+                pair = (item["item_id"], item["evaluator_id"])
+                if pair not in assigned:
+                    raise RegistryIntegrityError("execution score is outside the protocol's blind reviewer assignments")
+                if pair in scored_pairs or item["score_id"] in score_ids:
+                    raise RegistryIntegrityError("execution score evidence contains duplicate pairs or score IDs")
+                row = connection.execute("SELECT * FROM benchmark_scores WHERE score_id = ?", (item["score_id"],)).fetchone()
+                if row is None:
+                    raise RegistryIntegrityError("execution references a score not present in the durable score ledger")
+                if (row["item_id"], row["evaluator_id"]) != pair:
+                    raise RegistryIntegrityError("execution score ID does not match its declared item and evaluator")
+                if row["artifact_id"] != payload["benchmark_id"] or row["artifact_fingerprint"] != payload["benchmark_fingerprint"]:
+                    raise RegistryIntegrityError("execution score is bound to a different benchmark artifact")
+                if not row["eligible_for_comparison"]:
+                    raise RegistryIntegrityError("ineligible critical-failure scores must be recorded as missing/excluded pairs")
+                evaluated_at = _aware_datetime(row["evaluated_at"], "score.evaluated_at")
+                if evaluated_at < started_at or evaluated_at > completed_at:
+                    raise RegistryIntegrityError("score timestamp falls outside the declared study execution window")
+                scored_pairs.add(pair)
+                score_ids.add(item["score_id"])
+            for item in payload["missing_records"]:
+                pair = (item["item_id"], item["evaluator_id"])
+                if pair not in assigned:
+                    raise RegistryIntegrityError("missing pair is outside the protocol's blind reviewer assignments")
+                if pair in scored_pairs or pair in missing_pairs:
+                    raise RegistryIntegrityError("execution missing evidence contains duplicate or already-scored pairs")
+                if item.get("score_id"):
+                    row = connection.execute("SELECT * FROM benchmark_scores WHERE score_id = ?", (item["score_id"],)).fetchone()
+                    if row is None or (row["item_id"], row["evaluator_id"]) != pair:
+                        raise RegistryIntegrityError("excluded score reference does not match its declared item/evaluator pair")
+                    if row["artifact_id"] != payload["benchmark_id"] or row["artifact_fingerprint"] != payload["benchmark_fingerprint"]:
+                        raise RegistryIntegrityError("excluded score is bound to a different benchmark artifact")
+                    if row["eligible_for_comparison"]:
+                        raise RegistryIntegrityError("only ineligible scores may be represented as excluded score evidence")
+                    excluded_at = _aware_datetime(row["evaluated_at"], "excluded_score.evaluated_at")
+                    if excluded_at < started_at or excluded_at > completed_at:
+                        raise RegistryIntegrityError("excluded score timestamp falls outside the declared study execution window")
+                    if item["score_id"] in score_ids:
+                        raise RegistryIntegrityError("execution cannot reference the same score twice")
+                    score_ids.add(item["score_id"])
+                else:
+                    existing = connection.execute(
+                        "SELECT score_id FROM benchmark_scores WHERE artifact_id = ? AND item_id = ? AND evaluator_id = ?",
+                        (payload["benchmark_id"], item["item_id"], item["evaluator_id"]),
+                    ).fetchone()
+                    if existing is not None:
+                        raise RegistryIntegrityError("an existing score must be explicitly referenced when classified as missing/excluded")
+                missing_pairs.add(pair)
+            if scored_pairs | missing_pairs != assigned:
+                raise RegistryIntegrityError("execution must account for every planned blind item/evaluator pair")
+            if len({item["item_id"] for item in protocol["blind_assignment_plan"]}) != payload["analysis"]["sampled_item_count"]:
+                raise RegistryIntegrityError("analysis sampled-item count must match the protocol blind sample")
+            if actor in {reviewer_id for _, reviewer_id in assigned}:
+                raise RegistryIntegrityError("methodologist must be independent of all blind evaluators")
+            if authenticated_at > now or now - authenticated_at > timedelta(minutes=15):
+                raise RegistryIntegrityError("methodologist submission requires recent authentication within 15 minutes")
+            if _aware_datetime(payload["analysis"]["reviewed_at"], "analysis.reviewed_at") > now:
+                raise RegistryIntegrityError("methodological review timestamp cannot be in the future")
+            created_at = _utc_now()
+            fingerprint = report["execution_fingerprint"]
+            connection.execute(
+                """INSERT INTO benchmark_study_executions
+                (execution_id, protocol_record_id, study_id, study_version,
+                 protocol_fingerprint, benchmark_id, benchmark_fingerprint,
+                 rubric_version, execution_fingerprint, status, methodologist_id,
+                 issuer, subject, provider_key_id, provider_adapter, authenticated_at,
+                 payload_json, created_at, actor, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'analysis_reviewed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (payload["execution_id"], protocol_row["protocol_record_id"], payload["study_id"],
+                 payload["study_version"], payload["protocol_fingerprint"], payload["benchmark_id"],
+                 payload["benchmark_fingerprint"], payload["rubric_version"], fingerprint, actor,
+                 identity["issuer"], identity["subject"], identity["provider_key_id"],
+                 identity["provider_adapter"], identity["authenticated_at"], _json_text(payload),
+                 created_at, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_study_execution.registered",
+                entity_type="benchmark_study_execution", entity_id=payload["execution_id"],
+                payload={"study_id": payload["study_id"], "study_version": payload["study_version"],
+                         "execution_fingerprint": fingerprint, "methodologist_id": actor,
+                         "score_count": len(payload["score_records"]),
+                         "missing_count": len(payload["missing_records"]), "reason": reason},
+            )
+        return self.get_benchmark_study_execution(payload["execution_id"]) or {}
+
+    def get_benchmark_study_execution(self, execution_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_study_executions WHERE execution_id = ?", (execution_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload_json"])
+        return {
+            "execution_id": row["execution_id"], "study_id": row["study_id"],
+            "study_version": row["study_version"], "protocol_fingerprint": row["protocol_fingerprint"],
+            "benchmark_id": row["benchmark_id"], "benchmark_fingerprint": row["benchmark_fingerprint"],
+            "rubric_version": row["rubric_version"], "execution_fingerprint": row["execution_fingerprint"],
+            "status": row["status"], "methodologist_id": row["methodologist_id"],
+            "issuer": row["issuer"], "subject": row["subject"], "provider_key_id": row["provider_key_id"],
+            "provider_adapter": row["provider_adapter"], "authenticated_at": row["authenticated_at"],
+            "execution": payload, "created_at": row["created_at"], "actor": row["actor"],
+            "reason": row["reason"], "fingerprint_verified": sha256_fingerprint(payload) == row["execution_fingerprint"],
+        }
+
+    def list_benchmark_study_executions(self, study_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            "SELECT execution_id FROM benchmark_study_executions WHERE study_id = ? ORDER BY created_at, execution_id",
+            (study_id,),
+        ).fetchall()
+        return [self.get_benchmark_study_execution(row["execution_id"]) for row in rows]
+
+
+    def register_benchmark_acceptance_review(
+        self, payload: dict[str, Any], *, actor: str,
+        identity: dict[str, Any], reason: str
+    ) -> dict[str, Any]:
+        """Persist one immutable independent acceptance decision for an exact execution."""
+        if not isinstance(actor, str) or not actor.strip() or not isinstance(reason, str) or not reason.strip():
+            raise RegistryIntegrityError("acceptance reviewer actor and reason are required")
+        identity_fields = ("issuer", "subject", "provider_key_id", "provider_adapter", "authenticated_at")
+        if not isinstance(identity, dict) or any(
+            not isinstance(identity.get(key), str) or not identity[key].strip()
+            for key in identity_fields
+        ):
+            raise RegistryIntegrityError("acceptance review requires trusted provider identity evidence")
+        authenticated_at = _aware_datetime(identity["authenticated_at"], "authenticated_at")
+        now = datetime.now(timezone.utc)
+        if authenticated_at > now or now - authenticated_at > timedelta(minutes=15):
+            raise RegistryIntegrityError("acceptance review requires recent authentication within 15 minutes")
+        with self._transaction() as connection:
+            self._require_benchmark_role(connection, actor, "benchmark_acceptance_reviewer")
+            reviewer = connection.execute(
+                "SELECT active, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                (actor,),
+            ).fetchone()
+            if reviewer is None or not reviewer["active"] or reviewer["principal_kind"] != "human":
+                raise RegistryIntegrityError("acceptance review requires an active human-classified reviewer")
+            protocol_row = connection.execute(
+                "SELECT * FROM benchmark_study_protocols WHERE study_id = ? AND study_version = ?",
+                (payload.get("study_id"), payload.get("study_version")),
+            ).fetchone()
+            execution_row = connection.execute(
+                "SELECT * FROM benchmark_study_executions WHERE execution_id = ?",
+                (payload.get("execution_id"),),
+            ).fetchone()
+            if protocol_row is None or execution_row is None:
+                raise RegistryIntegrityError("acceptance review must reference registered protocol and execution records")
+            protocol = json.loads(protocol_row["payload_json"])
+            execution = json.loads(execution_row["payload_json"])
+            if sha256_fingerprint(protocol) != protocol_row["protocol_fingerprint"]:
+                raise RegistryIntegrityError("registered study protocol fingerprint verification failed")
+            if sha256_fingerprint(execution) != execution_row["execution_fingerprint"]:
+                raise RegistryIntegrityError("registered study execution fingerprint verification failed")
+            if execution_row["protocol_record_id"] != protocol_row["protocol_record_id"]:
+                raise RegistryIntegrityError("execution is not bound to the referenced registered protocol version")
+            if actor != payload["reviewer_id"]:
+                raise RegistryIntegrityError("acceptance reviewer must match the authenticated principal")
+            if actor in {row["reviewer_id"] for row in protocol["reviewer_plan"]}:
+                raise RegistryIntegrityError("blind evaluator cannot act as independent acceptance reviewer")
+            if actor == execution_row["methodologist_id"]:
+                raise RegistryIntegrityError("methodologist cannot act as independent acceptance reviewer")
+            reviewed_at = _aware_datetime(payload["reviewed_at"], "reviewed_at")
+            execution_completed_at = _aware_datetime(execution["completed_at"], "execution.completed_at")
+            if reviewed_at > now:
+                raise RegistryIntegrityError("acceptance review timestamp cannot be in the future")
+            if reviewed_at < execution_completed_at:
+                raise RegistryIntegrityError("acceptance review cannot precede completed study execution")
+            try:
+                validate_benchmark_acceptance_review(payload, protocol=protocol, execution=execution)
+            except (TypeError, ValueError, BenchmarkAcceptanceReviewError) as exc:
+                raise RegistryIntegrityError(
+                    f"acceptance review does not satisfy the exact registered study evidence: {exc}"
+                ) from exc
+            artifact = connection.execute(
+                "SELECT content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+                (execution_row["benchmark_id"],),
+            ).fetchone()
+            if artifact is None or sha256_fingerprint(json.loads(artifact["content_json"])) != artifact["content_fingerprint"]:
+                raise RegistryIntegrityError("acceptance review benchmark artifact fingerprint verification failed")
+            if artifact["content_fingerprint"] != execution_row["benchmark_fingerprint"]:
+                raise RegistryIntegrityError("acceptance review benchmark fingerprint is stale")
+            created_at = _utc_now()
+            connection.execute(
+                """INSERT INTO benchmark_acceptance_reviews
+                (review_id, execution_id, protocol_record_id, study_id, study_version,
+                 protocol_fingerprint, execution_fingerprint, acceptance_fingerprint, benchmark_id,
+                 benchmark_fingerprint, rubric_version, reviewer_id, reviewer_role,
+                 decision, issuer, subject, provider_key_id, provider_adapter,
+                 authenticated_at, payload_json, created_at, actor, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (payload["review_id"], payload["execution_id"], protocol_row["protocol_record_id"],
+                 payload["study_id"], payload["study_version"], payload["protocol_fingerprint"],
+                 payload["execution_fingerprint"], sha256_fingerprint(payload), payload["benchmark_id"],
+                 payload["benchmark_fingerprint"], payload["rubric_version"], actor,
+                 payload["reviewer_role"], payload["decision"], identity["issuer"], identity["subject"],
+                 identity["provider_key_id"], identity["provider_adapter"], identity["authenticated_at"],
+                 _json_text(payload), created_at, actor, reason),
+            )
+            self._append_audit(
+                connection, event_type="benchmark_acceptance_review.registered",
+                entity_type="benchmark_acceptance_review", entity_id=payload["review_id"],
+                payload={"execution_id": payload["execution_id"], "study_id": payload["study_id"],
+                         "decision": payload["decision"], "reviewer_id": actor,
+                         "protocol_fingerprint": payload["protocol_fingerprint"],
+                         "execution_fingerprint": payload["execution_fingerprint"], "reason": reason},
+            )
+        return self.get_benchmark_acceptance_review(payload["review_id"]) or {}
+
+    def get_benchmark_acceptance_review(self, review_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_acceptance_reviews WHERE review_id = ?", (review_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload_json"])
+        return {
+            "review_id": row["review_id"], "execution_id": row["execution_id"],
+            "protocol_record_id": row["protocol_record_id"], "study_id": row["study_id"],
+            "study_version": row["study_version"], "protocol_fingerprint": row["protocol_fingerprint"],
+            "execution_fingerprint": row["execution_fingerprint"], "acceptance_fingerprint": row["acceptance_fingerprint"], "benchmark_id": row["benchmark_id"],
+            "benchmark_fingerprint": row["benchmark_fingerprint"], "rubric_version": row["rubric_version"],
+            "reviewer_id": row["reviewer_id"], "decision": row["decision"],
+            "issuer": row["issuer"], "subject": row["subject"], "provider_key_id": row["provider_key_id"],
+            "provider_adapter": row["provider_adapter"], "authenticated_at": row["authenticated_at"],
+            "review": payload, "created_at": row["created_at"], "actor": row["actor"],
+            "reason": row["reason"], "fingerprint_verified": (
+                sha256_fingerprint(payload) == row["acceptance_fingerprint"]
+            ),
+            "production_ready": False, "authorization_granted": False,
+        }
+
+    def list_benchmark_acceptance_reviews(
+        self, *, study_id: str | None = None, execution_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        clauses, values = [], []
+        if study_id is not None:
+            clauses.append("study_id = ?")
+            values.append(study_id)
+        if execution_id is not None:
+            clauses.append("execution_id = ?")
+            values.append(execution_id)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self._connection.execute(
+            "SELECT review_id FROM benchmark_acceptance_reviews" + where + " ORDER BY created_at, review_id",
+            values,
+        ).fetchall()
+        return [self.get_benchmark_acceptance_review(row["review_id"]) for row in rows]
+
+    def get_benchmark_score(self, score_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM benchmark_scores WHERE score_id = ?", (score_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "score_id": row["score_id"], "assignment_id": row["assignment_id"],
+            "artifact_id": row["artifact_id"], "artifact_fingerprint": row["artifact_fingerprint"],
+            "item_id": row["item_id"], "task_type": row["task_type"],
+            "language": row["language"], "evaluator_id": row["evaluator_id"],
+            "evaluated_at": row["evaluated_at"], "weighted_score": row["weighted_score"],
+            "eligible_for_comparison": bool(row["eligible_for_comparison"]),
+            "score_fingerprint": row["score_fingerprint"],
+            "score": json.loads(row["payload_json"]), "issuer": row["issuer"],
+            "subject": row["subject"], "provider_key_id": row["provider_key_id"],
+            "provider_adapter": row["provider_adapter"], "authenticated_at": row["authenticated_at"],
+            "created_at": row["created_at"], "reason": row["reason"],
+        }
+
+    def list_benchmark_scores(
+        self, *, artifact_id: str | None = None, item_id: str | None = None,
+        evaluator_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        clauses, values = [], []
+        for column, value in (("artifact_id", artifact_id), ("item_id", item_id),
+                              ("evaluator_id", evaluator_id)):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                values.append(value)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self._connection.execute(
+            "SELECT score_id FROM benchmark_scores" + where + " ORDER BY created_at, score_id",
+            values,
+        ).fetchall()
+        return [self.get_benchmark_score(row["score_id"]) for row in rows]
+
+
+    def benchmark_evaluator_agreement_report(
+        self, artifact_id: str, item_id: str
+    ) -> dict[str, Any]:
+        """Return descriptive agreement for durable score sheets on one exact item."""
+        artifact = self.get_benchmark_artifact(artifact_id)
+        if artifact is None:
+            raise RegistryIntegrityError(f"unknown benchmark artifact: {artifact_id}")
+        scores = self.list_benchmark_scores(artifact_id=artifact_id, item_id=item_id)
+        if not scores:
+            raise RegistryIntegrityError("no persisted score sheets exist for this benchmark item")
+        for stored in scores:
+            if stored["artifact_fingerprint"] != artifact["content_fingerprint"]:
+                raise RegistryIntegrityError("stored score does not match the registered artifact fingerprint")
+            principal = self.get_benchmark_principal(stored["evaluator_id"])
+            if principal is None or principal.get("principal_kind") != "human":
+                raise RegistryIntegrityError("agreement reports require human-classified evaluator principals")
+            if not stored["issuer"] or not stored["subject"] or not stored["provider_key_id"]:
+                raise RegistryIntegrityError("agreement report requires provider-attested evaluator provenance")
+        try:
+            return benchmark_evaluator_agreement([row["score"] for row in scores])
+        except BenchmarkAgreementError as exc:
+            raise RegistryIntegrityError(str(exc)) from exc
+
+    def benchmark_readiness_report(self, artifact_id: str) -> dict[str, Any]:
+        """Report evidence readiness without treating declared principal types as identity proof."""
+        with self._transaction("DEFERRED") as connection:
+            artifact_row = connection.execute(
+                "SELECT language, content_fingerprint, content_json FROM benchmark_artifacts WHERE artifact_id = ?",
+                (artifact_id,),
+            ).fetchone()
+            if artifact_row is None:
+                raise RegistryIntegrityError(f"unknown benchmark artifact: {artifact_id}")
+            artifact = {
+                "artifact_id": artifact_id,
+                "language": artifact_row["language"],
+                "content_fingerprint": artifact_row["content_fingerprint"],
+                "fingerprint_verified": sha256_fingerprint(json.loads(artifact_row["content_json"])) == artifact_row["content_fingerprint"],
+            }
+            rows = connection.execute(
+                "SELECT revision, payload_json FROM benchmark_reviews WHERE benchmark_id = ? ORDER BY review_id",
+                (artifact_id,),
+            ).fetchall()
+            reviews = [(json.loads(row["payload_json"]), row["revision"]) for row in rows]
+            principals = {}
+            for review, _review_revision in reviews:
+                reviewer_id = review.get("reviewer", {}).get("reviewer_id")
+                if reviewer_id and reviewer_id not in principals:
+                    row = connection.execute(
+                        "SELECT active, roles_json, languages_json, principal_kind FROM benchmark_principals WHERE principal_id = ?",
+                        (reviewer_id,),
+                    ).fetchone()
+                    principals[reviewer_id] = None if row is None else {
+                        "active": bool(row["active"]), "roles": json.loads(row["roles_json"]),
+                        "languages": json.loads(row["languages_json"]), "principal_kind": row["principal_kind"],
+                    }
+            eligible = []
+            review_checks = []
+            for review, review_revision in reviews:
+                reviewer_id = review.get("reviewer", {}).get("reviewer_id")
+                principal = principals.get(reviewer_id)
+                quality = self._benchmark_review_quality_report(review, connection)
+                principal_ok = bool(
+                    principal and principal["active"]
+                    and "benchmark_reviewer" in principal["roles"]
+                    and artifact["language"] in principal["languages"]
+                )
+                binding_ok = (
+                    review.get("benchmark_fingerprint") == artifact["content_fingerprint"]
+                    and review.get("language") == artifact["language"]
+                )
+                attestation_row = connection.execute(
+                    "SELECT principal_id, issuer, audience, subject, provider_key_id, provider_adapter, authenticated_at, expires_at, attested_at FROM benchmark_review_identity_attestations WHERE review_id = ? AND review_revision = ?",
+                    (review.get("review_id"), review_revision),
+                ).fetchone()
+                identity_attested = bool(
+                    attestation_row
+                    and attestation_row["principal_id"] == reviewer_id
+                    and attestation_row["subject"]
+                    and attestation_row["issuer"]
+                    and attestation_row["audience"]
+                    and attestation_row["provider_key_id"]
+                    and attestation_row["provider_adapter"]
+                    and _aware_datetime(attestation_row["attested_at"], "attested_at") < _aware_datetime(attestation_row["expires_at"], "expires_at")
+                )
+                current = bool(
+                    review.get("status") == "approved"
+                    and quality["eligible_for_current_use"]
+                    and principal_ok and binding_ok
+                )
+                if current:
+                    eligible.append((review, principal, identity_attested))
+                review_checks.append({
+                    "review_id": review.get("review_id"), "reviewer_id": reviewer_id,
+                    "status": review.get("status"), "principal_kind": principal["principal_kind"] if principal else "missing",
+                    "active_qualified_principal": principal_ok, "exact_artifact_binding": binding_ok,
+                    "current_review_policy_eligible": quality["eligible_for_current_use"],
+                    "identity_provider_attested": identity_attested,
+                    "eligible_approved_review": current,
+                })
+            distinct_reviewers = {review["reviewer"]["reviewer_id"] for review, _, _ in eligible}
+            kinds = {principal["principal_kind"] for _, principal, _ in eligible}
+            attested_reviewers = {review["reviewer"]["reviewer_id"] for review, principal, attested in eligible if principal["principal_kind"] == "human" and attested}
+            adjudication_rows = connection.execute(
+                "SELECT adjudication_id, payload_json FROM benchmark_adjudications WHERE benchmark_id = ?",
+                (artifact_id,),
+            ).fetchall()
+            blockers = []
+            if not artifact["fingerprint_verified"]:
+                blockers.append("Artifact fingerprint verification failed.")
+            if len(distinct_reviewers) < 2:
+                blockers.append("At least two distinct active, language-qualified reviewers with currently eligible approved reviews are required.")
+            if any(kind != "human" for kind in kinds):
+                blockers.append("Eligible reviews include synthetic, automated, or unverified principals.")
+            if len(attested_reviewers) < 2:
+                blockers.append("At least two eligible human reviews require immutable identity-provider attestations bound to their exact review revisions.")
+            if len(adjudication_rows) == 0:
+                blockers.append("No independent final adjudication is recorded.")
+            if len(adjudication_rows) > 1:
+                blockers.append("Conflicting final adjudications exist.")
+            # Provider attestations are only as trustworthy as the configured production adapter and its key-validation policy.
+            if not reviews and not eligible:
+                status = "human_review_pending"
+            elif eligible and kinds <= {"synthetic", "automation"}:
+                status = "synthetic_only"
+            elif len(distinct_reviewers) >= 2 and len(attested_reviewers) >= 2 and kinds == {"human"} and not adjudication_rows:
+                status = "ready_for_adjudication"
+            else:
+                status = "human_review_pending"
+            return {
+                "artifact": artifact, "status": status, "eligible_approved_review_count": len(eligible),
+                "distinct_eligible_reviewer_count": len(distinct_reviewers),
+                "reviewer_classifications": sorted(kinds), "reviews": review_checks,
+                "adjudication_count": len(adjudication_rows), "blockers": blockers,
+                "production_ready": False,
+                "warnings": [
+                    "principal_kind is an administrative classification; identity attestation depends on the configured provider adapter verifying issuer, audience, signature/key, session revocation, and subject-to-principal mapping.",
+                    "This report does not compare review content to determine whether reviewers disagree.",
+                    "Only the existing review, permission, and adjudication policy gates can authorize current use; this report grants no approval.",
+                ],
+            }
+
+    def benchmark_review_quality_report(self, review_id: str) -> dict[str, Any]:
+        """Return a read-only report of review eligibility and current permission state."""
+        with self._transaction("DEFERRED") as connection:
+            row = connection.execute(
+                "SELECT revision, payload_json FROM benchmark_reviews WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+            if row is None:
+                raise RegistryIntegrityError(f"unknown benchmark review: {review_id}")
+            report = self._benchmark_review_quality_report(
+                json.loads(row["payload_json"]), connection
+            )
+            report["revision"] = row["revision"]
+            return report
 
     def schema_version(self) -> int:
         with self._lock:

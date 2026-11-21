@@ -24,11 +24,16 @@ class ContractValidationError(ValueError):
 
 @lru_cache(maxsize=1)
 def _registry() -> Registry:
-    common_path = CONTRACTS_DIR / "common.schema.json"
-    common = json.loads(common_path.read_text(encoding="utf-8"))
-    return Registry().with_resource(
-        common["$id"], Resource.from_contents(common)
-    )
+    """Register every versioned contract so schemas can safely compose by $ref."""
+    registry = Registry()
+    for path in sorted(CONTRACTS_DIR.glob("*.schema.json")):
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        schema_id = schema.get("$id")
+        if schema_id:
+            registry = registry.with_resource(
+                schema_id, Resource.from_contents(schema)
+            )
+    return registry
 
 
 @lru_cache(maxsize=32)
