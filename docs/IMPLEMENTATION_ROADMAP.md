@@ -605,3 +605,5 @@ Tests cover retry creation and duplicate reuse, immutable input preservation, fo
 Pipeline-run records now optionally carry `attempt` and `retry_of`. The registry verifies that a retry parent exists and is failed, the new attempt immediately follows it, and all immutable execution inputs are preserved. Transitions cannot rewrite the lineage. Legacy attempt-one records without these fields remain compatible with idempotent reuse.
 
 GitHub Actions [run #44941362943](https://github.com/Amiroudro/new-sngso/actions/runs/44941362943) passed **893 tests in 9.84 seconds** on cad4c823976791f3d9801b1add21bb52e45bf716.
+
+Section 9's consolidated implementation and remaining acceptance gates are recorded in [docs/SECTION_9_ACCEPTANCE.md](SECTION_9_ACCEPTANCE.md). The section remains partial and is not accepted for production.
