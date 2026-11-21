@@ -158,3 +158,109 @@ def test_retry_policy_rejects_invalid_inputs(kwargs):
     with pytest.raises(OperationalReportError):
         classify_retry_policy(failure_code, **kwargs)
 
+
+def _idempotent_run_payload(started_at=None, *, config_hash=None, input_hash=None):
+    from datetime import datetime, timezone
+
+    return {
+        "schema_version": "1.0.0",
+        "status": "running",
+        "started_at": (started_at or datetime.now(timezone.utc)).isoformat(),
+        "software_version": "engine-test/1.0",
+        "config_hash": config_hash or "sha256:" + "a" * 64,
+        "input_hashes": [input_hash or "sha256:" + "b" * 64],
+        "initiated_by": "test-scheduler",
+    }
+
+
+def test_idempotent_pipeline_creation_reuses_existing_logical_run():
+    from datetime import datetime, timedelta, timezone
+    from sngso_engine.operations import create_pipeline_run_idempotently
+
+    now = datetime.now(timezone.utc)
+    with SQLiteRegistry() as registry:
+        first = create_pipeline_run_idempotently(
+            registry, _idempotent_run_payload(now), run_kind="daily-edition",
+            actor="test", reason="Start logical daily run.",
+        )
+        duplicate = create_pipeline_run_idempotently(
+            registry, _idempotent_run_payload(now + timedelta(minutes=1)),
+            run_kind="daily-edition", actor="test", reason="Duplicate submission.",
+        )
+        assert first["created"] is True
+        assert duplicate["created"] is False
+        assert duplicate["record"]["id"] == first["record"]["id"]
+        assert duplicate["record"]["started_at"] == now.isoformat()
+        assert len(registry.list_pipeline_runs(limit=10)) == 1
+
+
+def test_idempotency_key_changes_for_new_inputs_or_retry_attempt():
+    from sngso_engine.operations import create_pipeline_run_idempotently
+
+    with SQLiteRegistry() as registry:
+        first = create_pipeline_run_idempotently(
+            registry, _idempotent_run_payload(), run_kind="daily-edition",
+            actor="test", reason="First attempt.",
+        )
+        changed_input = create_pipeline_run_idempotently(
+            registry, _idempotent_run_payload(input_hash="sha256:" + "c" * 64),
+            run_kind="daily-edition", actor="test", reason="Changed input.",
+        )
+        retry = create_pipeline_run_idempotently(
+            registry, _idempotent_run_payload(), run_kind="daily-edition",
+            actor="test", reason="Explicit retry attempt.", attempt=2,
+        )
+        assert len({first["record"]["id"], changed_input["record"]["id"], retry["record"]["id"]}) == 3
+        assert len(registry.list_pipeline_runs(limit=10)) == 3
+
+
+def test_concurrent_duplicate_pipeline_submissions_converge_on_one_run(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from sngso_engine.operations import create_pipeline_run_idempotently
+
+    database = tmp_path / "idempotency.sqlite"
+    payload = _idempotent_run_payload()
+    with SQLiteRegistry(database) as left, SQLiteRegistry(database) as right:
+        barrier = Barrier(2)
+
+        def submit(registry):
+            barrier.wait(timeout=5)
+            return create_pipeline_run_idempotently(
+                registry, dict(payload), run_kind="daily-edition",
+                actor="test", reason="Concurrent duplicate submission.",
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(submit, (left, right)))
+        assert sum(result["created"] for result in results) == 1
+        assert len({result["record"]["id"] for result in results}) == 1
+        assert len(left.list_pipeline_runs(limit=10)) == 1
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"run_kind": ""},
+        {"input_hashes": None},
+        {"input_hashes": [{"not": "a hash"}]},
+        {"input_hashes": ["sha256:" + "a" * 64, "sha256:" + "a" * 64]},
+        {"config_hash": "not-a-hash"},
+        {"attempt": 0},
+    ],
+)
+def test_pipeline_idempotency_key_rejects_invalid_inputs(kwargs):
+    from sngso_engine.operations import pipeline_run_idempotency_key
+
+    arguments = {
+        "run_kind": "daily-edition",
+        "software_version": "engine-test/1.0",
+        "config_hash": "sha256:" + "a" * 64,
+        "input_hashes": ["sha256:" + "b" * 64],
+        "initiated_by": "test-scheduler",
+        "attempt": 1,
+    }
+    arguments.update(kwargs)
+    with pytest.raises(OperationalReportError):
+        pipeline_run_idempotency_key(**arguments)
+
