@@ -97,3 +97,26 @@ Tests cover empty-chain refusal, no-overwrite safety, successful verification af
 GitHub Actions [run #44939874419](https://github.com/Amiroudro/new-sngso/actions/runs/44939874419) passed **871 tests in 11.11 seconds** on commit `751352dc92c7bdb90f0f3b8d8866d362b3c34db2`.
 
 External checkpoint delivery, monitoring and alerting remain manual/unimplemented.
+
+## 9.8 Synchronous injected-stage pipeline runner
+
+Added `src/sngso_engine/orchestrator.py` with a narrow execution boundary:
+
+- Claims only a queued run, binding the exact JSON input-context fingerprint to the run's immutable input hashes.
+- Uses optimistic revision transition to claim the run; a second worker cannot claim or execute the same queued revision.
+- Executes explicitly injected stage handlers sequentially, passing copies of the initial input and prior successful outputs.
+- Records each stage's input/output fingerprints and succeeded/failed/blocked status in the terminal pipeline-run revision.
+- Stops at the first failure and marks later stages blocked.
+- Omits unexpected exception messages and raw stage outputs from durable run history and the returned execution result.
+- Classifies a known transient failure but does not retry it. No automatic retry can repeat an external side effect.
+- Adds no network transport, publisher connector, queue, scheduler, worker pool, lease, heartbeat, resume, approval, staging promotion, or publication action.
+
+A running record is deliberately not resumed because intermediate outputs are not checkpointed. If a process stops after an external side effect but before the final registry transition, the run remains running and requires operator reconciliation. Any future handler with external effects must implement durable idempotency and current permission checks itself.
+
+Tests cover ordered stage handoff, successful terminal history, fail-closed stage stopping, blocked later stages, permanent and transient failure classification without retry, exception-message non-disclosure, preflight rejection, no re-execution of terminal runs, and a two-connection worker claim race.
+
+GitHub Actions [run #44940389931](https://github.com/Amiroudro/new-sngso/actions/runs/44940389931) passed **881 tests in 10.71 seconds** on code commit `c56f745e39fe419d64176038d426d6654e2d5110`.
+
+### Updated Section 9 position
+
+The local/pre-production execution seam now exists, but Section 9 is not complete. Still required: durable stage checkpoints and crash reconciliation, worker leases/heartbeats, cancellation and supervision, real handler-level permission checks and idempotency, operational alerting, encrypted/off-site backups, retention, production-like restore drills, and external checkpoint delivery. No live source handler, scheduled collection, or publication is enabled.
