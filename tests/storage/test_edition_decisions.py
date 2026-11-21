@@ -30,7 +30,7 @@ def identity(*, principal_id: str = "approver:one", authenticated_at=None) -> Au
     )
 
 
-def prepare_candidate(registry: SQLiteRegistry, monkeypatch) -> str:
+def prepare_candidate(registry: SQLiteRegistry, monkeypatch, *, approver_roles=None) -> str:
     manifest_id = "edition-manifest:daily-2026-11-21"
     edition_id = "edition:daily-2026-11-21"
     payload_hash = "sha256:" + "a" * 64
@@ -52,7 +52,7 @@ def prepare_candidate(registry: SQLiteRegistry, monkeypatch) -> str:
     )
     registry.register_benchmark_principal(
         "approver:one", display_name="Independent approver",
-        roles=["edition_approver"], provisioned_by="bootstrap",
+        roles=approver_roles or ["edition_approver"], provisioned_by="bootstrap",
         principal_kind="human", reason="test approver",
     )
     registry.get_edition_artifact = lambda requested: {
@@ -358,12 +358,9 @@ def test_two_person_release_authorization_rejects_missing_rejected_or_same_perso
             )
 
     with SQLiteRegistry() as registry:
-        manifest_id = prepare_candidate(registry, monkeypatch)
-        registry.register_benchmark_principal(
-            "approver:one", display_name="Also release authorizer",
-            roles=["edition_approver", "edition_release_authorizer"],
-            provisioned_by="bootstrap", principal_kind="human",
-            reason="test dual-role principal",
+        manifest_id = prepare_candidate(
+            registry, monkeypatch,
+            approver_roles=["edition_approver", "edition_release_authorizer"],
         )
         registry.record_edition_decision(
             manifest_id, identity=identity(), decision="approve", reason="Approved candidate"
