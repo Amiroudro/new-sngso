@@ -94,7 +94,7 @@ print(decision)
 
 Only the explicitly recognized transient codes are eligible for bounded retry classification. Permission, identity, authentication, contract/schema, content-policy, unsupported-operation, inactive-source/endpoint and integrity failures are permanent. Unknown codes fail closed. The classifier does not execute a retry, wait, or schedule work.
 
-A deliberate retry is a new attempt. Do not edit a terminal pipeline-run record. Use the idempotent run-creation helper with an incremented attempt number only after the underlying failure has been understood and the inputs/permissions rechecked.
+A deliberate retry is a new attempt. Do not edit a terminal pipeline-run record. Use `create_pipeline_retry_run` only for a failed run with a known transient failure code, the exact prior attempt number, and explicit operator attestations that prior side effects were reconciled and permissions were rechecked. The helper creates a new queued run with the exact same immutable inputs; it does not execute it. The stage handler must recheck live permissions again at the point of use.
 
 ## 6. Duplicate submission protection
 
@@ -201,4 +201,27 @@ with SQLiteRegistry("data/registry.sqlite") as registry:
 ~~~
 
 Use only synthetic or otherwise authorized inputs. Do not connect a live publisher handler. The runner does not resume a running record, persist raw stage outputs, retry, supervise processes, or publish. If a process stops mid-run, preserve the record and reconcile any possible external side effects before creating a deliberate new attempt.
+
+### Deliberately create a retry attempt
+
+This is an operator decision, not an automatic retry. Review the failed run's stage results and investigate whether any external side effect may already have occurred. Confirm current permission status. The helper rejects permanent and unknown failure codes and verifies that the supplied previous attempt matches the failed run's deterministic identity.
+
+~~~python
+from sngso_engine import SQLiteRegistry, create_pipeline_retry_run
+
+with SQLiteRegistry("data/registry.sqlite") as registry:
+    retry = create_pipeline_retry_run(
+        registry,
+        failed_run_id="pipeline-run:...",
+        run_kind="daily-edition",
+        previous_attempt=1,
+        recovery_confirmed=True,
+        permissions_rechecked=True,
+        actor="authorized-local-operator",
+        reason="Reviewed prior stage outcomes and reconciled possible side effects.",
+    )
+    print(retry["record"]["id"], retry["record"]["status"])
+~~~
+
+The two boolean attestations are explicit operator assertions recorded with the retry creation reason. They are not cryptographic identity proof and do not replace fresh permission verification inside every handler. A retry is a new queued attempt, not a command to execute or publish.
 
