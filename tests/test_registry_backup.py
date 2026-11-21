@@ -86,3 +86,50 @@ def test_backup_rejects_active_transaction_and_does_not_create_partial_file(tmp_
             with pytest.raises(OperationalReportError, match="active registry transaction"):
                 backup_registry_database(registry, backup)
         assert not backup.exists()
+
+
+def test_external_audit_checkpoint_detects_truncation_and_allows_new_appends(tmp_path):
+    from sngso_engine.operations import (
+        verify_external_audit_checkpoint, write_external_audit_checkpoint,
+    )
+
+    database = tmp_path / "audit-source.sqlite"
+    checkpoint_path = tmp_path / "audit-checkpoint.json"
+    with SQLiteRegistry(database) as registry:
+        _add_run(registry)
+        written = write_external_audit_checkpoint(registry, checkpoint_path)
+        original_text = checkpoint_path.read_text(encoding="utf-8")
+        with pytest.raises(FileExistsError):
+            write_external_audit_checkpoint(registry, checkpoint_path)
+        assert checkpoint_path.read_text(encoding="utf-8") == original_text
+
+        _add_run(registry)
+        verified = verify_external_audit_checkpoint(registry, checkpoint_path)
+        assert verified["status"] == "verified"
+        assert verified["checkpoint_sequence"] == written["sequence"]
+        assert verified["trailing_events"] > 0
+
+        triggers = registry._connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='audit_events'"
+        ).fetchall()
+        for row in triggers:
+            registry._connection.execute(f'DROP TRIGGER "{row["name"]}"')
+        registry._connection.execute("DELETE FROM audit_events")
+
+        with pytest.raises(OperationalReportError, match="truncated"):
+            verify_external_audit_checkpoint(registry, checkpoint_path)
+
+
+def test_external_audit_checkpoint_refuses_empty_chain_and_invalid_file(tmp_path):
+    from sngso_engine.operations import (
+        verify_external_audit_checkpoint, write_external_audit_checkpoint,
+    )
+
+    checkpoint_path = tmp_path / "checkpoint.json"
+    with SQLiteRegistry() as registry:
+        with pytest.raises(OperationalReportError, match="empty audit chain"):
+            write_external_audit_checkpoint(registry, checkpoint_path)
+        checkpoint_path.write_text('{"schema_version":"wrong"}', encoding="utf-8")
+        with pytest.raises(OperationalReportError, match="shape is invalid"):
+            verify_external_audit_checkpoint(registry, checkpoint_path)
+
