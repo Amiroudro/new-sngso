@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from sngso_engine.canonical import sha256_fingerprint
+from sngso_engine.contracts import validate_payload
 from sngso_engine.flutter_compat import (
     FlutterCompatibilityError,
     build_flutter_staging_candidate,
@@ -385,6 +386,8 @@ def test_builder_creates_a_staging_only_bundle_from_explicit_approved_objects():
     assert result["client_edition"]["stories"][0]["headline"] == "Approved headline"
     assert result["client_edition"]["stories"][0]["summary"] == "Approved summary"
     assert result["provenance_manifest"]["story_bindings"][0]["snapshot_sha256"]
+    # Exercise the producer output directly against the shared public contract.
+    validate_payload("flutter-staging-provenance", result["provenance_manifest"])
 
 
 def test_builder_rejects_ambiguous_or_incomplete_field_selection():
