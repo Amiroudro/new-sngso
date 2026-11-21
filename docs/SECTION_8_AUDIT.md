@@ -149,3 +149,18 @@ Added SQLite migration 27 and a dedicated `edition_artifacts` store. It persists
 Tests cover schema migration 26→27, immutable storage/retrieval, duplicate insertion rejection, direct SQL update/delete guards, and the explicit re-verification requirement. GitHub Actions [run #44919212598](https://github.com/Amiroudro/new-sngso/actions/runs/44919212598) passed the full Python 3.12 suite: **792 passed in 10.19 seconds** on code head `4b0411595680910b29b4c18cfb002b6cc3650611`.
 
 **Limit:** this is durable staging-artifact retention, not an approval ledger or release system. No publication state transition, correction/supersession, last-known-good promotion, or live edition write is implemented.
+
+
+## Section 8.9: deterministic bilingual edition assembly
+
+Added `assemble_bilingual_edition_artifact` in `src/sngso_engine/edition_assembly.py`. The caller must explicitly select learning-object IDs for every story; the builder does not guess which drafts to include or generate/translate editorial text.
+
+For each selected record, assembly requires the exact current registry revision, approved status, a passing registry quality report, story ownership, and a valid language/kind. Every selected kind must have exactly one Bangla and one English object, and the existing independent bilingual reviewer gate is invoked for each pair. The canonical payload preserves each approved object's content and claim IDs, plus the exact story snapshot revision/fingerprint and active article/source metadata. The manifest binds all selected object revisions/fingerprints, story snapshots, pipeline run, edition revision, and caller-supplied republication permission bindings.
+
+The builder validates the manifest contract, canonical payload fingerprint, and successful pipeline output binding (including pipeline completion preceding manifest creation). It returns immutable artifact bytes and a staging result only. It does not change the edition record, write the artifact store, create an approval decision, grant permissions, or publish.
+
+Regression tests cover exact bilingual text/claim preservation, source and story provenance, incomplete language pairs, unapproved objects, stale learning-object history, incomplete story selection, missing active sources, and timezone-aware manifest timestamps. The tests use a focused registry fixture and isolate the existing independent-review and pipeline-binding helpers; those helpers retain their separate integration tests. A real end-to-end assembly against live human-reviewed records and live grants remains outstanding.
+
+GitHub Actions [run #44921515577](https://github.com/Amiroudro/new-sngso/actions/runs/44921515577) passed the full Python 3.12 suite: **799 passed in 5.51 seconds** on code head `6911dde2ced74f01df71c8075d922f436cb6ce70`.
+
+**Remaining Section 8 work:** approval/release decision ledger, guarded publication transitions, correction/supersession and last-known-good handling, controlled staging export, and end-to-end acceptance. Assembly is not publication authorization.
