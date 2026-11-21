@@ -195,3 +195,38 @@ def test_authenticated_facade_binds_edition_decision_to_provider_identity() -> N
                 {"session": "server-context"}, "edition-manifest:daily-2026-11-21",
                 decision="approve", reason="Identity substitution attempt",
             )
+
+
+def test_sqlite_insert_guard_binds_decision_to_exact_stored_artifact_and_role(monkeypatch) -> None:
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_candidate(registry, monkeypatch)
+        decided_at = datetime.now(timezone.utc).isoformat()
+        forged = {
+            "schema_version": "1.0.0",
+            "decision_id": "edition-decision:forged",
+            "manifest_id": manifest_id,
+            "edition_id": "edition:forged",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "b" * 64,
+            "decision": "approve",
+            "scope": "staging_candidate_review",
+            "principal_id": "approver:one",
+            "role": "edition_approver",
+            "decided_at": decided_at,
+            "reason": "forged direct insert",
+            "identity_attestation": {},
+            "publication_authorized": False,
+        }
+        with pytest.raises(sqlite3.IntegrityError, match="exact artifact and active human approver"):
+            registry._connection.execute(
+                """INSERT INTO edition_decisions
+                (decision_id, manifest_id, edition_id, edition_revision,
+                 payload_sha256, decision, principal_id, decided_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    forged["decision_id"], manifest_id, forged["edition_id"],
+                    forged["edition_revision"], forged["payload_sha256"],
+                    forged["decision"], forged["principal_id"], decided_at,
+                    json.dumps(forged),
+                ),
+            )
