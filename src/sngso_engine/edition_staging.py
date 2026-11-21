@@ -8,7 +8,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from .benchmark_access import AuthenticatedIdentity
-from .canonical import sha256_fingerprint\nfrom .contracts import validate_payload
+from .canonical import sha256_fingerprint
+from .contracts import validate_payload
 from .edition_export import StagingExportError, build_verified_staging_export
 from .registry import RegistryIntegrityError, _json_text
 
