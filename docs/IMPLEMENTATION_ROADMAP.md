@@ -567,3 +567,11 @@ Added a pure, fail-closed retry policy for a narrow set of known transient netwo
 GitHub Actions [run #44939277125](https://github.com/Amiroudro/new-sngso/actions/runs/44939277125) passed **859 tests in 11.54 seconds** on code commit 9dad74539a50cb6a548dd09932781013a71c4371.
 
 The next step is idempotency and orchestration design before implementing any retry loop. Runbooks, external audit anchoring, backup encryption/retention/off-site copies, and a production-like restore drill remain open.
+
+### Section 9.5: deterministic idempotent pipeline-run creation
+
+Added a stable run ID derived from run kind, software version, config hash, ordered input hashes, initiator and attempt number. Repeated or concurrent submissions for the same logical attempt reuse one durable run; changed inputs or a deliberate retry attempt create a distinct ID. The helper does not start workers or schedule work.
+
+GitHub Actions [run #44939558764](https://github.com/Amiroudro/new-sngso/actions/runs/44939558764) passed **869 tests in 6.65 seconds** on commit e2728fa5f3df0c97999398815862535fc1b3c826.
+
+The remaining Section 9 work is a genuine orchestrator/worker boundary, operational runbooks, external audit checkpoint storage, backup encryption/retention/off-site storage, production restore drills and monitoring/alert routing. No scheduled live pipeline is authorized.
