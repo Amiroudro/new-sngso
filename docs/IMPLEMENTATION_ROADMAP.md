@@ -440,3 +440,10 @@ Added a strict staging export contract and read-only in-memory builder. It requi
 The export is explicitly staging-only (`target: staging`) and non-publishing (`publication_authorized: false`). It does not write files, call a network destination, update the frontend, or alter a live edition. Integration with an actual staging consumer, runtime/golden tests, correction/supersession, rollback, and last-known-good handling remain open.
 
 GitHub Actions [run #44927518850](https://github.com/Amiroudro/new-sngso/actions/runs/44927518850) passed the full Python 3.12 suite: **818 passed in 11.06 seconds** on head `be21a13b05eeef8fa8ad3d2687b414a0964dc1cb`. This is repository CI evidence only.
+
+
+### Section 8.14: staging correction and rollback safety contract
+
+Documented the required staging-only promotion, correction, rollback, and last-known-good invariants in `docs/SECTION_8_14_STAGING_CORRECTION_ROLLBACK_DESIGN.md`. The design requires fresh re-verification, immutable correction artifacts, separate approval and release authorization, a distinct authenticated staging operator, append-only event history, atomic compare-and-swap pointer changes, and preservation of the previous known-good staging export. Rollback is a new event, never deletion or rewriting of history.
+
+**Design only at this checkpoint.** The migration, authenticated staging operator, atomic registry methods, and acceptance tests remain to be implemented. No staging channel is operational and no live publication is authorized.
