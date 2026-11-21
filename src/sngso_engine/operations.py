@@ -239,3 +239,92 @@ def restore_registry_backup(
         if source_connection is not None:
             source_connection.close()
 
+_TRANSIENT_FAILURE_CODES = frozenset({
+    "network_timeout",
+    "connection_reset",
+    "temporary_dns_failure",
+    "http_408",
+    "http_429",
+    "http_500",
+    "http_502",
+    "http_503",
+    "http_504",
+    "sqlite_busy",
+})
+_PERMANENT_FAILURE_CODES = frozenset({
+    "permission_denied",
+    "permission_expired",
+    "permission_revoked",
+    "identity_revoked",
+    "authentication_failed",
+    "contract_validation_failed",
+    "schema_invalid",
+    "unsupported_operation",
+    "source_inactive",
+    "endpoint_inactive",
+    "content_policy_blocked",
+    "integrity_violation",
+})
+
+
+def classify_retry_policy(
+    failure_code: str,
+    *,
+    attempt: int = 1,
+    max_attempts: int = 3,
+    base_delay_seconds: float = 2.0,
+    max_delay_seconds: float = 60.0,
+) -> dict[str, Any]:
+    """Return a deterministic bounded retry decision; never performs a retry.
+
+    Unknown failure codes fail closed. Permission, identity, contract, policy,
+    and integrity failures are permanent and must not be retried automatically.
+    """
+    import math
+
+    if not isinstance(failure_code, str) or not failure_code.strip():
+        raise OperationalReportError("failure_code is required")
+    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
+        raise OperationalReportError("attempt must be a positive integer")
+    if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 1:
+        raise OperationalReportError("max_attempts must be a positive integer")
+    if (
+        isinstance(base_delay_seconds, bool)
+        or not isinstance(base_delay_seconds, (int, float))
+        or not math.isfinite(base_delay_seconds)
+        or base_delay_seconds <= 0
+        or isinstance(max_delay_seconds, bool)
+        or not isinstance(max_delay_seconds, (int, float))
+        or not math.isfinite(max_delay_seconds)
+        or max_delay_seconds <= 0
+    ):
+        raise OperationalReportError("retry delays must be finite positive numbers")
+    if base_delay_seconds > max_delay_seconds:
+        raise OperationalReportError("base delay cannot exceed maximum delay")
+
+    code = failure_code.strip().lower()
+    if code in _TRANSIENT_FAILURE_CODES:
+        category = "transient"
+        retryable = attempt < max_attempts
+        reason = "transient_retry_allowed" if retryable else "attempt_limit_reached"
+    elif code in _PERMANENT_FAILURE_CODES:
+        category = "permanent"
+        retryable = False
+        reason = "permanent_failure_no_retry"
+    else:
+        category = "unknown"
+        retryable = False
+        reason = "unknown_failure_code_no_retry"
+
+    delay = 0.0
+    if retryable:
+        delay = min(float(base_delay_seconds) * (2 ** min(attempt - 1, 30)), float(max_delay_seconds))
+    return {
+        "failure_code": code,
+        "category": category,
+        "attempt": attempt,
+        "max_attempts": max_attempts,
+        "retryable": retryable,
+        "delay_seconds": delay,
+        "reason": reason,
+    }
