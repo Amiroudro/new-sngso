@@ -324,7 +324,17 @@ def test_explicit_retry_creates_new_queued_attempt_with_same_immutable_inputs():
         assert retried["record"]["input_hashes"] == created["record"]["input_hashes"]
         assert retried["record"]["config_hash"] == created["record"]["config_hash"]
         assert retried["record"]["initiated_by"] == created["record"]["initiated_by"]
+        assert retried["record"]["attempt"] == 2
+        assert retried["record"]["retry_of"] == created["record"]["id"]
         assert retried["retry_decision"]["retryable"] is True
+
+        from sngso_engine.registry import RegistryIntegrityError
+        changed_lineage = dict(retried["record"], status="running", attempt=3)
+        with pytest.raises(RegistryIntegrityError, match="identity and inputs are immutable"):
+            registry.transition_pipeline_run(
+                retried["record"]["id"], changed_lineage,
+                expected_revision=1, actor="test", reason="Try to rewrite retry lineage.",
+            )
 
 
 @pytest.mark.parametrize("failure_code", ["permission_revoked", "unknown_failure"])
