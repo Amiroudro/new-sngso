@@ -515,3 +515,76 @@ def verify_external_audit_checkpoint(registry: Any, checkpoint_path: str | Path)
         "event_hash": event_hash,
     }
 
+def create_pipeline_retry_run(
+    registry: Any,
+    failed_run_id: str,
+    *,
+    run_kind: str,
+    previous_attempt: int,
+    actor: str,
+    reason: str,
+    max_attempts: int = 3,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Create a new queued attempt only after an explicitly retryable failed run.
+
+    This is a deliberate operator action, not an automatic retry. It verifies
+    that the prior run ID matches its declared logical attempt and carries
+    forward the exact immutable inputs and configuration.
+    """
+    if not isinstance(failed_run_id, str) or not failed_run_id.strip():
+        raise OperationalReportError("failed_run_id is required")
+    if isinstance(previous_attempt, bool) or not isinstance(previous_attempt, int) or previous_attempt < 1:
+        raise OperationalReportError("previous_attempt must be a positive integer")
+    if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 1:
+        raise OperationalReportError("max_attempts must be a positive integer")
+    previous = registry.get_pipeline_run(failed_run_id)
+    if previous is None:
+        raise OperationalReportError("unknown pipeline run")
+    record = previous["record"]
+    if record["status"] != "failed":
+        raise OperationalReportError("only a failed pipeline run can be retried")
+    expected_previous_id = pipeline_run_idempotency_key(
+        run_kind=run_kind,
+        software_version=record["software_version"],
+        config_hash=record["config_hash"],
+        input_hashes=record["input_hashes"],
+        initiated_by=record["initiated_by"],
+        attempt=previous_attempt,
+    )
+    if expected_previous_id != failed_run_id:
+        raise OperationalReportError("previous attempt number does not match the failed run identity")
+    decision = classify_retry_policy(
+        record.get("failure_code", "unspecified"),
+        attempt=previous_attempt,
+        max_attempts=max_attempts,
+    )
+    if not decision["retryable"]:
+        raise OperationalReportError(f"failed run is not eligible for retry: {decision['reason']}")
+    started_at = now or datetime.now(timezone.utc)
+    if not isinstance(started_at, datetime) or started_at.tzinfo is None or started_at.utcoffset() is None:
+        raise OperationalReportError("retry start time must be timezone-aware")
+    payload = {
+        "schema_version": "1.0.0",
+        "status": "queued",
+        "started_at": started_at.astimezone(timezone.utc).isoformat(),
+        "software_version": record["software_version"],
+        "config_hash": record["config_hash"],
+        "input_hashes": list(record["input_hashes"]),
+        "initiated_by": record["initiated_by"],
+    }
+    created = create_pipeline_run_idempotently(
+        registry,
+        payload,
+        run_kind=run_kind,
+        actor=actor,
+        reason=reason,
+        attempt=previous_attempt + 1,
+    )
+    return {
+        **created,
+        "previous_run_id": failed_run_id,
+        "attempt": previous_attempt + 1,
+        "retry_decision": decision,
+    }
+
