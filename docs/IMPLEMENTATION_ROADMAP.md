@@ -456,3 +456,8 @@ Implemented SQLite migration 31, append-only staging events, guarded current/LKG
 GitHub Actions run [#44932795855](https://github.com/Amiroudro/new-sngso/actions/runs/44932795855) passed the full Python 3.12 suite: **824 passed in 9.62 seconds** on code/test head `11bb329f8a207914160ab6f335d2eedd2b5bcf9f`.
 
 The implementation is registry-level staging only. Genuine human review, current real publisher permissions, deployed identity/revocation, cross-process concurrency acceptance, backup/restore drills and a downstream staging consumer remain external acceptance gates. No live edition was published.
+
+
+### Section 8.15: end-to-end acceptance and operational readiness
+
+Added a gate-by-gate acceptance register in `docs/SECTION_8_15_END_TO_END_ACCEPTANCE.md`. The current PR head's full Python 3.12 suite passed: **824 passed in 11.04 seconds**, run [#44932902651](https://github.com/Amiroudro/new-sngso/actions/runs/44932902651). This verifies repository tests, not real-world acceptance. The Section 8.14 lifecycle tests use synthetic records and a mocked whole-edition verifier. Remaining engineering acceptance includes a separate-connection concurrency test, transaction-failure atomicity, rights/principal revocation at promotion time, and one integrated real-registry path through assembly, approval, release authorization, export, promotion and rollback. Genuine human review, publisher permissions, deployed identity/revocation, backup/restore and staging-consumer integration also remain open. Section 8 is therefore implementation-substantially-complete, not production-ready or operationally accepted. No live destination or frontend was changed.
