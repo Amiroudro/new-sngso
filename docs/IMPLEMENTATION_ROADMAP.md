@@ -461,3 +461,10 @@ The implementation is registry-level staging only. Genuine human review, current
 ### Section 8.15: end-to-end acceptance and operational readiness
 
 Added a gate-by-gate acceptance register in `docs/SECTION_8_15_END_TO_END_ACCEPTANCE.md`. The current PR head's full Python 3.12 suite passed: **824 passed in 11.04 seconds**, run [#44932902651](https://github.com/Amiroudro/new-sngso/actions/runs/44932902651). This verifies repository tests, not real-world acceptance. The Section 8.14 lifecycle tests use synthetic records and a mocked whole-edition verifier. Remaining engineering acceptance includes a separate-connection concurrency test, transaction-failure atomicity, rights/principal revocation at promotion time, and one integrated real-registry path through assembly, approval, release authorization, export, promotion and rollback. Genuine human review, publisher permissions, deployed identity/revocation, backup/restore and staging-consumer integration also remain open. Section 8 is therefore implementation-substantially-complete, not production-ready or operationally accepted. No live destination or frontend was changed.
+
+
+### Section 8.16: cross-connection staging safety verified
+
+Added a two-connection SQLite promotion race test, transaction-failure rollback test, and pre-promotion operator-revocation test. GitHub Actions run [#44937132497](https://github.com/Amiroudro/new-sngso/actions/runs/44937132497) passed the full Python 3.12 suite: **827 passed in 7.61 seconds** on commit `d85d661fe5d54e6c1988ccb49239eae3608bb515`.
+
+The repository-level concurrency, atomicity, and operator-revocation test gaps are now covered. The next Section 8 acceptance task is an integrated real-registry lifecycle test with no mocked whole-edition verifier. Genuine editorial/permission/identity evidence, production backup/restore, and staging-consumer runtime tests remain external gates. Section 8 is not production-ready or operationally accepted.
