@@ -599,3 +599,9 @@ The runner is synchronous and accepts only injected handlers. It has no network 
 Added an explicit operator-triggered retry helper. It verifies that the supplied prior attempt number matches the failed run's deterministic identity, requires a known transient failure within the attempt limit, preserves the exact configuration and ordered input hashes, and creates a distinct queued attempt. Permanent/unknown failures and exhausted attempts are rejected. The operator must attest that prior side effects have been reconciled and permissions rechecked; this is an audit-recorded assertion, not provider-authenticated proof or a replacement for fresh checks in each stage handler. The helper does not execute or automatically retry the run.
 
 Tests cover retry creation and duplicate reuse, immutable input preservation, forbidden failures, mismatched attempt identity, non-failed records, and missing attestations. GitHub Actions [run #44941002132](https://github.com/Amiroudro/new-sngso/actions/runs/44941002132) passed **888 tests in 12.34 seconds** on aed9cb26ef85334f330e3600f05c6c55eb8f218e.
+
+### Section 9.10: immutable retry lineage
+
+Pipeline-run records now optionally carry `attempt` and `retry_of`. The registry verifies that a retry parent exists and is failed, the new attempt immediately follows it, and all immutable execution inputs are preserved. Transitions cannot rewrite the lineage. Legacy attempt-one records without these fields remain compatible with idempotent reuse.
+
+GitHub Actions [run #44941362943](https://github.com/Amiroudro/new-sngso/actions/runs/44941362943) passed **893 tests in 9.84 seconds** on cad4c823976791f3d9801b1add21bb52e45bf716.
