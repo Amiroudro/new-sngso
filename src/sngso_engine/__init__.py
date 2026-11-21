@@ -1,5 +1,6 @@
-from .edition_assembly import AssembledBilingualEdition, EditionAssemblyError, assemble_bilingual_edition_artifact
 """Sarangsho Plus greenfield engine package."""
+
+from .edition_assembly import AssembledBilingualEdition, EditionAssemblyError, assemble_bilingual_edition_artifact
 
 __version__ = "0.1.0"
 
