@@ -71,6 +71,12 @@ from .models import (
     StoryRecord,
 )
 from .permissions import PermissionDecision, evaluate_permission
+from .orchestrator import (
+    PipelineExecutionError,
+    PipelineStage,
+    PipelineStageFailure,
+    execute_pipeline_run,
+)
 from .operations import (
     OperationalReportError,
     backup_registry_database,
@@ -141,6 +147,10 @@ __all__ = [
     "IngestionError",
     "IngestionRepository",
     "PipelineRunRepository",
+    "PipelineExecutionError",
+    "PipelineStage",
+    "PipelineStageFailure",
+    "execute_pipeline_run",
     "OperationalReportError",
     "build_operational_health_report",
     "classify_retry_policy",
