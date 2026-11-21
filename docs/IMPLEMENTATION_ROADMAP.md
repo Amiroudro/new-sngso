@@ -496,3 +496,15 @@ The integrated real-registry lifecycle test now also suspends the registered rep
 GitHub Actions run [#44938218038](https://github.com/Amiroudro/new-sngso/actions/runs/44938218038) passed the full Python 3.12 suite: **831 passed in 7.60 seconds** on code commit `86b6793ac55aac824326c2e584996b1e7013aad0`.
 
 This closes the repository-level rights-revocation-before-promotion regression gap for the tested SQLite path. The grant is synthetic test data, not a real publisher authorization.
+
+## Section 8 implementation closeout
+
+The repository-level engineering acceptance work for Section 8 is now complete for the Python engine boundary. The verified scope includes immutable bilingual artifact/manifest integrity, successful pipeline binding, registry-backed assembly and persistence, whole-edition rights and reviewer rechecks, append-only approval and separate release authorization, staging-only export, atomic promotion, last-known-good tracking, correction by new immutable artifacts, rollback, cross-connection compare-and-swap, transaction-failure rollback, and current operator/approver/permission revocation checks.
+
+The integrated real-SQLite test covers assembly → immutable persistence → approval → separate release authorization → export → promotion of two editions → rollback. It uses synthetic fixture data and test identities, but the production code paths for registry-backed verification and staging are exercised without mocking the whole-edition verifier. Nested transaction savepoints are separately tested.
+
+Final code verification: [run #44938218038](https://github.com/Amiroudro/new-sngso/actions/runs/44938218038), **831 passed in 7.60 seconds** on code commit `86b6793ac55aac824326c2e584996b1e7013aad0`. The latest documentation head also passed [run #44938291655](https://github.com/Amiroudro/new-sngso/actions/runs/44938291655), **831 passed in 8.44 seconds**.
+
+**Section 8 status:** implementation workstream complete at the Python repository boundary. This is not production acceptance. External gates remain: real publisher republication grants, genuine independent Bangla/English human reviews, deployed OIDC/JWKS/revocation and protected administrator bootstrap, operational backup/restore evidence, and a real downstream staging-consumer runtime/golden test. The Flutter app, website and published editions remain untouched. No live publication is authorized.
+
+**Next master-plan section:** Section 9, operations, observability and free-first automation. Section 10 remains end-to-end verification and controlled handover.
