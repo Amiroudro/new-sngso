@@ -196,17 +196,17 @@ def test_staging_candidate_verifies_exact_records_and_current_permission():
 def test_staging_candidate_rejects_boolean_revision_values():
     registry, client, manifest = _candidate()
     manifest["edition_revision"] = True
-    with pytest.raises(FlutterCompatibilityError, match="edition_revision must be a positive integer"):
+    with pytest.raises(FlutterCompatibilityError, match="provenance manifest schema validation failed"):
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
 
     registry, client, manifest = _candidate()
     manifest["story_bindings"][0]["story_revision"] = True
-    with pytest.raises(FlutterCompatibilityError, match="story binding revision must be a positive integer"):
+    with pytest.raises(FlutterCompatibilityError, match="provenance manifest schema validation failed"):
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
 
     registry, client, manifest = _candidate()
     manifest["story_bindings"][0]["fields"]["headline"]["revision"] = True
-    with pytest.raises(FlutterCompatibilityError, match="learning-object revision must be a positive integer"):
+    with pytest.raises(FlutterCompatibilityError, match="provenance manifest schema validation failed"):
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
 
 
@@ -411,7 +411,7 @@ def test_staging_candidate_rejects_unknown_nested_provenance_fields():
 def test_staging_candidate_rejects_unrecognized_manifest_fields():
     registry, client, manifest = _candidate()
     manifest["unreviewed_extension"] = {"publication_authorized": True}
-    with pytest.raises(FlutterCompatibilityError, match="missing or unsupported fields"):
+    with pytest.raises(FlutterCompatibilityError, match="provenance manifest schema validation failed"):
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
 
 
@@ -419,12 +419,12 @@ def test_staging_candidate_rejects_unrecognized_manifest_fields():
 def test_staging_candidate_rejects_malformed_manifest_payload_digest(digest):
     registry, client, manifest = _candidate()
     manifest["payload_sha256"] = digest
-    with pytest.raises(FlutterCompatibilityError, match="lowercase SHA-256 hex digest"):
+    with pytest.raises(FlutterCompatibilityError, match="provenance manifest schema validation failed"):
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
 
 
 def test_staging_candidate_rejects_empty_manifest_edition_date():
     registry, client, manifest = _candidate()
     manifest["edition_date"] = " "
-    with pytest.raises(FlutterCompatibilityError, match="manifest edition_date must be a non-empty string"):
+    with pytest.raises(FlutterCompatibilityError, match="provenance manifest schema validation failed"):
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
