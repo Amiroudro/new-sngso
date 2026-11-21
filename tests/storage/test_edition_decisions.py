@@ -674,3 +674,49 @@ def test_staging_event_history_is_append_only_and_state_cannot_be_deleted(monkey
             registry._connection.execute(
                 "DELETE FROM edition_staging_channel_state WHERE channel = 'staging'"
             )
+
+
+def test_staging_transaction_failure_rolls_back_event_and_channel_pointer(monkeypatch):
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_approved_staging_candidate(registry, monkeypatch, "2026-11-22-atomicity")
+        registry._connection.execute(
+            """CREATE TRIGGER test_fail_staging_pointer_update
+               BEFORE UPDATE ON edition_staging_channel_state
+               BEGIN SELECT RAISE(ABORT, 'injected pointer failure'); END"""
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="injected pointer failure"):
+            edition_staging.promote_edition_to_staging(
+                registry, manifest_id, identity=identity(principal_id="operator:one"),
+                reason="Exercise transaction rollback", expected_state_revision=0,
+                expected_current_export_id=None,
+            )
+        state = edition_staging.get_edition_staging_state(registry)
+        assert state["state_revision"] == 0
+        assert state["current_export_id"] is None
+        assert edition_staging.list_edition_staging_events(registry) == []
+        registry._connection.execute("DROP TRIGGER test_fail_staging_pointer_update")
+        promoted = edition_staging.promote_edition_to_staging(
+            registry, manifest_id, identity=identity(principal_id="operator:one"),
+            reason="Retry after injected failure is removed", expected_state_revision=0,
+            expected_current_export_id=None,
+        )
+        assert promoted["state"]["state_revision"] == 1
+        assert len(edition_staging.list_edition_staging_events(registry)) == 1
+
+
+def test_revoked_staging_operator_cannot_promote_and_state_is_unchanged(monkeypatch):
+    with SQLiteRegistry() as registry:
+        manifest_id = prepare_approved_staging_candidate(registry, monkeypatch, "2026-11-22-revocation")
+        registry.revoke_benchmark_principal(
+            "operator:one", actor="security", reason="staging operator access revoked before promotion"
+        )
+        with pytest.raises(RegistryIntegrityError, match="active human edition_staging_operator"):
+            edition_staging.promote_edition_to_staging(
+                registry, manifest_id, identity=identity(principal_id="operator:one"),
+                reason="Attempt with revoked operator", expected_state_revision=0,
+                expected_current_export_id=None,
+            )
+        state = edition_staging.get_edition_staging_state(registry)
+        assert state["state_revision"] == 0
+        assert state["current_export_id"] is None
+        assert edition_staging.list_edition_staging_events(registry) == []
