@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sngso_engine.benchmark_access import AuthenticatedIdentity
+from sngso_engine.benchmark_access import AuthenticatedBenchmarkAccess, AuthenticatedIdentity
 from sngso_engine.registry import RegistryIntegrityError, SQLiteRegistry
 from sngso_engine import registry as registry_module
 from sngso_engine import edition_artifacts
@@ -144,3 +144,54 @@ def test_schema_27_migrates_to_28_with_immutable_decision_ledger(tmp_path, monke
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 28)
     with SQLiteRegistry(database) as migrated:
         assert migrated.schema_version() == 28
+
+
+def test_authenticated_facade_binds_edition_decision_to_provider_identity() -> None:
+    with SQLiteRegistry() as registry:
+        registry.register_benchmark_principal(
+            "approver:one", display_name="Independent approver",
+            roles=["edition_approver"], provisioned_by="bootstrap",
+            principal_kind="human", reason="test approver",
+        )
+        now = datetime.now(timezone.utc)
+        supplied_identity = identity()
+        class Provider:
+            def authenticate(self, request_context):
+                assert request_context == {"session": "server-context"}
+                return supplied_identity
+
+        captured = {}
+        registry.record_edition_decision = lambda manifest_id, **kwargs: captured.update(
+            manifest_id=manifest_id, **kwargs
+        ) or {"decision": kwargs["decision"]}
+        access = AuthenticatedBenchmarkAccess(
+            registry, Provider(),
+            expected_issuer="https://identity.example",
+            expected_audience="sarangsho-editorial",
+            subject_to_principal=lambda issuer, subject: (
+                "approver:one" if (issuer, subject) == (
+                    "https://identity.example", "oidc-subject-123"
+                ) else None
+            ),
+            clock=lambda: now,
+        )
+        result = access.decide_edition(
+            {"session": "server-context"}, "edition-manifest:daily-2026-11-21",
+            decision="approve", reason="Independent staging review",
+        )
+        assert result == {"decision": "approve"}
+        assert captured["identity"] is supplied_identity
+        assert captured["manifest_id"] == "edition-manifest:daily-2026-11-21"
+
+        mismatched = AuthenticatedBenchmarkAccess(
+            registry, Provider(),
+            expected_issuer="https://identity.example",
+            expected_audience="sarangsho-editorial",
+            subject_to_principal=lambda issuer, subject: None,
+            clock=lambda: now,
+        )
+        with pytest.raises(RegistryIntegrityError, match="not bound"):
+            mismatched.decide_edition(
+                {"session": "server-context"}, "edition-manifest:daily-2026-11-21",
+                decision="approve", reason="Identity substitution attempt",
+            )
