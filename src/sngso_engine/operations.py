@@ -403,11 +403,19 @@ def create_pipeline_run_idempotently(
     supplied_id = payload.get("id")
     if supplied_id not in (None, expected_id):
         raise OperationalReportError("supplied pipeline run ID does not match its idempotency key")
-    candidate = dict(payload, id=expected_id)
+    supplied_attempt = payload.get("attempt", attempt)
+    if isinstance(supplied_attempt, bool) or not isinstance(supplied_attempt, int) or supplied_attempt != attempt:
+        raise OperationalReportError("payload attempt does not match its idempotency key")
+    retry_of = payload.get("retry_of")
+    if retry_of is not None and (
+        not isinstance(retry_of, str) or not retry_of.strip() or retry_of == expected_id
+    ):
+        raise OperationalReportError("retry_of must identify a different prior pipeline run")
+    candidate = dict(payload, id=expected_id, attempt=attempt)
 
     def reuse_existing(existing: dict[str, Any]) -> dict[str, Any]:
         record = existing["record"]
-        immutable = ("software_version", "config_hash", "input_hashes", "initiated_by")
+        immutable = ("software_version", "config_hash", "input_hashes", "initiated_by", "attempt", "retry_of")
         if any(record.get(field) != candidate.get(field) for field in immutable):
             raise OperationalReportError("idempotency key is bound to different immutable run inputs")
         return {"created": False, "revision": existing["revision"], "record": record}
@@ -580,6 +588,8 @@ def create_pipeline_retry_run(
         "config_hash": record["config_hash"],
         "input_hashes": list(record["input_hashes"]),
         "initiated_by": record["initiated_by"],
+        "attempt": previous_attempt + 1,
+        "retry_of": failed_run_id,
     }
     created = create_pipeline_run_idempotently(
         registry,
