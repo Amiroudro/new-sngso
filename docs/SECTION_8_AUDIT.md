@@ -73,3 +73,17 @@ The verifier:
 Regression tests cover successful verification, payload tampering, manifest tampering, each identity mismatch, boolean revisions, and stability of returned bytes after caller-owned input objects are mutated.
 
 **Boundary:** this is an in-memory integrity check, not a registry-backed assembler. It does not prove that story or learning-object references exist, that referenced revisions/fingerprints match registry history, that grants are current, or that the pipeline run succeeded. It writes no files and authorizes no publication.
+
+
+## Section 8.4: registry capability inspection and implementation dependency
+
+A focused inspection of the current registry APIs identified which provenance checks can be implemented directly and one blocking persistence gap:
+
+- **Story revisions:** `get_domain_record("story", id)` and `domain_record_history("story", id)` expose the current story record and immutable revision history. `story_editorial_snapshot(id)` returns a deterministic dossier and its recorded story revision/fingerprint.
+- **Learning-object revisions:** `get_learning_object(id)` and `learning_object_history(id)` expose the current record and immutable revisions. The selected manifest revision can therefore be resolved against history and its exact canonical payload fingerprint recomputed.
+- **Current source permission:** `get_source`, `get_endpoint`, `get_permission_grant`, and `evaluate_grant(grant_id, "republication", endpoint_id=..., now=...)` provide a fail-closed current grant check. Article URL coverage still needs to be checked against the registered endpoint boundary for every included article.
+- **Pipeline-run binding is not currently resolvable:** `_DOMAIN_MODELS` contains article, story, claim, evidence, and edition records, but no pipeline-run record. There is no `pipeline_runs` table or public pipeline-run lookup API in `SQLiteRegistry`. The edition and manifest contracts require a `pipeline_run_id`, but the registry cannot establish that it exists, belongs to the edition build, or finished with `status: succeeded`.
+
+**Decision:** do not implement or label a registry-backed edition verifier complete until pipeline-run persistence and lookup have a defined, immutable contract. The next code gate must add a versioned pipeline-run registry record and tests for missing, failed, running, mismatched, and succeeded runs. After that, the verifier can resolve exact story and learning-object history, recheck every current endpoint-scoped republication grant, and reject stale or incomplete provenance. The existing in-memory verifier remains only a payload/manifest integrity check.
+
+No registry records, live editions, files, or publication destinations were changed during this inspection.
