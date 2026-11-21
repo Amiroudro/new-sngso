@@ -120,3 +120,19 @@ GitHub Actions [run #44940389931](https://github.com/Amiroudro/new-sngso/actions
 ### Updated Section 9 position
 
 The local/pre-production execution seam now exists, but Section 9 is not complete. Still required: durable stage checkpoints and crash reconciliation, worker leases/heartbeats, cancellation and supervision, real handler-level permission checks and idempotency, operational alerting, encrypted/off-site backups, retention, production-like restore drills, and external checkpoint delivery. No live source handler, scheduled collection, or publication is enabled.
+
+## 9.9 Guarded deliberate retry-run creation
+
+Added `create_pipeline_retry_run` for an operator-approved new attempt after a failed run. It requires the previous attempt number to match the failed run's deterministic ID, preserves the exact configuration and ordered input hashes, and rejects permanent or unknown failure codes and exhausted attempt limits. The new record is queued and has a distinct deterministic ID.
+
+Before creation, the operator must explicitly attest that prior side effects have been reconciled and permissions have been rechecked. The attestation is recorded in the run-creation audit reason. It is not cryptographic identity proof and does not replace a fresh permission check inside every handler. The helper never executes the retry.
+
+Tests cover transient retry creation, duplicate request reuse, immutable input preservation, permanent/unknown failure rejection, attempt identity mismatch, non-failed run rejection, and missing safety attestations.
+
+GitHub Actions [run #44941002132](https://github.com/Amiroudro/new-sngso/actions/runs/44941002132) passed **888 tests in 12.34 seconds** on code commit `aed9cb26ef85334f330e3600f05c6c55eb8f218e`.
+
+### Updated Section 9 position after 9.9
+
+Implemented: operational health reporting, local verified backup/restore, bounded retry classification, deterministic idempotent run creation, external audit checkpoint export/verification, a local operations runbook, a synchronous injected-stage runner, and guarded deliberate retry-run creation.
+
+Still open: actual production identity/authorization, live source-specific handlers and permission verification, durable stage checkpoints and crash reconciliation, worker leases/heartbeats/supervision/cancellation, automated alert delivery, backup encryption/off-site storage/retention, production-like restore drills, external checkpoint delivery, and authorized scheduling. No live collection or publication is enabled.
