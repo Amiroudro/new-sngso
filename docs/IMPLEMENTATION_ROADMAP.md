@@ -415,3 +415,10 @@ An approval is **not publication authorization**. The decision contract explicit
 
 
 **Verification:** GitHub Actions run [#44926118184](https://github.com/Amiroudro/new-sngso/actions/runs/44926118184) passed the full Python 3.12 suite: **805 passed in 5.48 seconds** on head `231be4b7db18605a5ec48bb18a91c088720741ce`. The initial run had four stale schema-version assertions; these were corrected before the passing run. This is repository CI evidence only, not a production deployment or live publication test.
+
+
+### Section 8.11: generic publication bypass closed
+
+Closed the generic edition-write bypass identified in the Section 8.1 audit. The generic edition API now rejects `status: published`, and SQLite migration 29 adds direct-SQL guards against published-edition insertion, edition snapshot mutation, and deletion. Approved edition records remain staging candidates and are not live publications. The Section 8.10 approval ledger remains explicitly non-authorizing; a separate controlled release workflow is still required.
+
+GitHub Actions run [#44926616175](https://github.com/Amiroudro/new-sngso/actions/runs/44926616175) passed the full Python 3.12 suite: **809 passed in 10.05 seconds** on head `b7b48878f121c477481a245454f552965cacf71c`. This is repository test evidence, not a production release or deployment test.
