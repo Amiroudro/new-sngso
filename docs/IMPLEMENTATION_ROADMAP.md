@@ -431,3 +431,12 @@ Added an independent release-authorization role and immutable ledger. A differen
 This gate sets `release_authorized: true` only for a later controlled promotion stage. It explicitly leaves `publication_authorized: false` and performs no live destination writes or edition status changes. Actual promotion, rollback, correction/supersession, and last-known-good handling remain the next implementation work.
 
 GitHub Actions [run #44927171126](https://github.com/Amiroudro/new-sngso/actions/runs/44927171126) passed the full Python 3.12 suite: **815 passed in 7.03 seconds** on head `27624dcc98e394bf6d60f8533405c6be77e518dc`. This is repository CI evidence, not production deployment or a live publication test.
+
+
+### Section 8.13: verified staging-only export package
+
+Added a strict staging export contract and read-only in-memory builder. It requires the exact stored artifact, a prior independent editorial approval, a distinct release authorization, currently active human principals in both roles, and fresh whole-edition verification at export time. The package carries the canonical payload, provenance manifest, approval, and release authorization, with its own deterministic identifier and SHA-256 package fingerprint.
+
+The export is explicitly staging-only (`target: staging`) and non-publishing (`publication_authorized: false`). It does not write files, call a network destination, update the frontend, or alter a live edition. Integration with an actual staging consumer, runtime/golden tests, correction/supersession, rollback, and last-known-good handling remain open.
+
+GitHub Actions [run #44927518850](https://github.com/Amiroudro/new-sngso/actions/runs/44927518850) passed the full Python 3.12 suite: **818 passed in 11.06 seconds** on head `be21a13b05eeef8fa8ad3d2687b414a0964dc1cb`. This is repository CI evidence only.
