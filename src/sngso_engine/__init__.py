@@ -76,6 +76,8 @@ from .operations import (
     backup_registry_database,
     build_operational_health_report,
     classify_retry_policy,
+    create_pipeline_run_idempotently,
+    pipeline_run_idempotency_key,
     restore_registry_backup,
     verify_registry_backup,
 )
@@ -140,6 +142,8 @@ __all__ = [
     "OperationalReportError",
     "build_operational_health_report",
     "classify_retry_policy",
+    "create_pipeline_run_idempotently",
+    "pipeline_run_idempotency_key",
     "PermissionDecision",
     "PermissionFirstCollector",
     "PermissionEvidenceRecord",
