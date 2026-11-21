@@ -697,7 +697,7 @@ def test_story_decision_preview_is_read_only_and_has_stable_impact_fingerprint()
         assert first["evidence"][0]["evidence_id"] == "evidence:source-a"
         assert first["editions"] == [{
             "edition_id": "edition:preview-impact",
-            "status": "published",
+            "status": "approved",
             "content_hash": "sha256:" + "a" * 64,
             "affected_story_ids": ["story:shared-event"],
         }]
