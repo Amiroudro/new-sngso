@@ -3132,8 +3132,7 @@ class SQLiteRegistry:
                 payload["revoked_at"] = stamp
                 payload["revocation_reason"] = reason
             elif new_status == "suspended":
-                payload["notes"] = (payload.get("notes", "") + f"
-Suspended: {reason}").strip()
+                payload["notes"] = (payload.get("notes", "") + f"\nSuspended: {reason}").strip()
             validate_payload("source-permission-grant", payload)
             revision = row["revision"] + 1
             connection.execute(
