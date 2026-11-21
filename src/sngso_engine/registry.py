@@ -695,6 +695,18 @@ _MIGRATION_26 = (
         FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_runs(id) ON DELETE RESTRICT
     )""",
     "CREATE INDEX pipeline_runs_status_started ON pipeline_runs(status, started_at)",
+    """CREATE TRIGGER pipeline_run_payload_guard_insert
+       BEFORE INSERT ON pipeline_runs
+       WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
+         OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+         OR json_extract(NEW.payload_json, '$.started_at') IS NOT NEW.started_at
+       BEGIN SELECT RAISE(ABORT, 'pipeline run indexed fields must match payload'); END""",
+    """CREATE TRIGGER pipeline_run_payload_guard_update
+       BEFORE UPDATE ON pipeline_runs
+       WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
+         OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+         OR json_extract(NEW.payload_json, '$.started_at') IS NOT NEW.started_at
+       BEGIN SELECT RAISE(ABORT, 'pipeline run indexed fields must match payload'); END""",
     """CREATE TRIGGER pipeline_run_identity_guard
        BEFORE UPDATE ON pipeline_runs
        BEGIN
@@ -707,7 +719,14 @@ _MIGRATION_26 = (
          THEN RAISE(ABORT, 'pipeline run identity and inputs are immutable') END;
          SELECT CASE WHEN NEW.revision != OLD.revision + 1
            THEN RAISE(ABORT, 'pipeline run revision must increment by one') END;
+         SELECT CASE WHEN NOT (
+           (OLD.status = 'queued' AND NEW.status IN ('running', 'cancelled', 'rejected'))
+           OR (OLD.status = 'running' AND NEW.status IN ('succeeded', 'failed', 'cancelled'))
+         ) THEN RAISE(ABORT, 'invalid pipeline run status transition') END;
        END""",
+    """CREATE TRIGGER pipeline_runs_no_delete
+       BEFORE DELETE ON pipeline_runs
+       BEGIN SELECT RAISE(ABORT, 'pipeline run records cannot be deleted'); END""",
     """CREATE TRIGGER pipeline_run_revision_no_update
        BEFORE UPDATE ON pipeline_run_revisions
        BEGIN SELECT RAISE(ABORT, 'pipeline run revisions are append-only'); END""",
