@@ -58,3 +58,12 @@ The Section 7.43 staging builder already routes its generated provenance manifes
 The verifier checks permission endpoint use at the source/article level. Every included article URL must be covered by at least one registered, currently permitted endpoint for its source, and every permission binding must identify an endpoint that actually covers at least one included article. Extra valid-but-irrelevant endpoints are rejected. Exact source coverage, endpoint/grant source matching, and current grant evaluation remain mandatory.
 
 Regression coverage verifies the builder-produced manifest against the shared schema and rejects an otherwise registered republication endpoint whose path covers none of the included articles. This remains staging-only and does not establish real-world publisher authority, Flutter runtime compatibility, or publication authorization. GitHub Actions run [#44878923923](https://github.com/Amiroudro/new-sngso/actions/runs/44878923923) passed the full Python 3.12 suite: **750 passed in 8.85 seconds** on code head `02b6fccc395241d43b354b3ec791780b32ea4edc`.
+
+
+## Section 7.51: independently reviewed bilingual variant gate
+
+Added an engine-side verifier for a paired Bangla/English learning object. Both variants must be separately registered and approved, share a story, learning-object kind, non-empty variant group, and exact claim coverage, and independently pass their language-specific registry quality gates. Both language reviews must explicitly pass translation fidelity.
+
+Each reviewer must have a provider-attested identity bound to the approval record and an active registry principal classified as human, holding the benchmark-reviewer role, and qualified for the reviewed language. Independence is checked using the identity provider's exact issuer and subject pair, so two local principal IDs cannot disguise one provider identity.
+
+The verifier returns a staging-only result and always reports `publication_authorized: false`. It checks stored identity-attestation evidence; it does not independently validate provider signatures or prove that the reviewers were genuine, independent people. Real OIDC verification, actual human review, and operational signoff remain outstanding. Full-suite CI for this subsection is pending.
