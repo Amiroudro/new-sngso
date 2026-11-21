@@ -416,8 +416,10 @@ def create_pipeline_run_idempotently(
     def reuse_existing(existing: dict[str, Any]) -> dict[str, Any]:
         record = existing["record"]
         immutable = ("software_version", "config_hash", "input_hashes", "initiated_by", "attempt", "retry_of")
-        if any(record.get(field) != candidate.get(field) for field in immutable):
-            raise OperationalReportError("idempotency key is bound to different immutable run inputs")
+        for field in immutable:
+            stored_value = record.get(field, 1) if field == "attempt" else record.get(field)
+            if stored_value != candidate.get(field):
+                raise OperationalReportError("idempotency key is bound to different immutable run inputs")
         return {"created": False, "revision": existing["revision"], "record": record}
 
     existing = registry.get_pipeline_run(expected_id)
