@@ -349,6 +349,27 @@ def test_staging_candidate_rejects_unbound_coverage_metadata_and_wrong_weekday()
         verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
 
 
+def test_staging_candidate_rejects_unused_permission_endpoints():
+    registry, client, manifest = _candidate()
+    original_get_endpoint = registry.get_endpoint
+
+    def get_endpoint(endpoint_id):
+        if endpoint_id == "endpoint:unused":
+            return FakeRecord({
+                "id": endpoint_id, "source_id": "source:one",
+                "endpoint_uri": "https://publisher.example/unrelated/",
+            })
+        return original_get_endpoint(endpoint_id)
+
+    registry.get_endpoint = get_endpoint
+    manifest["source_permissions"].append({
+        "source_id": "source:one", "endpoint_id": "endpoint:unused",
+        "grant_id": "grant:republication", "operation": "republication",
+    })
+    with pytest.raises(FlutterCompatibilityError, match="unused source endpoints"):
+        verify_flutter_staging_candidate(registry, client, manifest, now=NOW)
+
+
 def test_staging_candidate_rejects_permission_grant_for_another_publisher():
     registry, client, manifest = _candidate()
     registry.grant_source_id = "source:other"
