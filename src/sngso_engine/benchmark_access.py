@@ -512,6 +512,31 @@ class AuthenticatedBenchmarkAccess:
             principal_id, actor=actor, reason=reason
         )
 
+
+    def decide_edition(
+        self, request_context: Any, manifest_id: str, *,
+        decision: str, reason: str
+    ) -> dict[str, Any]:
+        """Record a staging review decision from a recently authenticated human approver."""
+        identity = self._identity(request_context)
+        principal = self._registry.get_benchmark_principal(identity.principal_id)
+        if (
+            principal is None or not principal["active"]
+            or principal.get("principal_kind") != "human"
+            or "edition_approver" not in principal["roles"]
+        ):
+            raise RegistryIntegrityError("edition decision requires an active human-classified edition approver")
+        if self._clock() - identity.authenticated_at > timedelta(minutes=15):
+            raise RegistryIntegrityError("edition decision requires recent authentication within 15 minutes")
+        if (
+            not identity.authentication_methods or not identity.authentication_context.strip()
+            or not identity.provider_key_id.strip() or not identity.provider_adapter.strip()
+        ):
+            raise RegistryIntegrityError("edition approver requires provider-backed identity and authentication context")
+        return self._registry.record_edition_decision(
+            manifest_id, identity=identity, decision=decision, reason=reason
+        )
+
     def reviewer_assignment_queue(
         self, request_context: Any, *, status: str | None = None,
         language: str | None = None
