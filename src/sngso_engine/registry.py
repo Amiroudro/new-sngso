@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 28
+_SCHEMA_VERSION = 29
 
 
 _MIGRATION_14 = (
@@ -825,6 +825,23 @@ _MIGRATION_28 = (
     """CREATE TRIGGER edition_decisions_no_delete
        BEFORE DELETE ON edition_decisions
        BEGIN SELECT RAISE(ABORT, 'edition decisions are append-only'); END""",
+)
+
+
+_MIGRATION_29 = (
+    """CREATE TRIGGER edition_domain_records_no_published_insert
+       BEFORE INSERT ON domain_records
+       WHEN NEW.record_type = 'edition'
+         AND json_extract(NEW.payload_json, '$.status') = 'published'
+       BEGIN SELECT RAISE(ABORT, 'published editions require the controlled release workflow'); END""",
+    """CREATE TRIGGER edition_domain_records_no_update
+       BEFORE UPDATE ON domain_records
+       WHEN OLD.record_type = 'edition' OR NEW.record_type = 'edition'
+       BEGIN SELECT RAISE(ABORT, 'edition snapshots are immutable'); END""",
+    """CREATE TRIGGER edition_domain_records_no_delete
+       BEFORE DELETE ON domain_records
+       WHEN OLD.record_type = 'edition'
+       BEGIN SELECT RAISE(ABORT, 'edition snapshots are immutable'); END""",
 )
 
 class RegistryIntegrityError(ValueError):
@@ -2493,6 +2510,20 @@ class SQLiteRegistry:
                     version = 28
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 28 failed; transaction rolled back") from exc
+
+
+            if version == 28 and _SCHEMA_VERSION >= 29:
+                try:
+                    for statement in _MIGRATION_29:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (29, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 29")
+                    version = 29
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 29 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
@@ -4175,6 +4206,10 @@ class SQLiteRegistry:
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
             raise ValueError(f"unsupported domain record type: {record_type}")
+        if record_type == "edition" and payload.get("status") == "published":
+            raise RegistryIntegrityError(
+                "published editions require the controlled release workflow; generic insertion is blocked"
+            )
         validate_payload(record_type, payload)
         record = model.from_payload(payload)
         created_at = self._domain_record_timestamp(record_type, payload)
