@@ -56,3 +56,20 @@ The manifest contract binds:
 The schema rejects unknown fields at every level, malformed fingerprints, non-positive revisions, duplicate bindings, missing language variants, empty permission bindings, and any permission operation other than republication. The contract deliberately does not contain a `publication_authorized` boolean: a provenance manifest records what an artifact is bound to; it cannot grant publication authority.
 
 **Limit:** this is a structural provenance contract only. It does not yet retrieve registry records, prove that hashes match actual stored payloads, verify current grant validity, check pipeline-run success, or assemble an edition. Those are runtime gates for the next Section 8 work. No edition payload was written and nothing was published.
+
+
+## Section 8.3: canonical in-memory artifact integrity verifier
+
+Added `src/sngso_engine/edition_artifacts.py` with `verify_edition_artifact(payload, manifest)` and immutable `VerifiedEditionArtifact` byte output.
+
+The verifier:
+- Validates the strict manifest contract before using it.
+- Requires the payload's edition ID, revision, and edition key to match the manifest.
+- Rejects booleans masquerading as integer revisions.
+- Canonically serializes the payload and checks its SHA-256 fingerprint against the manifest.
+- Returns immutable payload and manifest bytes plus the verified identity and digest.
+- Rejects changed content and mismatched identity metadata.
+
+Regression tests cover successful verification, payload tampering, manifest tampering, each identity mismatch, boolean revisions, and stability of returned bytes after caller-owned input objects are mutated.
+
+**Boundary:** this is an in-memory integrity check, not a registry-backed assembler. It does not prove that story or learning-object references exist, that referenced revisions/fingerprints match registry history, that grants are current, or that the pipeline run succeeded. It writes no files and authorizes no publication.
