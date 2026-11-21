@@ -7,7 +7,13 @@ operator or a future health adapter.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
+import os
+import sqlite3
+import uuid
+
+from .canonical import sha256_fingerprint
 
 
 class OperationalReportError(ValueError):
@@ -102,3 +108,131 @@ def build_operational_health_report(
         },
         "warnings": warnings,
     }
+
+def verify_registry_backup(
+    backup_path: str | Path, *, expected_schema_version: int | None = None
+) -> dict[str, Any]:
+    """Verify SQLite integrity, schema version, and the retained audit chain read-only."""
+    path = Path(backup_path)
+    if not path.is_file():
+        raise OperationalReportError("backup file does not exist")
+    connection = None
+    try:
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+        integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+        schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if integrity != "ok":
+            raise OperationalReportError("SQLite backup integrity check failed")
+        if expected_schema_version is not None and schema_version != expected_schema_version:
+            raise OperationalReportError("backup schema version does not match the expected version")
+        rows = connection.execute(
+            """SELECT sequence, event_id, event_type, entity_type, entity_id,
+                      occurred_at, policy_version, payload_json, previous_hash, event_hash
+               FROM audit_events ORDER BY sequence"""
+        ).fetchall()
+        previous_hash = None
+        previous_sequence = 0
+        for row in rows:
+            if row[0] != previous_sequence + 1:
+                raise OperationalReportError("backup audit sequence is not contiguous")
+            payload = __import__("json").loads(row[7])
+            expected_hash = sha256_fingerprint({
+                "event_id": row[1], "event_type": row[2], "entity_type": row[3],
+                "entity_id": row[4], "occurred_at": row[5], "policy_version": row[6],
+                "payload": payload, "previous_hash": previous_hash,
+            })
+            if row[8] != previous_hash or row[9] != expected_hash:
+                raise OperationalReportError("backup audit chain verification failed")
+            previous_hash = row[9]
+            previous_sequence = row[0]
+        checkpoint = {"sequence": previous_sequence, "event_hash": previous_hash}
+        return {
+            "status": "verified",
+            "integrity_check": integrity,
+            "schema_version": schema_version,
+            "audit_chain_valid": True,
+            "audit_checkpoint": checkpoint,
+            "size_bytes": path.stat().st_size,
+        }
+    except sqlite3.Error as exc:
+        raise OperationalReportError(f"backup verification failed: {exc}") from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _install_database_copy(
+    source_connection: sqlite3.Connection,
+    destination_path: str | Path,
+    *,
+    expected_schema_version: int,
+) -> dict[str, Any]:
+    destination = Path(destination_path)
+    if destination.exists():
+        raise FileExistsError(f"destination already exists: {destination}")
+    if not destination.parent.is_dir():
+        raise FileNotFoundError("destination directory must already exist")
+    temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+    target_connection = None
+    try:
+        target_connection = sqlite3.connect(temporary)
+        source_connection.backup(target_connection)
+        target_connection.close()
+        target_connection = None
+        os.chmod(temporary, 0o600)
+        verification = verify_registry_backup(
+            temporary, expected_schema_version=expected_schema_version
+        )
+        # A same-directory hard link installs atomically and refuses to overwrite.
+        os.link(temporary, destination)
+        os.chmod(destination, 0o600)
+        return {
+            "destination": str(destination),
+            "status": "verified",
+            "schema_version": verification["schema_version"],
+            "size_bytes": verification["size_bytes"],
+            "audit_checkpoint": verification["audit_checkpoint"],
+            "audit_chain_valid": verification["audit_chain_valid"],
+        }
+    finally:
+        if target_connection is not None:
+            target_connection.close()
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def backup_registry_database(registry: Any, destination_path: str | Path) -> dict[str, Any]:
+    """Create a consistent, non-overwriting SQLite backup and verify it before install."""
+    if not hasattr(registry, "_connection") or not hasattr(registry, "_lock"):
+        raise OperationalReportError("backup requires a SQLiteRegistry-compatible adapter")
+    with registry._lock:
+        expected_schema_version = registry.schema_version()
+        return _install_database_copy(
+            registry._connection, destination_path,
+            expected_schema_version=expected_schema_version,
+        )
+
+
+def restore_registry_backup(
+    backup_path: str | Path, destination_path: str | Path
+) -> dict[str, Any]:
+    """Restore a verified backup to a new path; never overwrite an existing database."""
+    from .registry import _SCHEMA_VERSION
+
+    verify_registry_backup(backup_path, expected_schema_version=_SCHEMA_VERSION)
+    source = Path(backup_path)
+    source_connection = None
+    try:
+        source_connection = sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)
+        return _install_database_copy(
+            source_connection, destination_path,
+            expected_schema_version=_SCHEMA_VERSION,
+        )
+    except sqlite3.Error as exc:
+        raise OperationalReportError(f"backup restore failed: {exc}") from exc
+    finally:
+        if source_connection is not None:
+            source_connection.close()
+
