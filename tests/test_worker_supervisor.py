@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import shutil
 
 import pytest
 
@@ -10,6 +11,7 @@ from sngso_engine.worker_supervisor import (
     WorkerEntrypoint,
     WorkerSupervisor,
     WorkerSupervisorError,
+    WorkerResourceLimits,
 )
 
 
@@ -518,3 +520,56 @@ def test_supervisor_shutdown_is_idempotent_and_uses_one_bounded_budget():
     assert supervisor.shutting_down is True
     with pytest.raises(ValueError, match="between zero and 60"):
         supervisor.shutdown(timeout_seconds=61)
+
+
+
+def test_worker_resource_limits_validate_hard_bounds():
+    with pytest.raises(ValueError, match="cpu_seconds"):
+        WorkerResourceLimits(cpu_seconds=0)
+    with pytest.raises(ValueError, match="address_space_bytes"):
+        WorkerResourceLimits(address_space_bytes=1024)
+    with pytest.raises(ValueError, match="open_files"):
+        WorkerResourceLimits(open_files=8)
+    with pytest.raises(ValueError, match="cpu_seconds"):
+        WorkerResourceLimits(cpu_seconds=True)
+
+
+def test_configured_worker_resource_limits_are_applied_by_linux_kernel():
+    if not sys.platform.startswith("linux") or shutil.which("prlimit") is None:
+        pytest.skip("Linux prlimit(1) is required for kernel resource-limit integration test")
+    code = """import json
+limits = {}
+with open('/proc/self/limits', encoding='utf-8') as handle:
+    for line in handle:
+        if line.startswith('Max cpu time'):
+            limits['cpu'] = line.split()[4:6]
+        elif line.startswith('Max address space'):
+            limits['address_space'] = line.split()[3:5]
+        elif line.startswith('Max open files'):
+            limits['open_files'] = line.split()[4:6]
+print(json.dumps({'schema_version': '1', 'result': limits}))
+"""
+    entry = WorkerEntrypoint(
+        "limited_worker", (sys.executable, "-c", code),
+        resource_limits=WorkerResourceLimits(
+            cpu_seconds=7, address_space_bytes=536_870_912, open_files=64,
+        ),
+    )
+    result = WorkerSupervisor([entry]).run("limited_worker", _request())
+    assert result.status == "succeeded"
+    assert result.result["cpu"] == ["7", "7"]
+    assert result.result["address_space"] == ["536870912", "536870912"]
+    assert result.result["open_files"] == ["64", "64"]
+
+
+def test_resource_limited_worker_fails_closed_when_prlimit_is_unavailable(monkeypatch):
+    import sngso_engine.worker_supervisor as supervisor_module
+
+    monkeypatch.setattr(supervisor_module.sys, "platform", "linux")
+    monkeypatch.setattr(supervisor_module.shutil, "which", lambda name: None)
+    entry = WorkerEntrypoint(
+        "limited_worker", (sys.executable, "-c", "pass"),
+        resource_limits=WorkerResourceLimits(),
+    )
+    with pytest.raises(WorkerSupervisorError, match="prlimit"):
+        WorkerSupervisor([entry])
