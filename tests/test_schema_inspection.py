@@ -20,14 +20,14 @@ def test_inspection_reports_actual_migrated_schema_and_integrity(tmp_path):
     report = inspect_sqlite_schema(database)
 
     assert report["format"] == "sngso-sqlite-schema-inventory-v1"
-    assert report["schema_version"] == 33
+    assert report["schema_version"] == 34
     assert report["migration_history_valid"] is True
     assert [row["version"] for row in report["migration_history"]] == list(range(1, 34))
     assert report["integrity_check"] == ["ok"]
     assert report["foreign_key_violations"] == []
     assert report["audit_chain_valid"] is True
     assert report["healthy"] is True
-    assert report["object_counts"] == {"table": 47, "index": 25, "trigger": 131, "view": 0}
+    assert report["object_counts"] == {"table": 47, "index": 25, "trigger": 136, "view": 0}
     assert len(report["schema_sha256"]) == 64
     names = {item["name"] for item in report["objects"]}
     assert "pipeline_worker_leases" in names
