@@ -2658,10 +2658,12 @@ _MIGRATION_34 = (
     """CREATE TRIGGER benchmark_review_assignment_status_transition_guard
        BEFORE UPDATE ON benchmark_review_assignments
        BEGIN
-         SELECT CASE WHEN length(trim(NEW.last_actor)) = 0
+         SELECT CASE WHEN NEW.status IS NOT OLD.status AND (
+             length(trim(NEW.last_actor)) = 0
              OR length(trim(NEW.last_reason)) = 0
              OR json_extract(NEW.payload_json, '$.last_transition.actor') IS NOT NEW.last_actor
              OR json_extract(NEW.payload_json, '$.last_transition.reason') IS NOT NEW.last_reason
+           )
            THEN RAISE(ABORT, 'assignment transition receipt must match actor and reason') END;
          SELECT CASE WHEN NEW.status IS NOT OLD.status AND NOT (
              (OLD.status = 'assigned' AND NEW.status IN ('accepted', 'cancelled', 'expired'))
