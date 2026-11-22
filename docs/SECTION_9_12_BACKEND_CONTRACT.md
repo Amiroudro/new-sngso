@@ -9,7 +9,7 @@ backends without claiming that any backend has passed distributed-systems
 acceptance merely by implementing the Python methods.
 
 The current `WorkerLeaseStore` remains the only implementation and remains
-SQLite-backed. The protocol is an API contract, not an implementation or a
+SQLite-backed. Checkpoint recovery and managed heartbeat sessions now consume the protocol rather than inspecting the concrete store's SQLite registry attribute. The protocol is an API contract, not an implementation or a
 database abstraction for the rest of the registry.
 
 ## Required operations
