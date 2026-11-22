@@ -2503,10 +2503,7 @@ _MIGRATION_33 = (
              AND NEW.fencing_token = OLD.fencing_token + 1
              AND NEW.token_hash != OLD.token_hash
              AND NEW.acquired_at = NEW.heartbeat_at
-             AND NEW.expires_at > NEW.heartbeat_at
-             AND NEW.cancel_requested_at IS NULL
-             AND NEW.cancel_requested_by IS NULL
-             AND NEW.cancel_reason_code IS NULL)
+             AND NEW.expires_at > NEW.heartbeat_at)
          ) THEN RAISE(ABORT, 'invalid worker lease ownership or status transition') END;
          SELECT CASE WHEN OLD.cancel_requested_at IS NOT NULL
              AND (NEW.cancel_requested_at IS NOT OLD.cancel_requested_at
