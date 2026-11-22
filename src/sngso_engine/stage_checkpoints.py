@@ -267,6 +267,7 @@ def execute_checkpointed_stage(
     reconcile: Callable[[str, str | None], Reconciliation] | None = None,
     replay_safe: bool = False,
     reconstruct: Callable[[StageCheckpoint], Any] | None = None,
+    lease_guard: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Execute or reconcile one stage without blindly repeating an external effect.
 
@@ -281,6 +282,8 @@ def execute_checkpointed_stage(
         raise TypeError("reconcile must be callable when supplied")
     if reconstruct is not None and not callable(reconstruct):
         raise TypeError("reconstruct must be callable when supplied")
+    if lease_guard is not None and not callable(lease_guard):
+        raise TypeError("lease_guard must be callable when supplied")
     input_fingerprint = sha256_fingerprint(context)
     store = StageCheckpointStore(registry)
     checkpoint = store.begin(
@@ -357,6 +360,8 @@ def execute_checkpointed_stage(
         store.transition(checkpoint, "blocked", actor=actor, reason="permission_check_denied",
                          metadata={"failure_code": "permission_denied"})
         raise StageCheckpointError("permission check denied stage execution")
+    if lease_guard is not None:
+        lease_guard()
     try:
         output = handler(context, checkpoint.idempotency_key)
         output_fingerprint = sha256_fingerprint(output)
@@ -393,6 +398,8 @@ def execute_checkpointed_pipeline(
     actor: str,
     reason: str,
     now: datetime | None = None,
+    lease_store: Any | None = None,
+    lease: Any | None = None,
 ) -> dict[str, Any]:
     """Run ordered stages from durable checkpoints and complete the pipeline run.
 
@@ -401,6 +408,14 @@ def execute_checkpointed_pipeline(
     never marks the run successful or advances to a later stage.
     """
     actor, reason = _actor_reason(actor, reason)
+    if (lease_store is None) != (lease is None):
+        raise ValueError("lease_store and lease must be supplied together")
+    if lease_store is not None and (
+        not callable(getattr(lease_store, "assert_current", None))
+        or not callable(getattr(lease_store, "cancellation_requested", None))
+        or not callable(getattr(lease_store, "acknowledge_cancellation", None))
+    ):
+        raise TypeError("lease_store does not implement the worker lease contract")
     if not isinstance(input_context, dict):
         raise TypeError("input_context must be a JSON object")
     if not isinstance(stages, (list, tuple)) or not stages:
@@ -437,6 +452,12 @@ def execute_checkpointed_pipeline(
     stage_results: list[dict[str, Any]] = []
     checkpoint_store = StageCheckpointStore(registry)
     for ordinal, stage in enumerate(stage_list):
+        if lease_store is not None:
+            lease_store.assert_current(lease)
+            if lease_store.cancellation_requested(lease):
+                cancelled = lease_store.acknowledge_cancellation(lease, actor=actor)
+                return {"status": "cancelled", "pipeline_run_id": pipeline_run_id,
+                        "revision": cancelled["pipeline_revision"], "stage_results": stage_results}
         stage_context = {"input": deepcopy(input_context), "outputs": deepcopy(outputs)}
         input_hash = sha256_fingerprint(stage_context)
         try:
@@ -447,6 +468,7 @@ def execute_checkpointed_pipeline(
                 provider_namespace=stage.provider_namespace,
                 reconcile=stage.reconcile, replay_safe=stage.replay_safe,
                 reconstruct=stage.reconstruct,
+                lease_guard=(lambda: lease_store.assert_current(lease)) if lease_store is not None else None,
             )
         except StageCheckpointError:
             checkpoint = checkpoint_store.get(pipeline_run_id, ordinal)
@@ -493,6 +515,12 @@ def execute_checkpointed_pipeline(
             "output_hash": result["output_fingerprint"],
         })
 
+    if lease_store is not None:
+        lease_store.assert_current(lease)
+        if lease_store.cancellation_requested(lease):
+            cancelled = lease_store.acknowledge_cancellation(lease, actor=actor)
+            return {"status": "cancelled", "pipeline_run_id": pipeline_run_id,
+                    "revision": cancelled["pipeline_revision"], "stage_results": stage_results}
     latest = registry.get_pipeline_run(pipeline_run_id)
     if latest is None or latest["record"]["status"] != "running":
         raise StageCheckpointError("pipeline run changed before durable completion")
