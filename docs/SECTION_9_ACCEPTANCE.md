@@ -29,6 +29,7 @@ The latest verified full Python 3.12 suite for the current Section 9 code baseli
 
 - [Operational PostgreSQL migration architecture](SECTION_9_OPERATIONAL_POSTGRESQL_MIGRATION_DESIGN.md): transaction boundary, schema mapping, locking, audit serialization, migration, cutover, rollback, and CI acceptance design.
 - [PostgreSQL schema inventory](SECTION_9_POSTGRESQL_SCHEMA_INVENTORY.md): source-derived inventory of migrations 1–33, 47 tables, 25 indexes, and 131 triggers.
+- [Final acceptance and closure plan](SECTION_9_FINAL_ACCEPTANCE_AND_CLOSURE_PLAN.md): non-negotiable invariants, repository engineering gates, PostgreSQL implementation sequence, provider conformance, deployment controls, external editorial gates, CI matrix, and release safeguards.
 
 These are design and inventory artifacts only. They do not constitute a PostgreSQL implementation or multi-host acceptance.
 
@@ -37,7 +38,6 @@ These are design and inventory artifacts only. They do not constitute a PostgreS
 These are not implemented or accepted:
 
 - A PostgreSQL lease-only adapter is not sufficient for multi-host acceptance. The global audit chain is shared by operational and non-operational registry writes, so preserving its current semantics requires moving the complete registry to PostgreSQL in one transaction boundary, or explicitly redesigning and re-accepting the audit model. Until then, retain SQLite and its same-host coordination limit. See the [backend transaction-boundary decision](SECTION_9_12_BACKEND_CONTRACT.md) and [full PostgreSQL migration architecture](SECTION_9_OPERATIONAL_POSTGRESQL_MIGRATION_DESIGN.md).
-
 - Concrete provider-specific idempotency/reconciliation adapters and durable result reconstruction. The engine now supplies stable keys, persists provider operation references, and transports fencing generations through a typed provider contract. No production provider adapter has yet demonstrated atomic fencing, idempotency, or reconciliation.
 - Complete Section 9.13 acceptance: connect all child terminal outcomes to checkpoint reconciliation without replaying uncertain work; integrate the signal adapter with a service manager, wire the OIDC recovery authorizer to the deployment's trusted request-context factory and per-run RBAC policy, cgroup/container and aggregate resource limits, distributed lease durability/HA, and a real provider adapter that enforces fencing and idempotency atomically. The current subprocess primitive is POSIX-only and local; lease generations are coordination metadata, not proof that an expired process has stopped.
 - Authenticated service-worker identities and production permission adapters. The checkpoint runner requires a point-of-use permission callback, but trusted identity and real permission evidence remain external infrastructure.
