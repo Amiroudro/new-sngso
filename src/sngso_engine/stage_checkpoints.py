@@ -335,7 +335,11 @@ def execute_checkpointed_stage(
                 raise StageCheckpointError("provider denied reconciliation; stage blocked")
             # not_started is the only provider result that permits a side-effecting retry.
 
-    if not permission_check():
+    try:
+        permitted = permission_check() is True
+    except Exception:
+        permitted = False
+    if not permitted:
         store.transition(checkpoint, "blocked", actor=actor, reason="permission_check_denied",
                          metadata={"failure_code": "permission_denied"})
         raise StageCheckpointError("permission check denied stage execution")
@@ -398,6 +402,11 @@ def execute_checkpointed_pipeline(
             raise TypeError("every stage requires a handler and permission check")
         names.add(stage.name)
 
+    finished_at = now or datetime.now(timezone.utc)
+    if not isinstance(finished_at, datetime) or finished_at.tzinfo is None or finished_at.utcoffset() is None:
+        raise ValueError("completion time must be timezone-aware")
+    finished_at = finished_at.astimezone(timezone.utc)
+
     current = registry.get_pipeline_run(pipeline_run_id)
     if current is None or current["record"]["status"] != "running":
         raise StageCheckpointError("checkpointed pipeline requires an existing running pipeline run")
@@ -413,7 +422,7 @@ def execute_checkpointed_pipeline(
         try:
             result = execute_checkpointed_stage(
                 registry, pipeline_run_id, ordinal, stage.name, stage_context,
-                stage.handler, actor=actor, reason=f"{reason}_stage_{ordinal}",
+                stage.handler, actor=actor, reason=f"stage_{ordinal}_execution",
                 permission_check=stage.permission_check,
                 provider_namespace=stage.provider_namespace,
                 reconcile=stage.reconcile, replay_safe=stage.replay_safe,
@@ -422,6 +431,10 @@ def execute_checkpointed_pipeline(
         except StageCheckpointError:
             checkpoint = checkpoint_store.get(pipeline_run_id, ordinal)
             if checkpoint is None:
+                raise
+            if checkpoint.stage_name != stage.name or checkpoint.input_fingerprint != input_hash:
+                raise
+            if checkpoint.status == "succeeded":
                 raise
             stage_results.append({
                 "stage": stage.name, "status": checkpoint.status,
@@ -432,7 +445,7 @@ def execute_checkpointed_pipeline(
                 record = dict(latest["record"])
                 record.update(
                     status="failed",
-                    finished_at=(now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(),
+                    finished_at=finished_at.isoformat(),
                     failure_code="stage_failed",
                     failure_detail="A checkpointed stage failed or was blocked; details are held in its checkpoint.",
                     output_hashes=[],
@@ -463,10 +476,6 @@ def execute_checkpointed_pipeline(
     latest = registry.get_pipeline_run(pipeline_run_id)
     if latest is None or latest["record"]["status"] != "running":
         raise StageCheckpointError("pipeline run changed before durable completion")
-    finished_at = now or datetime.now(timezone.utc)
-    if finished_at.tzinfo is None or finished_at.utcoffset() is None:
-        raise ValueError("completion time must be timezone-aware")
-    finished_at = finished_at.astimezone(timezone.utc)
     started_at = datetime.fromisoformat(
         latest["record"]["started_at"].replace("Z", "+00:00")
     ).astimezone(timezone.utc)
