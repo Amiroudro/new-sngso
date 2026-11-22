@@ -1,6 +1,6 @@
 # Section 9.13 implementation note: bounded POSIX worker subprocesses
 
-Status: **local POSIX subprocess supervision and lease-aware process-control integration implemented; fresh full-suite CI and checkpoint/provider acceptance remain open.**
+Status: **local POSIX subprocess supervision, lease-aware process-control integration, provider reconciliation reference checks, and lease-loss crash-window coverage implemented; full-suite CI verified. Production provider and operational acceptance remain open.**
 
 ## Implemented API
 
@@ -42,7 +42,7 @@ No live worker is enabled by this module. No scheduler activation, collection, p
 
 ## Verification
 
-Previous full Python 3.12 regression suite: **965 passed in 18.39 seconds** in GitHub Actions [run #45028144497](https://github.com/Amiroudro/new-sngso/actions/runs/45028144497), code commit `b738669a77ce5faf1be8ac016608409a16c30d3d`. The provider-boundary fencing contract added after that run requires a fresh full-suite verification. This verifies local POSIX subprocess supervision, protected lease handoff, parent-side heartbeat/cancellation monitoring, checkpoint-handler adaptation, and stale-owner checkpoint protection. It does not verify provider fencing/idempotency, production process management, or non-POSIX behavior.
+Latest full Python 3.12 regression suite: **974 passed in 14.13 seconds** in GitHub Actions [run #45031050579](https://github.com/Amiroudro/new-sngso/actions/runs/45031050579), on exact PR head `94f1f236368b99e2db66250272cc7f80826457a2`. This run includes provider reconciliation reference-drift rejection, malformed-reference handling, and the remote-completion/lease-loss crash-window tests. It verifies local POSIX subprocess supervision and local contract behavior, not a concrete production provider or production process management.
 
 
 ## Pending-provider reconciliation handoff
