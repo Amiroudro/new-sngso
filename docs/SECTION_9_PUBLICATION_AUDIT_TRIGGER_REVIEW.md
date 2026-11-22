@@ -1,6 +1,6 @@
 # Section 9 Publication, Staging, and Audit Trigger Semantic Review
 
-Status: **source-level semantic review completed for the 22 edition/publication/staging triggers and 2 audit-event immutability triggers. PostgreSQL implementation remains outstanding.**
+Status: **source-level semantic review completed for the 17 edition/publication/staging triggers, 2 audit-event immutability triggers, and 8 story-decision/timeline-event triggers. PostgreSQL implementation remains outstanding.**
 
 This review is based on the migration SQL in `src/sngso_engine/registry.py`, the edition storage/decision tests, and the staging transaction tests. It is an engineering review of current SQLite enforcement, not proof that the same controls already exist in PostgreSQL.
 
@@ -70,7 +70,24 @@ The event guard contains the most complex publication invariant in this group. P
 
 The triggers protect rows from ordinary SQL mutation, but do not make the audit chain tamper-proof against a database owner who can drop triggers or rewrite the database file. The independent external checkpoint comparison is the control for detecting a truncated or replaced chain tip. PostgreSQL operations must retain external checkpoint custody and restricted DDL privileges.
 
-## 8. PostgreSQL translation hazards
+## 8. Story decisions and timeline events (8 triggers)
+
+| Trigger | Invariant | PostgreSQL mapping | Existing test evidence |
+|---|---|---|---|
+| `story_decisions_no_update` | Story merge/split decisions cannot be rewritten | BEFORE UPDATE trigger plus restricted role | `test_story_merge_decision_is_append_only_and_visible_in_each_story_history`; story split, scope, stale revision and completeness tests |
+| `story_decisions_no_delete` | Story decisions cannot be deleted | BEFORE DELETE trigger plus restricted role | Same append-only merge/split test |
+| `story_decision_applications_no_update` | Application ledger entries cannot be rewritten | BEFORE UPDATE trigger plus restricted role | `test_story_decision_application_ledger_is_unique_and_append_only` |
+| `story_decision_applications_no_delete` | Application ledger entries cannot be deleted | BEFORE DELETE trigger plus restricted role | Same application-ledger test |
+| `timeline_events_validate_insert` | Event must reference an active registered story; claim list must be non-empty and every claim must belong to that story | BEFORE INSERT trigger with FK/relational validation; normalize claim membership into a join table where useful | Timeline event and story evidence/provenance tests; direct SQLite boundary validation |
+| `timeline_events_review_validate_insert` | Approved/rejected event requires reviewer, timestamp and note; unreviewed/review-required event cannot carry review metadata; review timestamp cannot predate event | BEFORE INSERT trigger with typed timestamp checks and explicit status constraint | `tests/test_timeline_event_review.py` covers required/missing/unreviewed/pre-dating metadata |
+| `timeline_events_no_update` | Timeline events are immutable after insertion | BEFORE UPDATE trigger plus restricted role | Event review and append-only story evidence tests |
+| `timeline_events_no_delete` | Timeline events cannot be deleted | BEFORE DELETE trigger plus restricted role | Direct-SQL negative test should be explicit for delete denial |
+
+**Translation hazard:** the timeline validator currently compares JSON claim IDs against the claim records and verifies story ownership at insertion. PostgreSQL must preserve array element type validation, duplicate claim behavior, empty/missing arrays, and same-story ownership. Decide explicitly whether duplicates are rejected by a normalized uniqueness constraint or retained with current semantics. Do not silently change behavior during porting.
+
+Story decisions are append-only, but their application ledger also has a uniqueness/idempotency contract. The PostgreSQL migration must ensure a retry cannot apply one decision twice and that a partial merge/split application cannot leave only some affected story histories updated.
+
+## 9. PostgreSQL translation hazards
 
 1. **Null-safe comparison:** SQLite `IS` / `IS NOT` checks must become PostgreSQL `IS NOT DISTINCT FROM` / `IS DISTINCT FROM` where nullable fields are involved.
 2. **JSON types:** SQLite `json_extract`, `json_type`, `json_each`, and `json_array_length` are not textually interchangeable with PostgreSQL JSONB operators and functions. Test missing keys, explicit JSON null, wrong scalar types, arrays, and numeric/boolean values.
@@ -80,7 +97,7 @@ The triggers protect rows from ordinary SQL mutation, but do not make the audit 
 6. **Privileges:** immutability must survive direct SQL from the production application role. Application conventions and ORM hooks are insufficient.
 7. **Audit anchor:** a local hash chain cannot prove that its tail was not removed. The externally held sequence/hash checkpoint must remain outside the registry's administrative trust boundary.
 
-## 9. Remaining acceptance work
+## 10. Remaining acceptance work
 
 - Add direct-SQL negative tests for each protected table's UPDATE and DELETE path under the normal SQLite application connection.
 - Add direct-SQL negative tests for every JSON/indexed-column mismatch, including wrong JSON scalar types and missing keys.
@@ -90,6 +107,6 @@ The triggers protect rows from ordinary SQL mutation, but do not make the audit 
 - Test crash/failure between staging event insertion and state-pointer update; the transaction must roll back both.
 - Test audit checkpoint mismatch after database restore, truncation, and point-in-time recovery.
 
-## 10. Review boundary
+## 11. Review boundary
 
-The 24-trigger source-level review in this document and the operational trigger review together cover 47 of the 131 SQLite triggers. This is not a claim that all 47 have dedicated direct-SQL negative tests, nor that PostgreSQL equivalence has been implemented. The other 84 triggers remain to be reviewed. Section 9 P0 and production acceptance remain open.
+The 27-trigger source-level review in this document and the 23-trigger operational review together cover 50 of the 131 SQLite triggers. This is not a claim that all 50 have dedicated direct-SQL negative tests, nor that PostgreSQL equivalence has been implemented. The other 81 triggers remain to be reviewed. Section 9 P0 and production acceptance remain open.
