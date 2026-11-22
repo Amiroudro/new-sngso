@@ -542,11 +542,11 @@ limits = {}
 with open('/proc/self/limits', encoding='utf-8') as handle:
     for line in handle:
         if line.startswith('Max cpu time'):
-            limits['cpu'] = line.split()[4:6]
+            limits['cpu'] = line.split()[3:5]
         elif line.startswith('Max address space'):
             limits['address_space'] = line.split()[3:5]
         elif line.startswith('Max open files'):
-            limits['open_files'] = line.split()[4:6]
+            limits['open_files'] = line.split()[3:5]
 print(json.dumps({'schema_version': '1', 'result': limits}))
 """
     entry = WorkerEntrypoint(
