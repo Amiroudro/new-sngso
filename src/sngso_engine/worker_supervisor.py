@@ -18,6 +18,9 @@ from typing import Any, Mapping, Sequence
 
 from jsonschema import Draft202012Validator
 
+from .worker_control import create_worker_control_channel
+from .worker_leases import WorkerLeaseSession
+
 
 class WorkerSupervisorError(RuntimeError):
     """Base error for invalid supervisor configuration or requests."""
@@ -57,8 +60,10 @@ class WorkerEntrypoint:
                 raise ValueError("worker request and result schemas must be JSON Schema objects")
             Draft202012Validator.check_schema(schema)
         if self.environment is not None:
-            if not isinstance(self.environment, Mapping) or len(self.environment) > 32:
+            if not isinstance(self.environment, Mapping) or len(self.environment) > 30:
                 raise ValueError("entrypoint environment must be a bounded mapping")
+            if {"SNGSO_WORKER_CONTROL_FD", "SNGSO_WORKER_CANCEL_FD"}.intersection(self.environment):
+                raise ValueError("entrypoint environment cannot override reserved worker control descriptors")
             for key, value in self.environment.items():
                 if (not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", key)
                         or not isinstance(value, str) or "\x00" in value or len(value) > 4096):
@@ -188,8 +193,18 @@ class WorkerSupervisor:
         except ProcessLookupError:
             pass
 
-    def run(self, entrypoint: str, request: Mapping[str, Any]) -> WorkerProcessResult:
-        """Run a registered worker. Request data is JSON on stdin, never argv."""
+    def run(
+        self, entrypoint: str, request: Mapping[str, Any], *,
+        lease_session: WorkerLeaseSession | None = None,
+    ) -> WorkerProcessResult:
+        """Run a registered worker, optionally bound to a live durable lease session.
+
+        The lease token is handed to the child only through an inherited private
+        descriptor. Durable cancellation is signalled over a separate pipe. The
+        child must return cancellation_acknowledged=true in its validated result
+        to be classified as cooperatively cancelled. This method never
+        acknowledges cancellation in the registry on the child's behalf.
+        """
         if not isinstance(entrypoint, str) or entrypoint not in self._entrypoints:
             raise WorkerSupervisorError("worker entrypoint is not registered")
         config = self._entrypoints[entrypoint]
@@ -198,17 +213,34 @@ class WorkerSupervisor:
         except Exception as exc:
             raise ValueError("worker request does not match its registered schema") from exc
         payload = _bounded_json(request, self.max_request_bytes)
+        if lease_session is not None:
+            if not isinstance(lease_session, WorkerLeaseSession):
+                raise TypeError("lease_session must be a started WorkerLeaseSession")
+            lease_session.assert_healthy()
+            if lease_session.check_cancellation():
+                raise WorkerSupervisorError("a durable cancellation is already pending; refusing child launch")
         started = time.monotonic()
-        process = subprocess.Popen(
-            config.argv,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=False,
-            close_fds=True,
-            start_new_session=True,
-            env=dict(config.environment or {}),
-        )
+        channel = create_worker_control_channel(lease_session.lease) if lease_session else None
+        process: subprocess.Popen[bytes] | None = None
+        try:
+            environment = dict(config.environment or {})
+            pass_fds: tuple[int, ...] = ()
+            if channel is not None:
+                control_fd, cancel_fd = channel.child_fds
+                environment["SNGSO_WORKER_CONTROL_FD"] = str(control_fd)
+                environment["SNGSO_WORKER_CANCEL_FD"] = str(cancel_fd)
+                pass_fds = (control_fd, cancel_fd)
+            process = subprocess.Popen(
+                config.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, shell=False, close_fds=True,
+                pass_fds=pass_fds, start_new_session=True, env=environment,
+            )
+            if channel is not None:
+                channel.close_child_handles()
+        except Exception:
+            if channel is not None:
+                channel.close()
+            raise
         assert process.stdin is not None and process.stdout is not None and process.stderr is not None
         stdout = _BoundedDrain(process.stdout, self.max_stdout_bytes)
         stderr = _BoundedDrain(process.stderr, self.max_stderr_bytes)
@@ -218,31 +250,77 @@ class WorkerSupervisor:
         writer.start()
         termination = "none"
         status = "failed"
+        cancellation_sent = False
+        cancellation_deadline: float | None = None
+        deadline = started + self.timeout_seconds
         try:
-            process.wait(timeout=self.timeout_seconds)
-        except subprocess.TimeoutExpired:
-            status = "timeout"
-            termination = "sigterm"
-            self._terminate_group(process, hard=False)
-            try:
-                process.wait(timeout=self.termination_grace_seconds)
-            except subprocess.TimeoutExpired:
-                termination = "sigkill"
-                self._terminate_group(process, hard=True)
+            while process.poll() is None:
+                now = time.monotonic()
+                if lease_session is not None:
+                    if lease_session.heartbeat_error is not None:
+                        status = "lease_lost"
+                        termination = "sigterm"
+                        self._terminate_group(process, hard=False)
+                        try:
+                            process.wait(timeout=self.termination_grace_seconds)
+                        except subprocess.TimeoutExpired:
+                            termination = "sigkill"
+                            self._terminate_group(process, hard=True)
+                            try:
+                                process.wait(timeout=max(1.0, self.termination_grace_seconds))
+                            except subprocess.TimeoutExpired:
+                                termination = "kill_unconfirmed"
+                        break
+                    if not cancellation_sent and lease_session.check_cancellation():
+                        if channel is None:
+                            status = "lease_lost"
+                            termination = "control_channel_unavailable"
+                            self._terminate_group(process, hard=True)
+                            break
+                        channel.request_cancellation()
+                        cancellation_sent = True
+                        cancellation_deadline = now + self.termination_grace_seconds
+                    if (cancellation_sent and cancellation_deadline is not None
+                            and now >= cancellation_deadline):
+                        status = "cancelled_unacknowledged"
+                        termination = "sigterm"
+                        self._terminate_group(process, hard=False)
+                        try:
+                            process.wait(timeout=self.termination_grace_seconds)
+                        except subprocess.TimeoutExpired:
+                            termination = "sigkill"
+                            self._terminate_group(process, hard=True)
+                            try:
+                                process.wait(timeout=max(1.0, self.termination_grace_seconds))
+                            except subprocess.TimeoutExpired:
+                                termination = "kill_unconfirmed"
+                        break
+                if now >= deadline:
+                    status = "timeout"
+                    termination = "sigterm"
+                    self._terminate_group(process, hard=False)
+                    try:
+                        process.wait(timeout=self.termination_grace_seconds)
+                    except subprocess.TimeoutExpired:
+                        termination = "sigkill"
+                        self._terminate_group(process, hard=True)
+                        try:
+                            process.wait(timeout=max(1.0, self.termination_grace_seconds))
+                        except subprocess.TimeoutExpired:
+                            termination = "kill_unconfirmed"
+                    break
                 try:
-                    process.wait(timeout=max(1.0, self.termination_grace_seconds))
+                    process.wait(timeout=min(0.05, max(0.001, deadline - now)))
                 except subprocess.TimeoutExpired:
-                    # OS process state is outside Python's control; report the failure.
-                    termination = "kill_unconfirmed"
-        if process.poll() is not None:
-            status = "succeeded" if status != "timeout" and process.returncode == 0 else status
-        if writer.error is not None and status == "succeeded":
-            status = "protocol_error"
+                    continue
+            if process.poll() is not None and status == "failed":
+                status = "succeeded" if process.returncode == 0 else "failed"
+        finally:
+            if channel is not None:
+                channel.close()
         writer.join(timeout=1.0)
         stdout.join(timeout=1.0)
         stderr.join(timeout=1.0)
-        # A surviving drain thread means a descendant retained a pipe. Terminate
-        # the process group and fail closed rather than waiting without a bound.
         if stdout.is_alive() or stderr.is_alive() or writer.is_alive():
             self._terminate_group(process, hard=True)
             writer.join(timeout=1.0)
@@ -251,9 +329,9 @@ class WorkerSupervisor:
             status = "failed"
             termination = "pipe_cleanup_unconfirmed"
         result: Mapping[str, Any] | None = None
-        if status == "succeeded":
+        if status in {"succeeded", "cancelled_unacknowledged"}:
             if stdout.truncated or not stdout.data:
-                status = "protocol_error"
+                status = "protocol_error" if status == "succeeded" else "cancelled_unacknowledged"
             else:
                 try:
                     decoded = json.loads(bytes(stdout.data).decode("utf-8"))
@@ -261,17 +339,24 @@ class WorkerSupervisor:
                             or decoded.get("schema_version") != "1"
                             or not isinstance(decoded.get("result"), dict)):
                         raise ValueError
-                    Draft202012Validator(config.result_schema).validate(decoded["result"])
-                    result = decoded["result"]
+                    candidate = dict(decoded["result"])
+                    acknowledgement = candidate.pop("cancellation_acknowledged", False)
+                    if not isinstance(acknowledgement, bool):
+                        raise ValueError
+                    validated = dict(candidate)
+                    if "cancellation_acknowledged" in decoded["result"]:
+                        validated["cancellation_acknowledged"] = acknowledgement
+                    Draft202012Validator(config.result_schema).validate(validated)
+                    if cancellation_sent:
+                        status = "cancelled" if acknowledgement else "cancelled_unacknowledged"
+                    elif acknowledgement:
+                        raise ValueError
+                    result = candidate
                 except Exception:
-                    status = "protocol_error"
+                    status = "protocol_error" if status == "succeeded" else "cancelled_unacknowledged"
         return WorkerProcessResult(
-            entrypoint=entrypoint,
-            status=status,
-            exit_code=process.poll(),
-            result=result,
-            duration_seconds=max(0.0, time.monotonic() - started),
-            stdout_truncated=stdout.truncated,
-            stderr_truncated=stderr.truncated,
+            entrypoint=entrypoint, status=status, exit_code=process.poll(),
+            result=result, duration_seconds=max(0.0, time.monotonic() - started),
+            stdout_truncated=stdout.truncated, stderr_truncated=stderr.truncated,
             termination=termination,
         )
