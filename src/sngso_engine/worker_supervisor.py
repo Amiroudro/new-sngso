@@ -22,6 +22,7 @@ from jsonschema import Draft202012Validator
 
 from .worker_control import create_worker_control_channel
 from .worker_leases import LeaseLostError, WorkerLeaseSession
+from .worker_observability import WorkerTelemetry
 
 
 class WorkerSupervisorError(RuntimeError):
@@ -312,6 +313,7 @@ class WorkerSupervisor:
         max_request_bytes: int = 32_768,
         max_stdout_bytes: int = 65_536,
         max_stderr_bytes: int = 8_192,
+        telemetry: WorkerTelemetry | None = None,
     ) -> None:
         if os.name != "posix":
             raise WorkerSupervisorError("this supervisor implementation currently requires POSIX process groups")
@@ -348,6 +350,12 @@ class WorkerSupervisor:
         self.max_request_bytes = max_request_bytes
         self.max_stdout_bytes = max_stdout_bytes
         self.max_stderr_bytes = max_stderr_bytes
+        if telemetry is not None:
+            if not isinstance(telemetry, WorkerTelemetry):
+                raise TypeError("telemetry must be a WorkerTelemetry instance")
+            if any(not telemetry.accepts_entrypoint(name) for name in mapping):
+                raise ValueError("telemetry allow-list must include every registered entrypoint")
+        self.telemetry = telemetry
         self._state_lock = threading.RLock()
         self._shutdown_event = threading.Event()
         self._active_processes: dict[int, subprocess.Popen[bytes]] = {}
@@ -624,12 +632,15 @@ class WorkerSupervisor:
                     result = candidate
                 except Exception:
                     status = "protocol_error" if status == "succeeded" else "cancelled_unacknowledged"
-        return WorkerProcessResult(
+        process_result = WorkerProcessResult(
             entrypoint=entrypoint, status=status, exit_code=process.poll(),
             result=result, duration_seconds=max(0.0, time.monotonic() - started),
             stdout_truncated=stdout.truncated, stderr_truncated=stderr.truncated,
             termination=termination,
         )
+        if self.telemetry is not None:
+            self.telemetry.record_result(process_result)
+        return process_result
 
 
 class WorkerProcessExecutionError(WorkerSupervisorError):
