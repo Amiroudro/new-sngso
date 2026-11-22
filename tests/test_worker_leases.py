@@ -15,6 +15,7 @@ from sngso_engine import (
     SQLiteRegistry,
     WorkerLeaseError,
     WorkerLeaseStore,
+    WorkerLeaseSession,
     execute_checkpointed_pipeline,
     sha256_fingerprint,
 )
@@ -341,6 +342,61 @@ def test_two_workers_cannot_acquire_same_unexpired_lease_concurrently(tmp_path):
         results = list(pool.map(attempt, ["worker_one", "worker_two"]))
     assert sorted(results).count("conflict") == 1
     assert sum(value != "conflict" for value in results) == 1
+
+
+def test_worker_lease_session_maintains_heartbeat_and_releases_on_exit():
+    import time
+
+    with SQLiteRegistry() as registry:
+        _running(registry)
+        store = WorkerLeaseStore(registry)
+        lease = store.acquire(
+            "pipeline-run:lease-test", "worker_one", actor="scheduler",
+            reason="initial_claim", ttl_seconds=10,
+        )
+        with WorkerLeaseSession(
+            store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
+        ) as session:
+            time.sleep(0.22)
+            session.assert_healthy()
+            assert session.lease.revision >= 3
+        assert store.history("pipeline-run:lease-test")[-1]["status"] == "released"
+
+
+def test_worker_lease_session_propagates_cooperative_cancellation():
+    import time
+
+    with SQLiteRegistry() as registry:
+        _running(registry)
+        store = WorkerLeaseStore(registry)
+        lease = store.acquire(
+            "pipeline-run:lease-test", "worker_one", actor="scheduler",
+            reason="initial_claim", ttl_seconds=10,
+        )
+        store.request_cancellation(
+            "pipeline-run:lease-test", actor="operator",
+            reason_code="operator_requested",
+        )
+        with WorkerLeaseSession(
+            store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
+        ) as session:
+            time.sleep(0.12)
+            assert session.check_cancellation() is True
+            assert session.cancellation_event.is_set()
+
+
+def test_worker_lease_session_rejects_unsafe_heartbeat_interval():
+    with SQLiteRegistry() as registry:
+        _running(registry)
+        store = WorkerLeaseStore(registry)
+        lease = store.acquire(
+            "pipeline-run:lease-test", "worker_one", actor="scheduler",
+            reason="initial_claim", ttl_seconds=10,
+        )
+        with pytest.raises(ValueError, match="less than half"):
+            WorkerLeaseSession(
+                store, lease, heartbeat_interval_seconds=5, ttl_seconds=10,
+            )
 
 
 def test_worker_lease_schema_migrates_from_v32(tmp_path, monkeypatch):
