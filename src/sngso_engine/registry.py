@@ -4323,20 +4323,17 @@ class SQLiteRegistry:
                     validate_payload("article", refreshed)
                     next_revision = existing_article["revision"] + 1
                     refreshed_json = _json_text(refreshed)
+                    revision_at = _utc_now()
                     connection.execute(
                         """UPDATE domain_records
-                        SET revision = ?, updated_at = ?, payload_json = ?
+                        SET revision = ?, updated_at = ?, payload_json = ?,
+                            last_actor = ?, last_reason = ?, last_revision_at = ?
                         WHERE record_type = 'article' AND id = ? AND revision = ?""",
                         (
                             next_revision, article_payload["updated_at"], refreshed_json,
+                            "ingestion", "metadata refreshed from newer observation", revision_at,
                             article_id, existing_article["revision"],
                         ),
-                    )
-                    connection.execute(
-                        """INSERT INTO domain_record_revisions
-                        (record_type, record_id, revision, created_at, actor, reason, payload_json)
-                        VALUES ('article', ?, ?, ?, 'ingestion', 'metadata refreshed from newer observation', ?)""",
-                        (article_id, next_revision, _utc_now(), refreshed_json),
                     )
                     self._append_audit(
                         connection,
@@ -4357,17 +4354,20 @@ class SQLiteRegistry:
                 self._validate_domain_references(connection, "article", article_payload)
                 article_json = _json_text(article_payload)
                 created_at = article_payload["discovered_at"]
+                revision_at = _utc_now()
                 connection.execute(
                     """INSERT INTO domain_records
-                    (record_type, id, revision, created_at, updated_at, payload_json)
-                    VALUES ('article', ?, 1, ?, ?, ?)""",
-                    (article_payload["id"], created_at, _utc_now(), article_json),
+                    (record_type, id, revision, created_at, updated_at, payload_json,
+                     last_actor, last_reason, last_revision_at)
+                    VALUES ('article', ?, 1, ?, ?, ?, 'ingestion',
+                            'article ingested from observation', ?)""",
+                    (article_payload["id"], created_at, revision_at, article_json, revision_at),
                 )
                 connection.execute(
                     """INSERT INTO domain_record_revisions
                     (record_type, record_id, revision, created_at, actor, reason, payload_json)
                     VALUES ('article', ?, 1, ?, 'ingestion', 'article ingested from observation', ?)""",
-                    (article_payload["id"], _utc_now(), article_json),
+                    (article_payload["id"], revision_at, article_json),
                 )
                 article_id = article_payload["id"]
                 outcome = "created"
@@ -5052,13 +5052,15 @@ class SQLiteRegistry:
         record = model.from_payload(payload)
         created_at = self._domain_record_timestamp(record_type, payload)
         updated_at = _utc_now()
+        revision_at = _utc_now()
         with self._transaction() as connection:
             self._validate_domain_references(connection, record_type, payload)
             connection.execute(
                 """INSERT INTO domain_records
-                (record_type, id, revision, created_at, updated_at, payload_json)
-                VALUES (?, ?, 1, ?, ?, ?)""",
-                (record_type, record.id, created_at, updated_at, record.payload_json),
+                (record_type, id, revision, created_at, updated_at, payload_json,
+                 last_actor, last_reason, last_revision_at)
+                VALUES (?, ?, 1, ?, ?, ?, 'system', 'record created', ?)""",
+                (record_type, record.id, created_at, updated_at, record.payload_json, revision_at),
             )
             connection.execute(
                 """INSERT INTO domain_record_revisions
@@ -5067,7 +5069,7 @@ class SQLiteRegistry:
                 (
                     record_type,
                     record.id,
-                    _utc_now(),
+                    revision_at,
                     "system",
                     "record created",
                     record.payload_json,
@@ -5564,18 +5566,15 @@ class SQLiteRegistry:
                 next_revision = old_revision + 1
                 encoded = _json_text(payload)
                 updated = connection.execute(
-                    """UPDATE domain_records SET revision = ?, updated_at = ?, payload_json = ?
+                    """UPDATE domain_records
+                    SET revision = ?, updated_at = ?, payload_json = ?,
+                        last_actor = ?, last_reason = ?, last_revision_at = ?
                     WHERE record_type = 'story' AND id = ? AND revision = ?""",
-                    (next_revision, now, encoded, story_id, old_revision),
+                    (next_revision, now, encoded, actor.strip(), rationale.strip(), now,
+                     story_id, old_revision),
                 )
                 if updated.rowcount != 1:
                     raise RegistryIntegrityError(f"story revision conflict: {story_id}")
-                connection.execute(
-                    """INSERT INTO domain_record_revisions
-                    (record_type, record_id, revision, created_at, actor, reason, payload_json)
-                    VALUES ('story', ?, ?, ?, ?, ?, ?)""",
-                    (story_id, next_revision, now, actor.strip(), rationale.strip(), encoded),
-                )
                 changed_story_payloads[story_id] = payload
                 story_changes.append({
                     "story_id": story_id,
@@ -5599,18 +5598,15 @@ class SQLiteRegistry:
                 next_revision = old_revision + 1
                 encoded = _json_text(payload)
                 updated = connection.execute(
-                    """UPDATE domain_records SET revision = ?, updated_at = ?, payload_json = ?
+                    """UPDATE domain_records
+                    SET revision = ?, updated_at = ?, payload_json = ?,
+                        last_actor = ?, last_reason = ?, last_revision_at = ?
                     WHERE record_type = 'claim' AND id = ? AND revision = ?""",
-                    (next_revision, now, encoded, claim_id, old_revision),
+                    (next_revision, now, encoded, actor.strip(), rationale.strip(), now,
+                     claim_id, old_revision),
                 )
                 if updated.rowcount != 1:
                     raise RegistryIntegrityError(f"claim revision conflict: {claim_id}")
-                connection.execute(
-                    """INSERT INTO domain_record_revisions
-                    (record_type, record_id, revision, created_at, actor, reason, payload_json)
-                    VALUES ('claim', ?, ?, ?, ?, ?, ?)""",
-                    (claim_id, next_revision, now, actor.strip(), rationale.strip(), encoded),
-                )
                 changed_claim_payloads[claim_id] = payload
                 claim_changes.append({
                     "claim_id": claim_id,
@@ -8140,12 +8136,17 @@ class SQLiteRegistry:
             self._validate_domain_references(connection, record_type, payload)
             next_revision = expected_revision + 1
             updated = connection.execute(
-                """UPDATE domain_records SET revision = ?, updated_at = ?, payload_json = ?
+                """UPDATE domain_records
+                SET revision = ?, updated_at = ?, payload_json = ?,
+                    last_actor = ?, last_reason = ?, last_revision_at = ?
                 WHERE record_type = ? AND id = ? AND revision = ?""",
                 (
                     next_revision,
                     updated_at,
                     record.payload_json,
+                    actor.strip(),
+                    reason.strip(),
+                    updated_at,
                     record_type,
                     record_id,
                     expected_revision,
@@ -8153,20 +8154,6 @@ class SQLiteRegistry:
             )
             if updated.rowcount != 1:
                 raise RegistryIntegrityError("domain record revision conflict")
-            connection.execute(
-                """INSERT INTO domain_record_revisions
-                (record_type, record_id, revision, created_at, actor, reason, payload_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    record_type,
-                    record_id,
-                    next_revision,
-                    _utc_now(),
-                    actor,
-                    reason,
-                    record.payload_json,
-                ),
-            )
             self._append_audit(
                 connection,
                 event_type=f"{record_type}.revised",
