@@ -225,6 +225,55 @@ def test_lease_guard_stops_stage_handler_after_ownership_is_lost():
         assert called == []
 
 
+def test_lease_lost_during_handler_leaves_checkpoint_for_provider_reconciliation():
+    from sngso_engine.stage_checkpoints import (
+        Reconciliation, StageCheckpointError, StageCheckpointStore,
+        execute_checkpointed_stage,
+    )
+
+    context = {"batch": "lease-fixture"}
+    with SQLiteRegistry() as registry:
+        _running(registry)
+        store = WorkerLeaseStore(registry)
+        first = store.acquire(
+            "pipeline-run:lease-test", "worker_one", actor="scheduler",
+            reason="initial_claim",
+        )
+
+        def side_effect(current, key):
+            # Simulate the worker losing its lease after the provider accepted the operation.
+            store.release(first, actor="worker_one", reason="simulated_lease_loss")
+            return {"provider_receipt": "accepted"}
+
+        with pytest.raises(LeaseLostError):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:lease-test", 0, "remote_write", context,
+                side_effect, actor="worker_one", reason="lease_loss_during_effect",
+                permission_check=lambda: True, provider_namespace="provider_x",
+                reconcile=lambda key, ref: Reconciliation("unknown"),
+                lease_guard=lambda: store.assert_current(first),
+            )
+        checkpoint = StageCheckpointStore(registry).get("pipeline-run:lease-test", 0)
+        assert checkpoint.status == "executing"
+
+        second = store.acquire(
+            "pipeline-run:lease-test", "worker_two", actor="scheduler",
+            reason="recovery_worker_claim",
+        )
+        recovered = execute_checkpointed_stage(
+            registry, "pipeline-run:lease-test", 0, "remote_write", context,
+            lambda current, key: pytest.fail("reconciliation must prevent duplicate side effect"),
+            actor="worker_two", reason="reconcile_accepted_effect",
+            permission_check=lambda: True, provider_namespace="provider_x",
+            reconcile=lambda key, ref: Reconciliation(
+                "completed", output={"provider_receipt": "accepted"},
+            ),
+            lease_guard=lambda: store.assert_current(second),
+        )
+        assert recovered["status"] == "succeeded"
+        assert recovered["reused"] is True
+
+
 def test_two_workers_cannot_acquire_same_unexpired_lease_concurrently(tmp_path):
     database = tmp_path / "worker-leases.sqlite"
     with SQLiteRegistry(database) as registry:
