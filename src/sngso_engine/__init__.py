@@ -81,7 +81,15 @@ from .stage_checkpoints import (
     execute_checkpointed_stage,
     stage_idempotency_key,
 )
-from .worker_control import (\n    WorkerControl,\n    WorkerControlChannel,\n    WorkerControlError,\n    create_worker_control_channel,\n    read_worker_control,\n    worker_cancellation_requested,\n)\nfrom .worker_supervisor import (
+from .worker_control import (
+    WorkerControl,
+    WorkerControlChannel,
+    WorkerControlError,
+    create_worker_control_channel,
+    read_worker_control,
+    worker_cancellation_requested,
+)
+from .worker_supervisor import (
     WorkerEntrypoint,
     WorkerProcessResult,
     WorkerSupervisor,
