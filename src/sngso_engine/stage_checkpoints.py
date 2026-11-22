@@ -322,6 +322,23 @@ def execute_checkpointed_stage(
                 "completed", "not_started", "pending", "unknown", "denied"
             }:
                 resolution = Reconciliation("unknown")
+            # Treat malformed or changing provider operation references as an
+            # unknown outcome. Never let a later poll silently switch the
+            # durable lookup handle recorded by the first pending response.
+            if (
+                resolution.operation_ref is not None
+                and (
+                    not isinstance(resolution.operation_ref, str)
+                    or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}", resolution.operation_ref)
+                )
+            ):
+                resolution = Reconciliation("unknown")
+            elif (
+                checkpoint.provider_operation_ref is not None
+                and resolution.operation_ref is not None
+                and resolution.operation_ref != checkpoint.provider_operation_ref
+            ):
+                resolution = Reconciliation("unknown")
             if resolution.status == "completed":
                 fingerprint = sha256_fingerprint(resolution.output)
                 store.transition(checkpoint, "succeeded", actor=actor, reason="provider_confirmed_completed",
