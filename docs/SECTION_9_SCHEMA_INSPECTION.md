@@ -58,13 +58,11 @@ Migration 35 adds automatic domain-record revision snapshots and actor/reason/ti
 
 GitHub Actions [run #45056971200](https://github.com/Amiroudro/new-sngso/actions/runs/45056971200) passed the full Python suite (**1,035 passed in 23.68 seconds**), generated a fresh schema-v35 database using the real migration runner, ran this inspector, and uploaded the `sqlite-schema-v35-inspection` artifact (ID `14767951501`).
 
-The inspected database reported schema version 34, contiguous migration history 1–34, integrity `ok`, zero foreign-key violations, a valid retained audit chain, and exactly 47 tables, 25 explicit indexes, 138 triggers, and zero views. Its schema digest was:
+The inspected database reported schema version **35**, contiguous migration history **1–35**, integrity `ok`, zero foreign-key violations, a valid retained audit chain, and exactly **47 tables, 25 explicit indexes, 138 triggers, and zero views**. Its schema SHA-256 is:
 
-```
+`0e30ddab813fa95a8a4d2862eb66016fe71b70a0c3f114a2f04572370939a2ae`
 
-```
-
-The schema SHA-256 is `0e30ddab813fa95a8a4d2862eb66016fe71b70a0c3f114a2f04572370939a2ae`. The artifact is retained until 6 December 2026. This is a clean migration fixture generated in CI, not a production database backup or a populated operational registry.
+The artifact is retained until 6 December 2026. This is a clean migration fixture generated in CI, not a production database backup or a populated operational registry.
 
 
 ## Independent audit checkpoint comparison
