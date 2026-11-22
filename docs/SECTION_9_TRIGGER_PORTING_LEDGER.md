@@ -2,7 +2,7 @@
 
 Status: **live schema-v34 trigger inventory captured; all 136 triggers have source-level semantic review records. PostgreSQL port implementation and complete direct-SQL conformance remain open.**
 
-Evidence source: CI-generated schema-v34 inspection artifact from [GitHub Actions run #45054352627](https://github.com/Amiroudro/new-sngso/actions/runs/45054352627). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
+Evidence source: CI-generated schema-v34 inspection artifact from [GitHub Actions run #45056334657](https://github.com/Amiroudro/new-sngso/actions/runs/45056334657). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
 
 ## Live trigger event distribution
 
