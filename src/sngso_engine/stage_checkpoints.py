@@ -14,7 +14,6 @@ import re
 from typing import Any, Callable, Mapping
 
 from .canonical import sha256_fingerprint
-from .registry import RegistryIntegrityError
 
 
 class StageCheckpointError(RuntimeError):
@@ -206,7 +205,7 @@ class StageCheckpointStore:
                 raise ValueError("successful checkpoint requires an output fingerprint")
         elif output_fingerprint is not None:
             raise ValueError("only successful checkpoints may store an output fingerprint")
-        now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.registry._transaction() as connection:
             row = connection.execute(
                 """SELECT * FROM pipeline_stage_checkpoints
