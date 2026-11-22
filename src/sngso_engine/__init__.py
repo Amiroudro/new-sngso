@@ -81,6 +81,12 @@ from .stage_checkpoints import (
     execute_checkpointed_stage,
     stage_idempotency_key,
 )
+from .provider_fencing import (
+    FencedProviderAdapter,
+    ProviderCommand,
+    ProviderFenceError,
+    execute_fenced_provider_command,
+)
 from .worker_control import (
     WorkerControl,
     WorkerControlChannel,
@@ -192,6 +198,10 @@ __all__ = [
     "execute_checkpointed_pipeline",
     "execute_checkpointed_stage",
     "stage_idempotency_key",
+    "FencedProviderAdapter",
+    "ProviderCommand",
+    "ProviderFenceError",
+    "execute_fenced_provider_command",
     "CancellationRequested",
     "LeaseConflictError",
     "LeaseExpiredError",
