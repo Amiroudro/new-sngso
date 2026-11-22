@@ -113,4 +113,4 @@ The payload guard binds indexed columns to JSON but does not alone prove that ev
 
 ## 9. Review boundary
 
-This is a source-level semantic review of all 39 benchmark triggers, including two schema-v34 guards that close direct-SQL assignment revision and status-transition gaps. Together with the 23 operational triggers, 27 publication/audit/story/timeline triggers, and 47 content/provenance/ingestion triggers reviewed separately, all 136 of 136 triggers now have source-level semantic review records. PostgreSQL remains unimplemented and Section 9 P0 is not complete.
+This is a source-level semantic review of all 39 benchmark triggers, including two schema-v34 guards that close direct-SQL assignment revision and status-transition gaps. Together with the 23 operational triggers, 27 publication/audit/story/timeline triggers, and 49 content/provenance/ingestion triggers reviewed separately, all 138 of 138 triggers now have source-level semantic review records. PostgreSQL remains unimplemented and Section 9 P0 is not complete.
