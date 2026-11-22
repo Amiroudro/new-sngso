@@ -284,7 +284,7 @@ def test_provider_completed_recovery_never_repeats_handler():
 
 
 @pytest.mark.parametrize("outcome,expected", [
-    ("pending", "executing"),
+    ("pending", "indeterminate"),
     ("unknown", "indeterminate"),
     ("denied", "blocked"),
 ])
