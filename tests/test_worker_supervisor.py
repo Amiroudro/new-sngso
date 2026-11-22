@@ -171,3 +171,161 @@ def test_child_that_leaves_descendant_holding_pipes_is_failed_and_group_cleaned(
 def test_entrypoint_requires_absolute_executable_path():
     with pytest.raises(ValueError, match="absolute path"):
         WorkerEntrypoint("relative", ("python", "-c", "pass"))
+
+
+def _lease_fixture(registry):
+    from datetime import datetime, timezone
+    from sngso_engine import WorkerLeaseStore, sha256_fingerprint
+
+    run_id = "pipeline-run:supervised-worker"
+    context = {"test": "supervised-worker"}
+    registry.add_pipeline_run({
+        "schema_version": "1.0.0", "id": run_id, "status": "running",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "software_version": "supervisor-test/1.0",
+        "config_hash": "sha256:" + "b" * 64,
+        "input_hashes": [sha256_fingerprint(context)],
+        "initiated_by": "test-scheduler",
+    }, actor="test_scheduler", reason="create_supervised_worker_test")
+    store = WorkerLeaseStore(registry)
+    lease = store.acquire(
+        run_id, "worker_supervised", actor="scheduler",
+        reason="supervised_worker_claim", ttl_seconds=10,
+    )
+    return store, lease
+
+
+def test_supervisor_hands_lease_only_through_private_fd_and_heartbeats():
+    import json
+    import time
+    from sngso_engine import SQLiteRegistry, WorkerLeaseSession
+
+    code = (
+        "import json,os; "
+        "fd=int(os.environ['SNGSO_WORKER_CONTROL_FD']); "
+        "data=json.loads(os.read(fd,8192)); "
+        "print(json.dumps({'schema_version':'1','result':"
+        "{'worker':data['worker_id'],'generation':data['fencing_token']}}))"
+    )
+    with SQLiteRegistry() as registry:
+        store, lease = _lease_fixture(registry)
+        session = WorkerLeaseSession(
+            store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
+        ).start()
+        try:
+            result = _supervisor(code).run(
+                "test_worker", _request(), lease_session=session,
+            )
+            assert result.status == "succeeded"
+            assert result.result == {"worker": "worker_supervised", "generation": 1}
+            assert lease.token not in json.dumps(result.result)
+            assert session.lease.revision >= 2
+        finally:
+            session.close()
+
+
+def test_supervisor_propagates_durable_cancellation_and_requires_child_ack():
+    import threading
+    import time
+    from sngso_engine import SQLiteRegistry, WorkerLeaseSession, WorkerLeaseStore
+
+    code = (
+        "import json,os,select,time; "
+        "control=json.loads(os.read(int(os.environ['SNGSO_WORKER_CONTROL_FD']),8192)); "
+        "cancel=int(os.environ['SNGSO_WORKER_CANCEL_FD']); "
+        "ready=time.monotonic()+3; acknowledged=False; "
+        "while time.monotonic()<ready:\n"
+        " r,_,_=select.select([cancel],[],[],0.02); "
+        "\n if r and os.read(cancel,1)==b'\\x01': acknowledged=True; break; "
+        "\nprint(json.dumps({'schema_version':'1','result':"
+        "{'cancellation_acknowledged':acknowledged,'generation':control['fencing_token']}}))"
+    )
+    with SQLiteRegistry() as registry:
+        store, lease = _lease_fixture(registry)
+        session = WorkerLeaseSession(
+            store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
+        ).start()
+        def request_cancel():
+            time.sleep(0.15)
+            store.request_cancellation(
+                lease.pipeline_run_id, actor="operator",
+                reason_code="test_cancel", permission_check=lambda: True,
+            )
+        thread = threading.Thread(target=request_cancel)
+        thread.start()
+        try:
+            result = _supervisor(code, timeout_seconds=2).run(
+                "test_worker", _request(), lease_session=session,
+            )
+            thread.join(timeout=2)
+            assert result.status == "cancelled"
+            assert result.result == {"generation": 1}
+            assert store.history(lease.pipeline_run_id)[-1]["status"] == "active"
+        finally:
+            session.close(release=False)
+
+
+def test_supervisor_does_not_treat_missing_child_ack_as_successful_cancellation():
+    import threading
+    import time
+    from sngso_engine import SQLiteRegistry, WorkerLeaseSession
+
+    code = "import time; time.sleep(5)"
+    with SQLiteRegistry() as registry:
+        store, lease = _lease_fixture(registry)
+        session = WorkerLeaseSession(
+            store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
+        ).start()
+        def request_cancel():
+            time.sleep(0.12)
+            store.request_cancellation(
+                lease.pipeline_run_id, actor="operator",
+                reason_code="test_cancel", permission_check=lambda: True,
+            )
+        thread = threading.Thread(target=request_cancel)
+        thread.start()
+        try:
+            result = _supervisor(
+                code, timeout_seconds=2, termination_grace_seconds=0.1,
+            ).run("test_worker", _request(), lease_session=session)
+            thread.join(timeout=2)
+            assert result.status == "cancelled_unacknowledged"
+            assert result.result is None
+            assert store.history(lease.pipeline_run_id)[-1]["status"] == "active"
+        finally:
+            session.close(release=False)
+
+
+def test_supervisor_terminates_child_when_lease_heartbeat_is_lost():
+    import threading
+    import time
+    from sngso_engine import SQLiteRegistry, WorkerLeaseSession
+
+    with SQLiteRegistry() as registry:
+        store, lease = _lease_fixture(registry)
+        session = WorkerLeaseSession(
+            store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
+        ).start()
+        def revoke_lease():
+            time.sleep(0.15)
+            store.release(lease, actor=lease.worker_id, reason="test_revoke")
+        thread = threading.Thread(target=revoke_lease)
+        thread.start()
+        try:
+            result = _supervisor(
+                "import time; time.sleep(5)", timeout_seconds=2,
+            ).run("test_worker", _request(), lease_session=session)
+            thread.join(timeout=2)
+            assert result.status == "lease_lost"
+            assert result.result is None
+        finally:
+            session.close(release=False)
+
+
+def test_entrypoint_cannot_override_reserved_control_descriptor_environment():
+    code = "raise SystemExit(0)"
+    with pytest.raises(ValueError, match="reserved worker control"):
+        WorkerEntrypoint(
+            "test_worker", (sys.executable, "-c", code),
+            environment={"SNGSO_WORKER_CONTROL_FD": "999"},
+        )
