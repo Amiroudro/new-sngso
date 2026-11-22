@@ -169,6 +169,50 @@ def test_cancellation_is_cooperative_and_acknowledgement_cancels_pipeline():
         assert store.history("pipeline-run:lease-test")[-1]["status"] == "cancelled"
 
 
+def test_pending_cancellation_survives_expired_worker_handoff():
+    now = datetime(2026, 11, 22, 10, 0, tzinfo=timezone.utc)
+    with SQLiteRegistry() as registry:
+        _running(registry)
+        store = WorkerLeaseStore(registry)
+        first = store.acquire(
+            "pipeline-run:lease-test", "worker_one", actor="scheduler",
+            reason="initial_claim", ttl_seconds=10, now=now,
+        )
+        store.request_cancellation(
+            "pipeline-run:lease-test", actor="operator",
+            reason_code="operator_requested", now=now + timedelta(seconds=1),
+        )
+        second = store.acquire(
+            "pipeline-run:lease-test", "worker_two", actor="scheduler",
+            reason="takeover_after_expiry", ttl_seconds=60,
+            now=now + timedelta(seconds=11),
+        )
+        assert second.fencing_token == first.fencing_token + 1
+        assert second.cancellation_requested is True
+        assert store.cancellation_requested(second, now=now + timedelta(seconds=12)) is True
+        with pytest.raises(LeaseLostError):
+            store.assert_current(first, now=now + timedelta(seconds=12))
+
+
+def test_cancellation_request_fields_cannot_be_rewritten_in_sql():
+    with SQLiteRegistry() as registry:
+        _running(registry)
+        store = WorkerLeaseStore(registry)
+        store.acquire(
+            "pipeline-run:lease-test", "worker_one", actor="scheduler",
+            reason="initial_claim",
+        )
+        store.request_cancellation(
+            "pipeline-run:lease-test", actor="operator",
+            reason_code="operator_requested",
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="immutable once recorded"):
+            registry._connection.execute(
+                "UPDATE pipeline_worker_leases SET cancel_reason_code = 'changed' "
+                "WHERE pipeline_run_id = 'pipeline-run:lease-test'"
+            )
+
+
 def test_cancellation_requested_during_stage_stops_before_next_stage():
     context = {"batch": "lease-fixture"}
     with SQLiteRegistry() as registry:
