@@ -181,8 +181,6 @@ class WorkerSupervisor:
 
     @staticmethod
     def _terminate_group(process: subprocess.Popen[bytes], *, hard: bool) -> None:
-        if process.poll() is not None:
-            return
         try:
             os.killpg(process.pid, signal.SIGKILL if hard else signal.SIGTERM)
         except ProcessLookupError:
@@ -243,6 +241,9 @@ class WorkerSupervisor:
         # the process group and fail closed rather than waiting without a bound.
         if stdout.is_alive() or stderr.is_alive() or writer.is_alive():
             self._terminate_group(process, hard=True)
+            writer.join(timeout=1.0)
+            stdout.join(timeout=1.0)
+            stderr.join(timeout=1.0)
             status = "failed"
             termination = "pipe_cleanup_unconfirmed"
         result: Mapping[str, Any] | None = None
@@ -258,7 +259,7 @@ class WorkerSupervisor:
                         raise ValueError
                     Draft202012Validator(config.result_schema).validate(decoded["result"])
                     result = decoded["result"]
-                except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                except Exception:
                     status = "protocol_error"
         return WorkerProcessResult(
             entrypoint=entrypoint,
