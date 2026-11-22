@@ -2714,3 +2714,27 @@ def test_assignment_sql_boundary_rejects_illegal_status_jump():
                    VALUES (?, 2, ?, 'editor:lead', 'forged submission', ?)""",
                 (payload["assignment_id"], "2026-11-20T02:00:00Z", json.dumps(forged)),
             )
+
+
+def test_schema_33_migrates_to_34_with_revision_and_assignment_guards(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v33.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 33)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 33
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 34)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 34
+        triggers = {
+            row["name"]
+            for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert {
+            "domain_record_revisions_validate_insert",
+            "permission_grant_revisions_validate_insert",
+            "permission_grants_revision_guard",
+            "benchmark_review_assignment_revisions_validate_insert",
+            "benchmark_review_assignment_status_transition_guard",
+        } <= triggers
