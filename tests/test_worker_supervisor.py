@@ -166,3 +166,8 @@ def test_child_that_leaves_descendant_holding_pipes_is_failed_and_group_cleaned(
     assert result.status == "failed"
     assert result.termination == "pipe_cleanup_unconfirmed"
     assert result.duration_seconds < 4
+
+
+def test_entrypoint_requires_absolute_executable_path():
+    with pytest.raises(ValueError, match="absolute path"):
+        WorkerEntrypoint("relative", ("python", "-c", "pass"))
