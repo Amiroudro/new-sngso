@@ -206,3 +206,31 @@ This adapter is a library integration point. The hosting service still owns
 upstream admission/draining, service-manager configuration, database close
 ordering, and deployment-specific shutdown budgets. It does not acknowledge
 worker cancellation or claim that provider-side effects were rolled back.
+
+
+## OIDC-backed recovery authorization adapter
+
+`sngso_engine.worker_auth.OIDCWorkerRecoveryAuthorizer` composes the
+existing `BenchmarkIdentityProvider` contract (including the cryptographic
+OIDC provider) with checkpoint recovery's required
+`authorize(worker_id, pipeline_run_id)` callback.
+
+The adapter obtains request/session context from a trusted injected factory,
+authenticates it through the identity provider, and requires the resulting
+principal ID to equal the requested worker ID. It checks the configured
+issuer/audience, non-empty subject and session ID, timezone-aware authentication
+and expiry timestamps, and current session validity. It then calls an
+application-owned per-run policy with the verified identity. Authentication,
+context-factory, and policy errors fail closed; the policy must return the
+literal boolean `True`.
+
+The application policy remains responsible for worker role membership, tenant
+and run ownership, operational approvals, and any additional restrictions.
+The request-context factory must obtain a trusted server-side request/session
+context; it must not create credentials from the worker ID or pipeline run ID.
+This adapter does not itself fetch JWKS, provision identities, or define
+deployment-specific RBAC.
+
+Tests cover successful principal/run binding, worker spoofing, issuer/audience
+mismatch, expired and future identities, incomplete session claims, provider
+failure, truthy-but-not-boolean policy results, and malformed identifiers.
