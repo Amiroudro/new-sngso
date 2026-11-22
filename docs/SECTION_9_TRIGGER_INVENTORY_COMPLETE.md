@@ -1,10 +1,10 @@
 # Section 9 Complete SQLite Trigger Inventory
 
-Status: **mechanically extracted from the repository's schema migration SQL; human semantic review is pending.**
+Status: **mechanically extracted from the repository's schema migration SQL; all 136 trigger definitions have source-level semantic review records in the companion review documents.**
 
-This inventory expands the 131-trigger headline ledger into one reviewable record per trigger. It is generated from the migration definitions in `src/sngso_engine/registry.py`, which must be cross-checked against the CI live schema-v33 artifact before porting. The CI artifact remains authoritative for the actual migrated database.
+This inventory expands the live trigger ledger into one reviewable record per trigger. It is generated from migration definitions in `src/sngso_engine/registry.py`; the CI live schema-v34 artifact is authoritative for the migrated database.
 
-**Important:** table references below are lexical candidates extracted from SQL tokens, not a parser-proven dependency graph. They may include false positives (for example, column or CTE names) and omit dynamic references. No trigger is marked PostgreSQL-equivalent or approved by this inventory.
+**Important:** table references below are lexical candidates extracted from SQL tokens, not a parser-proven dependency graph. They may include false positives (for example, column or CTE names) and omit dynamic references. This file does not claim PostgreSQL equivalence or complete direct-SQL negative test coverage.
 
 ## Event distribution
 
@@ -13,11 +13,11 @@ This inventory expands the 131-trigger headline ledger into one reviewable recor
 | AFTER INSERT | 6 |
 | AFTER UPDATE | 5 |
 | BEFORE DELETE | 38 |
-| BEFORE INSERT | 34 |
-| BEFORE UPDATE | 45 |
+| BEFORE INSERT | 37 |
+| BEFORE UPDATE | 47 |
 | BEFORE UPDATE OF payload_json | 2 |
 | BEFORE UPDATE OF principal_kind | 1 |
-| **Total** | **131** |
+| **Total** | **136** |
 
 ## Trigger records
 
@@ -27,9 +27,9 @@ This inventory expands the 131-trigger headline ledger into one reviewable recor
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_artifacts_no_updateBEFORE UPDATE ON benchmark_artifacts
@@ -42,9 +42,9 @@ CREATE TRIGGER benchmark_artifacts_no_updateBEFORE UPDATE ON benchmark_artifacts
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_artifacts_no_deleteBEFORE DELETE ON benchmark_artifacts
@@ -57,9 +57,9 @@ CREATE TRIGGER benchmark_artifacts_no_deleteBEFORE DELETE ON benchmark_artifacts
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_adjudications_no_updateBEFORE UPDATE ON benchmark_adjudications
@@ -72,9 +72,9 @@ CREATE TRIGGER benchmark_adjudications_no_updateBEFORE UPDATE ON benchmark_adjud
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_adjudications_no_deleteBEFORE DELETE ON benchmark_adjudications
@@ -87,9 +87,9 @@ CREATE TRIGGER benchmark_adjudications_no_deleteBEFORE DELETE ON benchmark_adjud
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `EXISTS ( SELECT 1 FROM benchmark_adjudications WHERE benchmark_id = NEW.benchmark_id )`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_adjudications_one_per_artifactBEFORE INSERT ON benchmark_adjudications
@@ -106,9 +106,9 @@ CREATE TRIGGER benchmark_adjudications_one_per_artifactBEFORE INSERT ON benchmar
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_assignment_revision_guardBEFORE UPDATE ON benchmark_review_assignments
@@ -133,9 +133,9 @@ CREATE TRIGGER benchmark_review_assignment_revision_guardBEFORE UPDATE ON benchm
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.assignment_id') IS NOT NEW.assignment_id OR json_extract(NEW.payload_json, '$.artifact_id') IS NOT NEW.artifact_id OR json_extract(NEW.payload_json, '$.artifact_fingerprint') IS NOT NEW.artifact_fingerprint OR json_extract(NEW.payload_json, '$.language') IS NOT NEW.language OR json_extract(NEW.payload_json, '$.reviewer_id') IS NOT NEW.reviewer_id OR json_extract(NEW.payload_json, '$.assigned_by') IS NOT NEW.assigned_by OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_assignment_payload_guard_insertBEFORE INSERT ON benchmark_review_assignments
@@ -155,9 +155,9 @@ CREATE TRIGGER benchmark_review_assignment_payload_guard_insertBEFORE INSERT ON 
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.assignment_id') IS NOT NEW.assignment_id OR json_extract(NEW.payload_json, '$.artifact_id') IS NOT NEW.artifact_id OR json_extract(NEW.payload_json, '$.artifact_fingerprint') IS NOT NEW.artifact_fingerprint OR json_extract(NEW.payload_json, '$.language') IS NOT NEW.language OR json_extract(NEW.payload_json, '$.reviewer_id') IS NOT NEW.reviewer_id OR json_extract(NEW.payload_json, '$.assigned_by') IS NOT NEW.assigned_by OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status`
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_assignment_payload_guard_updateBEFORE UPDATE ON benchmark_review_assignments
@@ -177,9 +177,9 @@ CREATE TRIGGER benchmark_review_assignment_payload_guard_updateBEFORE UPDATE ON 
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_assignments_no_deleteBEFORE DELETE ON benchmark_review_assignments
@@ -192,9 +192,9 @@ CREATE TRIGGER benchmark_review_assignments_no_deleteBEFORE DELETE ON benchmark_
 - **Timing/event:** AFTER INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `benchmark_review_assignment_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_assignment_initial_revisionAFTER INSERT ON benchmark_review_assignments
@@ -211,9 +211,9 @@ CREATE TRIGGER benchmark_review_assignment_initial_revisionAFTER INSERT ON bench
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** `NOT EXISTS ( SELECT 1 FROM benchmark_review_assignment_revisions WHERE assignment_id = NEW.assignment_id AND revision = NEW.revision AND actor = NEW.last_actor AND reason = NEW.last_reason AND payload_json = NEW.payload_json )`
 - **Lexically referenced tables:** `ON`, `benchmark_review_assignment_revisions`, `requires`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_assignment_update_requires_revisionBEFORE UPDATE ON benchmark_review_assignments
@@ -232,9 +232,9 @@ CREATE TRIGGER benchmark_review_assignment_update_requires_revisionBEFORE UPDATE
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_assignment_revisions_no_updateBEFORE UPDATE ON benchmark_review_assignment_revisions
@@ -247,9 +247,9 @@ CREATE TRIGGER benchmark_review_assignment_revisions_no_updateBEFORE UPDATE ON b
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_assignment_revisions_no_deleteBEFORE DELETE ON benchmark_review_assignment_revisions
@@ -262,9 +262,9 @@ CREATE TRIGGER benchmark_review_assignment_revisions_no_deleteBEFORE DELETE ON b
 - **Timing/event:** BEFORE UPDATE OF principal_kind
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `OF`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_principal_kind_immutableBEFORE UPDATE OF principal_kind ON benchmark_principals
@@ -277,9 +277,9 @@ CREATE TRIGGER benchmark_principal_kind_immutableBEFORE UPDATE OF principal_kind
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_identity_attestations_no_updateBEFORE UPDATE ON benchmark_review_identity_attestations
@@ -292,9 +292,9 @@ CREATE TRIGGER benchmark_review_identity_attestations_no_updateBEFORE UPDATE ON 
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_identity_attestations_no_deleteBEFORE DELETE ON benchmark_review_identity_attestations
@@ -307,9 +307,9 @@ CREATE TRIGGER benchmark_review_identity_attestations_no_deleteBEFORE DELETE ON 
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.artifact_id OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.artifact_fingerprint OR json_extract(NEW.payload_json, '$.item_id') IS NOT NEW.item_id OR json_extract(NEW.payload_json, '$.task_type') IS NOT NEW.task_type OR json_extract(NEW.payload_json, '$.language') IS NOT NEW.language OR json_extract(NEW.payload_json, '$.evaluator_id') IS NOT NEW.evaluator_id OR json_extract(NEW.payload_json, '$.evaluated_at') IS NOT NEW.evaluated_at`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_scores_payload_guard_insertBEFORE INSERT ON benchmark_scores
@@ -329,9 +329,9 @@ CREATE TRIGGER benchmark_scores_payload_guard_insertBEFORE INSERT ON benchmark_s
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_scores_no_updateBEFORE UPDATE ON benchmark_scores
@@ -344,9 +344,9 @@ CREATE TRIGGER benchmark_scores_no_updateBEFORE UPDATE ON benchmark_scores
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_scores_no_deleteBEFORE DELETE ON benchmark_scores
@@ -359,9 +359,9 @@ CREATE TRIGGER benchmark_scores_no_deleteBEFORE DELETE ON benchmark_scores
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.study_id') IS NOT NEW.study_id OR json_extract(NEW.payload_json, '$.study_version') IS NOT NEW.study_version OR json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.benchmark_id OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.benchmark_fingerprint OR json_extract(NEW.payload_json, '$.rubric_version') IS NOT NEW.rubric_version OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_study_protocols_payload_guardBEFORE INSERT ON benchmark_study_protocols
@@ -380,9 +380,9 @@ CREATE TRIGGER benchmark_study_protocols_payload_guardBEFORE INSERT ON benchmark
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `(NEW.study_version = 1 AND EXISTS ( SELECT 1 FROM benchmark_study_protocols WHERE study_id = NEW.study_id )) OR (NEW.study_version > 1 AND NOT EXISTS ( SELECT 1 FROM benchmark_study_protocols WHERE study_id = NEW.study_id AND study_version = NEW.study_version - 1 AND benchmark_id = NEW.benchmark_id AND benchmark_fingerprint = NEW.benchmark_fingerprint AND rubric_version = NEW.rubric_version ))`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_study_protocols_version_guardBEFORE INSERT ON benchmark_study_protocols
@@ -405,9 +405,9 @@ CREATE TRIGGER benchmark_study_protocols_version_guardBEFORE INSERT ON benchmark
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_study_protocols_no_updateBEFORE UPDATE ON benchmark_study_protocols
@@ -420,9 +420,9 @@ CREATE TRIGGER benchmark_study_protocols_no_updateBEFORE UPDATE ON benchmark_stu
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_study_protocols_no_deleteBEFORE DELETE ON benchmark_study_protocols
@@ -435,9 +435,9 @@ CREATE TRIGGER benchmark_study_protocols_no_deleteBEFORE DELETE ON benchmark_stu
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.execution_id') IS NOT NEW.execution_id OR json_extract(NEW.payload_json, '$.study_id') IS NOT NEW.study_id OR json_extract(NEW.payload_json, '$.study_version') IS NOT NEW.study_version OR json_extract(NEW.payload_json, '$.protocol_fingerprint') IS NOT NEW.protocol_fingerprint OR json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.benchmark_id OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.benchmark_fingerprint OR json_extract(NEW.payload_json, '$.rubric_version') IS NOT NEW.rubric_version OR json_extract(NEW.payload_json, '$.analysis.methodologist_id') IS NOT NEW.methodologist_id`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_study_executions_payload_guardBEFORE INSERT ON benchmark_study_executions
@@ -458,9 +458,9 @@ CREATE TRIGGER benchmark_study_executions_payload_guardBEFORE INSERT ON benchmar
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_study_executions_no_updateBEFORE UPDATE ON benchmark_study_executions
@@ -473,9 +473,9 @@ CREATE TRIGGER benchmark_study_executions_no_updateBEFORE UPDATE ON benchmark_st
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_study_executions_no_deleteBEFORE DELETE ON benchmark_study_executions
@@ -488,9 +488,9 @@ CREATE TRIGGER benchmark_study_executions_no_deleteBEFORE DELETE ON benchmark_st
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.review_id') IS NOT NEW.review_id OR json_extract(NEW.payload_json, '$.execution_id') IS NOT NEW.execution_id OR json_extract(NEW.payload_json, '$.study_id') IS NOT NEW.study_id OR json_extract(NEW.payload_json, '$.study_version') IS NOT NEW.study_version OR json_extract(NEW.payload_json, '$.protocol_fingerprint') IS NOT NEW.protocol_fingerprint OR json_extract(NEW.payload_json, '$.execution_fingerprint') IS NOT NEW.execution_fingerprint OR json_extract(NEW.payload_json, '$.benchmark_id') IS NOT NEW.benchmark_id OR json_extract(NEW.payload_json, '$.benchmark_fingerprint') IS NOT NEW.benchmark_fingerprint OR json_extract(NEW.payload_json, '$.rubric_version') IS NOT NEW.rubric_version OR json_extract(NEW.payload_json, '$.reviewer_id') IS NOT NEW.reviewer_id OR json_extract(NEW.payload_json, '$.reviewer_role') IS NOT NEW.reviewer_role OR json_extract(NEW.payload_json, '$.decision') IS NOT NEW.decision`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_acceptance_reviews_payload_guardBEFORE INSERT ON benchmark_acceptance_reviews
@@ -515,9 +515,9 @@ CREATE TRIGGER benchmark_acceptance_reviews_payload_guardBEFORE INSERT ON benchm
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_acceptance_reviews_no_updateBEFORE UPDATE ON benchmark_acceptance_reviews
@@ -530,9 +530,9 @@ CREATE TRIGGER benchmark_acceptance_reviews_no_updateBEFORE UPDATE ON benchmark_
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_acceptance_reviews_no_deleteBEFORE DELETE ON benchmark_acceptance_reviews
@@ -545,9 +545,9 @@ CREATE TRIGGER benchmark_acceptance_reviews_no_deleteBEFORE DELETE ON benchmark_
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.kind') = 'vocabulary'`
 - **Lexically referenced tables:** `json_each`, `domain_records`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_object_vocabulary_source_evidence_insertBEFORE INSERT ON learning_objects
@@ -592,9 +592,9 @@ CREATE TRIGGER learning_object_vocabulary_source_evidence_insertBEFORE INSERT ON
 - **Timing/event:** BEFORE UPDATE OF payload_json
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.kind') = 'vocabulary'`
 - **Lexically referenced tables:** `OF`, `json_each`, `domain_records`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_object_vocabulary_source_evidence_updateBEFORE UPDATE OF payload_json ON learning_objects
@@ -639,9 +639,9 @@ CREATE TRIGGER learning_object_vocabulary_source_evidence_updateBEFORE UPDATE OF
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.kind') IN ( 'comprehension_question', 'analysis_question', 'mcq_question' )`
 - **Lexically referenced tables:** `json_each`, `domain_records`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_object_question_answer_evidence_insertBEFORE INSERT ON learning_objects
@@ -719,9 +719,9 @@ CREATE TRIGGER learning_object_question_answer_evidence_insertBEFORE INSERT ON l
 - **Timing/event:** BEFORE UPDATE OF payload_json
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.kind') IN ( 'comprehension_question', 'analysis_question', 'mcq_question' )`
 - **Lexically referenced tables:** `OF`, `json_each`, `domain_records`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_object_question_answer_evidence_updateBEFORE UPDATE OF payload_json ON learning_objects
@@ -799,9 +799,9 @@ CREATE TRIGGER learning_object_question_answer_evidence_updateBEFORE UPDATE OF p
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.id') IS NOT NEW.id OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status OR json_extract(NEW.payload_json, '$.started_at') IS NOT NEW.started_at`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_run_payload_guard_insertBEFORE INSERT ON pipeline_runs
@@ -817,9 +817,9 @@ CREATE TRIGGER pipeline_run_payload_guard_insertBEFORE INSERT ON pipeline_runs
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.id') IS NOT NEW.id OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status OR json_extract(NEW.payload_json, '$.started_at') IS NOT NEW.started_at`
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_run_payload_guard_updateBEFORE UPDATE ON pipeline_runs
@@ -835,9 +835,9 @@ CREATE TRIGGER pipeline_run_payload_guard_updateBEFORE UPDATE ON pipeline_runs
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_run_identity_guardBEFORE UPDATE ON pipeline_runs
@@ -864,9 +864,9 @@ CREATE TRIGGER pipeline_run_identity_guardBEFORE UPDATE ON pipeline_runs
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_runs_no_deleteBEFORE DELETE ON pipeline_runs
@@ -879,9 +879,9 @@ CREATE TRIGGER pipeline_runs_no_deleteBEFORE DELETE ON pipeline_runs
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_run_revision_no_updateBEFORE UPDATE ON pipeline_run_revisions
@@ -894,9 +894,9 @@ CREATE TRIGGER pipeline_run_revision_no_updateBEFORE UPDATE ON pipeline_run_revi
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_run_revision_no_deleteBEFORE DELETE ON pipeline_run_revisions
@@ -909,9 +909,9 @@ CREATE TRIGGER pipeline_run_revision_no_deleteBEFORE DELETE ON pipeline_run_revi
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `pipeline_runs`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_run_revision_matches_currentBEFORE INSERT ON pipeline_run_revisions
@@ -930,9 +930,9 @@ CREATE TRIGGER pipeline_run_revision_matches_currentBEFORE INSERT ON pipeline_ru
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.manifest_json, '$.manifest_id') IS NOT NEW.manifest_id OR json_extract(NEW.manifest_json, '$.edition_id') IS NOT NEW.edition_id OR json_extract(NEW.manifest_json, '$.edition_revision') IS NOT NEW.edition_revision OR json_extract(NEW.manifest_json, '$.payload_sha256') IS NOT NEW.payload_sha256`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_artifacts_payload_guardBEFORE INSERT ON edition_artifacts
@@ -949,9 +949,9 @@ CREATE TRIGGER edition_artifacts_payload_guardBEFORE INSERT ON edition_artifacts
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_artifacts_no_updateBEFORE UPDATE ON edition_artifacts
@@ -964,9 +964,9 @@ CREATE TRIGGER edition_artifacts_no_updateBEFORE UPDATE ON edition_artifacts
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_artifacts_no_deleteBEFORE DELETE ON edition_artifacts
@@ -979,9 +979,9 @@ CREATE TRIGGER edition_artifacts_no_deleteBEFORE DELETE ON edition_artifacts
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.decision_id') IS NOT NEW.decision_id OR json_extract(NEW.payload_json, '$.manifest_id') IS NOT NEW.manifest_id OR json_extract(NEW.payload_json, '$.edition_id') IS NOT NEW.edition_id OR json_extract(NEW.payload_json, '$.edition_revision') IS NOT NEW.edition_revision OR json_extract(NEW.payload_json, '$.payload_sha256') IS NOT NEW.payload_sha256 OR json_extract(NEW.payload_json, '$.decision') IS NOT NEW.decision OR json_extract(NEW.payload_json, '$.principal_id') IS NOT NEW.principal_id OR json_extract(NEW.payload_json, '$.decided_at') IS NOT NEW.decided_at OR json_extract(NEW.payload_json, '$.role') IS NOT 'edition_approver' OR json_extract(NEW.payload_json, '$.scope') IS NOT 'staging_candidate_review' OR json_extract(NEW.payload_json, '$.publication_authorized') IS NOT 0 OR NOT EXISTS ( SELECT 1 FROM edition_artifacts artifact WHERE artifact.manifest_id = NEW.manifest_id AND artifact.edition_id = NEW.edition_id AND artifact.edition_revision = NEW.edition_revision AND artifact.payload_sha256 = NEW.payload_sha256 ) OR NOT EXISTS ( SELECT 1 FROM benchmark_principals principal WHERE principal.principal_id = NEW.principal_id AND principal.active = 1 AND principal.principal_kind = 'human' AND EXISTS ( SELECT 1 FROM json_each(principal.roles_json) role WHERE role.value = 'edition_approver' ) )`
 - **Lexically referenced tables:** `edition_artifacts`, `benchmark_principals`, `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_decisions_payload_guardBEFORE INSERT ON edition_decisions
@@ -1022,9 +1022,9 @@ CREATE TRIGGER edition_decisions_payload_guardBEFORE INSERT ON edition_decisions
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_decisions_no_updateBEFORE UPDATE ON edition_decisions
@@ -1037,9 +1037,9 @@ CREATE TRIGGER edition_decisions_no_updateBEFORE UPDATE ON edition_decisions
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_decisions_no_deleteBEFORE DELETE ON edition_decisions
@@ -1052,9 +1052,9 @@ CREATE TRIGGER edition_decisions_no_deleteBEFORE DELETE ON edition_decisions
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `NEW.record_type = 'edition' AND json_extract(NEW.payload_json, '$.status') = 'published'`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_domain_records_no_published_insertBEFORE INSERT ON domain_records
@@ -1069,9 +1069,9 @@ CREATE TRIGGER edition_domain_records_no_published_insertBEFORE INSERT ON domain
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** `OLD.record_type = 'edition' OR NEW.record_type = 'edition'`
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_domain_records_no_updateBEFORE UPDATE ON domain_records
@@ -1085,9 +1085,9 @@ CREATE TRIGGER edition_domain_records_no_updateBEFORE UPDATE ON domain_records
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** `OLD.record_type = 'edition'`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_domain_records_no_deleteBEFORE DELETE ON domain_records
@@ -1101,9 +1101,9 @@ CREATE TRIGGER edition_domain_records_no_deleteBEFORE DELETE ON domain_records
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.authorization_id') IS NOT NEW.authorization_id OR json_extract(NEW.payload_json, '$.manifest_id') IS NOT NEW.manifest_id OR json_extract(NEW.payload_json, '$.edition_id') IS NOT NEW.edition_id OR json_extract(NEW.payload_json, '$.edition_revision') IS NOT NEW.edition_revision OR json_extract(NEW.payload_json, '$.payload_sha256') IS NOT NEW.payload_sha256 OR json_extract(NEW.payload_json, '$.approval_decision_id') IS NOT NEW.approval_decision_id OR json_extract(NEW.payload_json, '$.approver_principal_id') IS NOT NEW.approver_principal_id OR json_extract(NEW.payload_json, '$.authorizer_principal_id') IS NOT NEW.authorizer_principal_id OR json_extract(NEW.payload_json, '$.authorized_at') IS NOT NEW.authorized_at OR json_extract(NEW.payload_json, '$.scope') IS NOT 'controlled_release_gate' OR json_extract(NEW.payload_json, '$.release_authorized') IS NOT 1 OR json_extract(NEW.payload_json, '$.publication_authorized') IS NOT 0 OR NOT EXISTS ( SELECT 1 FROM edition_artifacts artifact WHERE artifact.manifest_id = NEW.manifest_id AND artifact.edition_id = NEW.edition_id AND artifact.edition_revision = NEW.edition_revision AND artifact.payload_sha256 = NEW.payload_sha256 ) OR NOT EXISTS ( SELECT 1 FROM edition_decisions decision WHERE decision.decision_id = NEW.approval_decision_id AND decision.manifest_id = NEW.manifest_id AND decision.edition_id = NEW.edition_id AND decision.edition_revision = NEW.edition_revision AND decision.payload_sha256 = NEW.payload_sha256 AND decision.decision = 'approve' AND decision.principal_id = NEW.approver_principal_id ) OR NOT EXISTS ( SELECT 1 FROM benchmark_principals principal WHERE principal.principal_id = NEW.authorizer_principal_id AND principal.active = 1 AND principal.principal_kind = 'human' AND EXISTS ( SELECT 1 FROM json_each(principal.roles_json) role WHERE role.value = 'edition_release_authorizer' ) )`
 - **Lexically referenced tables:** `edition_artifacts`, `edition_decisions`, `benchmark_principals`, `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_release_authorizations_insert_guardBEFORE INSERT ON edition_release_authorizations
@@ -1155,9 +1155,9 @@ CREATE TRIGGER edition_release_authorizations_insert_guardBEFORE INSERT ON editi
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_release_authorizations_no_updateBEFORE UPDATE ON edition_release_authorizations
@@ -1170,9 +1170,9 @@ CREATE TRIGGER edition_release_authorizations_no_updateBEFORE UPDATE ON edition_
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_release_authorizations_no_deleteBEFORE DELETE ON edition_release_authorizations
@@ -1185,9 +1185,9 @@ CREATE TRIGGER edition_release_authorizations_no_deleteBEFORE DELETE ON edition_
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.event_id') IS NOT NEW.event_id OR json_extract(NEW.payload_json, '$.state_revision') IS NOT NEW.state_revision OR json_extract(NEW.payload_json, '$.channel') IS NOT 'staging' OR json_extract(NEW.payload_json, '$.operation') IS NOT NEW.operation OR json_extract(NEW.payload_json, '$.manifest_id') IS NOT NEW.manifest_id OR json_extract(NEW.payload_json, '$.edition_id') IS NOT NEW.edition_id OR json_extract(NEW.payload_json, '$.edition_revision') IS NOT NEW.edition_revision OR json_extract(NEW.payload_json, '$.payload_sha256') IS NOT NEW.payload_sha256 OR json_extract(NEW.payload_json, '$.export_id') IS NOT NEW.export_id OR json_extract(NEW.payload_json, '$.export_sha256') IS NOT NEW.export_sha256 OR json_extract(NEW.payload_json, '$.previous_current_export_id') IS NOT NEW.previous_current_export_id OR json_extract(NEW.payload_json, '$.lkg_export_id') IS NOT NEW.lkg_export_id OR json_extract(NEW.payload_json, '$.operator_principal_id') IS NOT NEW.operator_principal_id OR json_extract(NEW.payload_json, '$.occurred_at') IS NOT NEW.occurred_at OR json_extract(NEW.payload_json, '$.reason') IS NOT NEW.reason OR json_extract(NEW.payload_json, '$.publication_authorized') IS NOT 0 OR json_extract(NEW.payload_json, '$.target') IS NOT 'staging' OR NOT EXISTS ( SELECT 1 FROM edition_artifacts a JOIN edition_decisions d ON d.manifest_id = a.manifest_id JOIN edition_release_authorizations r ON r.manifest_id = a.manifest_id WHERE a.manifest_id = NEW.manifest_id AND a.edition_id = NEW.edition_id AND a.edition_revision = NEW.edition_revision AND a.payload_sha256 = NEW.payload_sha256 AND d.decision = 'approve' AND d.decision_id = json_extract(NEW.payload_json, '$.staging_decision.decision_id') AND r.authorization_id = json_extract(NEW.payload_json, '$.release_authorization.authorization_id') AND r.approval_decision_id = d.decision_id AND r.approver_principal_id = d.principal_id AND r.authorizer_principal_id <> d.principal_id ) OR json_extract(NEW.export_package_json, '$.export_id') IS NOT NEW.export_id OR json_extract(NEW.export_package_json, '$.manifest_id') IS NOT NEW.manifest_id OR json_extract(NEW.export_package_json, '$.payload_sha256') IS NOT NEW.payload_sha256 OR json_extract(NEW.export_package_json, '$.target') IS NOT 'staging' OR json_extract(NEW.export_package_json, '$.publication_authorized') IS NOT 0 OR NOT EXISTS ( SELECT 1 FROM benchmark_principals approver WHERE approver.principal_id = json_extract(NEW.payload_json, '$.staging_decision.principal_id') AND approver.active = 1 AND approver.principal_kind = 'human' AND EXISTS (SELECT 1 FROM json_each(approver.roles_json) role WHERE role.value = 'edition_approver') ) OR NOT EXISTS ( SELECT 1 FROM benchmark_principals authorizer WHERE authorizer.principal_id = json_extract(NEW.payload_json, '$.release_authorization.authorizer_principal_id') AND authorizer.active = 1 AND authorizer.principal_kind = 'human' AND EXISTS (SELECT 1 FROM json_each(authorizer.roles_json) role WHERE role.value = 'edition_release_authorizer') ) OR NOT EXISTS ( SELECT 1 FROM benchmark_principals p WHERE p.principal_id = NEW.operator_principal_id AND p.active = 1 AND p.principal_kind = 'human' AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role WHERE role.value = 'edition_staging_operator') ) OR NEW.operator_principal_id = json_extract(NEW.payload_json, '$.staging_decision.principal_id') OR NEW.operator_principal_id = json_extract(NEW.payload_json, '$.release_authorization.authorizer_principal_id') OR NEW.state_revision <> (SELECT state_revision + 1 FROM edition_staging_channel_state WHERE channel = 'staging') OR NEW.previous_current_export_id IS NOT (SELECT current_export_id FROM edition_staging_channel_state WHERE channel = 'staging') OR NEW.lkg_export_id IS NOT NEW.previous_current_export_id OR (NEW.operation = 'promote' AND EXISTS (SELECT 1 FROM edition_staging_events prior WHERE prior.export_id = NEW.export_id AND prior.operation = 'promote')) OR (NEW.operation = 'rollback' AND NOT EXISTS ( SELECT 1 FROM edition_staging_events prior WHERE prior.export_id = NEW.export_id AND prior.operation = 'promote' ))`
 - **Lexically referenced tables:** `edition_artifacts`, `edition_decisions`, `edition_release_authorizations`, `benchmark_principals`, `json_each`, `edition_staging_channel_state`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_staging_events_insert_guardBEFORE INSERT ON edition_staging_events
@@ -1265,9 +1265,9 @@ CREATE TRIGGER edition_staging_events_insert_guardBEFORE INSERT ON edition_stagi
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_staging_events_no_updateBEFORE UPDATE ON edition_staging_events
@@ -1280,9 +1280,9 @@ CREATE TRIGGER edition_staging_events_no_updateBEFORE UPDATE ON edition_staging_
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_staging_events_no_deleteBEFORE DELETE ON edition_staging_events
@@ -1295,9 +1295,9 @@ CREATE TRIGGER edition_staging_events_no_deleteBEFORE DELETE ON edition_staging_
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** `NEW.channel IS NOT OLD.channel OR NEW.state_revision <> OLD.state_revision + 1 OR NOT EXISTS ( SELECT 1 FROM edition_staging_events e WHERE e.event_id = NEW.current_event_id AND e.state_revision = NEW.state_revision AND e.export_id = NEW.current_export_id AND e.lkg_export_id IS NEW.lkg_export_id AND e.previous_current_export_id IS OLD.current_export_id AND NEW.lkg_event_id IS OLD.current_event_id )`
 - **Lexically referenced tables:** `ON`, `edition_staging_events`, `a`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_staging_state_update_guardBEFORE UPDATE ON edition_staging_channel_state
@@ -1321,9 +1321,9 @@ CREATE TRIGGER edition_staging_state_update_guardBEFORE UPDATE ON edition_stagin
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER edition_staging_state_no_deleteBEFORE DELETE ON edition_staging_channel_state
@@ -1336,9 +1336,9 @@ CREATE TRIGGER edition_staging_state_no_deleteBEFORE DELETE ON edition_staging_c
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER audit_events_no_updateBEFORE UPDATE ON audit_events
@@ -1351,9 +1351,9 @@ CREATE TRIGGER audit_events_no_updateBEFORE UPDATE ON audit_events
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER audit_events_no_deleteBEFORE DELETE ON audit_events
@@ -1366,9 +1366,9 @@ CREATE TRIGGER audit_events_no_deleteBEFORE DELETE ON audit_events
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER grant_revisions_no_updateBEFORE UPDATE ON permission_grant_revisions
@@ -1381,9 +1381,9 @@ CREATE TRIGGER grant_revisions_no_updateBEFORE UPDATE ON permission_grant_revisi
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER grant_revisions_no_deleteBEFORE DELETE ON permission_grant_revisions
@@ -1396,9 +1396,9 @@ CREATE TRIGGER grant_revisions_no_deleteBEFORE DELETE ON permission_grant_revisi
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER domain_revisions_no_updateBEFORE UPDATE ON domain_record_revisions
@@ -1411,9 +1411,9 @@ CREATE TRIGGER domain_revisions_no_updateBEFORE UPDATE ON domain_record_revision
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER domain_revisions_no_deleteBEFORE DELETE ON domain_record_revisions
@@ -1426,9 +1426,9 @@ CREATE TRIGGER domain_revisions_no_deleteBEFORE DELETE ON domain_record_revision
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER collection_observations_no_updateBEFORE UPDATE ON collection_observations
@@ -1441,9 +1441,9 @@ CREATE TRIGGER collection_observations_no_updateBEFORE UPDATE ON collection_obse
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER collection_observations_no_deleteBEFORE DELETE ON collection_observations
@@ -1456,9 +1456,9 @@ CREATE TRIGGER collection_observations_no_deleteBEFORE DELETE ON collection_obse
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `domain_records`, `collection_observations`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER ingestion_decisions_validate_articleBEFORE INSERT ON ingestion_decisions
@@ -1487,9 +1487,9 @@ CREATE TRIGGER ingestion_decisions_validate_articleBEFORE INSERT ON ingestion_de
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER ingestion_decisions_no_updateBEFORE UPDATE ON ingestion_decisions
@@ -1502,9 +1502,9 @@ CREATE TRIGGER ingestion_decisions_no_updateBEFORE UPDATE ON ingestion_decisions
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER ingestion_decisions_no_deleteBEFORE DELETE ON ingestion_decisions
@@ -1517,9 +1517,9 @@ CREATE TRIGGER ingestion_decisions_no_deleteBEFORE DELETE ON ingestion_decisions
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ingestion_decisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER ingestion_current_validateBEFORE INSERT ON ingestion_current
@@ -1537,9 +1537,9 @@ CREATE TRIGGER ingestion_current_validateBEFORE INSERT ON ingestion_current
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`, `ingestion_decisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER ingestion_current_validate_updateBEFORE UPDATE ON ingestion_current
@@ -1557,9 +1557,9 @@ CREATE TRIGGER ingestion_current_validate_updateBEFORE UPDATE ON ingestion_curre
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER ingestion_current_no_deleteBEFORE DELETE ON ingestion_current
@@ -1572,9 +1572,9 @@ CREATE TRIGGER ingestion_current_no_deleteBEFORE DELETE ON ingestion_current
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER story_decisions_no_updateBEFORE UPDATE ON story_decisions
@@ -1587,9 +1587,9 @@ CREATE TRIGGER story_decisions_no_updateBEFORE UPDATE ON story_decisions
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER story_decisions_no_deleteBEFORE DELETE ON story_decisions
@@ -1602,9 +1602,9 @@ CREATE TRIGGER story_decisions_no_deleteBEFORE DELETE ON story_decisions
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER story_decision_applications_no_updateBEFORE UPDATE ON story_decision_applications
@@ -1617,9 +1617,9 @@ CREATE TRIGGER story_decision_applications_no_updateBEFORE UPDATE ON story_decis
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER story_decision_applications_no_deleteBEFORE DELETE ON story_decision_applications
@@ -1632,9 +1632,9 @@ CREATE TRIGGER story_decision_applications_no_deleteBEFORE DELETE ON story_decis
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `domain_records`, `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER timeline_events_validate_insertBEFORE INSERT ON timeline_events
@@ -1663,9 +1663,9 @@ CREATE TRIGGER timeline_events_validate_insertBEFORE INSERT ON timeline_events
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER timeline_events_no_updateBEFORE UPDATE ON timeline_events
@@ -1678,9 +1678,9 @@ CREATE TRIGGER timeline_events_no_updateBEFORE UPDATE ON timeline_events
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER timeline_events_no_deleteBEFORE DELETE ON timeline_events
@@ -1693,9 +1693,9 @@ CREATE TRIGGER timeline_events_no_deleteBEFORE DELETE ON timeline_events
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `domain_records`, `sources`, `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER perspectives_validate_insertBEFORE INSERT ON perspectives
@@ -1756,9 +1756,9 @@ CREATE TRIGGER perspectives_validate_insertBEFORE INSERT ON perspectives
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER perspectives_no_updateBEFORE UPDATE ON perspectives
@@ -1771,9 +1771,9 @@ CREATE TRIGGER perspectives_no_updateBEFORE UPDATE ON perspectives
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER perspectives_no_deleteBEFORE DELETE ON perspectives
@@ -1786,9 +1786,9 @@ CREATE TRIGGER perspectives_no_deleteBEFORE DELETE ON perspectives
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `domain_records`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER claim_relations_validate_insertBEFORE INSERT ON claim_relations
@@ -1829,9 +1829,9 @@ CREATE TRIGGER claim_relations_validate_insertBEFORE INSERT ON claim_relations
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER claim_relations_no_updateBEFORE UPDATE ON claim_relations
@@ -1844,9 +1844,9 @@ CREATE TRIGGER claim_relations_no_updateBEFORE UPDATE ON claim_relations
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER claim_relations_no_deleteBEFORE DELETE ON claim_relations
@@ -1859,9 +1859,9 @@ CREATE TRIGGER claim_relations_no_deleteBEFORE DELETE ON claim_relations
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER timeline_events_review_validate_insertBEFORE INSERT ON timeline_events
@@ -1892,9 +1892,9 @@ CREATE TRIGGER timeline_events_review_validate_insertBEFORE INSERT ON timeline_e
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `NEW.variant_group_id IS NOT NULL`
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_variant_group_validate_insertBEFORE INSERT ON learning_objects
@@ -1914,9 +1914,9 @@ CREATE TRIGGER learning_objects_variant_group_validate_insertBEFORE INSERT ON le
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** `NEW.variant_group_id IS NOT NULL`
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_variant_group_validate_updateBEFORE UPDATE ON learning_objects
@@ -1937,9 +1937,9 @@ CREATE TRIGGER learning_objects_variant_group_validate_updateBEFORE UPDATE ON le
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `domain_records`, `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_validate_insertBEFORE INSERT ON learning_objects
@@ -1973,9 +1973,9 @@ CREATE TRIGGER learning_objects_validate_insertBEFORE INSERT ON learning_objects
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`, `time`, `domain_records`, `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_validate_updateBEFORE UPDATE ON learning_objects
@@ -2031,9 +2031,9 @@ CREATE TRIGGER learning_objects_validate_updateBEFORE UPDATE ON learning_objects
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_no_deleteBEFORE DELETE ON learning_objects
@@ -2046,9 +2046,9 @@ CREATE TRIGGER learning_objects_no_deleteBEFORE DELETE ON learning_objects
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `learning_objects`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_object_revisions_validate_insertBEFORE INSERT ON learning_object_revisions
@@ -2069,9 +2069,9 @@ CREATE TRIGGER learning_object_revisions_validate_insertBEFORE INSERT ON learnin
 - **Timing/event:** AFTER INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `learning_object_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_record_insertAFTER INSERT ON learning_objects
@@ -2088,9 +2088,9 @@ CREATE TRIGGER learning_objects_record_insertAFTER INSERT ON learning_objects
 - **Timing/event:** AFTER UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`, `learning_object_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_record_updateAFTER UPDATE ON learning_objects
@@ -2107,9 +2107,9 @@ CREATE TRIGGER learning_objects_record_updateAFTER UPDATE ON learning_objects
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_object_revisions_no_updateBEFORE UPDATE ON learning_object_revisions
@@ -2122,9 +2122,9 @@ CREATE TRIGGER learning_object_revisions_no_updateBEFORE UPDATE ON learning_obje
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_object_revisions_no_deleteBEFORE DELETE ON learning_object_revisions
@@ -2137,9 +2137,9 @@ CREATE TRIGGER learning_object_revisions_no_deleteBEFORE DELETE ON learning_obje
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER glossary_entries_validate_insertBEFORE INSERT ON glossary_entries
@@ -2159,9 +2159,9 @@ CREATE TRIGGER glossary_entries_validate_insertBEFORE INSERT ON glossary_entries
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`, `time`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER glossary_entries_validate_updateBEFORE UPDATE ON glossary_entries
@@ -2202,9 +2202,9 @@ CREATE TRIGGER glossary_entries_validate_updateBEFORE UPDATE ON glossary_entries
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER glossary_entries_no_deleteBEFORE DELETE ON glossary_entries
@@ -2217,9 +2217,9 @@ CREATE TRIGGER glossary_entries_no_deleteBEFORE DELETE ON glossary_entries
 - **Timing/event:** AFTER INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `glossary_entry_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER glossary_entries_record_insertAFTER INSERT ON glossary_entries
@@ -2236,9 +2236,9 @@ CREATE TRIGGER glossary_entries_record_insertAFTER INSERT ON glossary_entries
 - **Timing/event:** AFTER UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`, `glossary_entry_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER glossary_entries_record_updateAFTER UPDATE ON glossary_entries
@@ -2255,9 +2255,9 @@ CREATE TRIGGER glossary_entries_record_updateAFTER UPDATE ON glossary_entries
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `glossary_entries`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER glossary_entry_revisions_validate_insertBEFORE INSERT ON glossary_entry_revisions
@@ -2278,9 +2278,9 @@ CREATE TRIGGER glossary_entry_revisions_validate_insertBEFORE INSERT ON glossary
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER glossary_entry_revisions_no_updateBEFORE UPDATE ON glossary_entry_revisions
@@ -2293,9 +2293,9 @@ CREATE TRIGGER glossary_entry_revisions_no_updateBEFORE UPDATE ON glossary_entry
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER glossary_entry_revisions_no_deleteBEFORE DELETE ON glossary_entry_revisions
@@ -2308,9 +2308,9 @@ CREATE TRIGGER glossary_entry_revisions_no_deleteBEFORE DELETE ON glossary_entry
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.kind') = 'mcq_question'`
 - **Lexically referenced tables:** `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_mcq_validate_insertBEFORE INSERT ON learning_objects
@@ -2344,9 +2344,9 @@ CREATE TRIGGER learning_objects_mcq_validate_insertBEFORE INSERT ON learning_obj
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.kind') = 'mcq_question'`
 - **Lexically referenced tables:** `ON`, `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_mcq_validate_updateBEFORE UPDATE ON learning_objects
@@ -2380,9 +2380,9 @@ CREATE TRIGGER learning_objects_mcq_validate_updateBEFORE UPDATE ON learning_obj
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.kind') = 'vocabulary'`
 - **Lexically referenced tables:** `glossary_entries`, `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_glossary_validate_insertBEFORE INSERT ON learning_objects
@@ -2419,9 +2419,9 @@ CREATE TRIGGER learning_objects_glossary_validate_insertBEFORE INSERT ON learnin
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.kind') = 'vocabulary'`
 - **Lexically referenced tables:** `ON`, `glossary_entries`, `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER learning_objects_glossary_validate_updateBEFORE UPDATE ON learning_objects
@@ -2458,9 +2458,9 @@ CREATE TRIGGER learning_objects_glossary_validate_updateBEFORE UPDATE ON learnin
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_reviews_validate_insertBEFORE INSERT ON benchmark_reviews
@@ -2476,9 +2476,9 @@ CREATE TRIGGER benchmark_reviews_validate_insertBEFORE INSERT ON benchmark_revie
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`, `time`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_reviews_validate_updateBEFORE UPDATE ON benchmark_reviews
@@ -2504,9 +2504,9 @@ CREATE TRIGGER benchmark_reviews_validate_updateBEFORE UPDATE ON benchmark_revie
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_reviews_no_deleteBEFORE DELETE ON benchmark_reviews
@@ -2519,9 +2519,9 @@ CREATE TRIGGER benchmark_reviews_no_deleteBEFORE DELETE ON benchmark_reviews
 - **Timing/event:** AFTER INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `benchmark_review_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_reviews_record_insertAFTER INSERT ON benchmark_reviews
@@ -2538,9 +2538,9 @@ CREATE TRIGGER benchmark_reviews_record_insertAFTER INSERT ON benchmark_reviews
 - **Timing/event:** AFTER UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`, `benchmark_review_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_reviews_record_updateAFTER UPDATE ON benchmark_reviews
@@ -2557,9 +2557,9 @@ CREATE TRIGGER benchmark_reviews_record_updateAFTER UPDATE ON benchmark_reviews
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `benchmark_reviews`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_revisions_validate_insertBEFORE INSERT ON benchmark_review_revisions
@@ -2580,9 +2580,9 @@ CREATE TRIGGER benchmark_review_revisions_validate_insertBEFORE INSERT ON benchm
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_revisions_no_updateBEFORE UPDATE ON benchmark_review_revisions
@@ -2595,9 +2595,9 @@ CREATE TRIGGER benchmark_review_revisions_no_updateBEFORE UPDATE ON benchmark_re
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER benchmark_review_revisions_no_deleteBEFORE DELETE ON benchmark_review_revisions
@@ -2610,9 +2610,9 @@ CREATE TRIGGER benchmark_review_revisions_no_deleteBEFORE DELETE ON benchmark_re
 - **Timing/event:** AFTER INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `pipeline_stage_checkpoint_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_stage_checkpoint_initial_revisionAFTER INSERT ON pipeline_stage_checkpoints
@@ -2632,9 +2632,9 @@ CREATE TRIGGER pipeline_stage_checkpoint_initial_revisionAFTER INSERT ON pipelin
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_stage_checkpoint_revision_guardBEFORE UPDATE ON pipeline_stage_checkpoints
@@ -2669,9 +2669,9 @@ CREATE TRIGGER pipeline_stage_checkpoint_revision_guardBEFORE UPDATE ON pipeline
 - **Timing/event:** AFTER UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`, `pipeline_stage_checkpoint_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_stage_checkpoint_revision_snapshotAFTER UPDATE ON pipeline_stage_checkpoints
@@ -2691,9 +2691,9 @@ CREATE TRIGGER pipeline_stage_checkpoint_revision_snapshotAFTER UPDATE ON pipeli
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `json_type(NEW.metadata_json) IS NOT 'object' OR EXISTS ( SELECT 1 FROM json_each(NEW.metadata_json) WHERE key NOT IN ('adapter_version', 'provider_state', 'failure_code', 'reconciliation', 'attempt') OR (key = 'attempt' AND (type != 'integer' OR CAST(value AS INTEGER) NOT BETWEEN 1 AND 1000)) OR (key != 'attempt' AND (type != 'text' OR length(value) NOT BETWEEN 1 AND 128 OR value GLOB '*[^A-Za-z0-9_.:-]*')) )`
 - **Lexically referenced tables:** `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_stage_checkpoint_metadata_guard_insertBEFORE INSERT ON pipeline_stage_checkpoints
@@ -2715,9 +2715,9 @@ CREATE TRIGGER pipeline_stage_checkpoint_metadata_guard_insertBEFORE INSERT ON p
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** `json_type(NEW.metadata_json) IS NOT 'object' OR EXISTS ( SELECT 1 FROM json_each(NEW.metadata_json) WHERE key NOT IN ('adapter_version', 'provider_state', 'failure_code', 'reconciliation', 'attempt') OR (key = 'attempt' AND (type != 'integer' OR CAST(value AS INTEGER) NOT BETWEEN 1 AND 1000)) OR (key != 'attempt' AND (type != 'text' OR length(value) NOT BETWEEN 1 AND 128 OR value GLOB '*[^A-Za-z0-9_.:-]*')) )`
 - **Lexically referenced tables:** `ON`, `json_each`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_stage_checkpoint_metadata_guard_updateBEFORE UPDATE ON pipeline_stage_checkpoints
@@ -2739,9 +2739,9 @@ CREATE TRIGGER pipeline_stage_checkpoint_metadata_guard_updateBEFORE UPDATE ON p
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `NOT EXISTS ( SELECT 1 FROM pipeline_stage_checkpoints c WHERE c.pipeline_run_id = NEW.pipeline_run_id AND c.stage_ordinal = NEW.stage_ordinal AND c.revision = NEW.revision AND c.updated_at = NEW.created_at AND c.actor = NEW.actor AND c.reason = NEW.reason AND c.status = NEW.status AND c.provider_operation_ref IS NEW.provider_operation_ref AND c.output_fingerprint IS NEW.output_fingerprint AND c.metadata_json = NEW.metadata_json )`
 - **Lexically referenced tables:** `pipeline_stage_checkpoints`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_stage_checkpoint_revision_matches_headBEFORE INSERT ON pipeline_stage_checkpoint_revisions
@@ -2767,9 +2767,9 @@ CREATE TRIGGER pipeline_stage_checkpoint_revision_matches_headBEFORE INSERT ON p
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_stage_checkpoint_revisions_no_updateBEFORE UPDATE ON pipeline_stage_checkpoint_revisions
@@ -2782,9 +2782,9 @@ CREATE TRIGGER pipeline_stage_checkpoint_revisions_no_updateBEFORE UPDATE ON pip
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_stage_checkpoint_revisions_no_deleteBEFORE DELETE ON pipeline_stage_checkpoint_revisions
@@ -2797,9 +2797,9 @@ CREATE TRIGGER pipeline_stage_checkpoint_revisions_no_deleteBEFORE DELETE ON pip
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_stage_checkpoints_no_deleteBEFORE DELETE ON pipeline_stage_checkpoints
@@ -2812,9 +2812,9 @@ CREATE TRIGGER pipeline_stage_checkpoints_no_deleteBEFORE DELETE ON pipeline_sta
 - **Timing/event:** AFTER INSERT
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `pipeline_worker_lease_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_worker_lease_initial_revisionAFTER INSERT ON pipeline_worker_leases
@@ -2836,9 +2836,9 @@ CREATE TRIGGER pipeline_worker_lease_initial_revisionAFTER INSERT ON pipeline_wo
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_worker_lease_revision_guardBEFORE UPDATE ON pipeline_worker_leases
@@ -2885,9 +2885,9 @@ CREATE TRIGGER pipeline_worker_lease_revision_guardBEFORE UPDATE ON pipeline_wor
 - **Timing/event:** AFTER UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`, `pipeline_worker_lease_revisions`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_worker_lease_revision_snapshotAFTER UPDATE ON pipeline_worker_leases
@@ -2909,9 +2909,9 @@ CREATE TRIGGER pipeline_worker_lease_revision_snapshotAFTER UPDATE ON pipeline_w
 - **Timing/event:** BEFORE INSERT
 - **WHEN predicate:** `NOT EXISTS ( SELECT 1 FROM pipeline_worker_leases l WHERE l.pipeline_run_id = NEW.pipeline_run_id AND l.revision = NEW.revision AND l.updated_at = NEW.created_at AND l.worker_id = NEW.worker_id AND l.token_hash = NEW.token_hash AND l.fencing_token = NEW.fencing_token AND l.status = NEW.status AND l.acquired_at = NEW.acquired_at AND l.heartbeat_at = NEW.heartbeat_at AND l.expires_at = NEW.expires_at AND l.cancel_requested_at IS NEW.cancel_requested_at AND l.cancel_requested_by IS NEW.cancel_requested_by AND l.cancel_reason_code IS NEW.cancel_reason_code AND l.actor = NEW.actor AND l.reason = NEW.reason )`
 - **Lexically referenced tables:** `pipeline_worker_leases`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_worker_lease_revision_matches_headBEFORE INSERT ON pipeline_worker_lease_revisions
@@ -2937,9 +2937,9 @@ CREATE TRIGGER pipeline_worker_lease_revision_matches_headBEFORE INSERT ON pipel
 - **Timing/event:** BEFORE UPDATE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_worker_lease_revisions_no_updateBEFORE UPDATE ON pipeline_worker_lease_revisions
@@ -2952,9 +2952,9 @@ CREATE TRIGGER pipeline_worker_lease_revisions_no_updateBEFORE UPDATE ON pipelin
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_worker_lease_revisions_no_deleteBEFORE DELETE ON pipeline_worker_lease_revisions
@@ -2967,18 +2967,248 @@ CREATE TRIGGER pipeline_worker_lease_revisions_no_deleteBEFORE DELETE ON pipelin
 - **Timing/event:** BEFORE DELETE
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
-- **Semantic review:** Pending
-- **PostgreSQL mapping:** Pending
-- **Direct-SQL negative test:** Pending
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
 CREATE TRIGGER pipeline_worker_leases_no_deleteBEFORE DELETE ON pipeline_worker_leases
        BEGIN SELECT RAISE(ABORT, 'worker leases cannot be deleted'); END
 ```
 
+### `domain_record_revisions_validate_insert`
+
+- **Table:** `domain_record_revisions`
+- **Timing/event:** BEFORE INSERT
+- **WHEN predicate:** `NOT EXISTS ( SELECT 1 FROM domain_records d WHERE d.record_type = NEW.record_type AND d.id = NEW.record_id AND d.revision = NEW.revision AND d.payload_json = NEW.payload_json ) OR length(trim(NEW.actor)) = 0 OR length(trim(NEW.reason)) = 0`
+- **Lexically referenced tables:** `domain_records`
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
+
+```sql
+CREATE TRIGGER domain_record_revisions_validate_insertBEFORE INSERT ON domain_record_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM domain_records d
+         WHERE d.record_type = NEW.record_type
+           AND d.id = NEW.record_id
+           AND d.revision = NEW.revision
+           AND d.payload_json = NEW.payload_json
+       )
+       OR length(trim(NEW.actor)) = 0
+       OR length(trim(NEW.reason)) = 0
+       BEGIN SELECT RAISE(ABORT, 'domain revision must match current head and include actor/reason'); END
+```
+
+### `permission_grant_revisions_validate_insert`
+
+- **Table:** `permission_grant_revisions`
+- **Timing/event:** BEFORE INSERT
+- **WHEN predicate:** `NOT EXISTS ( SELECT 1 FROM permission_grants g WHERE g.id = NEW.grant_id AND ( (g.revision = NEW.revision AND g.payload_json = NEW.payload_json) OR ( g.revision + 1 = NEW.revision AND json_extract(NEW.payload_json, '$.id') IS g.id AND json_extract(NEW.payload_json, '$.source_id') IS g.source_id AND ( (g.status = 'pending' AND json_extract(NEW.payload_json, '$.status') IN ('approved', 'denied', 'suspended', 'revoked')) OR (g.status = 'approved' AND json_extract(NEW.payload_json, '$.status') IN ('suspended', 'revoked')) OR (g.status = 'suspended' AND json_extract(NEW.payload_json, '$.status') IN ('approved', 'revoked')) ) ) ) ) OR length(trim(NEW.actor)) = 0 OR length(trim(NEW.reason)) = 0`
+- **Lexically referenced tables:** `permission_grants`
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
+
+```sql
+CREATE TRIGGER permission_grant_revisions_validate_insertBEFORE INSERT ON permission_grant_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM permission_grants g
+         WHERE g.id = NEW.grant_id
+           AND (
+             (g.revision = NEW.revision AND g.payload_json = NEW.payload_json)
+             OR (
+               g.revision + 1 = NEW.revision
+               AND json_extract(NEW.payload_json, '$.id') IS g.id
+               AND json_extract(NEW.payload_json, '$.source_id') IS g.source_id
+               AND (
+                 (g.status = 'pending' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('approved', 'denied', 'suspended', 'revoked'))
+                 OR (g.status = 'approved' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('suspended', 'revoked'))
+                 OR (g.status = 'suspended' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('approved', 'revoked'))
+               )
+             )
+           )
+       )
+       OR length(trim(NEW.actor)) = 0
+       OR length(trim(NEW.reason)) = 0
+       BEGIN SELECT RAISE(ABORT, 'grant revision must match current or next legal head and include actor/reason'); END
+```
+
+### `permission_grants_revision_guard`
+
+- **Table:** `permission_grants`
+- **Timing/event:** BEFORE UPDATE
+- **WHEN predicate:** None
+- **Lexically referenced tables:** `ON`, `permission_grant_revisions`, `requires`
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
+
+```sql
+CREATE TRIGGER permission_grants_revision_guardBEFORE UPDATE ON permission_grants
+       BEGIN
+         SELECT CASE WHEN NEW.id IS NOT OLD.id
+             OR NEW.source_id IS NOT OLD.source_id
+             OR NEW.effective_from IS NOT OLD.effective_from
+             OR NEW.effective_until IS NOT OLD.effective_until
+             OR NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'permission grant identity is immutable and revision must increment by one') END;
+         SELECT CASE WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
+             OR json_extract(NEW.payload_json, '$.source_id') IS NOT NEW.source_id
+             OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+           THEN RAISE(ABORT, 'permission grant payload does not match indexed fields') END;
+         SELECT CASE WHEN NOT EXISTS (
+             SELECT 1 FROM permission_grant_revisions r
+             WHERE r.grant_id = NEW.id AND r.revision = NEW.revision
+               AND r.payload_json = NEW.payload_json
+           )
+           THEN RAISE(ABORT, 'permission grant update requires matching revision') END;
+         SELECT CASE WHEN NOT (
+             (OLD.status = 'pending' AND NEW.status IN ('approved', 'denied', 'suspended', 'revoked'))
+             OR (OLD.status = 'approved' AND NEW.status IN ('suspended', 'revoked'))
+             OR (OLD.status = 'suspended' AND NEW.status IN ('approved', 'revoked'))
+           )
+           THEN RAISE(ABORT, 'invalid permission grant status transition') END;
+       END
+```
+
+### `benchmark_review_assignment_revisions_validate_insert`
+
+- **Table:** `benchmark_review_assignment_revisions`
+- **Timing/event:** BEFORE INSERT
+- **WHEN predicate:** `NOT EXISTS ( SELECT 1 FROM benchmark_review_assignments a WHERE a.assignment_id = NEW.assignment_id AND ( (a.revision = NEW.revision AND a.payload_json = NEW.payload_json) OR ( a.revision + 1 = NEW.revision AND json_extract(NEW.payload_json, '$.assignment_id') IS a.assignment_id AND json_extract(NEW.payload_json, '$.artifact_id') IS a.artifact_id AND json_extract(NEW.payload_json, '$.artifact_fingerprint') IS a.artifact_fingerprint AND json_extract(NEW.payload_json, '$.reviewer_id') IS a.reviewer_id AND json_extract(NEW.payload_json, '$.assigned_by') IS a.assigned_by AND json_extract(NEW.payload_json, '$.language') IS a.language AND ( (a.status = 'assigned' AND json_extract(NEW.payload_json, '$.status') IN ('accepted', 'cancelled', 'expired')) OR (a.status = 'accepted' AND json_extract(NEW.payload_json, '$.status') IN ('submitted', 'cancelled', 'expired')) ) ) ) ) OR length(trim(NEW.actor)) = 0 OR length(trim(NEW.reason)) = 0`
+- **Lexically referenced tables:** `benchmark_review_assignments`
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
+
+```sql
+CREATE TRIGGER benchmark_review_assignment_revisions_validate_insertBEFORE INSERT ON benchmark_review_assignment_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM benchmark_review_assignments a
+         WHERE a.assignment_id = NEW.assignment_id
+           AND (
+             (a.revision = NEW.revision AND a.payload_json = NEW.payload_json)
+             OR (
+               a.revision + 1 = NEW.revision
+               AND json_extract(NEW.payload_json, '$.assignment_id') IS a.assignment_id
+               AND json_extract(NEW.payload_json, '$.artifact_id') IS a.artifact_id
+               AND json_extract(NEW.payload_json, '$.artifact_fingerprint') IS a.artifact_fingerprint
+               AND json_extract(NEW.payload_json, '$.reviewer_id') IS a.reviewer_id
+               AND json_extract(NEW.payload_json, '$.assigned_by') IS a.assigned_by
+               AND json_extract(NEW.payload_json, '$.language') IS a.language
+               AND (
+                 (a.status = 'assigned' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('accepted', 'cancelled', 'expired'))
+                 OR (a.status = 'accepted' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('submitted', 'cancelled', 'expired'))
+               )
+             )
+           )
+       )
+       OR length(trim(NEW.actor)) = 0
+       OR length(trim(NEW.reason)) = 0
+       BEGIN SELECT RAISE(ABORT, 'assignment revision must match current or next legal head and include actor/reason'); END
+```
+
+### `benchmark_review_assignment_status_transition_guard`
+
+- **Table:** `benchmark_review_assignments`
+- **Timing/event:** BEFORE UPDATE
+- **WHEN predicate:** None
+- **Lexically referenced tables:** `ON`, `benchmark_principals`, `json_each`, `benchmark_reviews`
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
+
+```sql
+CREATE TRIGGER benchmark_review_assignment_status_transition_guardBEFORE UPDATE ON benchmark_review_assignments
+       BEGIN
+         SELECT CASE WHEN NOT (
+             (OLD.status = 'assigned' AND NEW.status IN ('accepted', 'cancelled', 'expired'))
+             OR (OLD.status = 'accepted' AND NEW.status IN ('submitted', 'cancelled', 'expired'))
+           )
+           THEN RAISE(ABORT, 'invalid benchmark assignment status transition') END;
+         SELECT CASE WHEN NEW.status IN ('accepted', 'submitted')
+             AND NEW.last_actor IS NOT OLD.reviewer_id
+           THEN RAISE(ABORT, 'reviewer must perform accept and submit transitions') END;
+         SELECT CASE WHEN NEW.status = 'cancelled'
+             AND NEW.last_actor NOT IN (OLD.reviewer_id, OLD.assigned_by)
+           THEN RAISE(ABORT, 'only reviewer or assigner may cancel assignment') END;
+         SELECT CASE WHEN NEW.status = 'expired'
+             AND NEW.last_actor IS NOT OLD.assigned_by
+           THEN RAISE(ABORT, 'only assigner may expire assignment') END;
+         SELECT CASE WHEN NEW.status IN ('accepted', 'submitted')
+             AND NOT EXISTS (
+               SELECT 1 FROM benchmark_principals p
+               WHERE p.principal_id = NEW.last_actor AND p.active = 1
+                 AND p.principal_kind = 'human'
+                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                             WHERE role.value = 'benchmark_reviewer')
+                 AND EXISTS (SELECT 1 FROM json_each(p.languages_json) language
+                             WHERE language.value = NEW.language)
+             )
+           THEN RAISE(ABORT, 'assignment reviewer must be an active qualified human') END;
+         SELECT CASE WHEN NEW.status IN ('cancelled', 'expired')
+             AND NEW.last_actor = OLD.assigned_by
+             AND NOT EXISTS (
+               SELECT 1 FROM benchmark_principals p
+               WHERE p.principal_id = NEW.last_actor AND p.active = 1
+                 AND p.principal_kind = 'human'
+                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                             WHERE role.value = 'benchmark_curator')
+             )
+           THEN RAISE(ABORT, 'assignment curator must be an active human') END;
+         SELECT CASE WHEN NEW.status = 'cancelled'
+             AND NEW.last_actor = OLD.reviewer_id
+             AND NOT EXISTS (
+               SELECT 1 FROM benchmark_principals p
+               WHERE p.principal_id = NEW.last_actor AND p.active = 1
+                 AND p.principal_kind = 'human'
+                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                             WHERE role.value = 'benchmark_reviewer')
+                 AND EXISTS (SELECT 1 FROM json_each(p.languages_json) language
+                             WHERE language.value = NEW.language)
+             )
+           THEN RAISE(ABORT, 'assignment reviewer must be an active qualified human') END;
+         SELECT CASE WHEN NEW.status = 'accepted'
+             AND (json_extract(NEW.payload_json, '$.accepted_at') IS NULL
+               OR julianday(json_extract(NEW.payload_json, '$.accepted_at')) >= julianday(OLD.due_at))
+           THEN RAISE(ABORT, 'assignment acceptance must occur before deadline') END;
+         SELECT CASE WHEN NEW.status = 'submitted'
+             AND (json_extract(NEW.payload_json, '$.accepted_at') IS NULL
+               OR json_extract(NEW.payload_json, '$.closed_at') IS NULL
+               OR json_extract(NEW.payload_json, '$.submitted_review_id') IS NULL
+               OR julianday(json_extract(NEW.payload_json, '$.closed_at')) >= julianday(OLD.due_at)
+               OR julianday(json_extract(NEW.payload_json, '$.closed_at')) < julianday(json_extract(NEW.payload_json, '$.accepted_at'))
+               OR NOT EXISTS (
+                 SELECT 1 FROM benchmark_reviews r
+                 WHERE r.review_id = json_extract(NEW.payload_json, '$.submitted_review_id')
+                   AND r.benchmark_id = OLD.artifact_id
+                   AND r.benchmark_fingerprint = OLD.artifact_fingerprint
+                   AND r.language = OLD.language
+                   AND json_extract(r.payload_json, '$.reviewer.reviewer_id') = OLD.reviewer_id
+               ))
+           THEN RAISE(ABORT, 'submitted assignment requires a timely review for its exact assignee and artifact') END;
+         SELECT CASE WHEN NEW.status IN ('cancelled', 'expired')
+             AND (json_extract(NEW.payload_json, '$.closed_at') IS NULL
+               OR length(trim(COALESCE(json_extract(NEW.payload_json, '$.closure_reason'), ''))) = 0)
+           THEN RAISE(ABORT, 'closed assignment requires timestamp and reason') END;
+         SELECT CASE WHEN NEW.status = 'expired'
+             AND julianday(json_extract(NEW.payload_json, '$.closed_at')) < julianday(OLD.due_at)
+           THEN RAISE(ABORT, 'assignment cannot expire before its deadline') END;
+         SELECT CASE WHEN NEW.status = 'cancelled' AND OLD.status = 'accepted'
+             AND julianday(json_extract(NEW.payload_json, '$.closed_at')) < julianday(json_extract(OLD.payload_json, '$.accepted_at'))
+           THEN RAISE(ABORT, 'assignment cancellation cannot predate acceptance') END;
+       END
+```
+
 ## Review completion criteria
 
-A reviewer must replace each Pending field with an evidence-backed decision. For each trigger, document:
+A reviewer must retain evidence for:
 - invariant and threat model;
 - exact read/write dependencies and lock order;
 - PostgreSQL constraint, trigger, stored procedure, or application transaction mapping;
@@ -2987,4 +3217,4 @@ A reviewer must replace each Pending field with an evidence-backed decision. For
 - concurrency tests with independent PostgreSQL connections;
 - reviewer identity, review date, commit, and CI evidence.
 
-A source SQL record is not a completed review. No PostgreSQL trigger implementation is authorized solely by this inventory.
+A source SQL record is not proof of PostgreSQL implementation. The companion documents contain source-level review findings and open gaps.
