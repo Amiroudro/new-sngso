@@ -48,7 +48,8 @@ This closes the live-fixture and mechanical inventory portion of P0. It does **n
 - [Final acceptance and closure plan](SECTION_9_FINAL_ACCEPTANCE_AND_CLOSURE_PLAN.md): non-negotiable invariants, repository engineering gates, PostgreSQL implementation sequence, provider conformance, deployment controls, external editorial gates, CI matrix, and release safeguards.
 - [Live SQLite schema inspection](SECTION_9_SCHEMA_INSPECTION.md): read-only live database inventory, integrity and foreign-key checks, audit-chain verification, and deterministic schema digest.
 - [Trigger porting ledger](SECTION_9_TRIGGER_PORTING_LEDGER.md): live trigger event distribution, table coverage, high-risk families, and the per-trigger PostgreSQL semantic-review requirements.
-- [Complete trigger inventory](SECTION_9_TRIGGER_INVENTORY_COMPLETE.md): all 131 migration-defined trigger SQL bodies with mechanical event, predicate, and reference extraction. Human review remains pending.
+- [Complete trigger inventory](SECTION_9_TRIGGER_INVENTORY_COMPLETE.md): all 131 migration-defined trigger SQL bodies with mechanical event, predicate, and reference extraction.
+- [Operational trigger semantic review](SECTION_9_OPERATIONAL_TRIGGER_SEMANTIC_REVIEW.md): source-level review of all 23 pipeline-run, checkpoint, and worker-lease triggers, with PostgreSQL translation hazards and explicit remaining direct-SQL test gaps.
 
 The PostgreSQL documents remain design and inventory artifacts only. The live SQLite inspector is implemented with tests, but those tests have not yet been run in CI. None of these artifacts constitutes a PostgreSQL implementation or multi-host acceptance.
 
