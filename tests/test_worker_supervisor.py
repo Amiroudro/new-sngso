@@ -451,3 +451,26 @@ def test_lease_lost_child_cannot_mark_its_checkpoint_failed_or_indeterminate():
             assert checkpoint.status == "executing"
         finally:
             session.close(release=False)
+
+
+def test_supervisor_kills_child_when_point_of_use_lease_check_raises():
+    import pytest
+    from sngso_engine import LeaseLostError, SQLiteRegistry, WorkerLeaseSession
+
+    with SQLiteRegistry() as registry:
+        store, lease = _lease_fixture(registry)
+        session = WorkerLeaseSession(
+            store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
+        ).start()
+        session.check_cancellation = lambda: (_ for _ in ()).throw(
+            LeaseLostError("simulated lease loss at cancellation poll")
+        )
+        try:
+            result = _supervisor(
+                "import time; time.sleep(5)", timeout_seconds=2,
+            ).run("test_worker", _request(), lease_session=session)
+            assert result.status == "lease_lost"
+            assert result.result is None
+            assert result.termination in {"sigterm", "sigkill"}
+        finally:
+            session.close(release=False)
