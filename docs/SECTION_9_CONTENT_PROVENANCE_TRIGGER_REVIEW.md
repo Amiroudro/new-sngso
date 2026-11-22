@@ -1,6 +1,6 @@
 # Section 9 Content, Provenance, Ingestion, and Learning Trigger Semantic Review
 
-Status: **source-level semantic review completed for all 49 content/provenance/ingestion triggers, including schema-v34 and v35 revision guards. This completes source-level semantic review of all 131 SQLite triggers. It does not complete direct-SQL conformance, PostgreSQL implementation, or Section 9 production acceptance.**
+Status: **source-level semantic review completed for all 49 content/provenance/ingestion triggers, including schema-v34 and v35 revision guards. Together with the companion review documents, this completes source-level semantic review of all 138 SQLite triggers. It does not complete direct-SQL conformance, PostgreSQL implementation, or Section 9 production acceptance.**
 
 This review covers permission-grant and domain revision history, collection observations, ingestion decisions/current pointers, story perspectives and claim relations, learning objects and their evidence, and bilingual glossary entries.
 
