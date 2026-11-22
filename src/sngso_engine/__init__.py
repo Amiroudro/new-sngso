@@ -81,6 +81,15 @@ from .stage_checkpoints import (
     execute_checkpointed_stage,
     stage_idempotency_key,
 )
+from .worker_leases import (
+    CancellationRequested,
+    LeaseConflictError,
+    LeaseExpiredError,
+    LeaseLostError,
+    WorkerLease,
+    WorkerLeaseError,
+    WorkerLeaseStore,
+)
 from .orchestrator import (
     PipelineExecutionError,
     PipelineStage,
@@ -166,6 +175,13 @@ __all__ = [
     "execute_checkpointed_pipeline",
     "execute_checkpointed_stage",
     "stage_idempotency_key",
+    "CancellationRequested",
+    "LeaseConflictError",
+    "LeaseExpiredError",
+    "LeaseLostError",
+    "WorkerLease",
+    "WorkerLeaseError",
+    "WorkerLeaseStore",
     "PipelineExecutionError",
     "PipelineStage",
     "PipelineStageFailure",
