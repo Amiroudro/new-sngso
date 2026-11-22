@@ -753,7 +753,7 @@ def test_story_decision_application_ledger_is_unique_and_append_only():
                 [article_a, article_b],
             ),
         )
-        assert registry.schema_version() == 34
+        assert registry.schema_version() == 35
 
         registry._connection.execute(
             """INSERT INTO story_decision_applications
