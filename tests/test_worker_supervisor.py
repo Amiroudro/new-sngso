@@ -154,3 +154,15 @@ def test_registered_result_schema_is_enforced():
     result = WorkerSupervisor([entry]).run("test_worker", _request())
     assert result.status == "protocol_error"
     assert result.result is None
+
+
+def test_child_that_leaves_descendant_holding_pipes_is_failed_and_group_cleaned():
+    code = (
+        "import subprocess,sys,json; "
+        "subprocess.Popen([sys.executable,'-c','import time; time.sleep(5)']); "
+        "print(json.dumps({'schema_version':'1','result':{'ok':True}}))"
+    )
+    result = _supervisor(code, timeout_seconds=2).run("test_worker", _request())
+    assert result.status == "failed"
+    assert result.termination == "pipe_cleanup_unconfirmed"
+    assert result.duration_seconds < 4
