@@ -41,6 +41,8 @@ The process boundary must be real: a separate OS process with an independently e
 - The child must acquire or validate the current lease before work and revalidate ownership at each side-effect boundary.
 - Heartbeat renewal and cancellation observation remain explicit lease responsibilities. A child must stop cooperatively when cancellation is observed.
 - At deadline or supervisor shutdown, request graceful stop first and wait only for a configured grace interval.
+
+- The optional WorkerSignalShutdown adapter installs SIGTERM/SIGINT handlers on the main thread. Handlers only set an event; a normal control thread invokes bounded supervisor shutdown. Previous handlers are restored when the adapter closes. The hosting service remains responsible for admission draining and service-manager integration.
 - If the child remains alive, terminate the child process group, wait for a bounded interval, then use a hard kill as the final process-boundary action.
 - A process exit code is operational evidence only. It is not a provider outcome and cannot prove whether an external side effect happened.
 - On timeout, signal, abrupt exit, lost lease, or ambiguous IPC, leave any in-flight checkpoint unresolved/executing or mark it indeterminate using the checkpoint API's established rules. Require provider reconciliation before replay unless the stage is explicitly replay-safe and the provider proves it did not start.
