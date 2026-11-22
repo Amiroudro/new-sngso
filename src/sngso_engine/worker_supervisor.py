@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 import json
 import os
 import re
+import shutil
 import signal
+import sys
 import subprocess
 import threading
 import time
@@ -24,6 +26,32 @@ from .worker_leases import LeaseLostError, WorkerLeaseSession
 
 class WorkerSupervisorError(RuntimeError):
     """Base error for invalid supervisor configuration or requests."""
+
+
+@dataclass(frozen=True)
+class WorkerResourceLimits:
+    """Kernel-enforced Linux limits applied before the worker executable starts.
+
+    Values are hard and soft limits set together by util-linux prlimit(1).
+    They are deliberately opt-in; this class never silently falls back to an
+    unrestricted launch when the platform helper is unavailable.
+    """
+
+    cpu_seconds: int = 60
+    address_space_bytes: int = 1_073_741_824
+    open_files: int = 128
+
+    def __post_init__(self) -> None:
+        if (isinstance(self.cpu_seconds, bool) or not isinstance(self.cpu_seconds, int)
+                or not 1 <= self.cpu_seconds <= 86_400):
+            raise ValueError("cpu_seconds must be an integer from 1 to 86400")
+        if (isinstance(self.address_space_bytes, bool)
+                or not isinstance(self.address_space_bytes, int)
+                or not 16_777_216 <= self.address_space_bytes <= 17_179_869_184):
+            raise ValueError("address_space_bytes must be from 16 MiB to 16 GiB")
+        if (isinstance(self.open_files, bool) or not isinstance(self.open_files, int)
+                or not 16 <= self.open_files <= 4096):
+            raise ValueError("open_files must be an integer from 16 to 4096")
 
 
 @dataclass(frozen=True)
@@ -55,6 +83,8 @@ class WorkerEntrypoint:
         for item in self.argv:
             if not isinstance(item, str) or not item or "\x00" in item or len(item) > 4096:
                 raise ValueError("entrypoint argv contains an invalid argument")
+        if self.resource_limits is not None and not isinstance(self.resource_limits, WorkerResourceLimits):
+            raise ValueError("resource_limits must be a WorkerResourceLimits instance")
         for schema in (self.request_schema, self.result_schema):
             if not isinstance(schema, Mapping):
                 raise ValueError("worker request and result schemas must be JSON Schema objects")
@@ -180,6 +210,15 @@ class WorkerSupervisor:
         if not mapping:
             raise ValueError("at least one registered worker entrypoint is required")
         self._entrypoints = mapping
+        needs_limits = any(item.resource_limits is not None for item in mapping.values())
+        self._prlimit_path: str | None = None
+        if needs_limits:
+            if not sys.platform.startswith("linux"):
+                raise WorkerSupervisorError("kernel resource limits currently require Linux prlimit(1)")
+            helper = shutil.which("prlimit")
+            if helper is None or not os.path.isabs(helper):
+                raise WorkerSupervisorError("resource limits were requested but prlimit(1) is unavailable")
+            self._prlimit_path = helper
         self.timeout_seconds = float(timeout_seconds)
         self.termination_grace_seconds = float(termination_grace_seconds)
         self.max_request_bytes = max_request_bytes
@@ -266,6 +305,18 @@ class WorkerSupervisor:
             if lease_session.check_cancellation():
                 raise WorkerSupervisorError("a durable cancellation is already pending; refusing child launch")
         started = time.monotonic()
+        launch_argv = config.argv
+        if config.resource_limits is not None:
+            assert self._prlimit_path is not None
+            limits = config.resource_limits
+            launch_argv = (
+                self._prlimit_path,
+                f"--cpu={limits.cpu_seconds}",
+                f"--as={limits.address_space_bytes}",
+                f"--nofile={limits.open_files}",
+                "--",
+                *config.argv,
+            )
         channel = create_worker_control_channel(lease_session.lease) if lease_session else None
         process: subprocess.Popen[bytes] | None = None
         try:
@@ -280,7 +331,7 @@ class WorkerSupervisor:
                 if self._shutdown_event.is_set():
                     raise WorkerSupervisorError("supervisor is shutting down; refusing child launch")
                 process = subprocess.Popen(
-                    config.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    launch_argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE, shell=False, close_fds=True,
                     pass_fds=pass_fds, start_new_session=True, env=environment,
                 )
