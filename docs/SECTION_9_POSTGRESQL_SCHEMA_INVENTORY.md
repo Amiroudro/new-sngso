@@ -7,7 +7,7 @@ Extraction: migration tuple boundaries plus CREATE TABLE, CREATE INDEX, and CREA
 
 ## Migration-by-migration inventory
 
-All 34 migration definitions are present and numbered 1–34. Empty object lists are shown explicitly because a migration can add guards or other schema behavior without creating a new table.
+All 35 migration definitions are present and numbered 1–35. Empty object lists are shown explicitly because a migration can add guards or other schema behavior without creating a new table.
 ### Migration 1
 
 - Tables (12): `schema_migrations`, `sources`, `source_endpoints`, `permission_evidence`, `permission_grants`, `grant_endpoints`, `grant_evidence`, `grant_operation_evidence`, `permission_grant_revisions`, `domain_records`, `domain_record_revisions`, `audit_events`
@@ -213,7 +213,7 @@ All 34 migration definitions are present and numbered 1–34. Empty object lists
 | Migration definitions | 34 |
 | Distinct table definitions | 47 |
 | Distinct index definitions | 25 |
-| Distinct trigger definitions | 136 |
+| Distinct trigger definitions | 138 |
 
 ## Porting rules
 
@@ -226,4 +226,4 @@ All 34 migration definitions are present and numbered 1–34. Empty object lists
 
 ## Scope warning
 
-This inventory does not prove that every SQL object is represented by a simple declaration regex in future source versions. Re-run extraction after every registry migration and compare it with SQLite `sqlite_master` on a real schema-v34 fixture. The live fixture, `PRAGMA integrity_check`, `PRAGMA foreign_key_check`, and audit-chain verification remain mandatory.
+This inventory does not prove that every SQL object is represented by a simple declaration regex in future source versions. Re-run extraction after every registry migration and compare it with SQLite `sqlite_master` on a real schema-v35 fixture. The live fixture, `PRAGMA integrity_check`, `PRAGMA foreign_key_check`, and audit-chain verification remain mandatory.
