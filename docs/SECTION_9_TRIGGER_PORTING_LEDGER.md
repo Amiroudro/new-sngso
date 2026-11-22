@@ -1,25 +1,25 @@
 # Section 9 Trigger Porting Ledger
 
-Status: **live schema-v34 trigger inventory captured; all 136 triggers have source-level semantic review records. PostgreSQL port implementation and complete direct-SQL conformance remain open.**
+Status: **live schema-v35 trigger inventory captured; all 138 triggers have source-level semantic review records. PostgreSQL port implementation and complete direct-SQL conformance remain open.**
 
-Evidence source: CI-generated schema-v34 inspection artifact from [GitHub Actions run #45056334657](https://github.com/Amiroudro/new-sngso/actions/runs/45056334657). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
+Evidence source: CI-generated schema-v35 inspection artifact from [GitHub Actions run #45056334657](https://github.com/Amiroudro/new-sngso/actions/runs/45056334657). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
 
 ## Live trigger event distribution
 
-The freshly migrated schema contains **136 triggers across 40 tables**.
+The freshly migrated schema contains **138 triggers across 40 tables**.
 
 | SQLite event timing | Trigger count |
 |---|---:|
 | BEFORE INSERT | 37 |
-| BEFORE UPDATE | 47 |
+| BEFORE UPDATE | 48 |
 | BEFORE UPDATE OF payload_json | 2 |
 | BEFORE UPDATE OF principal_kind | 1 |
 | BEFORE DELETE | 38 |
 | AFTER INSERT | 6 |
-| AFTER UPDATE | 5 |
-| **Total** | **136** |
+| AFTER UPDATE | 6 |
+| **Total** | **138** |
 
-**54** triggers include a `WHEN` predicate. The count above is extracted from the live SQL definitions. All 136 triggers now have source-level review records in the linked family reviews; this does not mean they have been ported or that all direct-SQL tests are complete.
+**54** triggers include a `WHEN` predicate. The count above is extracted from the live SQL definitions. All 138 triggers now have source-level review records in the linked family reviews; this does not mean they have been ported or that all direct-SQL tests are complete.
 
 ## Trigger coverage by table
 
@@ -41,7 +41,7 @@ The freshly migrated schema contains **136 triggers across 40 tables**.
 | claim_relations | 3 |
 | collection_observations | 2 |
 | domain_record_revisions | 3 |
-| domain_records | 3 |
+| domain_records | 5 |
 | edition_artifacts | 3 |
 | edition_decisions | 3 |
 | edition_release_authorizations | 3 |
@@ -64,7 +64,7 @@ The freshly migrated schema contains **136 triggers across 40 tables**.
 | story_decision_applications | 2 |
 | story_decisions | 2 |
 | timeline_events | 4 |
-| **Total** | **136** |
+| **Total** | **138** |
 
 ## Required semantic review record
 
