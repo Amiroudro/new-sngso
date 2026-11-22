@@ -80,3 +80,39 @@ Do not substitute SQLite tests or mocks for these checks.
   connections sharing one local database file.
 - PostgreSQL and other multi-host backends: not implemented.
 - Distributed lease durability/HA: not accepted.
+
+
+## Shared transaction boundary: a critical architectural constraint
+
+A lease-only PostgreSQL database is not a valid replacement for the current
+SQLite-backed registry.
+
+Today, cancellation acknowledgement updates the worker lease, pipeline-run
+status, and audit chain in one SQLite transaction. Checkpoint creation and
+transitions likewise validate pipeline-run state and append audit events in
+the same registry transaction. The audit chain is globally ordered within
+that registry. Splitting leases into PostgreSQL while leaving runs, checkpoints,
+and audit records in SQLite would turn these atomic operations into distributed
+transactions that this engine does not implement.
+
+Therefore, a production PostgreSQL path must choose one of these designs:
+
+1. **Move the complete operational consistency boundary together.** Port the
+   pipeline-run lifecycle, worker leases, stage checkpoints, and audit-chain
+   writes to one PostgreSQL database and one transaction manager. Preserve
+   uniqueness, revision compare-and-swap, append-only protections, audit-chain
+   serialization, and migration compatibility. Other registry domains can
+   remain SQLite only if they are outside these operational transactions and
+   their cross-domain references are explicitly redesigned.
+2. **Keep SQLite as the authoritative operational store.** Continue using it
+   for leases, pipeline runs, checkpoints, and audit writes, accepting the
+   same-host coordination boundary. Do not claim multi-host worker support.
+
+A dual-write or outbox design may be considered only after specifying recovery,
+ordering, idempotency, and consistency semantics. It must not be presented as
+equivalent to the current single-transaction guarantees without proof.
+
+The protocol currently makes the lease API substitutable for consumers such
+as managed heartbeat sessions and checkpoint recovery. It does not make the
+whole registry backend substitutable. A complete PostgreSQL migration is a
+larger storage-engine project, not a small adapter.
