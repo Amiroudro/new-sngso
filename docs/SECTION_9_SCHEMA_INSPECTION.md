@@ -1,6 +1,6 @@
 # Section 9 Live SQLite Schema Inspection
 
-Status: **implemented locally; CI verification pending.**
+Status: **implemented and CI verified against a freshly migrated schema-v33 database.**
 
 The schema inspector turns the P0 inventory step into a repeatable read-only operation against an actual registry database. It does not infer the live schema from migration source text.
 
@@ -50,3 +50,15 @@ The report intentionally preserves SQL definitions, not just object names. Revie
 - Audit-chain verification on a newly initialized database.
 
 CI must pass these tests before P0 can be marked verified. The next P0 increment is a golden schema snapshot from a real schema-v33 fixture and explicit per-trigger semantic tests.
+
+## Verified CI baseline
+
+GitHub Actions [run #45054352627](https://github.com/Amiroudro/new-sngso/actions/runs/45054352627) passed the full Python suite, generated a fresh schema-v33 database using the real migration runner, ran this inspector, and uploaded the resulting `sqlite-schema-v33-inspection` artifact.
+
+The inspected database reported schema version 33, contiguous migration history 1–33, integrity `ok`, zero foreign-key violations, a valid retained audit chain, and exactly 47 tables, 25 explicit indexes, 131 triggers, and zero views. Its schema digest was:
+
+```
+42fd958579890d61fa64b3e84d769eb9a3eadcd905a101f7465e3a094b28b499
+```
+
+The artifact is retained until 6 December 2026. This is a clean migration fixture generated in CI, not a production database backup or a populated operational registry.
