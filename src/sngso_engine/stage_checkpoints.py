@@ -498,7 +498,6 @@ def execute_checkpointed_pipeline(
                     finished_at=finished_at.isoformat(),
                     failure_code="stage_failed",
                     failure_detail="A checkpointed stage failed or was blocked; details are held in its checkpoint.",
-                    output_hashes=[],
                     stage_results=stage_results + [
                         {"stage": remaining.name, "status": "blocked"}
                         for remaining in stage_list[ordinal + 1:]
