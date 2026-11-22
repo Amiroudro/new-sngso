@@ -153,6 +153,7 @@ from .ports import (
     SourceGovernanceRepository,
 )
 from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegistry
+from .schema_inspection import SchemaInspectionError, inspect_sqlite_schema
 
 __all__ = [
     "ArticleRecord",
@@ -292,4 +293,6 @@ __all__ = [
     "load_schema",
     "sha256_fingerprint",
     "validate_payload",
+    "SchemaInspectionError",
+    "inspect_sqlite_schema",
 ]
