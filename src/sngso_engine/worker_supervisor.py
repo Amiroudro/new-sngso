@@ -172,6 +172,127 @@ class _StdinWriter(threading.Thread):
                 pass
 
 
+class WorkerSignalShutdown:
+    """Translate process signals into normal-thread bounded supervisor shutdown.
+
+    Signal handlers only set an event. A dedicated control thread performs
+    process-group termination and bounded waits outside signal context.
+    Installation/restoration must occur on the main thread, as required by
+    Python's signal module.
+    """
+
+    def __init__(
+        self,
+        supervisor: "WorkerSupervisor",
+        *,
+        signals: Sequence[int] = (signal.SIGTERM, signal.SIGINT),
+        timeout_seconds: float = 5.0,
+    ) -> None:
+        if not isinstance(supervisor, WorkerSupervisor):
+            raise TypeError("supervisor must be a WorkerSupervisor")
+        if (isinstance(timeout_seconds, bool)
+                or not isinstance(timeout_seconds, (int, float))
+                or not 0.0 <= timeout_seconds <= 60.0):
+            raise ValueError("signal shutdown timeout must be between zero and 60")
+        normalized = tuple(signals)
+        if not normalized or len(set(normalized)) != len(normalized):
+            raise ValueError("signals must be a non-empty unique sequence")
+        for signum in normalized:
+            if isinstance(signum, bool) or not isinstance(signum, int) or signum not in {
+                signal.SIGTERM, signal.SIGINT,
+            }:
+                raise ValueError("only SIGTERM and SIGINT may trigger worker shutdown")
+        self.supervisor = supervisor
+        self.signals = normalized
+        self.timeout_seconds = float(timeout_seconds)
+        self._received = threading.Event()
+        self._stop = threading.Event()
+        self._completed = threading.Event()
+        self._previous: dict[int, Any] = {}
+        self._thread: threading.Thread | None = None
+        self._received_signal: int | None = None
+        self._shutdown_result: bool | None = None
+        self._error: Exception | None = None
+
+    @property
+    def received_signal(self) -> int | None:
+        return self._received_signal
+
+    @property
+    def shutdown_complete(self) -> bool:
+        return self._completed.is_set()
+
+    @property
+    def shutdown_result(self) -> bool | None:
+        return self._shutdown_result
+
+    @property
+    def shutdown_error(self) -> Exception | None:
+        return self._error
+
+    def _handle_signal(self, signum: int, frame: Any) -> None:
+        # Deliberately do not wait, access the registry, or terminate children
+        # in signal context. The normal control thread performs all cleanup.
+        self._received_signal = signum
+        self._received.set()
+
+    def _control_loop(self) -> None:
+        if self._received.wait():
+            try:
+                self._shutdown_result = self.supervisor.shutdown(
+                    timeout_seconds=self.timeout_seconds,
+                )
+            except Exception as exc:
+                self._error = exc
+            finally:
+                self._completed.set()
+
+    def start(self) -> "WorkerSignalShutdown":
+        if threading.current_thread() is not threading.main_thread():
+            raise WorkerSupervisorError("signal handlers must be installed from the main thread")
+        if self._thread is not None:
+            raise WorkerSupervisorError("signal shutdown adapter has already been started")
+        try:
+            for signum in self.signals:
+                self._previous[signum] = signal.getsignal(signum)
+                signal.signal(signum, self._handle_signal)
+        except Exception:
+            for signum, previous in self._previous.items():
+                signal.signal(signum, previous)
+            self._previous.clear()
+            raise
+        self._thread = threading.Thread(
+            target=self._control_loop, name="worker-signal-shutdown", daemon=True,
+        )
+        self._thread.start()
+        return self
+
+    def close(self) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            raise WorkerSupervisorError("signal handlers must be restored from the main thread")
+        for signum, previous in self._previous.items():
+            signal.signal(signum, previous)
+        self._previous.clear()
+        if self._thread is not None:
+            if not self._received.is_set():
+                self._stop.set()
+                # Wake a control thread that is waiting for a signal but whose
+                # adapter is being closed without any shutdown request.
+                self._received.set()
+                self._shutdown_result = None
+                self._completed.set()
+            self._thread.join(timeout=self.timeout_seconds + 1.0)
+            if self._thread.is_alive():
+                raise WorkerSupervisorError("signal shutdown control thread did not stop within its bound")
+            self._thread = None
+
+    def __enter__(self) -> "WorkerSignalShutdown":
+        return self.start()
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        self.close()
+
+
 class WorkerSupervisor:
     """Supervise one registered child process with a hard wall-clock bound.
 
