@@ -269,7 +269,7 @@ The complete table inventory is grouped below to make omissions visible during P
 - **Pipeline operations:** `pipeline_runs`, `pipeline_run_revisions`, `pipeline_stage_checkpoints`, `pipeline_stage_checkpoint_revisions`, `pipeline_worker_leases`, `pipeline_worker_lease_revisions`.
 - **Edition artifacts and staging controls:** `edition_artifacts`, `edition_decisions`, `edition_release_authorizations`, `edition_staging_events`, `edition_staging_channel_state`.
 
-The PostgreSQL port must also account for all 25 named indexes and all 131 named triggers in the source migration definitions, including partial uniqueness, JSON payload guards, immutable histories, lifecycle checks, and cross-record validation. The inventory should be regenerated from source as migrations evolve; do not maintain it by hand as the sole source of truth.
+The PostgreSQL port must also account for all 25 named indexes and all 138 named triggers in the source migration definitions, including partial uniqueness, JSON payload guards, immutable histories, lifecycle checks, and cross-record validation. The inventory should be regenerated from source as migrations evolve; do not maintain it by hand as the sole source of truth.
 
 The table inventory contains more than the seven operational tables listed in Section 2. That difference is deliberate: the seven-table list identifies the core run/lease/checkpoint/audit records, while the full registry inventory identifies the additional tables that must move with the global audit chain if its present single-chain semantics are to remain intact.
 
