@@ -4,6 +4,7 @@ import sqlite3
 
 import pytest
 
+from sngso_engine import inspect_sqlite_schema as exported_inspector
 from sngso_engine.registry import SQLiteRegistry
 from sngso_engine.schema_inspection import (
     SchemaInspectionError,
@@ -88,3 +89,7 @@ def test_inspection_detects_foreign_key_violations(tmp_path):
 
     assert report["healthy"] is False
     assert report["foreign_key_violations"]
+
+
+def test_schema_inspector_is_exported_from_package():
+    assert exported_inspector is inspect_sqlite_schema
