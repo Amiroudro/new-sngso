@@ -1,8 +1,8 @@
 # Section 9 Complete SQLite Trigger Inventory
 
-Status: **mechanically extracted from the repository's schema migration SQL; all 136 trigger definitions have source-level semantic review records in the companion review documents.**
+Status: **mechanically extracted from the repository's migration SQL; all 138 trigger definitions have source-level semantic review records in the companion review documents.**
 
-This inventory expands the live trigger ledger into one reviewable record per trigger. It is generated from migration definitions in `src/sngso_engine/registry.py`; the CI live schema-v34 artifact is authoritative for the migrated database.
+This inventory expands the live trigger ledger into one reviewable record per trigger. It is generated from migration definitions in `src/sngso_engine/registry.py`; the CI live schema-v35 artifact is authoritative for the migrated database.
 
 **Important:** table references below are lexical candidates extracted from SQL tokens, not a parser-proven dependency graph. They may include false positives (for example, column or CTE names) and omit dynamic references. This file does not claim PostgreSQL equivalence or complete direct-SQL negative test coverage.
 
@@ -11,13 +11,13 @@ This inventory expands the live trigger ledger into one reviewable record per tr
 | Timing and event | Count |
 |---|---:|
 | AFTER INSERT | 6 |
-| AFTER UPDATE | 5 |
+| AFTER UPDATE | 6 |
 | BEFORE DELETE | 38 |
 | BEFORE INSERT | 37 |
-| BEFORE UPDATE | 47 |
+| BEFORE UPDATE | 48 |
 | BEFORE UPDATE OF payload_json | 2 |
 | BEFORE UPDATE OF principal_kind | 1 |
-| **Total** | **136** |
+| **Total** | **138** |
 
 ## Trigger records
 
@@ -3060,6 +3060,14 @@ CREATE TRIGGER permission_grants_revision_guardBEFORE UPDATE ON permission_grant
              OR json_extract(NEW.payload_json, '$.source_id') IS NOT NEW.source_id
              OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
            THEN RAISE(ABORT, 'permission grant payload does not match indexed fields') END;
+         SELECT CASE WHEN json_remove(
+               NEW.payload_json, '$.status', '$.reviewed_at', '$.reviewed_by',
+               '$.revoked_at', '$.revocation_reason', '$.notes'
+             ) IS NOT json_remove(
+               OLD.payload_json, '$.status', '$.reviewed_at', '$.reviewed_by',
+               '$.revoked_at', '$.revocation_reason', '$.notes'
+             )
+           THEN RAISE(ABORT, 'permission grant scope and evidence are immutable across status transitions') END;
          SELECT CASE WHEN NOT EXISTS (
              SELECT 1 FROM permission_grant_revisions r
              WHERE r.grant_id = NEW.id AND r.revision = NEW.revision
@@ -3127,7 +3135,14 @@ CREATE TRIGGER benchmark_review_assignment_revisions_validate_insertBEFORE INSER
 ```sql
 CREATE TRIGGER benchmark_review_assignment_status_transition_guardBEFORE UPDATE ON benchmark_review_assignments
        BEGIN
-         SELECT CASE WHEN NOT (
+         SELECT CASE WHEN NEW.status IS NOT OLD.status AND (
+             length(trim(NEW.last_actor)) = 0
+             OR length(trim(NEW.last_reason)) = 0
+             OR json_extract(NEW.payload_json, '$.last_transition.actor') IS NOT NEW.last_actor
+             OR json_extract(NEW.payload_json, '$.last_transition.reason') IS NOT NEW.last_reason
+           )
+           THEN RAISE(ABORT, 'assignment transition receipt must match actor and reason') END;
+         SELECT CASE WHEN NEW.status IS NOT OLD.status AND NOT (
              (OLD.status = 'assigned' AND NEW.status IN ('accepted', 'cancelled', 'expired'))
              OR (OLD.status = 'accepted' AND NEW.status IN ('submitted', 'cancelled', 'expired'))
            )
@@ -3145,35 +3160,32 @@ CREATE TRIGGER benchmark_review_assignment_status_transition_guardBEFORE UPDATE 
              AND NOT EXISTS (
                SELECT 1 FROM benchmark_principals p
                WHERE p.principal_id = NEW.last_actor AND p.active = 1
-                 AND p.principal_kind = 'human'
-                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                                  AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
                              WHERE role.value = 'benchmark_reviewer')
                  AND EXISTS (SELECT 1 FROM json_each(p.languages_json) language
                              WHERE language.value = NEW.language)
              )
-           THEN RAISE(ABORT, 'assignment reviewer must be an active qualified human') END;
+           THEN RAISE(ABORT, 'assignment reviewer must be active and language-qualified') END;
          SELECT CASE WHEN NEW.status IN ('cancelled', 'expired')
              AND NEW.last_actor = OLD.assigned_by
              AND NOT EXISTS (
                SELECT 1 FROM benchmark_principals p
                WHERE p.principal_id = NEW.last_actor AND p.active = 1
-                 AND p.principal_kind = 'human'
-                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                                  AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
                              WHERE role.value = 'benchmark_curator')
              )
-           THEN RAISE(ABORT, 'assignment curator must be an active human') END;
+           THEN RAISE(ABORT, 'assignment curator must be active and qualified') END;
          SELECT CASE WHEN NEW.status = 'cancelled'
              AND NEW.last_actor = OLD.reviewer_id
              AND NOT EXISTS (
                SELECT 1 FROM benchmark_principals p
                WHERE p.principal_id = NEW.last_actor AND p.active = 1
-                 AND p.principal_kind = 'human'
-                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                                  AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
                              WHERE role.value = 'benchmark_reviewer')
                  AND EXISTS (SELECT 1 FROM json_each(p.languages_json) language
                              WHERE language.value = NEW.language)
              )
-           THEN RAISE(ABORT, 'assignment reviewer must be an active qualified human') END;
+           THEN RAISE(ABORT, 'assignment reviewer must be active and language-qualified') END;
          SELECT CASE WHEN NEW.status = 'accepted'
              AND (json_extract(NEW.payload_json, '$.accepted_at') IS NULL
                OR julianday(json_extract(NEW.payload_json, '$.accepted_at')) >= julianday(OLD.due_at))
@@ -3206,6 +3218,71 @@ CREATE TRIGGER benchmark_review_assignment_status_transition_guardBEFORE UPDATE 
        END
 ```
 
+### `domain_records_revision_guard`
+
+- **Table:** `domain_records`
+- **Timing/event:** BEFORE UPDATE
+- **WHEN predicate:** None
+- **Lexically referenced tables:** `ON`
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
+
+```sql
+CREATE TRIGGER domain_records_revision_guardBEFORE UPDATE ON domain_records
+       BEGIN
+         SELECT CASE WHEN NEW.record_type IS NOT OLD.record_type
+             OR NEW.id IS NOT OLD.id
+             OR NEW.created_at IS NOT OLD.created_at
+           THEN RAISE(ABORT, 'domain record identity and creation time are immutable') END;
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'domain record revision must increment by one') END;
+         SELECT CASE WHEN length(trim(NEW.last_actor)) = 0
+             OR length(trim(NEW.last_reason)) = 0
+             OR length(trim(NEW.last_revision_at)) = 0
+           THEN RAISE(ABORT, 'domain record revision requires actor, reason and timestamp') END;
+         SELECT CASE WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
+           THEN RAISE(ABORT, 'domain record payload ID must match indexed identity') END;
+         SELECT CASE WHEN julianday(NEW.last_revision_at) < julianday(OLD.last_revision_at)
+           THEN RAISE(ABORT, 'domain record revision timestamp cannot move backwards') END;
+         SELECT CASE WHEN OLD.record_type = 'article'
+             AND (
+               json_extract(NEW.payload_json, '$.source_id') IS NOT json_extract(OLD.payload_json, '$.source_id')
+               OR json_extract(NEW.payload_json, '$.canonical_uri') IS NOT json_extract(OLD.payload_json, '$.canonical_uri')
+             )
+           THEN RAISE(ABORT, 'article source and canonical identity are immutable') END;
+         SELECT CASE WHEN OLD.record_type = 'evidence'
+             AND (
+               json_extract(NEW.payload_json, '$.source_id') IS NOT json_extract(OLD.payload_json, '$.source_id')
+               OR json_extract(NEW.payload_json, '$.claim_id') IS NOT json_extract(OLD.payload_json, '$.claim_id')
+               OR json_extract(NEW.payload_json, '$.article_id') IS NOT json_extract(OLD.payload_json, '$.article_id')
+               OR json_extract(NEW.payload_json, '$.observation_id') IS NOT json_extract(OLD.payload_json, '$.observation_id')
+               OR json_extract(NEW.payload_json, '$.locator') IS NOT json_extract(OLD.payload_json, '$.locator')
+             )
+           THEN RAISE(ABORT, 'evidence provenance identity is immutable') END;
+       END
+```
+
+### `domain_records_record_update`
+
+- **Table:** `domain_records`
+- **Timing/event:** AFTER UPDATE
+- **WHEN predicate:** None
+- **Lexically referenced tables:** `ON`, `domain_record_revisions`
+- **Semantic review:** See the linked review document for its trigger family
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
+
+```sql
+CREATE TRIGGER domain_records_record_updateAFTER UPDATE ON domain_records
+       BEGIN
+         INSERT INTO domain_record_revisions
+         (record_type, record_id, revision, created_at, actor, reason, payload_json)
+         VALUES (NEW.record_type, NEW.id, NEW.revision, NEW.last_revision_at,
+                 NEW.last_actor, NEW.last_reason, NEW.payload_json);
+       END
+```
+
 ## Review completion criteria
 
 A reviewer must retain evidence for:
@@ -3215,6 +3292,6 @@ A reviewer must retain evidence for:
 - exact SQLSTATE/error mapping;
 - positive and negative direct-SQL tests under the restricted application role;
 - concurrency tests with independent PostgreSQL connections;
-- reviewer identity, review date, commit, and CI evidence.
+- reviewer identity, review date, implementation commit, and CI evidence.
 
 A source SQL record is not proof of PostgreSQL implementation. The companion documents contain source-level review findings and open gaps.
