@@ -1,6 +1,6 @@
 # Section 9.13: External Worker Supervision and Bounded Stage Execution
 
-Status: **architecture contract, POSIX subprocess primitive, protected lease-control IPC, and parent-side lease-session integration implemented; checkpoint/provider integration and production supervision remain incomplete.**
+Status: **POSIX subprocess supervision, protected lease-control IPC, lease-session integration, bounded shutdown, and read-only checkpoint recovery inventory implemented locally; production supervision remains incomplete.**
 
 ## Purpose
 
@@ -66,9 +66,11 @@ The protected channel is implemented in `sngso_engine.worker_control` and integr
 
 ## Shutdown and signals
 
-The supervisor must handle its own shutdown signals idempotently: stop accepting new children, request graceful cancellation for active children, wait within a global shutdown budget, then terminate remaining child process groups. It must preserve unresolved checkpoint state for later reconciliation.
+The local `WorkerSupervisor.shutdown(timeout_seconds=...)` now provides an idempotent shutdown entry point: it atomically stops accepting new children, snapshots active process groups, sends SIGTERM, and escalates remaining children to SIGKILL within one shared bounded time budget. The active run loop also observes the shutdown event and returns a non-success `shutdown` outcome. Regression tests cover active-child termination, post-shutdown launch rejection, repeated shutdown calls, and bounded completion.
 
-Signal handlers must not perform database transactions or complex cleanup directly. They should set a shutdown event consumed by the supervisor loop.
+This API is callable by an external signal adapter, but it does not install process-global signal handlers. Signal handlers must not perform database transactions or complex cleanup directly; an external service entrypoint should set a shutdown event or invoke this method from its normal control thread. Shutdown never acknowledges a durable lease cancellation, marks a checkpoint successful, or proves that a provider operation did not happen.
+
+For process restart, `StageCheckpointStore.list_unresolved()` now returns a read-only, ordered inventory of `executing` and `indeterminate` checkpoints, including their stable idempotency keys and any persisted provider operation references. It does not acquire leases, call providers, mutate state, or authorize replay. A restarted service must first authenticate, acquire a valid lease, and reconcile each candidate with its provider; unknown outcomes remain blocked from replay.
 
 ## Observability
 
@@ -101,4 +103,4 @@ External acceptance still requires authenticated worker identity, a shared durab
 
 ## Current decision
 
-Section 9.13 is **partially implemented locally**: POSIX subprocess supervision, protected lease handoff, heartbeat-loss detection, and cooperative cancellation propagation exist. Checkpoint outcome integration, provider-enforced fencing/idempotency, OS resource quotas, service-manager supervision, restart recovery, and production operations remain unimplemented. Existing Section 9.11 and 9.12 local behavior remains unchanged. Draft PR only; no merge, deployment, scheduler activation, live collection, or publication.
+Section 9.13 is **partially implemented locally**: POSIX subprocess supervision, protected lease handoff, heartbeat-loss detection, and cooperative cancellation propagation exist. Provider-enforced fencing/idempotency, OS resource quotas, service-manager supervision, signal adapter wiring, automatic service restart policy, and production operations remain unimplemented. The local shutdown API and read-only unresolved-checkpoint recovery inventory are implemented but do not themselves perform recovery or replay. Existing Section 9.11 and 9.12 local behavior remains unchanged. Draft PR only; no merge, deployment, scheduler activation, live collection, or publication.
