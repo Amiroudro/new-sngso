@@ -2738,3 +2738,42 @@ def test_schema_33_migrates_to_34_with_revision_and_assignment_guards(tmp_path, 
             "benchmark_review_assignment_revisions_validate_insert",
             "benchmark_review_assignment_status_transition_guard",
         } <= triggers
+
+
+def test_permission_grant_sql_transition_cannot_rewrite_scope_or_evidence():
+    with SQLiteRegistry() as registry:
+        populate_registry(registry)
+        registry.add_permission_grant(grant_record())
+        row = registry._connection.execute(
+            "SELECT revision, payload_json FROM permission_grants WHERE id = ?",
+            ("permission:publisher-a-discovery-001",),
+        ).fetchone()
+        payload = json.loads(row["payload_json"])
+        payload["status"] = "revoked"
+        payload["endpoint_ids"] = [*payload["endpoint_ids"], "endpoint:attacker"]
+        payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+        with pytest.raises(sqlite3.IntegrityError, match="scope and evidence are immutable"):
+            with registry._transaction():
+                registry._connection.execute(
+                    """INSERT INTO permission_grant_revisions
+                       (grant_id, revision, created_at, actor, reason, payload_json)
+                       VALUES (?, ?, ?, 'rights-reviewer', 'attempted scope rewrite', ?)""",
+                    (
+                        "permission:publisher-a-discovery-001",
+                        row["revision"] + 1,
+                        "2026-11-20T00:00:00Z",
+                        payload_json,
+                    ),
+                )
+                registry._connection.execute(
+                    """UPDATE permission_grants
+                       SET status = 'revoked', revision = ?, payload_json = ?
+                       WHERE id = ? AND revision = ?""",
+                    (
+                        row["revision"] + 1,
+                        payload_json,
+                        "permission:publisher-a-discovery-001",
+                        row["revision"],
+                    ),
+                )
