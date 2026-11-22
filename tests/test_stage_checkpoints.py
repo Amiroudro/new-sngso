@@ -300,6 +300,94 @@ def test_checkpoint_rejects_free_form_metadata_that_could_leak_content():
             )
 
 
+def test_external_success_before_local_commit_is_reconciled_without_duplicate(monkeypatch):
+    context = {"batch": "commit-gap-fixture"}
+    side_effects = []
+    original_transition = StageCheckpointStore.transition
+
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+
+        def fail_local_commit(self, checkpoint, status, **kwargs):
+            raise OSError("simulated local commit failure")
+
+        monkeypatch.setattr(StageCheckpointStore, "transition", fail_local_commit)
+        with pytest.raises(OSError, match="simulated local commit failure"):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:checkpoint-test", 0, "remote_write", context,
+                lambda current, key: side_effects.append(key) or {"receipt": "remote_receipt_1"},
+                actor="test_worker", reason="simulate_commit_gap",
+                permission_check=lambda: True, provider_namespace="provider_x",
+            )
+        assert len(side_effects) == 1
+        assert StageCheckpointStore(registry).get("pipeline-run:checkpoint-test", 0).status == "executing"
+
+        monkeypatch.setattr(StageCheckpointStore, "transition", original_transition)
+        recovered = execute_checkpointed_stage(
+            registry, "pipeline-run:checkpoint-test", 0, "remote_write", context,
+            lambda current, key: side_effects.append("duplicate") or {"receipt": "duplicate"},
+            actor="test_worker", reason="reconcile_commit_gap",
+            permission_check=lambda: True, provider_namespace="provider_x",
+            reconcile=lambda key, ref: Reconciliation(
+                "completed", output={"receipt": "remote_receipt_1"},
+                operation_ref="remote_op_1",
+            ),
+        )
+        assert recovered["output"] == {"receipt": "remote_receipt_1"}
+        assert recovered["reused"] is True
+        assert len(side_effects) == 1
+        assert StageCheckpointStore(registry).get("pipeline-run:checkpoint-test", 0).status == "succeeded"
+
+
+def test_checkpoint_transition_and_audit_event_roll_back_atomically(monkeypatch):
+    context = {"batch": "atomic-rollback-fixture"}
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        store = StageCheckpointStore(registry)
+        checkpoint = store.begin(
+            "pipeline-run:checkpoint-test", 0, "transform",
+            sha256_fingerprint(context), provider_namespace=None,
+            actor="test_worker", reason="initial_intent",
+        )
+
+        def fail_audit(*args, **kwargs):
+            raise OSError("simulated audit insert failure")
+
+        monkeypatch.setattr(registry, "_append_audit", fail_audit)
+        with pytest.raises(OSError, match="simulated audit insert failure"):
+            store.transition(
+                checkpoint, "succeeded", actor="test_worker", reason="atomic_success",
+                output_fingerprint=sha256_fingerprint({"ok": True}),
+            )
+        monkeypatch.undo()
+        current = store.get("pipeline-run:checkpoint-test", 0)
+        assert current.status == "executing"
+        assert current.revision == 1
+        assert [item["revision"] for item in store.history("pipeline-run:checkpoint-test", 0)] == [1]
+
+
+def test_two_registry_connections_share_one_durable_checkpoint(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    database = tmp_path / "shared-checkpoint.sqlite"
+    context = {"batch": "concurrent-checkpoint"}
+    with SQLiteRegistry(database) as left, SQLiteRegistry(database) as right:
+        _running_run(left)
+        def create(store, actor):
+            return store.begin(
+                "pipeline-run:checkpoint-test", 0, "collect",
+                sha256_fingerprint(context), provider_namespace=None,
+                actor=actor, reason="concurrent_intent",
+            )
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(create, StageCheckpointStore(left), "worker_one")
+            second = pool.submit(create, StageCheckpointStore(right), "worker_two")
+            a, b = first.result(timeout=10), second.result(timeout=10)
+        assert a.idempotency_key == b.idempotency_key
+        assert {a.created, b.created} == {True, False}
+        assert StageCheckpointStore(left).get("pipeline-run:checkpoint-test", 0).revision == 1
+
+
 def test_schema_31_migrates_to_32_with_checkpoint_tables(tmp_path, monkeypatch):
     from sngso_engine import registry as registry_module
 
