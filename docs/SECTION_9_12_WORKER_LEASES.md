@@ -27,6 +27,21 @@ The lease record contains only bounded operational metadata:
 7. Old tokens and generations are rejected after takeover.
 8. Lease transitions and their append-only snapshots are committed with audit-chain events in the same transaction.
 
+### Shared-file concurrency boundary
+
+The current implementation can coordinate separate `SQLiteRegistry` connections
+that open the same local database file. SQLite serializes their write
+transactions, and the added regression tests exercise competing claims and
+expired-owner takeover through independent connections.
+
+This is a same-host, local-file capability, not a multi-host distributed lease
+service. Do not place the SQLite database on an arbitrary network filesystem
+and assume its locking and durability semantics are suitable. The current
+registry does not implement a PostgreSQL/MySQL lease backend, database
+failover, quorum, or cross-region consistency. A multi-host deployment remains
+blocked until a shared transactional backend is implemented and tested against
+its actual isolation, uniqueness, crash-recovery, and failover behavior.
+
 Expiry is a coordination signal, not proof that the old process has stopped. A paused or partitioned process may wake after its lease expires. Every side-effecting provider adapter must therefore enforce the fencing generation at the provider boundary, or use its own idempotency/reconciliation contract. The local lease manager alone cannot terminate a process or revoke an already-issued network request.
 
 ## Heartbeat and cancellation
@@ -67,6 +82,6 @@ This is a local SQLite coordination primitive, not a distributed lock service or
 
 ## Implementation verification
 
-Schema migration 33, the worker lease store, managed heartbeat session, cancellation authorization, and checkpoint-runner integration are implemented in the engine. Full Python 3.12 regression suite: **934 passed in 13.93 seconds** in GitHub Actions [run #45017991562](https://github.com/Amiroudro/new-sngso/actions/runs/45017991562), on code commit 7144226f6d0b17db8f76b15056febe081c5c96db.
+Schema migration 33, the worker lease store, managed heartbeat session, cancellation authorization, and checkpoint-runner integration are implemented in the engine. The independent-connection tests added in the Section 9.13 continuation are verified separately by the latest branch CI run; see the current PR checks for the latest full-suite result.
 
 This verifies the local SQLite implementation only. It does not verify external provider fencing, production identity, shared database failover, or process supervision.
