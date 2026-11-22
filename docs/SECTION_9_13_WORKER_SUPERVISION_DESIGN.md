@@ -52,7 +52,9 @@ A child can be paused after its last lease check and resume after another worker
 
 If the provider cannot enforce fencing or idempotency, the operation is not safe for automatic execution under lease takeover. Local SQLite fencing metadata alone is insufficient.
 
-## IPC and output handling\n\nThe protected channel is implemented in `sngso_engine.worker_control` and integrated into `WorkerSupervisor.run` when a started `WorkerLeaseSession` is supplied. The parent verifies ownership before launch, sends the bounded lease envelope through an inherited private pipe, and observes the heartbeat/cancellation state while the child runs. The separate cancellation pipe carries a cooperative byte signal. The child must explicitly return cancellation_acknowledged=true in its validated result to be classified as cooperatively cancelled. The supervisor does not acknowledge cancellation in the registry or mutate checkpoint state; the caller owns the session lifecycle and must reconcile checkpoints after uncertain outcomes.
+## IPC and output handling
+
+The protected channel is implemented in `sngso_engine.worker_control` and integrated into `WorkerSupervisor.run` when a started `WorkerLeaseSession` is supplied. The parent verifies ownership before launch, sends the bounded lease envelope through an inherited private pipe, and observes the heartbeat/cancellation state while the child runs. The separate cancellation pipe carries a cooperative byte signal. The child must explicitly return cancellation_acknowledged=true in its validated result to be classified as cooperatively cancelled. The supervisor does not acknowledge cancellation in the registry or mutate checkpoint state; the caller owns the session lifecycle and must reconcile checkpoints after uncertain outcomes.
 
 - Use a bounded, versioned message envelope with explicit message types.
 - Reject oversized, malformed, duplicate-terminal, or out-of-order messages.
