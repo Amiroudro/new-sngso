@@ -722,6 +722,9 @@ def test_pipeline_run_sql_guards_reject_identity_and_transition_tampering():
                    WHERE id = ?""",
                 ("pipeline-run:checkpoint-test",),
             )
-        stored = registry.get_pipeline_run("pipeline-run:checkpoint-test")["record"]
+        stored = registry._connection.execute(
+            "SELECT status, revision FROM pipeline_runs WHERE id = ?",
+            ("pipeline-run:checkpoint-test",),
+        ).fetchone()
         assert stored["status"] == "running"
         assert stored["revision"] == 1
