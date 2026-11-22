@@ -27,6 +27,7 @@ The target must already exist. The inspector opens it using SQLite URI `mode=ro`
 - `PRAGMA integrity_check` output.
 - `PRAGMA foreign_key_check` violations.
 - Read-only verification of the complete retained audit hash chain using the registry's canonical fingerprint function.
+- The actual audit tip (sequence and hash), with optional comparison against a checkpoint supplied by an independently controlled system.
 - Exact SQL definitions for user tables, indexes, triggers, and views from `sqlite_master`.
 - Deterministic SHA-256 of the ordered schema-object inventory.
 - Object counts and a combined `healthy` result. The schema-v33 test fixture asserts exactly 47 user tables, 25 explicit indexes, 131 triggers, and zero views.
@@ -62,3 +63,26 @@ The inspected database reported schema version 33, contiguous migration history 
 ```
 
 The artifact is retained until 6 December 2026. This is a clean migration fixture generated in CI, not a production database backup or a populated operational registry.
+
+
+## Independent audit checkpoint comparison
+
+The API accepts an externally retained checkpoint:
+
+```python
+from sngso_engine.schema_inspection import inspect_sqlite_schema
+
+report = inspect_sqlite_schema(
+    "/absolute/path/to/registry.sqlite",
+    expected_audit_checkpoint={
+        "sequence": 842,
+        "event_hash": "sha256:...",
+    },
+)
+assert report["external_audit_checkpoint_matches"] is True
+assert report["healthy"] is True
+```
+
+The checkpoint must be obtained from an independently controlled system. Storing it only beside the registry does not protect against an attacker who can truncate both. If the external checkpoint does not match the current tip, `healthy` is false even when the remaining hash chain is internally valid. This specifically detects deletion of a valid chain tail, which ordinary link verification cannot detect.
+
+The checker validates checkpoint shape before opening the database. Sequence zero requires a null hash; positive sequences require a non-empty hash. It does not connect to or write to the external checkpoint system.
