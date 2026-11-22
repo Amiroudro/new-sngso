@@ -71,6 +71,11 @@ from .models import (
     StoryRecord,
 )
 from .permissions import PermissionDecision, evaluate_permission
+from .checkpoint_recovery import (
+    CheckpointRecoveryError,
+    CheckpointRecoveryPlan,
+    recover_unresolved_checkpoints,
+)
 from .stage_checkpoints import (
     CheckpointedStage,
     Reconciliation,
@@ -192,6 +197,9 @@ __all__ = [
     "IngestionError",
     "IngestionRepository",
     "PipelineRunRepository",
+    "CheckpointRecoveryError",
+    "CheckpointRecoveryPlan",
+    "recover_unresolved_checkpoints",
     "CheckpointedStage",
     "Reconciliation",
     "StageCheckpoint",
