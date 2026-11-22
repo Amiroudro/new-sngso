@@ -43,13 +43,14 @@ Expiry is a coordination signal, not proof that the old process has stopped. A p
 
 `WorkerLeaseStore.acquire(...)` returns a `WorkerLease` containing the one-time token and fencing generation. The token is excluded from its representation. Store the token only in process memory or a protected secret handoff; never put it in logs, checkpoints, audit payloads, or pipeline records.
 
-`heartbeat`, `assert_current`, `release`, `request_cancellation`, `cancellation_requested`, and `acknowledge_cancellation` expose the lifecycle operations. `execute_checkpointed_pipeline` accepts an optional `lease_store` + `lease` pair to enforce lease checks and cooperative cancellation between stages. Existing runner behavior remains unchanged when these arguments are omitted.
+`heartbeat`, `assert_current`, `release`, `request_cancellation`, `cancellation_requested`, and `acknowledge_cancellation` expose the lifecycle operations. `WorkerLeaseSession` optionally runs a bounded in-process heartbeat thread, exposes a cancellation event, reports heartbeat failure, and releases the lease when its context closes normally. It starts no thread until explicitly entered or started. `execute_checkpointed_pipeline` accepts an optional `lease_store` + `lease` pair to enforce lease checks and cooperative cancellation between stages. Existing runner behavior remains unchanged when these arguments are omitted.
 
 ## Verification requirements
 
 - Migration from schema v32 to v33.
 - Concurrent two-worker acquisition permits one winner.
 - Heartbeat preserves generation and appends a revision.
+- Managed heartbeat session renews while active, propagates cancellation, and releases on normal close.
 - Expiry prevents renewal/release and permits a new owner with a higher generation.
 - Old owner token/generation is fenced out after takeover.
 - Raw bearer token is never persisted.
@@ -61,4 +62,4 @@ Expiry is a coordination signal, not proof that the old process has stopped. A p
 
 ## Remaining production gates
 
-This is a local SQLite coordination primitive, not a distributed lock service or process supervisor. Production acceptance still requires provider-enforced fencing, authenticated worker identity, shared-database durability/HA, worker process supervision, bounded stage timeouts, signal handling, and operational monitoring. No scheduler activation, live collection, publication, release, or deployment is authorized.
+This is a local SQLite coordination primitive, not a distributed lock service or process supervisor. The heartbeat session is an in-process helper, not an external watchdog: it cannot recover a dead process or terminate a stuck handler. Production acceptance still requires provider-enforced fencing, authenticated worker identity, shared-database durability/HA, an external process supervisor, bounded stage timeouts, signal handling, and operational monitoring. No scheduler activation, live collection, publication, release, or deployment is authorized.
