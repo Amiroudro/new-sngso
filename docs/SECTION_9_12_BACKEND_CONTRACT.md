@@ -131,6 +131,6 @@ audit-model redesign and separate acceptance.
 
 The design is intentionally non-implementing. It defines the PostgreSQL schema
 mapping, row-lock and compare-and-swap protocol, serialized audit-head update,
-ambiguous-commit handling, schema-v33 data migration, cutover/rollback boundary,
+ambiguous-commit handling, schema-v35 data migration, cutover/rollback boundary,
 backup/failover requirements, and real-PostgreSQL CI acceptance matrix. SQLite
 remains the only implemented backend.
