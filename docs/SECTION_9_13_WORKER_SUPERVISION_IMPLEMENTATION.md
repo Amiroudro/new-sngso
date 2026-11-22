@@ -1,13 +1,13 @@
 # Section 9.13 implementation note: bounded POSIX worker subprocesses
 
-Status: **local POSIX subprocess supervision, lease-aware process-control integration, provider reconciliation reference checks, and lease-loss crash-window coverage implemented; full-suite CI verified. Production provider and operational acceptance remain open.**
+Status: **local POSIX subprocess supervision, lease-aware process-control integration, bounded idempotent shutdown, read-only restart recovery inventory, provider reconciliation reference checks, and lease-loss crash-window coverage implemented; full-suite CI verification pending for this revision. Production provider and operational acceptance remain open.**
 
 ## Implemented API
 
 `sngso_engine.worker_supervisor` provides:
 
 - `WorkerEntrypoint`: a statically configured name, immutable argv tuple, explicit environment mapping, and JSON Schemas for request and result objects.
-- `WorkerSupervisor`: a POSIX-only process-group supervisor with a bounded wall-clock deadline, graceful SIGTERM, bounded grace period, and SIGKILL escalation.
+- `WorkerSupervisor`: a POSIX-only process-group supervisor with a bounded wall-clock deadline, graceful SIGTERM, bounded grace period, SIGKILL escalation, and an idempotent `shutdown(timeout_seconds=...)` method that stops new launches and terminates active process groups under one global budget.
 - `WorkerProcessResult`: bounded outcome metadata. It does not expose captured stderr or raw diagnostic output.
 - `supervised_checkpoint_handler`: adapts a validated worker result into an `execute_checkpointed_stage` handler. Only a successful child result becomes stage output; timeout, cancellation, lease loss, or protocol failure raises so a non-replay-safe checkpoint remains unresolved.
 
@@ -26,16 +26,17 @@ The process group is also terminated when the main child exits but a descendant 
 - Provider fencing, idempotency, and reconciliation remain mandatory before replaying an interrupted side effect.
 - `sngso_engine.worker_control` supplies the bounded lease envelope over an inherited private pipe and a separate one-byte cancellation pipe. Descriptor numbers may be passed as environment values; bearer tokens are never passed in argv, request JSON, environment values, or output.
 - The supervisor does not release or acknowledge the lease automatically, and does not mutate checkpoint state. Callers must retain session ownership and reconcile uncertain child outcomes before retry.
-- CPU/memory/file-descriptor resource limits, external signal orchestration, supervisor restart recovery, and provider-enforced fencing remain outside this implementation.
+- CPU/memory/file-descriptor resource limits, process-global signal-handler installation, service-manager restart policy, and provider-enforced fencing remain outside this implementation. The `shutdown()` method is the callable shutdown primitive for an external service entrypoint; it does not install signal handlers or acknowledge durable lease cancellation.
+- `StageCheckpointStore.list_unresolved(pipeline_run_id=None)` provides a read-only restart-recovery inventory of executing and indeterminate checkpoints. It returns stable idempotency keys and persisted provider operation references in stage order. It does not acquire a new lease, call a provider, mutate checkpoint state, or authorize replay. A restarted worker must authenticate, acquire a current lease, and reconcile provider state before deciding what can safely continue.
 - The supervisor does not trigger collection, scheduling, publication, release, or deployment.
 
 ## Test coverage added
 
-Tests cover successful stdin/stdout protocol, static entrypoint allowlisting, request/result schema rejection, nonzero exits, timeout escalation, bounded stdout/stderr draining, environment isolation, and descendant cleanup. Lease-aware tests cover private-FD credential handoff, heartbeat renewal during child execution, durable cancellation propagation, explicit acknowledgement versus unacknowledged cancellation, and child termination after lease loss, including a point-of-use lease check that raises after launch. Checkpoint integration tests prove successful validated child output commits only its fingerprint and timeout leaves a side-effecting checkpoint indeterminate; a stale worker cannot change checkpoint state after lease loss. Protected-IPC unit tests cover envelope validation, token isolation, cancellation signaling, descriptor cleanup, and bounded polling.
+Tests cover successful stdin/stdout protocol, static entrypoint allowlisting, request/result schema rejection, nonzero exits, timeout escalation, bounded stdout/stderr draining, environment isolation, and descendant cleanup. Lease-aware tests cover private-FD credential handoff, heartbeat renewal during child execution, durable cancellation propagation, explicit acknowledgement versus unacknowledged cancellation, and child termination after lease loss, including a point-of-use lease check that raises after launch. Checkpoint integration tests prove successful validated child output commits only its fingerprint and timeout leaves a side-effecting checkpoint indeterminate; a stale worker cannot change checkpoint state after lease loss. Protected-IPC unit tests cover envelope validation, token isolation, cancellation signaling, descriptor cleanup, and bounded polling. Shutdown tests prove that active children are terminated, launches are rejected after shutdown begins, repeated shutdown calls are safe, and the method uses a bounded global deadline. Restart-inventory tests prove that executing and indeterminate checkpoints are discoverable without changing revisions or status.
 
 ## Acceptance still required
 
-Before production use: make the worker validate lease ownership and fencing at each side-effect boundary; connect child outcomes to checkpoint reconciliation without replaying uncertain work; add platform-tested CPU/memory/FD limits; add supervisor signal/shutdown orchestration and restart recovery; test stale fencing at provider boundaries and crash windows; provide external monitoring, shared durable lease storage, backup/restore, and an explicit operator release decision.
+Before production use: make the worker validate lease ownership and fencing at each side-effect boundary; connect child outcomes to checkpoint reconciliation without replaying uncertain work; add platform-tested CPU/memory/FD limits; wire the shutdown primitive to a service manager and signal adapter, implement authenticated restart orchestration around the read-only unresolved-checkpoint inventory, and add test stale fencing at provider boundaries and crash windows; provide external monitoring, shared durable lease storage, backup/restore, and an explicit operator release decision.
 
 No live worker is enabled by this module. No scheduler activation, collection, publication, release, merge, or deployment is authorized.
 
@@ -116,3 +117,29 @@ references, and a provider completing during lease takeover. The latter proves
 that the remote call may have happened once while local checkpoint success
 remains uncommitted and the checkpoint remains unresolved.
 
+
+
+## Bounded shutdown and restart recovery inventory
+
+The supervisor now maintains a lock-protected active-child registry and a one-way
+shutdown event. `shutdown(timeout_seconds=...)` stops new launches, sends
+SIGTERM to each active process group, waits against one shared deadline, then
+sends SIGKILL to groups whose direct child remains alive. It returns whether all
+registered direct children were reaped. An active `run()` observes the shutdown
+event and returns status `shutdown`, never a successful result. The method is
+idempotent and does not mutate lease or checkpoint state.
+
+This is a callable primitive, not complete service shutdown orchestration.
+An external entrypoint still needs to translate SIGTERM/SIGINT into a normal
+control-thread call, stop accepting upstream work, close its database safely,
+and preserve unresolved operations for reconciliation. Process-global signal
+handlers are deliberately not installed by this library.
+
+For restart inspection, `StageCheckpointStore.list_unresolved()` returns all
+`executing` and `indeterminate` checkpoints in deterministic run/stage order;
+an optional run ID scopes the query. The method is read-only and returns the
+checkpoint's stable idempotency key, provider namespace, and persisted opaque
+operation reference. It does not automatically reacquire leases, poll providers,
+or replay handlers. The next restart-orchestration layer must authenticate its
+worker identity, obtain a fresh lease, reconcile each provider operation, and
+leave unknown/pending outcomes unresolved.
