@@ -48,7 +48,7 @@ All **138 of 138** SQLite triggers now have source-level semantic review records
 - [Benchmark governance trigger review](SECTION_9_BENCHMARK_GOVERNANCE_TRIGGER_REVIEW.md): source-level review of all 39 benchmark-governance triggers, including schema-v35 assignment revision and status-transition guards.
 - [Content, provenance, and ingestion trigger review](SECTION_9_CONTENT_PROVENANCE_TRIGGER_REVIEW.md): source-level review of 49 content/provenance/ingestion triggers, including schema-v35 domain and permission-grant revision guards. Together, the four review documents cover all 138 SQLite triggers.
 
-The PostgreSQL documents remain design and inventory artifacts only. The live SQLite inspector, schema-v35 migration, and current direct-SQL regression tests passed in CI. All 136 current SQLite triggers have source-level semantic review records. Direct-SQL conformance gaps remain, and no PostgreSQL implementation or multi-host acceptance has been achieved.
+The PostgreSQL documents remain design and inventory artifacts only. The live SQLite inspector, schema-v35 migration, and current direct-SQL regression tests passed in CI. All 138 current SQLite triggers have source-level semantic review records. Direct-SQL conformance gaps remain, and no PostgreSQL implementation or multi-host acceptance has been achieved.
 
 ## Remaining engineering gates
 
