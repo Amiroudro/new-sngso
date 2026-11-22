@@ -179,3 +179,27 @@ def test_external_checkpoint_detects_modified_retained_audit_event(tmp_path):
     assert report["audit_chain_valid"] is False
     assert report["external_audit_checkpoint_matches"] is False
     assert report["healthy"] is False
+
+
+def test_audit_events_reject_direct_sql_update_and_delete(tmp_path):
+    database = tmp_path / "registry.sqlite"
+    with SQLiteRegistry(database) as registry:
+        with registry._transaction() as connection:
+            registry._append_audit(
+                connection,
+                event_type="test.immutable",
+                entity_type="test",
+                entity_id="immutable-event",
+                payload={"value": "retained"},
+            )
+
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                "UPDATE audit_events SET event_type = 'rewritten'"
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute("DELETE FROM audit_events")
+
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM audit_events"
+        ).fetchone()[0] == 1
