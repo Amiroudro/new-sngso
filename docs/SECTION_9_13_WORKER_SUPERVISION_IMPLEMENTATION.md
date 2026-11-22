@@ -1,6 +1,6 @@
 # Section 9.13 implementation note: bounded POSIX worker subprocesses
 
-Status: **local POSIX subprocess supervision, lease-aware process-control integration, bounded idempotent shutdown, read-only restart recovery inventory, provider reconciliation reference checks, and lease-loss crash-window coverage implemented; full-suite CI verification pending for this revision. Production provider and operational acceptance remain open.**
+Status: **local POSIX subprocess supervision, lease-aware process-control integration, bounded idempotent shutdown, read-only restart recovery inventory, provider reconciliation reference checks, and lease-loss crash-window coverage implemented; full-suite CI verified on code head. Production provider and operational acceptance remain open.**
 
 ## Implemented API
 
@@ -43,7 +43,7 @@ No live worker is enabled by this module. No scheduler activation, collection, p
 
 ## Verification
 
-Latest full Python 3.12 regression suite: **974 passed in 14.13 seconds** in GitHub Actions [run #45031050579](https://github.com/Amiroudro/new-sngso/actions/runs/45031050579), on exact PR head `94f1f236368b99e2db66250272cc7f80826457a2`. This run includes provider reconciliation reference-drift rejection, malformed-reference handling, and the remote-completion/lease-loss crash-window tests. It verifies local POSIX subprocess supervision and local contract behavior, not a concrete production provider or production process management.
+Latest full Python 3.12 regression suite: **978 passed in 16.79 seconds** in GitHub Actions [run #45036796082](https://github.com/Amiroudro/new-sngso/actions/runs/45036796082), on code head `170cc7f2f6e693c5d61aa6bf5f8cef1a47123126`. This run includes bounded supervisor shutdown, post-shutdown launch rejection, read-only unresolved-checkpoint inventory, provider reconciliation reference-integrity checks, and the remote-completion/lease-loss crash-window tests. It verifies local POSIX subprocess and recovery-inventory contracts, not a concrete production provider or production process management.
 
 
 ## Pending-provider reconciliation handoff
