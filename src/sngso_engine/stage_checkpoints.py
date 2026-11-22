@@ -7,12 +7,13 @@ operational metadata are stored.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import json
+from dataclasses import replace
+from datetime import datetime, timezone
 import re
 from typing import Any, Callable, Mapping
 
-from .canonical import canonical_json_bytes, sha256_fingerprint
+from .canonical import sha256_fingerprint
 from .registry import RegistryIntegrityError
 
 
@@ -86,6 +87,7 @@ class StageCheckpoint:
     output_fingerprint: str | None
     revision: int
     metadata: dict[str, Any]
+    created: bool = False
 
 
 class StageCheckpointStore:
@@ -147,7 +149,7 @@ class StageCheckpointStore:
         if provider_namespace is not None and not _NAMESPACE.fullmatch(provider_namespace):
             raise ValueError("provider_namespace must be a lowercase bounded identifier")
         key = stage_idempotency_key(pipeline_run_id, stage_ordinal, stage_name, input_fingerprint)
-        now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.registry._transaction() as connection:
             run = connection.execute("SELECT status FROM pipeline_runs WHERE id = ?", (pipeline_run_id,)).fetchone()
             if run is None or run["status"] != "running":
@@ -185,7 +187,7 @@ class StageCheckpointStore:
                    WHERE pipeline_run_id = ? AND stage_ordinal = ?""",
                 (pipeline_run_id, stage_ordinal),
             ).fetchone()
-        return self._decode(row)
+        return replace(self._decode(row), created=True)
 
     def transition(
         self, checkpoint: StageCheckpoint, status: str, *,
@@ -275,7 +277,7 @@ def execute_checkpointed_stage(
     if checkpoint.status != "executing":
         raise StageCheckpointError(f"checkpoint is {checkpoint.status}; explicit operator action is required")
 
-    if checkpoint.revision > 1:
+    if not checkpoint.created:
         if replay_safe:
             pass
         elif reconcile is None:
