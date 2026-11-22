@@ -201,9 +201,9 @@ def test_supervisor_hands_lease_only_through_private_fd_and_heartbeats():
     from sngso_engine import SQLiteRegistry, WorkerLeaseSession
 
     code = (
-        "import json,os; "
-        "fd=int(os.environ['SNGSO_WORKER_CONTROL_FD']); "
-        "data=json.loads(os.read(fd,8192)); "
+        "import json,os,time; "
+        "data=json.loads(os.read(int(os.environ['SNGSO_WORKER_CONTROL_FD']),8192)); "
+        "time.sleep(0.18); "
         "print(json.dumps({'schema_version':'1','result':"
         "{'worker':data['worker_id'],'generation':data['fencing_token']}}))"
     )
@@ -229,20 +229,21 @@ def test_supervisor_propagates_durable_cancellation_and_requires_child_ack():
     import time
     from sngso_engine import SQLiteRegistry, WorkerLeaseSession, WorkerLeaseStore
 
-    code = (
-        "import json,os,select,time\\n"
-        "control=json.loads(os.read(int(os.environ['SNGSO_WORKER_CONTROL_FD']),8192))\\n"
-        "cancel=int(os.environ['SNGSO_WORKER_CANCEL_FD'])\\n"
-        "ready=time.monotonic()+3\\n"
-        "acknowledged=False\\n"
-        "while time.monotonic()<ready:\\n"
-        "    readable,_,_=select.select([cancel],[],[],0.02)\\n"
-        "    if readable and os.read(cancel,1)==b'\\\\x01':\\n"
-        "        acknowledged=True\\n"
-        "        break\\n"
-        "print(json.dumps({'schema_version':'1','result':"
-        "{'cancellation_acknowledged':acknowledged,'generation':control['fencing_token']}}))"
-    )
+    code = """import json, os, select, time
+control = json.loads(os.read(int(os.environ['SNGSO_WORKER_CONTROL_FD']), 8192))
+cancel = int(os.environ['SNGSO_WORKER_CANCEL_FD'])
+deadline = time.monotonic() + 3
+acknowledged = False
+while time.monotonic() < deadline:
+    readable, _, _ = select.select([cancel], [], [], 0.02)
+    if readable and os.read(cancel, 1) == bytes([1]):
+        acknowledged = True
+        break
+print(json.dumps({'schema_version': '1', 'result': {
+    'cancellation_acknowledged': acknowledged,
+    'generation': control['fencing_token'],
+}}))
+"""
     with SQLiteRegistry() as registry:
         store, lease = _lease_fixture(registry)
         session = WorkerLeaseSession(
