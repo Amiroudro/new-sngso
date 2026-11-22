@@ -19,7 +19,7 @@ python -m sngso_engine.schema_inspection /absolute/path/to/registry.sqlite \
   --output /absolute/path/to/schema-v33-inspection.json
 ```
 
-The target must already exist. The inspector opens it using SQLite URI `mode=ro`; it does not create a missing database or mutate the registry.
+The target must already exist. The inspector opens it using SQLite URI `mode=ro` and pins all queries to one read transaction, so schema, migration history, and audit-tip results describe a consistent snapshot. It does not create a missing database or mutate the registry.
 
 ## Report contents
 
@@ -49,6 +49,8 @@ The report intentionally preserves SQL definitions, not just object names. Revie
 - Read-only behavior and missing-file rejection.
 - Detection of foreign-key violations.
 - Audit-chain verification on a newly initialized database.
+- Detection of migration-history gaps, altered retained audit events, and tail truncation using an externally supplied checkpoint.
+- Consistent read-snapshot acquisition for all inspection queries.
 
 CI must pass these tests before P0 can be marked verified. The next P0 increment is a golden schema snapshot from a real schema-v33 fixture and explicit per-trigger semantic tests.
 
