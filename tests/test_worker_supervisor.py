@@ -9,6 +9,7 @@ import shutil
 
 import pytest
 
+from sngso_engine.worker_observability import WorkerTelemetry
 from sngso_engine.worker_supervisor import (
     WorkerEntrypoint,
     WorkerSupervisor,
@@ -39,6 +40,24 @@ def test_registered_child_receives_request_on_stdin_and_returns_validated_json()
     assert result.result == {"request_id": "req-1"}
     assert result.exit_code == 0
     assert result.termination == "none"
+
+
+
+def test_supervisor_records_final_outcome_when_telemetry_is_configured():
+    telemetry = WorkerTelemetry(("test_worker",), max_events=4)
+    code = "import json; print(json.dumps({'schema_version':'1','result':{'ok':True}}))"
+    supervisor = _supervisor(code, telemetry=telemetry)
+    result = supervisor.run("test_worker", _request())
+    assert result.status == "succeeded"
+    snapshot = telemetry.snapshot()
+    assert snapshot["counts_by_entrypoint"]["test_worker"] == {"succeeded": 1}
+    assert snapshot["latency"]["test_worker"]["count"] == 1
+    assert snapshot["recent_outcomes"][0]["entrypoint"] == "test_worker"
+
+
+def test_supervisor_requires_telemetry_allowlist_to_cover_all_entrypoints():
+    with pytest.raises(ValueError, match="allow-list"):
+        _supervisor("raise SystemExit(0)", telemetry=WorkerTelemetry(("other_worker",)))
 
 
 def test_unknown_entrypoint_and_oversized_request_fail_before_launch():
