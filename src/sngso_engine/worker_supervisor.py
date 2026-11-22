@@ -402,7 +402,11 @@ class WorkerSupervisor:
                 except subprocess.TimeoutExpired:
                     continue
             if process.poll() is not None and status == "failed":
-                status = "succeeded" if process.returncode == 0 else "failed"
+                if self._shutdown_event.is_set():
+                    status = "shutdown"
+                    termination = "shutdown"
+                else:
+                    status = "succeeded" if process.returncode == 0 else "failed"
         finally:
             if channel is not None:
                 channel.close()
