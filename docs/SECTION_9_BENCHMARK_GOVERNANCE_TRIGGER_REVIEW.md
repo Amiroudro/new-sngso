@@ -1,6 +1,6 @@
 # Section 9 Benchmark Governance Trigger Semantic Review
 
-Status: **source-level semantic review completed for all 37 benchmark-governance triggers. This review identifies database-boundary gaps that must be closed before a PostgreSQL port can be accepted.**
+Status: **source-level semantic review completed for all 39 benchmark-governance triggers, including two schema-v34 SQL-boundary guards. This review identifies database-boundary gaps that must be closed before a PostgreSQL port can be accepted.**
 
 Scope includes immutable benchmark evidence, adjudication, reviewer assignment and assignment revisions, principal classification and identity attestations, score records, study protocols/executions, acceptance decisions, and editorial review revision history.
 
@@ -18,7 +18,7 @@ The source SQL is in [the complete trigger inventory](SECTION_9_TRIGGER_INVENTOR
 
 **Boundary finding:** this trigger family has no INSERT payload-binding trigger for artifacts or adjudications. The artifact schema and adjudication contract are strongly validated by application code and JSON Schema, but PostgreSQL must inspect actual table constraints and explicitly preserve the artifact fingerprint, exact review IDs, independent adjudicator identity, rationale, and evidence binding at the database boundary where those values are indexed. A unique adjudication row alone does not prove the adjudication is valid.
 
-## 2. Reviewer assignments and assignment revision ledger (8 triggers)
+## 2. Reviewer assignments and assignment revision ledger (10 triggers)
 
 | Trigger | Current SQLite invariant | PostgreSQL mapping | Existing evidence |
 |---|---|---|---|
@@ -30,6 +30,8 @@ The source SQL is in [the complete trigger inventory](SECTION_9_TRIGGER_INVENTOR
 | `benchmark_review_assignment_update_requires_revision` | Updated head must have a matching pre-existing revision row | BEFORE UPDATE trigger, with a locked current head and a revision insert protocol | Assignment actor/reason/revision tests |
 | `benchmark_review_assignment_revisions_no_update` | Revision rows are append-only | BEFORE UPDATE trigger and restricted role | Revision history tests |
 | `benchmark_review_assignment_revisions_no_delete` | Revision rows cannot be deleted | BEFORE DELETE trigger and restricted role | Revision history tests |
+| `benchmark_review_assignment_revisions_validate_insert` | Initial revision must exactly match current head; a subsequent revision must be exactly next and preserve immutable assignment/artifact/reviewer identity while following the legal state graph | BEFORE INSERT trigger with current-head and next-transition validation | New schema-v34 forged illegal revision insertion test |
+| `benchmark_review_assignment_status_transition_guard` | Direct head updates may only follow assigned→accepted/cancelled/expired or accepted→submitted/cancelled/expired; actor identity, human role/language qualification, deadline, close metadata and exact submitted review binding are checked | BEFORE UPDATE trigger with principal/review joins and explicit state transition table | Existing registry assignment lifecycle and submission tests; new SQL-boundary guard test |
 
 **High-priority gap:** the trigger SQL does not itself enumerate the legal assignment status-transition graph. The application layer tests assignee-only acceptance/submission, deadline handling, cancellation participants, and terminal submission. A direct SQL writer that can insert a matching revision row and then update the head may bypass those application checks unless a database transition guard or tightly restricted stored procedure/privilege boundary prevents it.
 
@@ -111,4 +113,4 @@ The payload guard binds indexed columns to JSON but does not alone prove that ev
 
 ## 9. Review boundary
 
-This is a source-level semantic review of all 37 benchmark triggers. It identifies several gaps between application-layer validation and database-level enforcement; those are explicit implementation requirements, not completed fixes. Together with the 23 operational triggers and 27 publication/audit/story/timeline triggers reviewed separately, 87 of 131 triggers have now received source-level semantic review. The remaining 44 triggers still require review. PostgreSQL remains unimplemented and Section 9 P0 is not complete.
+This is a source-level semantic review of all 39 benchmark triggers, including two schema-v34 guards that close direct-SQL assignment revision and status-transition gaps. Together with the 23 operational triggers, 27 publication/audit/story/timeline triggers, and 47 content/provenance/ingestion triggers reviewed separately, all 136 of 136 triggers now have source-level semantic review records. PostgreSQL remains unimplemented and Section 9 P0 is not complete.
