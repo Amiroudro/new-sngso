@@ -1,12 +1,12 @@
 # Section 9.13: External Worker Supervision and Bounded Stage Execution
 
-Status: **architecture contract drafted; no supervisor implementation or production process control is claimed.**
+Status: **architecture contract plus first local POSIX subprocess primitive implemented; production process supervision and lease/checkpoint integration remain incomplete.**
 
 ## Purpose
 
 Section 9.12 establishes durable worker ownership and cooperative cancellation. It does not stop a process that is paused, wedged, or executing a blocking handler. Section 9.13 defines the process boundary required for bounded execution without pretending that Python can safely terminate arbitrary threads.
 
-This document is a design contract, not evidence that a supervisor, worker executable, operating-system service, or provider adapter exists.
+The companion implementation note records the exact local code boundary. This document remains the normative design contract; the initial code is not an operating-system service, production supervisor, or provider adapter.
 
 ## Non-goals and hard boundaries
 
