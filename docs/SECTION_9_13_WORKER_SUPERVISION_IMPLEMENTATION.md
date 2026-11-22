@@ -42,7 +42,7 @@ No live worker is enabled by this module. No scheduler activation, collection, p
 
 ## Verification
 
-Full Python 3.12 regression suite on the current PR code head: **963 passed in 13.77 seconds** in GitHub Actions [run #45024945093](https://github.com/Amiroudro/new-sngso/actions/runs/45024945093), code commit `31e04d1a550fb6138c60acfa08d43e6bd3e1ab5c`. This verifies local POSIX subprocess supervision, protected lease handoff, parent-side heartbeat/cancellation monitoring, checkpoint-handler adaptation, and stale-owner checkpoint protection. It does not verify provider fencing/idempotency, production process management, or non-POSIX behavior.
+Previous full Python 3.12 regression suite: **965 passed in 18.39 seconds** in GitHub Actions [run #45028144497](https://github.com/Amiroudro/new-sngso/actions/runs/45028144497), code commit `b738669a77ce5faf1be8ac016608409a16c30d3d`. The provider-boundary fencing contract added after that run requires a fresh full-suite verification. This verifies local POSIX subprocess supervision, protected lease handoff, parent-side heartbeat/cancellation monitoring, checkpoint-handler adaptation, and stale-owner checkpoint protection. It does not verify provider fencing/idempotency, production process management, or non-POSIX behavior.
 
 
 ## Pending-provider reconciliation handoff
@@ -64,3 +64,30 @@ therefore return a stable operation reference on the first pending response.
 The provider's free-form metadata is deliberately not persisted. Only the
 existing allow-listed operational tokens are recorded. This is a local
 reconciliation handoff, not a provider adapter or proof of remote idempotency.
+
+
+## Provider-boundary fencing command contract
+
+`sngso_engine.provider_fencing` now defines an immutable `ProviderCommand`
+that binds provider namespace, pipeline run, stage ordinal, deterministic
+idempotency key, lease fencing generation, and request fingerprint. The
+`execute_fenced_provider_command` wrapper checks current lease ownership before
+dispatch and again after the provider returns. If ownership is lost in flight,
+the wrapper refuses to return success to the local caller; the remote result
+must be reconciled.
+
+The `FencedProviderAdapter` protocol requires the provider implementation to
+atomically enforce two rules inside its own serialization boundary:
+
+1. Reject a command whose fencing generation is lower than the highest
+   generation already accepted for the protected resource.
+2. Bind an idempotency key to its request fingerprint, returning the original
+   result for an exact duplicate and rejecting reuse with a different request.
+
+The preflight SQLite lease check is not a substitute for provider enforcement:
+ownership can change between the check and the remote operation. The provider
+must implement the atomic comparison itself. Tests use a deliberately small
+fake provider to verify the contract, stale-generation rejection, duplicate
+deduplication, conflicting-payload rejection, and stale local lease refusal.
+No concrete production provider adapter exists yet, so this work establishes
+and tests the interface rather than claiming a real external system is fenced.
