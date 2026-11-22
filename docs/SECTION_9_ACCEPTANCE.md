@@ -26,7 +26,7 @@ The latest full Python 3.12 suite passed **893 tests in 9.84 seconds** in GitHub
 These are not implemented or accepted:
 
 1. Provider-specific idempotency/reconciliation adapters and durable result reconstruction. The engine now supplies stable keys and fail-closed reconciliation contracts, but no live provider adapter is approved.
-2. Worker process supervision, bounded handler timeouts, signal handling, distributed lease durability/HA, and provider-enforced fencing. Local lease generations are coordination metadata, not proof that an expired process has stopped.
+2. Implement and deploy the Section 9.13 process supervisor, bounded handler timeouts, signal/shutdown handling, OS resource limits, distributed lease durability/HA, and provider-enforced fencing. The current Section 9.13 document is design-only; local lease generations are coordination metadata, not proof that an expired process has stopped.
 3. Authenticated service-worker identities and production permission adapters. The checkpoint runner requires a point-of-use permission callback, but trusted identity and real permission evidence remain external infrastructure.
 4. Structured operational event/metric/trace correlation and alert delivery.
 6. Automated encrypted backups, key management, off-site storage, retention, and production-like restore drills.
@@ -50,4 +50,4 @@ These are not implemented or accepted:
 - Unknown, permanent, permission, identity, policy, and integrity failures are not retried.
 - No merge, production deployment, live collection, schedule activation, external secret configuration, paid service, or publication is authorized by this register.
 
-**Decision:** Section 9 is not complete for production. The local operational foundation is substantially implemented, but end-to-end operational acceptance must wait for the remaining engineering and external gates. The next technical milestone is durable stage checkpointing and safe crash reconciliation, without storing raw sensitive stage outputs by default.
+**Decision:** Section 9 is not complete for production. The local operational foundation is substantially implemented, while Section 9.13 is currently a design contract only. End-to-end operational acceptance must wait for the remaining engineering and external gates. No production worker, scheduler, live collection, publication, release, or deployment is authorized.
