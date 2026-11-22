@@ -57,7 +57,7 @@ class WorkerControlChannel:
         if self._closed or self.cancellation_write_fd < 0:
             raise WorkerControlError("cancellation channel is closed")
         try:
-            os.write(self.cancellation_write_fd, b"\\x01")
+            os.write(self.cancellation_write_fd, b"\x01")
         except BlockingIOError as exc:
             raise WorkerControlError("cancellation channel is not writable") from exc
         except OSError as exc:
@@ -167,4 +167,4 @@ def worker_cancellation_requested(cancel_fd: int, *, timeout_seconds: float = 0.
         value = os.read(cancel_fd, 1)
     except OSError as exc:
         raise WorkerControlError("worker cancellation channel is unavailable") from exc
-    return value == b"\\x01"
+    return value == b"\x01"
