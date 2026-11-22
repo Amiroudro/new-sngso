@@ -244,3 +244,54 @@ def test_malformed_provider_operation_reference_is_unknown_not_a_local_transitio
         current = store.get("pipeline-run:provider-fence-test", 0)
         assert current.status == "indeterminate"
         assert current.provider_operation_ref == "operation-original"
+
+
+
+def test_lease_loss_during_provider_call_keeps_checkpoint_unresolved_for_reconciliation():
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        leases = WorkerLeaseStore(registry)
+        now = datetime.now(timezone.utc)
+        old_lease = leases.acquire(
+            "pipeline-run:provider-fence-test", "worker_one", ttl_seconds=10,
+            actor="worker_one", reason="start_worker", now=now,
+        )
+
+        class ProviderThatCompletesAfterTakeover:
+            calls = 0
+
+            def execute_fenced(self, command, request):
+                self.calls += 1
+                # Model a remote side effect completing while the original
+                # worker's lease expires and a new owner takes over.
+                leases.acquire(
+                    "pipeline-run:provider-fence-test", "worker_two",
+                    ttl_seconds=60, actor="worker_two", reason="takeover",
+                    now=now + timedelta(seconds=11),
+                )
+                return {"provider_receipt": "remote-completed"}
+
+        provider = ProviderThatCompletesAfterTakeover()
+        handler = fenced_provider_stage_handler(
+            provider, leases, old_lease,
+            provider_namespace="provider_x", stage_ordinal=0,
+            request_builder=lambda context: {"value": context["value"]},
+        )
+
+        with pytest.raises(LeaseLostError):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:provider-fence-test", 0, "remote_write",
+                {"value": "safe"}, handler,
+                actor="worker_one", reason="provider_call_lost_lease",
+                permission_check=lambda: True,
+                provider_namespace="provider_x",
+                lease_guard=lambda: leases.assert_current(old_lease),
+            )
+
+        checkpoint = StageCheckpointStore(registry).get(
+            "pipeline-run:provider-fence-test", 0,
+        )
+        assert provider.calls == 1
+        assert checkpoint.status == "executing"
+        assert checkpoint.output_fingerprint is None
+        assert checkpoint.provider_operation_ref is None
