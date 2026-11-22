@@ -62,6 +62,70 @@ def test_checkpoint_is_created_before_handler_and_only_hashes_are_persisted():
         )] == ["executing", "succeeded"]
 
 
+def test_stage_order_requires_every_predecessor_to_be_durably_succeeded():
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        store = StageCheckpointStore(registry)
+        with pytest.raises(StageCheckpointError, match="preceding stage checkpoints"):
+            store.begin(
+                "pipeline-run:checkpoint-test", 1, "normalize",
+                sha256_fingerprint({"batch": "stage-one"}),
+                provider_namespace=None, actor="test_worker", reason="out_of_order_stage",
+            )
+
+
+def test_succeeded_checkpoint_requires_verified_result_reconstruction():
+    context = {"batch": "reconstruction-fixture"}
+    output = {"normalized_count": 3}
+    calls = []
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        first = execute_checkpointed_stage(
+            registry, "pipeline-run:checkpoint-test", 0, "normalize", context,
+            lambda current, key: calls.append("executed") or output,
+            actor="test_worker", reason="initial_stage_execution",
+            permission_check=lambda: True, replay_safe=True,
+        )
+        assert first["output"] == output
+        with pytest.raises(StageCheckpointError, match="reconstruction callback"):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:checkpoint-test", 0, "normalize", context,
+                lambda current, key: calls.append("must_not_execute"),
+                actor="test_worker", reason="resume_without_reconstruction",
+                permission_check=lambda: True, replay_safe=True,
+            )
+        resumed = execute_checkpointed_stage(
+            registry, "pipeline-run:checkpoint-test", 0, "normalize", context,
+            lambda current, key: calls.append("must_not_execute"),
+            actor="test_worker", reason="resume_with_reconstruction",
+            permission_check=lambda: True, replay_safe=True,
+            reconstruct=lambda checkpoint: output,
+        )
+        assert resumed["reused"] is True
+        assert resumed["output"] == output
+        assert calls == ["executed"]
+
+
+def test_reconstructed_output_must_match_persisted_fingerprint():
+    context = {"batch": "bad-reconstruction-fixture"}
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        execute_checkpointed_stage(
+            registry, "pipeline-run:checkpoint-test", 0, "normalize", context,
+            lambda current, key: {"correct": True},
+            actor="test_worker", reason="initial_stage_execution",
+            permission_check=lambda: True, replay_safe=True,
+        )
+        with pytest.raises(StageCheckpointError, match="fingerprint does not match"):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:checkpoint-test", 0, "normalize", context,
+                lambda current, key: {"incorrect": True},
+                actor="test_worker", reason="resume_bad_reconstruction",
+                permission_check=lambda: True, replay_safe=True,
+                reconstruct=lambda checkpoint: {"incorrect": True},
+            )
+
+
 def test_existing_executing_checkpoint_reconciles_not_started_before_retry():
     context = {"batch": "retry-fixture"}
     calls = []
