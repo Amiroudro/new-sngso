@@ -41,14 +41,14 @@ jobs:
       - name: Validate contracts
         run: python -m pytest -q
 
-      - name: Generate live schema-v34 inspection
+      - name: Generate live schema-v35 inspection
         run: |
-          python -c "from sngso_engine import SQLiteRegistry; registry = SQLiteRegistry('${RUNNER_TEMP}/sngso-schema-v34.sqlite'); registry.close()"
-          python -m sngso_engine.schema_inspection "${RUNNER_TEMP}/sngso-schema-v34.sqlite" --output "${RUNNER_TEMP}/schema-v34-inspection.json"
-      - name: Upload schema-v34 inspection artifact
+          python -c "from sngso_engine import SQLiteRegistry; registry = SQLiteRegistry('${RUNNER_TEMP}/sngso-schema-v35.sqlite'); registry.close()"
+          python -m sngso_engine.schema_inspection "${RUNNER_TEMP}/sngso-schema-v35.sqlite" --output "${RUNNER_TEMP}/schema-v35-inspection.json"
+      - name: Upload schema-v35 inspection artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sqlite-schema-v34-inspection
-          path: ${{ runner.temp }}/schema-v34-inspection.json
+          name: sqlite-schema-v35-inspection
+          path: ${{ runner.temp }}/schema-v35-inspection.json
           if-no-files-found: error
           retention-days: 14
