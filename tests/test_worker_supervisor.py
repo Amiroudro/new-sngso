@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import signal
+import threading
 import sys
 import shutil
 
@@ -12,6 +14,7 @@ from sngso_engine.worker_supervisor import (
     WorkerSupervisor,
     WorkerSupervisorError,
     WorkerResourceLimits,
+    WorkerSignalShutdown,
 )
 
 
@@ -573,3 +576,61 @@ def test_resource_limited_worker_fails_closed_when_prlimit_is_unavailable(monkey
     )
     with pytest.raises(WorkerSupervisorError, match="prlimit"):
         WorkerSupervisor([entry])
+
+
+
+def test_signal_adapter_moves_shutdown_work_out_of_signal_handler():
+    import time
+
+    supervisor = _supervisor(
+        "import time; time.sleep(10)",
+        timeout_seconds=20, termination_grace_seconds=0.1,
+    )
+    adapter = WorkerSignalShutdown(supervisor, timeout_seconds=2).start()
+    results = []
+    worker = threading.Thread(
+        target=lambda: results.append(supervisor.run("test_worker", _request())),
+        daemon=True,
+    )
+    worker.start()
+    time.sleep(0.15)
+    signal.raise_signal(signal.SIGTERM)
+    assert adapter._completed.wait(2)
+    worker.join(timeout=2)
+    try:
+        assert not worker.is_alive()
+        assert len(results) == 1
+        assert results[0].status == "shutdown"
+        assert adapter.received_signal == signal.SIGTERM
+        assert adapter.shutdown_result is True
+        assert adapter.shutdown_error is None
+    finally:
+        adapter.close()
+
+
+def test_closing_signal_adapter_without_signal_restores_handlers_without_shutdown():
+    supervisor = _supervisor("raise SystemExit(0)")
+    adapter = WorkerSignalShutdown(supervisor).start()
+    adapter.close()
+    assert supervisor.shutting_down is False
+    assert adapter.shutdown_complete is True
+    assert adapter.shutdown_result is None
+
+
+def test_signal_adapter_requires_main_thread_installation():
+    supervisor = _supervisor("pass")
+    adapter = WorkerSignalShutdown(supervisor)
+    errors = []
+
+    def install():
+        try:
+            adapter.start()
+        except Exception as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=install)
+    thread.start()
+    thread.join(timeout=2)
+    assert len(errors) == 1
+    assert isinstance(errors[0], WorkerSupervisorError)
+    assert "main thread" in str(errors[0])
