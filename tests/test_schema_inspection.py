@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 
 import pytest
@@ -79,10 +78,8 @@ def test_inspection_detects_foreign_key_violations(tmp_path):
     with SQLiteRegistry(database) as registry:
         registry._connection.execute("PRAGMA foreign_keys = OFF")
         registry._connection.execute(
-            "INSERT INTO sources(source_id, name, publisher, base_domain, "
-            "language, active, created_at) VALUES "
-            "('orphan-source', 'Orphan', 'Orphan', 'example.org', 'en', 1, "
-            "'2026-01-01T00:00:00Z')"
+            "INSERT INTO grant_endpoints(grant_id, source_id, endpoint_id) "
+            "VALUES ('missing-grant', 'missing-source', 'missing-endpoint')"
         )
         registry._connection.execute("PRAGMA foreign_keys = ON")
 
