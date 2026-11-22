@@ -111,6 +111,7 @@ from .worker_supervisor import (
     WorkerSignalShutdown,
     supervised_checkpoint_handler,
 )
+from .worker_auth import OIDCWorkerRecoveryAuthorizer, WorkerRecoveryAuthorizationError
 from .worker_leases import (
     CancellationRequested,
     LeaseConflictError,
@@ -222,6 +223,8 @@ __all__ = [
     "WorkerLeaseError",
     "WorkerLeaseStore",
     "WorkerLeaseSession",
+    "OIDCWorkerRecoveryAuthorizer",
+    "WorkerRecoveryAuthorizationError",
     "WorkerControl",
     "WorkerControlChannel",
     "WorkerControlError",
