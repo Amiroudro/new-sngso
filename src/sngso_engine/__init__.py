@@ -86,6 +86,7 @@ from .provider_fencing import (
     ProviderCommand,
     ProviderFenceError,
     execute_fenced_provider_command,
+    fenced_provider_stage_handler,
 )
 from .worker_control import (
     WorkerControl,
@@ -202,6 +203,7 @@ __all__ = [
     "ProviderCommand",
     "ProviderFenceError",
     "execute_fenced_provider_command",
+    "fenced_provider_stage_handler",
     "CancellationRequested",
     "LeaseConflictError",
     "LeaseExpiredError",
