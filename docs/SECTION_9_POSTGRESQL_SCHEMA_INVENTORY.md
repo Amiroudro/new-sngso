@@ -210,7 +210,7 @@ All 34 migration definitions are present and numbered 1–34. Empty object lists
 
 | Object type | Count |
 |---|---:|
-| Migration definitions | 33 |
+| Migration definitions | 34 |
 | Distinct table definitions | 47 |
 | Distinct index definitions | 25 |
 | Distinct trigger definitions | 136 |
