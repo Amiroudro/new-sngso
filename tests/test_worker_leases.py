@@ -147,12 +147,12 @@ def test_cancellation_is_cooperative_and_acknowledgement_cancels_pipeline():
         )
         requested = store.request_cancellation(
             "pipeline-run:lease-test", actor="operator",
-            reason_code="operator_requested",
+            reason_code="operator_requested", permission_check=lambda: True,
         )
         assert requested["requested"] is True
         assert store.request_cancellation(
             "pipeline-run:lease-test", actor="operator",
-            reason_code="operator_requested",
+            reason_code="operator_requested", permission_check=lambda: True,
         )["already_requested"] is True
         assert store.cancellation_requested(lease) is True
         called = []
@@ -182,7 +182,7 @@ def test_pending_cancellation_survives_expired_worker_handoff():
         )
         store.request_cancellation(
             "pipeline-run:lease-test", actor="operator",
-            reason_code="operator_requested", now=now + timedelta(seconds=1),
+            reason_code="operator_requested", permission_check=lambda: True, now=now + timedelta(seconds=1),
         )
         second = store.acquire(
             "pipeline-run:lease-test", "worker_two", actor="scheduler",
@@ -196,6 +196,27 @@ def test_pending_cancellation_survives_expired_worker_handoff():
             store.assert_current(first, now=now + timedelta(seconds=12))
 
 
+def test_cancellation_request_fails_closed_without_authorized_permission():
+    with SQLiteRegistry() as registry:
+        _running(registry)
+        store = WorkerLeaseStore(registry)
+        store.acquire(
+            "pipeline-run:lease-test", "worker_one", actor="scheduler",
+            reason="initial_claim",
+        )
+        with pytest.raises(WorkerLeaseError, match="permission check denied"):
+            store.request_cancellation(
+                "pipeline-run:lease-test", actor="operator",
+                reason_code="operator_requested", permission_check=lambda: False,
+            )
+        assert store.cancellation_requested(
+            store.acquire if False else WorkerLeaseStore(registry).acquire(
+                "pipeline-run:lease-test", "worker_two", actor="scheduler",
+                reason="unused",
+            )
+        ) is False
+
+
 def test_cancellation_request_fields_cannot_be_rewritten_in_sql():
     with SQLiteRegistry() as registry:
         _running(registry)
@@ -206,7 +227,7 @@ def test_cancellation_request_fields_cannot_be_rewritten_in_sql():
         )
         store.request_cancellation(
             "pipeline-run:lease-test", actor="operator",
-            reason_code="operator_requested",
+            reason_code="operator_requested", permission_check=lambda: True,
         )
         with pytest.raises(sqlite3.IntegrityError, match="immutable once recorded"):
             registry._connection.execute(
@@ -231,7 +252,7 @@ def test_cancellation_requested_during_stage_stops_before_next_stage():
             called.append("first")
             store.request_cancellation(
                 "pipeline-run:lease-test", actor="operator",
-                reason_code="operator_requested",
+                reason_code="operator_requested", permission_check=lambda: True,
             )
             return {"done": True}
 
@@ -376,7 +397,7 @@ def test_worker_lease_session_propagates_cooperative_cancellation():
         )
         store.request_cancellation(
             "pipeline-run:lease-test", actor="operator",
-            reason_code="operator_requested",
+            reason_code="operator_requested", permission_check=lambda: True,
         )
         with WorkerLeaseSession(
             store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
