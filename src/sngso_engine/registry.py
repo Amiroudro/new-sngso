@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 31
+_SCHEMA_VERSION = 32
 
 
 _MIGRATION_14 = (
@@ -2280,6 +2280,101 @@ _MIGRATION_13 = (
 )
 
 
+_MIGRATION_32 = (
+    """CREATE TABLE pipeline_stage_checkpoints (
+        pipeline_run_id TEXT NOT NULL,
+        stage_ordinal INTEGER NOT NULL CHECK (stage_ordinal >= 0),
+        stage_name TEXT NOT NULL CHECK (length(stage_name) BETWEEN 1 AND 100),
+        input_fingerprint TEXT NOT NULL CHECK (input_fingerprint GLOB 'sha256:*'),
+        idempotency_key TEXT NOT NULL UNIQUE CHECK (idempotency_key GLOB 'sha256:*'),
+        status TEXT NOT NULL CHECK (status IN ('executing', 'succeeded', 'failed', 'indeterminate', 'blocked')),
+        provider_namespace TEXT,
+        provider_operation_ref TEXT,
+        output_fingerprint TEXT,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
+        PRIMARY KEY (pipeline_run_id, stage_ordinal),
+        FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_runs(id) ON DELETE RESTRICT,
+        CHECK (provider_operation_ref IS NULL OR length(provider_operation_ref) <= 256),
+        CHECK (provider_namespace IS NULL OR length(provider_namespace) BETWEEN 1 AND 100),
+        CHECK ((status = 'succeeded' AND output_fingerprint GLOB 'sha256:*')
+            OR (status <> 'succeeded' AND output_fingerprint IS NULL))
+    )""",
+    """CREATE TABLE pipeline_stage_checkpoint_revisions (
+        pipeline_run_id TEXT NOT NULL,
+        stage_ordinal INTEGER NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        status TEXT NOT NULL CHECK (status IN ('executing', 'succeeded', 'failed', 'indeterminate', 'blocked')),
+        provider_operation_ref TEXT,
+        output_fingerprint TEXT,
+        metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
+        PRIMARY KEY (pipeline_run_id, stage_ordinal, revision),
+        FOREIGN KEY (pipeline_run_id, stage_ordinal)
+            REFERENCES pipeline_stage_checkpoints(pipeline_run_id, stage_ordinal) ON DELETE RESTRICT
+    )""",
+    """CREATE INDEX pipeline_stage_checkpoints_status
+       ON pipeline_stage_checkpoints(status, updated_at)""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_initial_revision
+       AFTER INSERT ON pipeline_stage_checkpoints
+       BEGIN
+         INSERT INTO pipeline_stage_checkpoint_revisions
+         (pipeline_run_id, stage_ordinal, revision, created_at, actor, reason,
+          status, provider_operation_ref, output_fingerprint, metadata_json)
+         VALUES (NEW.pipeline_run_id, NEW.stage_ordinal, NEW.revision, NEW.updated_at,
+                 NEW.actor, NEW.reason, NEW.status, NEW.provider_operation_ref,
+                 NEW.output_fingerprint, NEW.metadata_json);
+       END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_revision_guard
+       BEFORE UPDATE ON pipeline_stage_checkpoints
+       BEGIN
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'stage checkpoint revisions must increment sequentially') END;
+         SELECT CASE WHEN NEW.pipeline_run_id != OLD.pipeline_run_id
+              OR NEW.stage_ordinal != OLD.stage_ordinal
+              OR NEW.stage_name != OLD.stage_name
+              OR NEW.input_fingerprint != OLD.input_fingerprint
+              OR NEW.idempotency_key != OLD.idempotency_key
+              OR NEW.provider_namespace IS NOT OLD.provider_namespace
+           THEN RAISE(ABORT, 'stage checkpoint identity is immutable') END;
+         SELECT CASE WHEN NOT (
+           (OLD.status = 'executing' AND NEW.status IN ('succeeded', 'failed', 'indeterminate', 'blocked'))
+           OR (OLD.status = 'indeterminate' AND NEW.status IN ('succeeded', 'blocked'))
+           OR (OLD.status = 'failed' AND NEW.status = 'blocked')
+         ) THEN RAISE(ABORT, 'invalid stage checkpoint status transition') END;
+         SELECT CASE WHEN NEW.status = 'succeeded' AND NEW.output_fingerprint IS NULL
+           THEN RAISE(ABORT, 'successful checkpoint requires an output fingerprint') END;
+         SELECT CASE WHEN NEW.status != 'succeeded' AND NEW.output_fingerprint IS NOT NULL
+           THEN RAISE(ABORT, 'non-successful checkpoint cannot carry an output fingerprint') END;
+       END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_revision_snapshot
+       AFTER UPDATE ON pipeline_stage_checkpoints
+       BEGIN
+         INSERT INTO pipeline_stage_checkpoint_revisions
+         (pipeline_run_id, stage_ordinal, revision, created_at, actor, reason,
+          status, provider_operation_ref, output_fingerprint, metadata_json)
+         VALUES (NEW.pipeline_run_id, NEW.stage_ordinal, NEW.revision, NEW.updated_at,
+                 NEW.actor, NEW.reason, NEW.status, NEW.provider_operation_ref,
+                 NEW.output_fingerprint, NEW.metadata_json);
+       END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_revisions_no_update
+       BEFORE UPDATE ON pipeline_stage_checkpoint_revisions
+       BEGIN SELECT RAISE(ABORT, 'stage checkpoint revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_revisions_no_delete
+       BEFORE DELETE ON pipeline_stage_checkpoint_revisions
+       BEGIN SELECT RAISE(ABORT, 'stage checkpoint revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_stage_checkpoints_no_delete
+       BEFORE DELETE ON pipeline_stage_checkpoints
+       BEGIN SELECT RAISE(ABORT, 'stage checkpoints cannot be deleted'); END""",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -2774,6 +2869,19 @@ class SQLiteRegistry:
                     version = 31
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 31 failed; transaction rolled back") from exc
+
+            if version == 31 and _SCHEMA_VERSION >= 32:
+                try:
+                    for statement in _MIGRATION_32:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (32, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 32")
+                    version = 32
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 32 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
