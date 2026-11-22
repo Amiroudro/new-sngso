@@ -233,6 +233,8 @@ class WorkerLeaseStore:
     ) -> WorkerLease:
         actor = _identity(actor, "actor")
         reason = _reason_code(reason)
+        if actor != lease.worker_id:
+            raise LeaseLostError("heartbeat actor must match the authenticated lease worker")
         ttl = _ttl(ttl_seconds)
         current = _utc(now)
         stamp = _stamp(current)
@@ -260,6 +262,8 @@ class WorkerLeaseStore:
     ) -> None:
         actor = _identity(actor, "actor")
         reason = _reason_code(reason)
+        if actor != lease.worker_id:
+            raise LeaseLostError("release actor must match the authenticated lease worker")
         current = _utc(now)
         stamp = _stamp(current)
         with self.registry._transaction() as connection:
@@ -271,10 +275,18 @@ class WorkerLeaseStore:
 
     def request_cancellation(
         self, pipeline_run_id: str, *, actor: str, reason_code: str,
-        now: datetime | None = None,
+        permission_check: Any, now: datetime | None = None,
     ) -> dict[str, Any]:
         actor = _identity(actor, "actor")
         reason_code = _reason_code(reason_code)
+        if not callable(permission_check):
+            raise TypeError("permission_check must be callable")
+        try:
+            permitted = permission_check() is True
+        except Exception:
+            permitted = False
+        if not permitted:
+            raise WorkerLeaseError("cancellation permission check denied the request")
         current = _utc(now)
         stamp = _stamp(current)
         with self.registry._transaction() as connection:
@@ -317,6 +329,8 @@ class WorkerLeaseStore:
         self, lease: WorkerLease, *, actor: str, now: datetime | None = None,
     ) -> dict[str, Any]:
         actor = _identity(actor, "actor")
+        if actor != lease.worker_id:
+            raise LeaseLostError("cancellation acknowledgement actor must match the authenticated lease worker")
         current = _utc(now)
         stamp = _stamp(current)
         with self.registry._transaction() as connection:
