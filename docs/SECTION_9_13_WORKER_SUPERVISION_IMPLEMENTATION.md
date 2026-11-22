@@ -44,7 +44,7 @@ No live worker is enabled by this module. No scheduler activation, collection, p
 
 ## Verification
 
-Latest full Python 3.12 regression suite: **978 passed in 16.79 seconds** in GitHub Actions [run #45036796082](https://github.com/Amiroudro/new-sngso/actions/runs/45036796082), on code head `170cc7f2f6e693c5d61aa6bf5f8cef1a47123126`. This run includes bounded supervisor shutdown, post-shutdown launch rejection, read-only unresolved-checkpoint inventory, provider reconciliation reference-integrity checks, and the remote-completion/lease-loss crash-window tests. It verifies local POSIX subprocess and recovery-inventory contracts, not a concrete production provider or production process management.
+Latest full Python 3.12 regression suite: **981 passed in 13.25 seconds** in GitHub Actions [run #45037112488](https://github.com/Amiroudro/new-sngso/actions/runs/45037112488), on code head `03ceb9473f0e06a57c98f6e0aac97d06b14a02de`. This run includes bounded supervisor shutdown, read-only unresolved-checkpoint inventory, provider reconciliation reference-integrity checks, the remote-completion/lease-loss crash-window tests, and Linux kernel enforcement of configured CPU-time, address-space, and open-file limits. It verifies local POSIX/Linux primitives, not a concrete production provider, cgroup policy, or production service manager.
 
 
 ## Pending-provider reconciliation handoff
