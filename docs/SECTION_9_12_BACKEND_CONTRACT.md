@@ -116,3 +116,21 @@ The protocol currently makes the lease API substitutable for consumers such
 as managed heartbeat sessions and checkpoint recovery. It does not make the
 whole registry backend substitutable. A complete PostgreSQL migration is a
 larger storage-engine project, not a small adapter.
+
+
+## Complete registry migration design
+
+The preferred PostgreSQL target is now specified in
+[the operational PostgreSQL migration architecture](SECTION_9_OPERATIONAL_POSTGRESQL_MIGRATION_DESIGN.md).
+The design clarifies that the existing audit chain is global across ordinary
+source, permission, editorial, benchmark, staging, and operational registry
+writes. Consequently, preserving the current single-chain semantics requires
+moving the registry and its audit-producing writes together, not merely moving
+the run/lease/checkpoint tables. A narrower boundary would require an explicit
+audit-model redesign and separate acceptance.
+
+The design is intentionally non-implementing. It defines the PostgreSQL schema
+mapping, row-lock and compare-and-swap protocol, serialized audit-head update,
+ambiguous-commit handling, schema-v33 data migration, cutover/rollback boundary,
+backup/failover requirements, and real-PostgreSQL CI acceptance matrix. SQLite
+remains the only implemented backend.
