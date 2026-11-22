@@ -275,6 +275,12 @@ def execute_checkpointed_stage(
     """
     if not isinstance(context, dict) or not callable(handler) or not callable(permission_check):
         raise TypeError("context, handler, and permission_check are required")
+    if not isinstance(replay_safe, bool):
+        raise TypeError("replay_safe must be an explicit boolean")
+    if reconcile is not None and not callable(reconcile):
+        raise TypeError("reconcile must be callable when supplied")
+    if reconstruct is not None and not callable(reconstruct):
+        raise TypeError("reconstruct must be callable when supplied")
     input_fingerprint = sha256_fingerprint(context)
     store = StageCheckpointStore(registry)
     checkpoint = store.begin(
@@ -408,6 +414,12 @@ def execute_checkpointed_pipeline(
             raise StageCheckpointError("stage names must be unique lowercase bounded identifiers")
         if not callable(stage.handler) or not callable(stage.permission_check):
             raise TypeError("every stage requires a handler and permission check")
+        if not isinstance(stage.replay_safe, bool):
+            raise TypeError("replay_safe must be an explicit boolean")
+        if stage.reconcile is not None and not callable(stage.reconcile):
+            raise TypeError("reconcile must be callable when supplied")
+        if stage.reconstruct is not None and not callable(stage.reconstruct):
+            raise TypeError("reconstruct must be callable when supplied")
         names.add(stage.name)
 
     finished_at = now or datetime.now(timezone.utc)
