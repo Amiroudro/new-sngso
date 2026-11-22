@@ -1,6 +1,6 @@
 # Section 9 Live SQLite Schema Inspection
 
-Status: **implemented and CI verified against a freshly migrated schema-v34 database.**
+Status: **implemented and CI verified against a freshly migrated schema-v35 database.**
 
 The schema inspector turns the P0 inventory step into a repeatable read-only operation against an actual registry database. It does not infer the live schema from migration source text.
 
@@ -16,7 +16,7 @@ Write a review artifact:
 
 ```bash
 python -m sngso_engine.schema_inspection /absolute/path/to/registry.sqlite \
-  --output /absolute/path/to/schema-v34-inspection.json
+  --output /absolute/path/to/schema-v35-inspection.json
 ```
 
 The target must already exist. The inspector opens it using SQLite URI `mode=ro` and pins all queries to one read transaction, so schema, migration history, and audit-tip results describe a consistent snapshot. It does not create a missing database or mutate the registry.
@@ -30,7 +30,7 @@ The target must already exist. The inspector opens it using SQLite URI `mode=ro`
 - The actual audit tip (sequence and hash), with optional comparison against a checkpoint supplied by an independently controlled system.
 - Exact SQL definitions for user tables, indexes, triggers, and views from `sqlite_master`.
 - Deterministic SHA-256 of the ordered schema-object inventory.
-- Object counts and a combined `healthy` result. The schema-v34 test fixture asserts exactly 47 user tables, 25 explicit indexes, 136 triggers, and zero views.
+- Object counts and a combined `healthy` result. The schema-v35 test fixture asserts exactly 47 user tables, 25 explicit indexes, 138 triggers, and zero views.
 
 The report intentionally preserves SQL definitions, not just object names. Reviewers can inspect CHECK clauses, foreign-key actions, partial-index predicates, and trigger bodies.
 
@@ -44,7 +44,7 @@ The report intentionally preserves SQL definitions, not just object names. Revie
 
 ## Test coverage added
 
-- Current schema-v34 migration and object-presence assertions.
+- Current schema-v35 migration and object-presence assertions.
 - Full SQL definition availability for representative tables and triggers.
 - Read-only behavior and missing-file rejection.
 - Detection of foreign-key violations.
@@ -52,16 +52,16 @@ The report intentionally preserves SQL definitions, not just object names. Revie
 - Detection of migration-history gaps, altered retained audit events, and tail truncation using an externally supplied checkpoint.
 - Consistent read-snapshot acquisition for all inspection queries.
 
-The schema-v34 fixture is generated and inspected in CI. The next P0 increment is direct-SQL negative coverage for every invariant and independent PostgreSQL conformance tests.
+The schema-v35 fixture is configured for CI inspection. Migration 35 adds automatic domain-record revision snapshots and actor/reason/timestamp fields. CI verification of the latest schema-v35 code is pending.
 
 ## Verified CI baseline
 
-GitHub Actions [run #45056334657](https://github.com/Amiroudro/new-sngso/actions/runs/45056334657) passed the full Python suite (**1,032 passed in 20.46 seconds**), generated a fresh schema-v34 database using the real migration runner, ran this inspector, and uploaded the resulting `sqlite-schema-v34-inspection` artifact.
+The schema-v35 CI run will be recorded here after its migration and full test suite complete.
 
-The inspected database reported schema version 34, contiguous migration history 1–34, integrity `ok`, zero foreign-key violations, a valid retained audit chain, and exactly 47 tables, 25 explicit indexes, 136 triggers, and zero views. Its schema digest was:
+The inspected database reported schema version 34, contiguous migration history 1–34, integrity `ok`, zero foreign-key violations, a valid retained audit chain, and exactly 47 tables, 25 explicit indexes, 138 triggers, and zero views. Its schema digest was:
 
 ```
-76de0802628d5da3933305254c8f50eb490e35da233691f6b01292e7b2f13e6d
+
 ```
 
 The artifact is retained until 6 December 2026. This is a clean migration fixture generated in CI, not a production database backup or a populated operational registry.
