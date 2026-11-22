@@ -118,3 +118,27 @@ def test_oidc_worker_authorizer_rejects_invalid_request_identifiers():
     assert authorizer("", "pipeline-run:42") is False
     assert authorizer("worker:42", "") is False
     assert provider.calls == []
+
+
+
+def test_oidc_worker_authorizer_rejects_false_or_raising_per_run_policy():
+    provider = IdentityProvider()
+    for policy in (lambda authenticated, run: False,
+                   lambda authenticated, run: (_ for _ in ()).throw(RuntimeError("private"))):
+        authorizer = OIDCWorkerRecoveryAuthorizer(
+            provider,
+            request_context_factory=lambda worker, run: {"trusted": True},
+            authorize_run=policy,
+            expected_issuer=ISSUER,
+            expected_audience=AUDIENCE,
+            clock=lambda: NOW,
+        )
+        assert authorizer("worker:42", "pipeline-run:42") is False
+
+
+def test_oidc_worker_authorizer_rejects_naive_identity_timestamps():
+    authorizer, _, _, policies = make_authorizer(
+        IdentityProvider(identity(expires_at=datetime(2026, 11, 22, 17, 0)))
+    )
+    assert authorizer("worker:42", "pipeline-run:42") is False
+    assert policies == []
