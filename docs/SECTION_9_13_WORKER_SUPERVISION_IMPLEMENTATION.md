@@ -43,3 +43,24 @@ No live worker is enabled by this module. No scheduler activation, collection, p
 ## Verification
 
 Full Python 3.12 regression suite on the current PR code head: **963 passed in 13.77 seconds** in GitHub Actions [run #45024945093](https://github.com/Amiroudro/new-sngso/actions/runs/45024945093), code commit `31e04d1a550fb6138c60acfa08d43e6bd3e1ab5c`. This verifies local POSIX subprocess supervision, protected lease handoff, parent-side heartbeat/cancellation monitoring, checkpoint-handler adaptation, and stale-owner checkpoint protection. It does not verify provider fencing/idempotency, production process management, or non-POSIX behavior.
+
+
+## Pending-provider reconciliation handoff
+
+A supervised child can exit without a definitive local result while the remote
+provider operation continues. The checkpoint layer now records the first
+provider-confirmed `pending` response as an `indeterminate` checkpoint and
+stores the provider's bounded opaque operation reference in the append-only
+revision history. The next reconciliation call receives both the deterministic
+idempotency key and that persisted operation reference.
+
+A pending result never invokes the stage handler. A later provider-confirmed
+completion records success without launching another child; provider-confirmed
+`not_started` is still the only result that can authorize a side-effecting
+retry. Repeated pending polls do not rewrite an already-indeterminate head, so
+the original provider reference remains immutable. Provider adapters must
+therefore return a stable operation reference on the first pending response.
+
+The provider's free-form metadata is deliberately not persisted. Only the
+existing allow-listed operational tokens are recorded. This is a local
+reconciliation handoff, not a provider adapter or proof of remote idempotency.
