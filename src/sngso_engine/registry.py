@@ -2772,6 +2772,7 @@ _MIGRATION_35 = (
            ), created_at)""",
     """CREATE TRIGGER domain_records_revision_guard
        BEFORE UPDATE ON domain_records
+       WHEN OLD.record_type != 'edition'
        BEGIN
          SELECT CASE WHEN NEW.record_type IS NOT OLD.record_type
              OR NEW.id IS NOT OLD.id
@@ -2805,6 +2806,7 @@ _MIGRATION_35 = (
        END""",
     """CREATE TRIGGER domain_records_record_update
        AFTER UPDATE ON domain_records
+       WHEN OLD.record_type != 'edition'
        BEGIN
          INSERT INTO domain_record_revisions
          (record_type, record_id, revision, created_at, actor, reason, payload_json)
