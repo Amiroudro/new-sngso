@@ -47,6 +47,8 @@ class WorkerEntrypoint:
             raise ValueError("entrypoint name must be a bounded lowercase identifier")
         if not isinstance(self.argv, tuple) or not self.argv or len(self.argv) > 32:
             raise ValueError("entrypoint argv must be a non-empty tuple of at most 32 arguments")
+        if not os.path.isabs(self.argv[0]):
+            raise ValueError("entrypoint executable must be an absolute path")
         for item in self.argv:
             if not isinstance(item, str) or not item or "\x00" in item or len(item) > 4096:
                 raise ValueError("entrypoint argv contains an invalid argument")
