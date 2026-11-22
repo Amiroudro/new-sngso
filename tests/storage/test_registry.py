@@ -2832,6 +2832,17 @@ def test_domain_record_sql_guard_rejects_revision_jump_and_article_rebinding():
                  "2026-11-23T00:00:00Z"),
             )
 
+        story_payload["revision"] = 1
+        with pytest.raises(sqlite3.IntegrityError, match="payload revision must match indexed revision"):
+            registry._connection.execute(
+                """UPDATE domain_records
+                   SET revision = 2, payload_json = ?, last_actor = 'editor',
+                       last_reason = 'payload revision mismatch', last_revision_at = ?
+                   WHERE record_type = 'story' AND id = 'story:sample-event'""",
+                (json.dumps(story_payload, sort_keys=True, separators=(",", ":")),
+                 "2026-11-23T00:00:00Z"),
+            )
+
         article = registry._connection.execute(
             """SELECT payload_json FROM domain_records
                WHERE record_type = 'article' AND id = 'article:publisher-a-001'"""
