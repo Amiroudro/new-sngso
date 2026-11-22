@@ -38,6 +38,67 @@ def _running(registry, run_id="pipeline-run:lease-test"):
     return context
 
 
+def test_independent_registry_connections_share_one_file_lease_authority(tmp_path):
+    """Separate SQLite connections serialize claims against the same local file."""
+    database = tmp_path / "shared-worker-leases.sqlite"
+    with SQLiteRegistry(database) as initializer:
+        _running(initializer)
+    with SQLiteRegistry(database) as registry_one, SQLiteRegistry(database) as registry_two:
+        store_one = WorkerLeaseStore(registry_one)
+        store_two = WorkerLeaseStore(registry_two)
+        barrier = Barrier(2)
+
+        def claim(store, worker_id):
+            barrier.wait(timeout=5)
+            try:
+                return store.acquire(
+                    "pipeline-run:lease-test", worker_id, actor="scheduler",
+                    reason="independent_connection_claim", ttl_seconds=60,
+                )
+            except LeaseConflictError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [
+                pool.submit(claim, store_one, "worker_one"),
+                pool.submit(claim, store_two, "worker_two"),
+            ]
+            results = [future.result(timeout=15) for future in futures]
+
+        winners = [lease for lease in results if lease is not None]
+        assert len(winners) == 1
+        assert winners[0].fencing_token == 1
+        with pytest.raises(LeaseConflictError):
+            (store_two if winners[0].worker_id == "worker_one" else store_one).acquire(
+                "pipeline-run:lease-test", "late_worker", actor="scheduler",
+                reason="verify_shared_file_authority", ttl_seconds=60,
+            )
+
+
+def test_independent_registry_connection_observes_takeover_and_fences_old_owner(tmp_path):
+    database = tmp_path / "shared-worker-takeover.sqlite"
+    now = datetime(2026, 11, 22, 10, 0, tzinfo=timezone.utc)
+    with SQLiteRegistry(database) as initializer:
+        _running(initializer)
+    with SQLiteRegistry(database) as registry_one, SQLiteRegistry(database) as registry_two:
+        first = WorkerLeaseStore(registry_one).acquire(
+            "pipeline-run:lease-test", "worker_one", actor="scheduler",
+            reason="initial_claim", ttl_seconds=10, now=now,
+        )
+        second = WorkerLeaseStore(registry_two).acquire(
+            "pipeline-run:lease-test", "worker_two", actor="scheduler",
+            reason="takeover_after_expiry", ttl_seconds=30,
+            now=now + timedelta(seconds=11),
+        )
+        assert second.fencing_token == first.fencing_token + 1
+        with pytest.raises(LeaseLostError):
+            WorkerLeaseStore(registry_one).assert_current(
+                first, now=now + timedelta(seconds=12),
+            )
+        history = WorkerLeaseStore(registry_one).history("pipeline-run:lease-test")
+        assert [item["status"] for item in history] == ["active", "expired", "active"]
+
+
 def test_lease_acquire_persists_only_token_hash_and_blocks_second_live_owner():
     with SQLiteRegistry() as registry:
         _running(registry)
