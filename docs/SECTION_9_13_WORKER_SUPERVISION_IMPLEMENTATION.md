@@ -76,7 +76,7 @@ dispatch and again after the provider returns. If ownership is lost in flight,
 the wrapper refuses to return success to the local caller; the remote result
 must be reconciled.
 
-The `FencedProviderAdapter` protocol requires the provider implementation to
+The `fenced_provider_stage_handler` factory adapts this contract to the existing checkpoint handler signature: it builds a bounded request from in-memory stage context and forwards the checkpoint runner's deterministic idempotency key plus the captured lease generation. The checkpoint runner can retain its own point-of-use `lease_guard` as an additional local check. The `FencedProviderAdapter` protocol requires the provider implementation to
 atomically enforce two rules inside its own serialization boundary:
 
 1. Reject a command whose fencing generation is lower than the highest
@@ -88,6 +88,7 @@ The preflight SQLite lease check is not a substitute for provider enforcement:
 ownership can change between the check and the remote operation. The provider
 must implement the atomic comparison itself. Tests use a deliberately small
 fake provider to verify the contract, stale-generation rejection, duplicate
-deduplication, conflicting-payload rejection, and stale local lease refusal.
+deduplication, conflicting-payload rejection, stale local lease refusal, and
+end-to-end checkpoint-handler integration with the deterministic checkpoint key.
 No concrete production provider adapter exists yet, so this work establishes
 and tests the interface rather than claiming a real external system is fenced.
