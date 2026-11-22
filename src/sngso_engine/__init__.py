@@ -108,6 +108,7 @@ from .worker_supervisor import (
     WorkerSupervisor,
     WorkerSupervisorError,
     WorkerResourceLimits,
+    WorkerSignalShutdown,
     supervised_checkpoint_handler,
 )
 from .worker_leases import (
@@ -234,6 +235,7 @@ __all__ = [
     "WorkerSupervisor",
     "WorkerSupervisorError",
     "WorkerResourceLimits",
+    "WorkerSignalShutdown",
     "PipelineExecutionError",
     "PipelineStage",
     "PipelineStageFailure",
