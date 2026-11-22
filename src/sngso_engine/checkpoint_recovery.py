@@ -21,8 +21,9 @@ from .stage_checkpoints import (
 from .worker_leases import (
     LeaseLostError,
     WorkerLeaseError,
+    WorkerLeaseBackend,
+    WorkerLeaseError,
     WorkerLeaseSession,
-    WorkerLeaseStore,
 )
 
 
@@ -43,7 +44,7 @@ class CheckpointRecoveryPlan:
 
 def recover_unresolved_checkpoints(
     registry: Any,
-    lease_store: WorkerLeaseStore,
+    lease_store: WorkerLeaseBackend,
     pipeline_run_id: str,
     worker_id: str,
     *,
@@ -64,8 +65,8 @@ def recover_unresolved_checkpoints(
     Only the checkpoint runner may authorize a retry, after provider-confirmed
     not_started or an explicitly replay-safe plan.
     """
-    if not isinstance(lease_store, WorkerLeaseStore) or lease_store.registry is not registry:
-        raise TypeError("lease_store must belong to the supplied registry")
+    if not isinstance(lease_store, WorkerLeaseBackend):
+        raise TypeError("lease_store must implement WorkerLeaseBackend")
     if not callable(authorize) or not callable(resolve_plan):
         raise TypeError("authorize and resolve_plan callbacks are required")
     try:
