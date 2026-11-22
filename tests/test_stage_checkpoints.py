@@ -316,6 +316,11 @@ def test_indeterminate_checkpoint_can_later_reconcile_to_completed_without_repla
     calls = []
     with SQLiteRegistry() as registry:
         _running_run(registry)
+        StageCheckpointStore(registry).begin(
+            "pipeline-run:checkpoint-test", 0, "remote_write",
+            sha256_fingerprint(context), provider_namespace="provider_x",
+            actor="test_worker", reason="crash_before_reconciliation",
+        )
         with pytest.raises(StageCheckpointError):
             execute_checkpointed_stage(
                 registry, "pipeline-run:checkpoint-test", 0, "remote_write", context,
@@ -345,6 +350,11 @@ def test_indeterminate_checkpoint_reexecutes_only_after_later_not_started_proof(
     calls = []
     with SQLiteRegistry() as registry:
         _running_run(registry)
+        StageCheckpointStore(registry).begin(
+            "pipeline-run:checkpoint-test", 0, "remote_write",
+            sha256_fingerprint(context), provider_namespace="provider_x",
+            actor="test_worker", reason="crash_before_reconciliation",
+        )
         with pytest.raises(StageCheckpointError):
             execute_checkpointed_stage(
                 registry, "pipeline-run:checkpoint-test", 0, "remote_write", context,
