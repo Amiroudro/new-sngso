@@ -2644,7 +2644,7 @@ def test_schema_30_migrates_to_31_staging_channel(tmp_path, monkeypatch) -> None
         assert old.schema_version() == 30
     monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 31)
     with SQLiteRegistry(database) as migrated:
-        assert migrated.schema_version() == 32
+        assert migrated.schema_version() == 31
         state = migrated._connection.execute(
             "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
         ).fetchone()
