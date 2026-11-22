@@ -1,6 +1,6 @@
 # Section 9.11: Durable stage checkpoints and crash reconciliation
 
-Status: **design baseline committed; implementation and verification remain open.**
+Status: **local implementation complete and full-suite CI verified; production integration gates remain open.**
 
 Repository scope: `Amiroudro/new-sngso`. This design extends the local SQLite operational boundary only. It does not authorize live collection, publisher transport, scheduling, release, deployment, or publication.
 
@@ -124,3 +124,19 @@ Audit events record state changes and hashes only. Do not include exception stri
 Section 9.11 is complete only when the schema, registry API, checkpoint-aware runner, recovery adapter contract, crash-injection tests, and full Python 3.12 suite are implemented and CI-verified. Documentation alone is not implementation evidence.
 
 Even after repository-level acceptance, Section 9 remains pre-production until worker identity, leases/supervision, real permission adapters, encrypted/off-site backup, external audit checkpoint delivery, monitoring, and deployment controls are independently established. Section 8 remains staging-only. No live collection, scheduling, release, deployment, or publication is authorized.
+
+
+## Implementation and verification record
+
+The implementation is in src/sngso_engine/stage_checkpoints.py, with SQLite schema migration 32 in registry.py.
+
+- StageCheckpointStore creates a durable intent before a handler runs and appends immutable revisions and audit-chain events atomically.
+- stage_idempotency_key binds the pipeline run, stage ordinal/name, and exact stage-input fingerprint.
+- execute_checkpointed_stage supports fail-closed reconciliation. A provider-confirmed completed operation is recorded without replay; a provider-confirmed not-started operation may execute with the same stable key after permission is rechecked. Pending and unknown outcomes do not replay. An indeterminate checkpoint can be reconciled again later.
+- execute_checkpointed_pipeline enforces sequential predecessor completion, reconstructs prior successful outputs and verifies their fingerprints, stops at unresolved checkpoints, and only marks the run succeeded after every stage is durably successful.
+- SQLite guards restrict checkpoint metadata to bounded opaque tokens, bind revision snapshots to the current head, prevent provider-reference replacement, and reject update/delete tampering.
+- The legacy execute_pipeline_run behavior remains unchanged.
+
+Full Python 3.12 regression suite: **916 passed in 8.96 seconds** in GitHub Actions [run #45014748421](https://github.com/Amiroudro/new-sngso/actions/runs/45014748421), on commit 282f88182ca018d3893c2d248b8d4a5ece6ff9d6.
+
+This is local-engine acceptance only. Provider-specific adapters must enforce idempotency and provide durable lookup/reconstruction; worker leases, heartbeat/supervision, authenticated service identity, production permission adapters, external audit delivery, and operational backup/restore controls remain separate gates. No live collection, scheduling, publication, release, or deployment is authorized.
