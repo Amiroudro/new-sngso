@@ -9,7 +9,7 @@ Status: **local POSIX subprocess supervision and lease-aware process-control int
 - `WorkerEntrypoint`: a statically configured name, immutable argv tuple, explicit environment mapping, and JSON Schemas for request and result objects.
 - `WorkerSupervisor`: a POSIX-only process-group supervisor with a bounded wall-clock deadline, graceful SIGTERM, bounded grace period, and SIGKILL escalation.
 - `WorkerProcessResult`: bounded outcome metadata. It does not expose captured stderr or raw diagnostic output.
-- `supervised_checkpoint_handler`: adapts a validated worker result into a `execute_checkpointed_stage` handler. Only a successful child result becomes stage output; timeout, cancellation, lease loss, or protocol failure raises so a non-replay-safe checkpoint remains unresolved.
+- `supervised_checkpoint_handler`: adapts a validated worker result into an `execute_checkpointed_stage` handler. Only a successful child result becomes stage output; timeout, cancellation, lease loss, or protocol failure raises so a non-replay-safe checkpoint remains unresolved.
 
 Requests are validated against the registered entrypoint's JSON Schema and byte limit, then delivered on stdin. Request data is never interpolated into argv. The process is launched with `shell=False`, `close_fds=True`, a new POSIX session/process group, and only the explicitly configured environment. No ambient environment is inherited.
 
@@ -31,7 +31,7 @@ The process group is also terminated when the main child exits but a descendant 
 
 ## Test coverage added
 
-Tests cover successful stdin/stdout protocol, static entrypoint allowlisting, request/result schema rejection, nonzero exits, timeout escalation, bounded stdout/stderr draining, environment isolation, and descendant cleanup. Lease-aware tests cover private-FD credential handoff, heartbeat renewal during child execution, durable cancellation propagation, explicit acknowledgement versus unacknowledged cancellation, and child termination after lease loss. Checkpoint integration tests prove successful validated child output commits only its fingerprint and timeout leaves a side-effecting checkpoint indeterminate; a stale worker cannot change checkpoint state after lease loss. Protected-IPC unit tests cover envelope validation, token isolation, cancellation signaling, descriptor cleanup, and bounded polling.
+Tests cover successful stdin/stdout protocol, static entrypoint allowlisting, request/result schema rejection, nonzero exits, timeout escalation, bounded stdout/stderr draining, environment isolation, and descendant cleanup. Lease-aware tests cover private-FD credential handoff, heartbeat renewal during child execution, durable cancellation propagation, explicit acknowledgement versus unacknowledged cancellation, and child termination after lease loss, including a point-of-use lease check that raises after launch. Checkpoint integration tests prove successful validated child output commits only its fingerprint and timeout leaves a side-effecting checkpoint indeterminate; a stale worker cannot change checkpoint state after lease loss. Protected-IPC unit tests cover envelope validation, token isolation, cancellation signaling, descriptor cleanup, and bounded polling.
 
 ## Acceptance still required
 
@@ -42,4 +42,4 @@ No live worker is enabled by this module. No scheduler activation, collection, p
 
 ## Verification
 
-Full Python 3.12 regression suite on the current PR code head: **962 passed in 14.57 seconds** in GitHub Actions [run #45024689097](https://github.com/Amiroudro/new-sngso/actions/runs/45024689097), current PR head `afe2f73884ece65da90790923680e1e182c77706`. This verifies local POSIX subprocess supervision, protected lease handoff, parent-side heartbeat/cancellation monitoring, checkpoint-handler adaptation, and stale-owner checkpoint protection. It does not verify provider fencing/idempotency, production process management, or non-POSIX behavior.
+Full Python 3.12 regression suite on the current PR code head: **963 passed in 13.77 seconds** in GitHub Actions [run #45024945093](https://github.com/Amiroudro/new-sngso/actions/runs/45024945093), code commit `31e04d1a550fb6138c60acfa08d43e6bd3e1ab5c`. This verifies local POSIX subprocess supervision, protected lease handoff, parent-side heartbeat/cancellation monitoring, checkpoint-handler adaptation, and stale-owner checkpoint protection. It does not verify provider fencing/idempotency, production process management, or non-POSIX behavior.
