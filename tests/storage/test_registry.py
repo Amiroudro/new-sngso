@@ -2663,8 +2663,8 @@ def test_domain_revision_insert_must_match_the_current_head():
             registry._connection.execute(
                 """INSERT INTO domain_record_revisions
                    (record_type, record_id, revision, created_at, actor, reason, payload_json)
-                   VALUES ('article', 'article:sample-001', 2, ?, 'attacker', 'forged', ?)""",
-                ("2026-11-20T00:00:00Z", '{"id":"article:sample-001","forged":true}'),
+                   VALUES ('article', 'article:publisher-a-001', 2, ?, 'attacker', 'forged', ?)""",
+                ("2026-11-20T00:00:00Z", '{"id":"article:publisher-a-001","forged":true}'),
             )
 
 
