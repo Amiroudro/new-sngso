@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 import secrets
 from dataclasses import dataclass, field
@@ -10,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .canonical import sha256_fingerprint
-from .registry import RegistryIntegrityError
 
 
 class WorkerLeaseError(RuntimeError):
@@ -112,16 +110,6 @@ class WorkerLeaseStore:
     @staticmethod
     def _token_hash(token: str) -> str:
         return sha256_fingerprint(token)
-
-    @staticmethod
-    def _audit(connection: Any, run_id: str, event: str, payload: dict[str, Any]) -> None:
-        # Never include the bearer token. The token fingerprint is also omitted.
-        payload = {key: value for key, value in payload.items()
-                   if key not in {"token", "token_hash", "secret"}}
-        # Audit event types are intentionally stable and bounded.
-        connection.execute("SELECT 1")
-        # The caller supplies the registry instance so the audit append shares its transaction.
-        return None
 
     def acquire(
         self, pipeline_run_id: str, worker_id: str, *, ttl_seconds: int = 60,
