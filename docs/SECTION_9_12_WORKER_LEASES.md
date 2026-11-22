@@ -20,7 +20,7 @@ The lease record contains only bounded operational metadata:
 
 1. A lease can be acquired only for a pipeline run already in `running` state.
 2. One active, unexpired lease exists per run. SQLite's immediate write transaction serializes competing claimants.
-3. A worker must present the one-time token and exact fencing generation to heartbeat, release, inspect cancellation, or acknowledge cancellation.
+3. A worker must present the one-time token and exact fencing generation to heartbeat, release, inspect cancellation, or acknowledge cancellation. Worker heartbeat, release, and acknowledgement audit actors must match the lease's worker ID. The cancellation requester is separately authorized at point of use.
 4. Heartbeats extend expiry without changing the fencing generation.
 5. An expired lease cannot be renewed or released by its former owner.
 6. A new owner may take over only after the previous lease has expired or been explicitly released. The generation increments and a new token is issued.
@@ -33,7 +33,7 @@ Expiry is a coordination signal, not proof that the old process has stopped. A p
 
 - Heartbeats are explicit calls; the library does not start timers or background threads.
 - TTL is bounded to 10–3600 seconds.
-- Cancellation is a durable, immutable request attached to the current lease. Repeated requests return the existing request.
+- Cancellation is a durable, immutable request attached to the current lease. Repeated requests return the existing request. The caller must supply an authorization callback that returns exactly `True`; exceptions and all other results deny the request.
 - Workers poll cancellation between stages. The checkpoint-aware pipeline runner checks lease ownership before each stage, immediately before the handler, after the handler before checkpoint success, and before pipeline completion.
 - Cancellation is cooperative. An in-flight handler must implement its own bounded timeout and cancellation-aware I/O.
 - A worker acknowledges cancellation only while it still owns an unexpired lease. Acknowledgement atomically transitions the pipeline run to `cancelled` and the lease to `cancelled`.
