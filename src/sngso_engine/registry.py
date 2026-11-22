@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 33
+_SCHEMA_VERSION = 34
 
 
 _MIGRATION_14 = (
@@ -2556,6 +2556,180 @@ _MIGRATION_33 = (
 )
 
 
+_MIGRATION_34 = (
+    """CREATE TRIGGER domain_record_revisions_validate_insert
+       BEFORE INSERT ON domain_record_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM domain_records d
+         WHERE d.record_type = NEW.record_type
+           AND d.id = NEW.record_id
+           AND d.revision = NEW.revision
+           AND d.payload_json = NEW.payload_json
+       )
+       OR length(trim(NEW.actor)) = 0
+       OR length(trim(NEW.reason)) = 0
+       BEGIN SELECT RAISE(ABORT, 'domain revision must match current head and include actor/reason'); END""",
+    """CREATE TRIGGER permission_grant_revisions_validate_insert
+       BEFORE INSERT ON permission_grant_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM permission_grants g
+         WHERE g.id = NEW.grant_id
+           AND (
+             (g.revision = NEW.revision AND g.payload_json = NEW.payload_json)
+             OR (
+               g.revision + 1 = NEW.revision
+               AND json_extract(NEW.payload_json, '$.id') IS g.id
+               AND json_extract(NEW.payload_json, '$.source_id') IS g.source_id
+               AND (
+                 (g.status = 'pending' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('approved', 'denied', 'suspended', 'revoked'))
+                 OR (g.status = 'approved' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('suspended', 'revoked'))
+                 OR (g.status = 'suspended' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('approved', 'revoked'))
+               )
+             )
+           )
+       )
+       OR length(trim(NEW.actor)) = 0
+       OR length(trim(NEW.reason)) = 0
+       BEGIN SELECT RAISE(ABORT, 'grant revision must match current or next legal head and include actor/reason'); END""",
+    """CREATE TRIGGER permission_grants_revision_guard
+       BEFORE UPDATE ON permission_grants
+       BEGIN
+         SELECT CASE WHEN NEW.id IS NOT OLD.id
+             OR NEW.source_id IS NOT OLD.source_id
+             OR NEW.effective_from IS NOT OLD.effective_from
+             OR NEW.effective_until IS NOT OLD.effective_until
+             OR NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'permission grant identity is immutable and revision must increment by one') END;
+         SELECT CASE WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
+             OR json_extract(NEW.payload_json, '$.source_id') IS NOT NEW.source_id
+             OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+           THEN RAISE(ABORT, 'permission grant payload does not match indexed fields') END;
+         SELECT CASE WHEN NOT EXISTS (
+             SELECT 1 FROM permission_grant_revisions r
+             WHERE r.grant_id = NEW.id AND r.revision = NEW.revision
+               AND r.payload_json = NEW.payload_json
+           )
+           THEN RAISE(ABORT, 'permission grant update requires matching revision') END;
+         SELECT CASE WHEN NOT (
+             (OLD.status = 'pending' AND NEW.status IN ('approved', 'denied', 'suspended', 'revoked'))
+             OR (OLD.status = 'approved' AND NEW.status IN ('suspended', 'revoked'))
+             OR (OLD.status = 'suspended' AND NEW.status IN ('approved', 'revoked'))
+           )
+           THEN RAISE(ABORT, 'invalid permission grant status transition') END;
+       END""",
+    """CREATE TRIGGER benchmark_review_assignment_revisions_validate_insert
+       BEFORE INSERT ON benchmark_review_assignment_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM benchmark_review_assignments a
+         WHERE a.assignment_id = NEW.assignment_id
+           AND (
+             (a.revision = NEW.revision AND a.payload_json = NEW.payload_json)
+             OR (
+               a.revision + 1 = NEW.revision
+               AND json_extract(NEW.payload_json, '$.assignment_id') IS a.assignment_id
+               AND json_extract(NEW.payload_json, '$.artifact_id') IS a.artifact_id
+               AND json_extract(NEW.payload_json, '$.artifact_fingerprint') IS a.artifact_fingerprint
+               AND json_extract(NEW.payload_json, '$.reviewer_id') IS a.reviewer_id
+               AND json_extract(NEW.payload_json, '$.assigned_by') IS a.assigned_by
+               AND json_extract(NEW.payload_json, '$.language') IS a.language
+               AND (
+                 (a.status = 'assigned' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('accepted', 'cancelled', 'expired'))
+                 OR (a.status = 'accepted' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('submitted', 'cancelled', 'expired'))
+               )
+             )
+           )
+       )
+       OR length(trim(NEW.actor)) = 0
+       OR length(trim(NEW.reason)) = 0
+       BEGIN SELECT RAISE(ABORT, 'assignment revision must match current or next legal head and include actor/reason'); END""",
+    """CREATE TRIGGER benchmark_review_assignment_status_transition_guard
+       BEFORE UPDATE ON benchmark_review_assignments
+       BEGIN
+         SELECT CASE WHEN NOT (
+             (OLD.status = 'assigned' AND NEW.status IN ('accepted', 'cancelled', 'expired'))
+             OR (OLD.status = 'accepted' AND NEW.status IN ('submitted', 'cancelled', 'expired'))
+           )
+           THEN RAISE(ABORT, 'invalid benchmark assignment status transition') END;
+         SELECT CASE WHEN NEW.status IN ('accepted', 'submitted')
+             AND NEW.last_actor IS NOT OLD.reviewer_id
+           THEN RAISE(ABORT, 'reviewer must perform accept and submit transitions') END;
+         SELECT CASE WHEN NEW.status = 'cancelled'
+             AND NEW.last_actor NOT IN (OLD.reviewer_id, OLD.assigned_by)
+           THEN RAISE(ABORT, 'only reviewer or assigner may cancel assignment') END;
+         SELECT CASE WHEN NEW.status = 'expired'
+             AND NEW.last_actor IS NOT OLD.assigned_by
+           THEN RAISE(ABORT, 'only assigner may expire assignment') END;
+         SELECT CASE WHEN NEW.status IN ('accepted', 'submitted')
+             AND NOT EXISTS (
+               SELECT 1 FROM benchmark_principals p
+               WHERE p.principal_id = NEW.last_actor AND p.active = 1
+                 AND p.principal_kind = 'human'
+                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                             WHERE role.value = 'benchmark_reviewer')
+                 AND EXISTS (SELECT 1 FROM json_each(p.languages_json) language
+                             WHERE language.value = NEW.language)
+             )
+           THEN RAISE(ABORT, 'assignment reviewer must be an active qualified human') END;
+         SELECT CASE WHEN NEW.status IN ('cancelled', 'expired')
+             AND NEW.last_actor = OLD.assigned_by
+             AND NOT EXISTS (
+               SELECT 1 FROM benchmark_principals p
+               WHERE p.principal_id = NEW.last_actor AND p.active = 1
+                 AND p.principal_kind = 'human'
+                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                             WHERE role.value = 'benchmark_curator')
+             )
+           THEN RAISE(ABORT, 'assignment curator must be an active human') END;
+         SELECT CASE WHEN NEW.status = 'cancelled'
+             AND NEW.last_actor = OLD.reviewer_id
+             AND NOT EXISTS (
+               SELECT 1 FROM benchmark_principals p
+               WHERE p.principal_id = NEW.last_actor AND p.active = 1
+                 AND p.principal_kind = 'human'
+                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                             WHERE role.value = 'benchmark_reviewer')
+                 AND EXISTS (SELECT 1 FROM json_each(p.languages_json) language
+                             WHERE language.value = NEW.language)
+             )
+           THEN RAISE(ABORT, 'assignment reviewer must be an active qualified human') END;
+         SELECT CASE WHEN NEW.status = 'accepted'
+             AND (json_extract(NEW.payload_json, '$.accepted_at') IS NULL
+               OR julianday(json_extract(NEW.payload_json, '$.accepted_at')) >= julianday(OLD.due_at))
+           THEN RAISE(ABORT, 'assignment acceptance must occur before deadline') END;
+         SELECT CASE WHEN NEW.status = 'submitted'
+             AND (json_extract(NEW.payload_json, '$.accepted_at') IS NULL
+               OR json_extract(NEW.payload_json, '$.closed_at') IS NULL
+               OR json_extract(NEW.payload_json, '$.submitted_review_id') IS NULL
+               OR julianday(json_extract(NEW.payload_json, '$.closed_at')) >= julianday(OLD.due_at)
+               OR julianday(json_extract(NEW.payload_json, '$.closed_at')) < julianday(json_extract(NEW.payload_json, '$.accepted_at'))
+               OR NOT EXISTS (
+                 SELECT 1 FROM benchmark_reviews r
+                 WHERE r.review_id = json_extract(NEW.payload_json, '$.submitted_review_id')
+                   AND r.benchmark_id = OLD.artifact_id
+                   AND r.benchmark_fingerprint = OLD.artifact_fingerprint
+                   AND r.language = OLD.language
+                   AND json_extract(r.payload_json, '$.reviewer.reviewer_id') = OLD.reviewer_id
+               ))
+           THEN RAISE(ABORT, 'submitted assignment requires a timely review for its exact assignee and artifact') END;
+         SELECT CASE WHEN NEW.status IN ('cancelled', 'expired')
+             AND (json_extract(NEW.payload_json, '$.closed_at') IS NULL
+               OR length(trim(COALESCE(json_extract(NEW.payload_json, '$.closure_reason'), ''))) = 0)
+           THEN RAISE(ABORT, 'closed assignment requires timestamp and reason') END;
+         SELECT CASE WHEN NEW.status = 'expired'
+             AND julianday(json_extract(NEW.payload_json, '$.closed_at')) < julianday(OLD.due_at)
+           THEN RAISE(ABORT, 'assignment cannot expire before its deadline') END;
+         SELECT CASE WHEN NEW.status = 'cancelled' AND OLD.status = 'accepted'
+             AND julianday(json_extract(NEW.payload_json, '$.closed_at')) < julianday(json_extract(OLD.payload_json, '$.accepted_at'))
+           THEN RAISE(ABORT, 'assignment cancellation cannot predate acceptance') END;
+       END""",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -3076,6 +3250,19 @@ class SQLiteRegistry:
                     version = 33
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 33 failed; transaction rolled back") from exc
+
+            if version == 33 and _SCHEMA_VERSION >= 34:
+                try:
+                    for statement in _MIGRATION_34:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (34, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 34")
+                    version = 34
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 34 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
