@@ -281,12 +281,6 @@ class WorkerLeaseStore:
         reason_code = _reason_code(reason_code)
         if not callable(permission_check):
             raise TypeError("permission_check must be callable")
-        try:
-            permitted = permission_check() is True
-        except Exception:
-            permitted = False
-        if not permitted:
-            raise WorkerLeaseError("cancellation permission check denied the request")
         current = _utc(now)
         stamp = _stamp(current)
         with self.registry._transaction() as connection:
@@ -298,6 +292,12 @@ class WorkerLeaseStore:
                 raise WorkerLeaseError("cancellation requires an active worker lease")
             if _parse(row["expires_at"]) <= current:
                 raise LeaseExpiredError("cannot request cancellation through an expired lease")
+            try:
+                permitted = permission_check() is True
+            except Exception:
+                permitted = False
+            if not permitted:
+                raise WorkerLeaseError("cancellation permission check denied the request")
             if row["cancel_requested_at"] is not None:
                 return {"requested": True, "already_requested": True,
                         "requested_at": row["cancel_requested_at"],
