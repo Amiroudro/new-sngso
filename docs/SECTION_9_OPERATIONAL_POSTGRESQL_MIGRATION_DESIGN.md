@@ -251,3 +251,22 @@ Do not start by implementing a lease adapter in isolation. Phase A must produce 
 - Existing website, Android application, and published editions are outside this repository change and remain untouched.
 
 **Decision:** keep the present SQLite boundary until the complete registry migration can be implemented and verified as one coherent project. The PostgreSQL path is an architectural plan, not a production-ready capability.
+
+
+## 12. Schema inventory captured from the current registry source
+
+A source scan of `src/sngso_engine/registry.py` at the Section 9 branch recorded **47 distinct table definitions, 25 distinct index definitions, and 131 distinct trigger definitions**. This is a static source inventory, not proof that a live database contains every object; the schema-v33 migration and integrity checks remain authoritative.
+
+The complete table inventory is grouped below to make omissions visible during PostgreSQL porting:
+
+- **Schema and audit:** `schema_migrations`, `audit_events`.
+- **Source governance and permissions:** `sources`, `source_endpoints`, `permission_evidence`, `permission_grants`, `grant_endpoints`, `grant_evidence`, `grant_operation_evidence`, `permission_grant_revisions`.
+- **Editorial domain and ingestion:** `domain_records`, `domain_record_revisions`, `collection_observations`, `ingestion_decisions`, `ingestion_current`, `story_decisions`, `story_decision_applications`, `timeline_events`, `perspectives`, `claim_relations`.
+- **Learning objects and glossary:** `learning_objects`, `learning_object_revisions`, `glossary_entries`, `glossary_entry_revisions`.
+- **Benchmark and human review:** `benchmark_artifacts`, `benchmark_principals`, `benchmark_adjudications`, `benchmark_review_assignments`, `benchmark_review_assignment_revisions`, `benchmark_review_identity_attestations`, `benchmark_scores`, `benchmark_study_protocols`, `benchmark_study_executions`, `benchmark_acceptance_reviews`, `benchmark_reviews`, `benchmark_review_revisions`.
+- **Pipeline operations:** `pipeline_runs`, `pipeline_run_revisions`, `pipeline_stage_checkpoints`, `pipeline_stage_checkpoint_revisions`, `pipeline_worker_leases`, `pipeline_worker_lease_revisions`.
+- **Edition artifacts and staging controls:** `edition_artifacts`, `edition_decisions`, `edition_release_authorizations`, `edition_staging_events`, `edition_staging_channel_state`.
+
+The PostgreSQL port must also account for all 25 named indexes and all 131 named triggers in the source migration definitions, including partial uniqueness, JSON payload guards, immutable histories, lifecycle checks, and cross-record validation. The inventory should be regenerated from source as migrations evolve; do not maintain it by hand as the sole source of truth.
+
+The table inventory contains more than the seven operational tables listed in Section 2. That difference is deliberate: the seven-table list identifies the core run/lease/checkpoint/audit records, while the full registry inventory identifies the additional tables that must move with the global audit chain if its present single-chain semantics are to remain intact.
