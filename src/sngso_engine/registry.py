@@ -2299,8 +2299,12 @@ _MIGRATION_32 = (
         metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
         PRIMARY KEY (pipeline_run_id, stage_ordinal),
         FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_runs(id) ON DELETE RESTRICT,
-        CHECK (provider_operation_ref IS NULL OR length(provider_operation_ref) <= 256),
-        CHECK (provider_namespace IS NULL OR length(provider_namespace) BETWEEN 1 AND 100),
+        CHECK (provider_operation_ref IS NULL OR
+            (length(provider_operation_ref) BETWEEN 1 AND 256
+             AND provider_operation_ref NOT GLOB '*[^A-Za-z0-9_.:-]*')),
+        CHECK (provider_namespace IS NULL OR
+            (length(provider_namespace) BETWEEN 1 AND 100
+             AND provider_namespace NOT GLOB '*[^a-z0-9_.-]*')),
         CHECK ((status = 'succeeded' AND output_fingerprint GLOB 'sha256:*')
             OR (status <> 'succeeded' AND output_fingerprint IS NULL))
     )""",
@@ -2369,8 +2373,10 @@ _MIGRATION_32 = (
          OR EXISTS (
            SELECT 1 FROM json_each(NEW.metadata_json)
            WHERE key NOT IN ('adapter_version', 'provider_state', 'failure_code', 'reconciliation', 'attempt')
-              OR (key = 'attempt' AND type != 'integer')
-              OR (key != 'attempt' AND type != 'text')
+              OR (key = 'attempt' AND (type != 'integer' OR CAST(value AS INTEGER) NOT BETWEEN 1 AND 1000))
+              OR (key != 'attempt' AND
+                  (type != 'text' OR length(value) NOT BETWEEN 1 AND 128
+                   OR value GLOB '*[^A-Za-z0-9_.:-]*'))
          )
        BEGIN SELECT RAISE(ABORT, 'stage checkpoint metadata contains unsupported fields or types'); END""",
     """CREATE TRIGGER pipeline_stage_checkpoint_metadata_guard_update
