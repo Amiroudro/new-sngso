@@ -27,7 +27,7 @@ The process group is also terminated when the main child exits but a descendant 
 - `sngso_engine.worker_control` supplies the bounded lease envelope over an inherited private pipe and a separate one-byte cancellation pipe. Descriptor numbers may be passed as environment values; bearer tokens are never passed in argv, request JSON, environment values, or output.
 - The supervisor does not release or acknowledge the lease automatically, and does not mutate checkpoint state. Callers must retain session ownership and reconcile uncertain child outcomes before retry.
 - Optional Linux CPU/address-space/open-file limits are now applied through the external util-linux `prlimit(1)` executable, which sets soft and hard limits before `exec` of the worker. A configured limit fails closed if Linux or `prlimit(1)` is unavailable. Entrypoints without `WorkerResourceLimits` retain the existing behavior. These are per-process limits, not cgroup/container quotas or aggregate worker-pool budgets.
-- Process-global signal-handler installation, service-manager restart policy, authenticated restart orchestration, and provider-enforced fencing remain outside this implementation. The `shutdown()` method is the callable shutdown primitive for an external service entrypoint; it does not install signal handlers or acknowledge durable lease cancellation.
+- Process-global signal-handler installation, service-manager restart policy, production identity-provider integration, service-manager restart policy, and provider-enforced fencing remain outside this implementation. The `shutdown()` method is the callable shutdown primitive for an external service entrypoint; it does not install signal handlers or acknowledge durable lease cancellation.
 - `StageCheckpointStore.list_unresolved(pipeline_run_id=None)` provides a read-only restart-recovery inventory of executing and indeterminate checkpoints. It returns stable idempotency keys and persisted provider operation references in stage order. It does not acquire a new lease, call a provider, mutate checkpoint state, or authorize replay. A restarted worker must authenticate, acquire a current lease, and reconcile provider state before deciding what can safely continue.
 - The supervisor does not trigger collection, scheduling, publication, release, or deployment.
 
@@ -37,7 +37,7 @@ Tests cover successful stdin/stdout protocol, static entrypoint allowlisting, re
 
 ## Acceptance still required
 
-Before production use: make the worker validate lease ownership and fencing at each side-effect boundary; connect child outcomes to checkpoint reconciliation without replaying uncertain work; add platform-tested CPU/memory/FD limits; wire the shutdown primitive to a service manager and signal adapter, implement authenticated restart orchestration around the read-only unresolved-checkpoint inventory, and add test stale fencing at provider boundaries and crash windows; provide external monitoring, shared durable lease storage, backup/restore, and an explicit operator release decision.
+Before production use: make the worker validate lease ownership and fencing at each side-effect boundary; connect child outcomes to checkpoint reconciliation without replaying uncertain work; add platform-tested CPU/memory/FD limits; wire the shutdown primitive to a service manager and signal adapter, integrate a production identity/authorization adapter and trusted stage-context resolver with the restart-recovery API, and add test stale fencing at provider boundaries and crash windows; provide external monitoring, shared durable lease storage, backup/restore, and an explicit operator release decision.
 
 No live worker is enabled by this module. No scheduler activation, collection, publication, release, merge, or deployment is authorized.
 
@@ -151,3 +151,43 @@ leave unknown/pending outcomes unresolved.
 `WorkerResourceLimits` is an optional immutable entrypoint setting with bounded CPU seconds, virtual address-space bytes, and open-file count. When any registered entrypoint requests limits, the supervisor requires Linux and resolves an absolute `prlimit(1)` executable at construction. At launch it prefixes the fixed argv with `prlimit --cpu=... --as=... --nofile=... -- <registered argv>`. No request field can alter the limits or command vector. The helper applies equal soft and hard limits and then execs the worker; no Python `preexec_fn` or shell is used.
 
 The integration test reads `/proc/self/limits` inside the child and checks all three configured values. A missing helper causes supervisor construction to fail rather than silently launching without limits. Limits are opt-in, per process, and do not replace cgroups, container policy, aggregate memory budgets, or service-manager controls.
+
+
+## Authenticated lease-bound restart recovery
+
+The new checkpoint_recovery module provides CheckpointRecoveryPlan and
+recover_unresolved_checkpoints(). The recovery entry point requires an
+authorization callback that returns the literal boolean True before it acquires
+a fresh worker lease. It then starts a heartbeat-backed WorkerLeaseSession and
+enumerates unresolved checkpoints in stage order.
+
+For each candidate, the application-supplied resolver must reconstruct the
+original stage context from trusted application state. Recovery recomputes its
+canonical SHA-256 fingerprint and compares it with the immutable checkpoint
+fingerprint before invoking any provider or handler. The checkpoint does not
+contain the original content, and recovery never tries to infer or rebuild it
+from metadata.
+
+Provider reconciliation is wrapped with lease-health checks both before and
+after the remote lookup. A lease loss propagates out of the reconciliation
+exception boundary and cannot be converted into a provider-unknown transition
+by a stale worker. The checkpoint runner remains the sole authority for retry:
+provider-confirmed not_started can proceed with the original context and stable
+idempotency key; pending/unknown stops the ordered recovery pass; confirmed
+completion records success without replay. An explicitly replay-safe stage may
+use its declared policy, but side-effecting stages remain fail-closed.
+
+The recovery report contains stage identifiers, statuses, idempotency keys, and
+output fingerprints only. It does not return reconstructed stage outputs.
+The lease is released on normal completion; a stale lease cannot be released
+after ownership has moved.
+
+Regression tests cover authorization denial before lease acquisition,
+provider-confirmed completion without replay, provider-confirmed not_started
+followed by exactly one handler invocation, pending-operation preservation,
+context-fingerprint mismatch before provider invocation, and lease takeover
+during a provider lookup. The last case proves that the checkpoint remains
+indeterminate and the stale recovery worker cannot commit a provider result.
+
+This is a reusable local orchestration API, not a production identity provider,
+context resolver, remote provider adapter, or distributed lease service.
