@@ -344,6 +344,11 @@ def execute_checkpointed_stage(
                 resolution = reconcile(checkpoint.idempotency_key, checkpoint.provider_operation_ref)
             except Exception:
                 resolution = Reconciliation("unknown")
+            # A lease guard is deliberately outside the provider exception
+            # handler. Lease loss must propagate, not be downgraded to an
+            # unknown provider result that a stale worker could persist.
+            if lease_guard is not None:
+                lease_guard()
             if not isinstance(resolution, Reconciliation) or resolution.status not in {
                 "completed", "not_started", "pending", "unknown", "denied"
             }:
