@@ -1,17 +1,20 @@
 # Section 9 Content, Provenance, Ingestion, and Learning Trigger Semantic Review
 
-Status: **source-level semantic review completed for all 44 remaining non-benchmark content/provenance/ingestion triggers. This completes source-level semantic review of all 131 SQLite triggers. It does not complete direct-SQL conformance, PostgreSQL implementation, or Section 9 production acceptance.**
+Status: **source-level semantic review completed for all 47 content/provenance/ingestion triggers, including three new schema-v34 revision guards. This completes source-level semantic review of all 131 SQLite triggers. It does not complete direct-SQL conformance, PostgreSQL implementation, or Section 9 production acceptance.**
 
 This review covers permission-grant and domain revision history, collection observations, ingestion decisions/current pointers, story perspectives and claim relations, learning objects and their evidence, and bilingual glossary entries.
 
-## 1. Append-only evidence and revision tables (6 triggers)
+## 1. Revision history and permission grant state (9 triggers)
 
 | Trigger | Current SQLite invariant | PostgreSQL mapping | Existing evidence |
 |---|---|---|---|
 | `grant_revisions_no_update` | Permission grant revision history cannot be rewritten | BEFORE UPDATE trigger and restricted role | Permission-first collection, revocation and audit tests |
 | `grant_revisions_no_delete` | Permission grant revision history cannot be deleted | BEFORE DELETE trigger and restricted role | Same |
+| `permission_grant_revisions_validate_insert` | New revision must match the current grant head or be exactly the next legal status revision, with non-empty actor/reason | BEFORE INSERT trigger checking current/next revision, immutable grant/source identity and legal status transition | New schema-v34 direct-SQL revision guard tests |
+| `permission_grants_revision_guard` | Grant ID/source/effective window immutable; revision +1; payload matches indexed ID/source/status; update requires a matching revision; only pending→approved/denied/suspended/revoked, approved→suspended/revoked, and suspended→approved/revoked are allowed | BEFORE UPDATE trigger with revision-row check and explicit transition table | Existing grant lifecycle tests plus new schema-v34 direct-SQL update rejection test |
 | `domain_revisions_no_update` | Domain-record revision history cannot be rewritten | BEFORE UPDATE trigger and restricted role | Ingestion revision and story correction tests |
 | `domain_revisions_no_delete` | Domain-record revision history cannot be deleted | BEFORE DELETE trigger and restricted role | Same |
+| `domain_record_revisions_validate_insert` | Revision must match the current domain-record head's type, ID, revision and exact payload; actor/reason required | BEFORE INSERT trigger bound to the already-updated head, inside the same transaction | New schema-v34 forged-revision rejection test |
 | `collection_observations_no_update` | Original collection observations are immutable | BEFORE UPDATE trigger and restricted role | Observation preservation and idempotent ingestion tests |
 | `collection_observations_no_delete` | Collection observations cannot be deleted | BEFORE DELETE trigger and restricted role | Observation provenance and append-only tests |
 
@@ -133,6 +136,6 @@ The glossary revision table also has three separate triggers: `glossary_entry_re
 
 ## 9. Review boundary
 
-This document covers the 44 previously unreviewed content/provenance/ingestion triggers. Together with the 23 operational triggers, 27 publication/audit/story/timeline triggers, and 37 benchmark-governance triggers reviewed in the companion documents, **all 131 of 131 SQLite triggers now have source-level semantic review records**.
+This document covers 47 content/provenance/ingestion triggers, including three schema-v34 database guards added after the initial source review. Together with the 23 operational triggers, 27 publication/audit/story/timeline triggers, and 39 benchmark-governance triggers in the companion documents, **all 136 of 136 SQLite triggers now have source-level semantic review records**.
 
 This is a major review milestone, not production completion. Several database-boundary gaps are explicitly identified above and in the companion benchmark/operational reviews. No PostgreSQL migration or PostgreSQL conformance suite has been implemented yet. P0 direct-SQL acceptance and Section 9 production acceptance remain open.
