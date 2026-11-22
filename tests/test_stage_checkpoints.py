@@ -702,3 +702,26 @@ def test_restart_recovery_inventory_rejects_empty_run_filter():
         store = StageCheckpointStore(registry)
         with pytest.raises(ValueError, match="non-empty"):
             store.list_unresolved("")
+
+
+def test_pipeline_run_sql_guards_reject_identity_and_transition_tampering():
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        with pytest.raises(sqlite3.IntegrityError, match="identity and inputs are immutable"):
+            registry._connection.execute(
+                """UPDATE pipeline_runs
+                   SET payload_json = json_set(payload_json, '$.software_version', 'tampered'),
+                       status = 'succeeded', revision = revision + 1
+                   WHERE id = ?""",
+                ("pipeline-run:checkpoint-test",),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="invalid pipeline run status transition"):
+            registry._connection.execute(
+                """UPDATE pipeline_runs
+                   SET status = 'queued', revision = revision + 1
+                   WHERE id = ?""",
+                ("pipeline-run:checkpoint-test",),
+            )
+        stored = registry.get_pipeline_run("pipeline-run:checkpoint-test")["record"]
+        assert stored["status"] == "running"
+        assert stored["revision"] == 1
