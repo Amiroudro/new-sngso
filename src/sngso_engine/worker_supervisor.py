@@ -19,7 +19,7 @@ from typing import Any, Mapping, Sequence
 from jsonschema import Draft202012Validator
 
 from .worker_control import create_worker_control_channel
-from .worker_leases import WorkerLeaseSession
+from .worker_leases import LeaseLostError, WorkerLeaseSession
 
 
 class WorkerSupervisorError(RuntimeError):
@@ -271,13 +271,37 @@ class WorkerSupervisor:
                             except subprocess.TimeoutExpired:
                                 termination = "kill_unconfirmed"
                         break
-                    if not cancellation_sent and lease_session.check_cancellation():
+                    try:
+                        cancellation_pending = (
+                            not cancellation_sent and lease_session.check_cancellation()
+                        )
+                    except LeaseLostError:
+                        status = "lease_lost"
+                        termination = "sigterm"
+                        self._terminate_group(process, hard=False)
+                        try:
+                            process.wait(timeout=self.termination_grace_seconds)
+                        except subprocess.TimeoutExpired:
+                            termination = "sigkill"
+                            self._terminate_group(process, hard=True)
+                            try:
+                                process.wait(timeout=max(1.0, self.termination_grace_seconds))
+                            except subprocess.TimeoutExpired:
+                                termination = "kill_unconfirmed"
+                        break
+                    if cancellation_pending:
                         if channel is None:
                             status = "lease_lost"
                             termination = "control_channel_unavailable"
                             self._terminate_group(process, hard=True)
                             break
-                        channel.request_cancellation()
+                        try:
+                            channel.request_cancellation()
+                        except Exception:
+                            status = "failed"
+                            termination = "cancellation_channel_unavailable"
+                            self._terminate_group(process, hard=True)
+                            break
                         cancellation_sent = True
                         cancellation_deadline = now + self.termination_grace_seconds
                     if (cancellation_sent and cancellation_deadline is not None
