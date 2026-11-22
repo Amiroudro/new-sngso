@@ -2650,7 +2650,7 @@ _MIGRATION_34 = (
     """CREATE TRIGGER benchmark_review_assignment_status_transition_guard
        BEFORE UPDATE ON benchmark_review_assignments
        BEGIN
-         SELECT CASE WHEN NOT (
+         SELECT CASE WHEN NEW.status IS NOT OLD.status AND NOT (
              (OLD.status = 'assigned' AND NEW.status IN ('accepted', 'cancelled', 'expired'))
              OR (OLD.status = 'accepted' AND NEW.status IN ('submitted', 'cancelled', 'expired'))
            )
