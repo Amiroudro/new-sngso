@@ -410,3 +410,44 @@ def test_supervised_worker_timeout_leaves_side_effecting_checkpoint_indeterminat
             assert captured.value.__cause__.process_result.status == "timeout"
         finally:
             session.close(release=False)
+
+
+def test_lease_lost_child_cannot_mark_its_checkpoint_failed_or_indeterminate():
+    import threading
+    import time
+    import pytest
+    from sngso_engine import (
+        LeaseLostError, SQLiteRegistry, StageCheckpointStore,
+        WorkerLeaseSession, execute_checkpointed_stage,
+        supervised_checkpoint_handler,
+    )
+
+    with SQLiteRegistry() as registry:
+        store, lease = _lease_fixture(registry)
+        session = WorkerLeaseSession(
+            store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
+        ).start()
+        def revoke_lease():
+            time.sleep(0.15)
+            store.release(lease, actor=lease.worker_id, reason="test_revoke")
+        thread = threading.Thread(target=revoke_lease)
+        thread.start()
+        try:
+            handler = supervised_checkpoint_handler(
+                _supervisor("import time; time.sleep(5)", timeout_seconds=2),
+                "test_worker", lambda context, key: _request(), session,
+            )
+            with pytest.raises(LeaseLostError):
+                execute_checkpointed_stage(
+                    registry, lease.pipeline_run_id, 0, "remote_write",
+                    {"input": {"safe": True}}, handler,
+                    actor=lease.worker_id, reason="lease_lost_supervised_stage",
+                    permission_check=lambda: True, replay_safe=False,
+                    provider_namespace="provider_x",
+                    lease_guard=session.assert_healthy,
+                )
+            thread.join(timeout=2)
+            checkpoint = StageCheckpointStore(registry).get(lease.pipeline_run_id, 0)
+            assert checkpoint.status == "executing"
+        finally:
+            session.close(release=False)
