@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import secrets
 from dataclasses import dataclass, field
@@ -376,7 +377,9 @@ class WorkerLeaseSession:
             heartbeat_interval_seconds, (int, float)
         ):
             raise ValueError("heartbeat interval must be a positive number")
-        if heartbeat_interval_seconds <= 0 or heartbeat_interval_seconds * 2 >= _ttl(ttl_seconds):
+        if (not math.isfinite(heartbeat_interval_seconds)
+                or heartbeat_interval_seconds <= 0
+                or heartbeat_interval_seconds * 2 >= _ttl(ttl_seconds)):
             raise ValueError("heartbeat interval must be less than half the lease TTL")
         self.store = store
         self._lease = lease
@@ -442,6 +445,8 @@ class WorkerLeaseSession:
         self.store.assert_current(self.lease)
 
     def close(self, *, release: bool = True) -> None:
+        if self._thread is None:
+            raise WorkerLeaseError("worker lease session has not been started")
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=max(1.0, self.heartbeat_interval_seconds * 2))
