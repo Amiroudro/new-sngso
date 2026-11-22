@@ -20,7 +20,6 @@ from .stage_checkpoints import (
 )
 from .worker_leases import (
     LeaseLostError,
-    WorkerLeaseError,
     WorkerLeaseBackend,
     WorkerLeaseError,
     WorkerLeaseSession,
