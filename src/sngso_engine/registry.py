@@ -2607,6 +2607,14 @@ _MIGRATION_34 = (
              OR json_extract(NEW.payload_json, '$.source_id') IS NOT NEW.source_id
              OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
            THEN RAISE(ABORT, 'permission grant payload does not match indexed fields') END;
+         SELECT CASE WHEN json_remove(
+               NEW.payload_json, '$.status', '$.reviewed_at', '$.reviewed_by',
+               '$.revoked_at', '$.revocation_reason', '$.notes'
+             ) IS NOT json_remove(
+               OLD.payload_json, '$.status', '$.reviewed_at', '$.reviewed_by',
+               '$.revoked_at', '$.revocation_reason', '$.notes'
+             )
+           THEN RAISE(ABORT, 'permission grant scope and evidence are immutable across status transitions') END;
          SELECT CASE WHEN NOT EXISTS (
              SELECT 1 FROM permission_grant_revisions r
              WHERE r.grant_id = NEW.id AND r.revision = NEW.revision
@@ -2650,6 +2658,11 @@ _MIGRATION_34 = (
     """CREATE TRIGGER benchmark_review_assignment_status_transition_guard
        BEFORE UPDATE ON benchmark_review_assignments
        BEGIN
+         SELECT CASE WHEN length(trim(NEW.last_actor)) = 0
+             OR length(trim(NEW.last_reason)) = 0
+             OR json_extract(NEW.payload_json, '$.last_transition.actor') IS NOT NEW.last_actor
+             OR json_extract(NEW.payload_json, '$.last_transition.reason') IS NOT NEW.last_reason
+           THEN RAISE(ABORT, 'assignment transition receipt must match actor and reason') END;
          SELECT CASE WHEN NEW.status IS NOT OLD.status AND NOT (
              (OLD.status = 'assigned' AND NEW.status IN ('accepted', 'cancelled', 'expired'))
              OR (OLD.status = 'accepted' AND NEW.status IN ('submitted', 'cancelled', 'expired'))
