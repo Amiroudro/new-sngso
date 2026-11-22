@@ -12,7 +12,12 @@ from sngso_engine.provider_fencing import (
     fenced_provider_stage_handler,
 )
 from sngso_engine.registry import SQLiteRegistry
-from sngso_engine.stage_checkpoints import execute_checkpointed_stage
+from sngso_engine.stage_checkpoints import (
+    Reconciliation,
+    StageCheckpointError,
+    StageCheckpointStore,
+    execute_checkpointed_stage,
+)
 from sngso_engine.worker_leases import LeaseLostError, WorkerLeaseStore
 
 
@@ -165,3 +170,77 @@ def test_fenced_provider_stage_handler_integrates_checkpoint_idempotency_and_lea
         assert result["output"] == {"provider_receipt": "receipt-1"}
         assert provider.calls == 1
         assert provider.highest_generation[("provider_x", lease.pipeline_run_id)] == lease.fencing_token
+
+
+
+def test_reconciliation_reference_drift_fails_closed_and_preserves_original_handle():
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        store = StageCheckpointStore(registry)
+        checkpoint = store.begin(
+            "pipeline-run:provider-fence-test", 0, "remote_write",
+            sha256_fingerprint({"value": "safe"}),
+            provider_namespace="provider_x",
+            actor="test_scheduler", reason="create_checkpoint",
+        )
+        checkpoint = store.transition(
+            checkpoint, "indeterminate",
+            actor="test_scheduler", reason="provider_pending",
+            provider_operation_ref="operation-original",
+            metadata={"reconciliation": "pending", "provider_state": "pending"},
+        )
+
+        def handler(context, key):
+            raise AssertionError("a mismatched reconciliation reference must never replay")
+
+        with pytest.raises(StageCheckpointError, match="provider outcome is unknown"):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:provider-fence-test", 0, "remote_write",
+                {"value": "safe"}, handler,
+                actor="test_scheduler", reason="reconcile_reference_drift",
+                permission_check=lambda: True,
+                provider_namespace="provider_x",
+                reconcile=lambda key, ref: Reconciliation(
+                    "completed", output={"receipt": "untrusted-operation"},
+                    operation_ref="operation-different",
+                ),
+            )
+
+        current = store.get("pipeline-run:provider-fence-test", 0)
+        assert current.status == "indeterminate"
+        assert current.provider_operation_ref == "operation-original"
+
+
+@pytest.mark.parametrize("bad_reference", ["contains spaces", "x" * 257])
+def test_malformed_provider_operation_reference_is_unknown_not_a_local_transition_error(bad_reference):
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        store = StageCheckpointStore(registry)
+        checkpoint = store.begin(
+            "pipeline-run:provider-fence-test", 0, "remote_write",
+            sha256_fingerprint({"value": "safe"}),
+            provider_namespace="provider_x",
+            actor="test_scheduler", reason="create_checkpoint",
+        )
+        checkpoint = store.transition(
+            checkpoint, "indeterminate",
+            actor="test_scheduler", reason="provider_pending",
+            provider_operation_ref="operation-original",
+            metadata={"reconciliation": "pending", "provider_state": "pending"},
+        )
+
+        with pytest.raises(StageCheckpointError, match="provider outcome is unknown"):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:provider-fence-test", 0, "remote_write",
+                {"value": "safe"}, lambda context, key: pytest.fail("must not replay"),
+                actor="test_scheduler", reason="reconcile_malformed_reference",
+                permission_check=lambda: True,
+                provider_namespace="provider_x",
+                reconcile=lambda key, ref: Reconciliation(
+                    "pending", operation_ref=bad_reference,
+                ),
+            )
+
+        current = store.get("pipeline-run:provider-fence-test", 0)
+        assert current.status == "indeterminate"
+        assert current.provider_operation_ref == "operation-original"
