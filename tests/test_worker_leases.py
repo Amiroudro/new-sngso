@@ -8,6 +8,7 @@ from threading import Barrier
 import pytest
 
 from sngso_engine import (
+    CancellationRequested,
     CheckpointedStage,
     LeaseConflictError,
     LeaseExpiredError,
@@ -383,6 +384,8 @@ def test_worker_lease_session_propagates_cooperative_cancellation():
             time.sleep(0.12)
             assert session.check_cancellation() is True
             assert session.cancellation_event.is_set()
+            with pytest.raises(CancellationRequested):
+                session.raise_if_cancelled()
 
 
 def test_worker_lease_session_rejects_unsafe_heartbeat_interval():
