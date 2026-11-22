@@ -23,12 +23,12 @@ The process group is also terminated when the main child exits but a descendant 
 - This is a local process primitive, not a daemon, distributed supervisor, service manager, or worker pool.
 - It is not yet integrated with `WorkerLeaseSession` or `execute_checkpointed_pipeline`. The caller must not treat child exit or timeout as proof that a provider operation did not happen.
 - Provider fencing, idempotency, and reconciliation remain mandatory before replaying an interrupted side effect.
-- This first cut does not implement CPU/memory/file-descriptor resource limits, external signal orchestration, supervisor restart recovery, or a privileged secret/token handoff. Do not pass lease bearer tokens or secrets in argv, JSON request payloads, environment values, or output.
+- `sngso_engine.worker_control` now provides a bounded versioned lease envelope over an inherited private pipe, a separate one-byte cancellation pipe, a child-side envelope reader, and a bounded cancellation poll. Descriptor numbers may be passed as environment values; bearer tokens are never passed in argv, JSON request payloads, environment values, or output.\n- The protected IPC primitive is not yet connected to `WorkerSupervisor.run`; the supervisor does not yet own a `WorkerLeaseSession`, renew leases during child execution, propagate durable cancellation automatically, or reconcile child termination with checkpoint state.\n- This cut does not implement CPU/memory/file-descriptor resource limits, external signal orchestration, or supervisor restart recovery.
 - The supervisor does not trigger collection, scheduling, publication, release, or deployment.
 
 ## Test coverage added
 
-Tests cover successful stdin/stdout protocol, static entrypoint allowlisting, request size and schema rejection, result schema rejection, nonzero exits, graceful-stop/kill escalation, bounded stdout/stderr draining, explicit environment isolation, request separation from argv, and descendants retaining inherited pipes.
+Tests cover successful stdin/stdout protocol, static entrypoint allowlisting, request size and schema rejection, result schema rejection, nonzero exits, graceful-stop/kill escalation, bounded stdout/stderr draining, explicit environment isolation, request separation from argv, and descendants retaining inherited pipes. Separate protected-IPC tests cover lease envelope validation, inherited descriptor delivery, token absence from argv/environment/result output, cooperative cancellation signaling, descriptor closure, and bounded cancellation polling.
 
 ## Acceptance still required
 
