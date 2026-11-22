@@ -480,3 +480,41 @@ def test_supervisor_kills_child_when_point_of_use_lease_check_raises():
             assert result.termination in {"sigterm", "sigkill"}
         finally:
             session.close(release=False)
+
+
+
+def test_supervisor_shutdown_stops_accepting_work_and_terminates_active_child():
+    import threading
+    import time
+
+    supervisor = _supervisor(
+        "import time; time.sleep(10)",
+        timeout_seconds=20,
+        termination_grace_seconds=0.1,
+    )
+    results = []
+    thread = threading.Thread(
+        target=lambda: results.append(supervisor.run("test_worker", _request())),
+        daemon=True,
+    )
+    thread.start()
+    time.sleep(0.15)
+    assert supervisor.shutdown(timeout_seconds=2.0) is True
+    thread.join(timeout=2.0)
+
+    assert not thread.is_alive()
+    assert len(results) == 1
+    assert results[0].status == "shutdown"
+    assert results[0].result is None
+    assert supervisor.shutting_down is True
+    with pytest.raises(WorkerSupervisorError, match="shutting down"):
+        supervisor.run("test_worker", _request())
+
+
+def test_supervisor_shutdown_is_idempotent_and_uses_one_bounded_budget():
+    supervisor = _supervisor("raise SystemExit(0)")
+    assert supervisor.shutdown(timeout_seconds=0) is True
+    assert supervisor.shutdown(timeout_seconds=0) is True
+    assert supervisor.shutting_down is True
+    with pytest.raises(ValueError, match="between zero and 60"):
+        supervisor.shutdown(timeout_seconds=61)
