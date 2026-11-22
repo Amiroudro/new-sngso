@@ -40,3 +40,15 @@ jobs:
         run: python -m pip install -e ".[test]"
       - name: Validate contracts
         run: python -m pytest -q
+
+      - name: Generate live schema-v33 inspection
+        run: |
+          python -c "from sngso_engine import SQLiteRegistry; registry = SQLiteRegistry('${RUNNER_TEMP}/sngso-schema-v33.sqlite'); registry.close()"
+          python -m sngso_engine.schema_inspection "${RUNNER_TEMP}/sngso-schema-v33.sqlite" --output "${RUNNER_TEMP}/schema-v33-inspection.json"
+      - name: Upload schema-v33 inspection artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-schema-v33-inspection
+          path: ${{ runner.temp }}/schema-v33-inspection.json
+          if-no-files-found: error
+          retention-days: 14
