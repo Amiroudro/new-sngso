@@ -238,6 +238,8 @@ class WorkerSignalShutdown:
 
     def _control_loop(self) -> None:
         if self._received.wait():
+            if self._stop.is_set():
+                return
             try:
                 self._shutdown_result = self.supervisor.shutdown(
                     timeout_seconds=self.timeout_seconds,
