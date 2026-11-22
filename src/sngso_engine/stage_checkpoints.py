@@ -485,6 +485,12 @@ def execute_checkpointed_pipeline(
                 "input_hash": input_hash,
             })
             if checkpoint.status in {"failed", "blocked"}:
+                if lease_store is not None:
+                    lease_store.assert_current(lease)
+                    if lease_store.cancellation_requested(lease):
+                        cancelled = lease_store.acknowledge_cancellation(lease, actor=actor)
+                        return {"status": "cancelled", "pipeline_run_id": pipeline_run_id,
+                                "revision": cancelled["pipeline_revision"], "stage_results": stage_results}
                 latest = registry.get_pipeline_run(pipeline_run_id)
                 record = dict(latest["record"])
                 record.update(
