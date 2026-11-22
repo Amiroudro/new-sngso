@@ -3647,12 +3647,6 @@ class SQLiteRegistry:
                 payload["notes"] = (payload.get("notes", "") + f"\nSuspended: {reason}").strip()
             validate_payload("source-permission-grant", payload)
             revision = row["revision"] + 1
-            connection.execute(
-                """UPDATE permission_grants
-                SET status = ?, revision = ?, payload_json = ?
-                WHERE id = ?""",
-                (new_status, revision, _json_text(payload), grant_id),
-            )
             self._insert_grant_revision(
                 connection,
                 grant_id=grant_id,
@@ -3661,6 +3655,12 @@ class SQLiteRegistry:
                 actor=actor,
                 reason=reason,
                 created_at=stamp,
+            )
+            connection.execute(
+                """UPDATE permission_grants
+                SET status = ?, revision = ?, payload_json = ?
+                WHERE id = ? AND revision = ?""",
+                (new_status, revision, _json_text(payload), grant_id, row["revision"]),
             )
             self._append_audit(
                 connection,
