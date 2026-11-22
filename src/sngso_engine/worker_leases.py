@@ -438,6 +438,10 @@ class WorkerLeaseSession:
             self.cancellation_event.set()
         return requested
 
+    def raise_if_cancelled(self) -> None:
+        if self.check_cancellation():
+            raise CancellationRequested("worker received a durable cancellation request")
+
     def assert_healthy(self) -> None:
         error = self.heartbeat_error
         if error is not None:
