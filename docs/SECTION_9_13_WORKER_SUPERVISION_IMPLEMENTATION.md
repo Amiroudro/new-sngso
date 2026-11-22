@@ -39,4 +39,4 @@ No live worker is enabled by this module. No scheduler activation, collection, p
 
 ## Verification
 
-Full Python 3.12 regression suite: **948 passed in 17.28 seconds** in GitHub Actions [run #45020303163](https://github.com/Amiroudro/new-sngso/actions/runs/45020303163), on code commit `aad427d7e6da9365a1642b4cb612e60b083d746f`. This verifies the local POSIX subprocess primitive and regression suite only; it does not verify lease integration, provider fencing, production process management, or non-POSIX behavior.
+Full Python 3.12 regression suite on the current PR head: **959 passed in 11.13 seconds** in GitHub Actions [run #45024099756](https://github.com/Amiroudro/new-sngso/actions/runs/45024099756), head commit `ebf96933f7a83e8e17e4ed1cf907346266a39e11`. This verifies local POSIX subprocess supervision, protected lease handoff, parent-side heartbeat/cancellation monitoring, and the regression suite. It does not verify checkpoint outcome integration, provider fencing/idempotency, production process management, or non-POSIX behavior.
