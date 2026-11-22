@@ -462,9 +462,15 @@ def test_supervisor_kills_child_when_point_of_use_lease_check_raises():
         session = WorkerLeaseSession(
             store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
         ).start()
-        session.check_cancellation = lambda: (_ for _ in ()).throw(
-            LeaseLostError("simulated lease loss at cancellation poll")
-        )
+        original_check = session.check_cancellation
+        check_count = 0
+        def lose_lease_on_poll():
+            nonlocal check_count
+            check_count += 1
+            if check_count >= 2:
+                raise LeaseLostError("simulated lease loss at cancellation poll")
+            return original_check()
+        session.check_cancellation = lose_lease_on_poll
         try:
             result = _supervisor(
                 "import time; time.sleep(5)", timeout_seconds=2,
