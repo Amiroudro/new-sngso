@@ -208,7 +208,8 @@ def test_cancellation_request_fields_cannot_be_rewritten_in_sql():
         )
         with pytest.raises(sqlite3.IntegrityError, match="immutable once recorded"):
             registry._connection.execute(
-                "UPDATE pipeline_worker_leases SET cancel_reason_code = 'changed' "
+                "UPDATE pipeline_worker_leases SET cancel_reason_code = 'changed', "
+                "revision = revision + 1, updated_at = '2026-11-22T12:00:00Z' "
                 "WHERE pipeline_run_id = 'pipeline-run:lease-test'"
             )
 
