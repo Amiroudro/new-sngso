@@ -56,12 +56,12 @@ The schema-v34 fixture is generated and inspected in CI. The next P0 increment i
 
 ## Verified CI baseline
 
-GitHub Actions [run #45054352627](https://github.com/Amiroudro/new-sngso/actions/runs/45054352627) passed the full Python suite, generated a fresh schema-v34 database using the real migration runner, ran this inspector, and uploaded the resulting `sqlite-schema-v34-inspection` artifact.
+GitHub Actions [run #45056334657](https://github.com/Amiroudro/new-sngso/actions/runs/45056334657) passed the full Python suite (**1,032 passed in 20.46 seconds**), generated a fresh schema-v34 database using the real migration runner, ran this inspector, and uploaded the resulting `sqlite-schema-v34-inspection` artifact.
 
 The inspected database reported schema version 34, contiguous migration history 1–34, integrity `ok`, zero foreign-key violations, a valid retained audit chain, and exactly 47 tables, 25 explicit indexes, 136 triggers, and zero views. Its schema digest was:
 
 ```
-42fd958579890d61fa64b3e84d769eb9a3eadcd905a101f7465e3a094b28b499
+76de0802628d5da3933305254c8f50eb490e35da233691f6b01292e7b2f13e6d
 ```
 
 The artifact is retained until 6 December 2026. This is a clean migration fixture generated in CI, not a production database backup or a populated operational registry.
