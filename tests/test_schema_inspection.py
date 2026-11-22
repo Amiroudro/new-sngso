@@ -22,7 +22,7 @@ def test_inspection_reports_actual_migrated_schema_and_integrity(tmp_path):
     assert report["format"] == "sngso-sqlite-schema-inventory-v1"
     assert report["schema_version"] == 34
     assert report["migration_history_valid"] is True
-    assert [row["version"] for row in report["migration_history"]] == list(range(1, 34))
+    assert [row["version"] for row in report["migration_history"]] == list(range(1, 35))
     assert report["integrity_check"] == ["ok"]
     assert report["foreign_key_violations"] == []
     assert report["audit_chain_valid"] is True
