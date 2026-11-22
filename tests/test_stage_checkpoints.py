@@ -266,6 +266,13 @@ def test_checkpoint_identity_and_revision_guards_reject_tampering():
                    WHERE pipeline_run_id = ? AND stage_ordinal = 0""",
                 ('{"article_text":"must-not-persist"}', "pipeline-run:checkpoint-test"),
             )
+        with pytest.raises(sqlite3.IntegrityError, match="metadata contains unsupported"):
+            registry._connection.execute(
+                """UPDATE pipeline_stage_checkpoints
+                   SET metadata_json = ?, revision = 2
+                   WHERE pipeline_run_id = ? AND stage_ordinal = 0""",
+                ('{"provider_state":"private article text"}', "pipeline-run:checkpoint-test"),
+            )
         changed = store.transition(
             checkpoint, "indeterminate", actor="test_worker", reason="first_transition",
         )
