@@ -6,6 +6,7 @@ operational metadata are stored.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 import json
 from dataclasses import replace
@@ -350,3 +351,140 @@ def execute_checkpointed_stage(
                      output_fingerprint=output_fingerprint)
     return {"status": "succeeded", "output_fingerprint": output_fingerprint,
             "output": output, "reused": False, "idempotency_key": checkpoint.idempotency_key}
+
+
+@dataclass(frozen=True)
+class CheckpointedStage:
+    """A stage definition for the durable checkpoint-aware pipeline runner."""
+
+    name: str
+    handler: Callable[[dict[str, Any], str], Any]
+    permission_check: Callable[[], bool]
+    provider_namespace: str | None = None
+    reconcile: Callable[[str, str | None], Reconciliation] | None = None
+    replay_safe: bool = False
+    reconstruct: Callable[[StageCheckpoint], Any] | None = None
+
+
+def execute_checkpointed_pipeline(
+    registry: Any,
+    pipeline_run_id: str,
+    *,
+    input_context: dict[str, Any],
+    stages: list[CheckpointedStage] | tuple[CheckpointedStage, ...],
+    actor: str,
+    reason: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Run ordered stages from durable checkpoints and complete the pipeline run.
+
+    The run must already be in running state. An indeterminate or pending
+    external operation leaves the run running for explicit reconciliation; it
+    never marks the run successful or advances to a later stage.
+    """
+    actor, reason = _actor_reason(actor, reason)
+    if not isinstance(input_context, dict):
+        raise TypeError("input_context must be a JSON object")
+    if not isinstance(stages, (list, tuple)) or not stages:
+        raise StageCheckpointError("at least one checkpointed stage is required")
+    stage_list = tuple(stages)
+    names: set[str] = set()
+    for stage in stage_list:
+        if not isinstance(stage, CheckpointedStage):
+            raise TypeError("stages must be CheckpointedStage instances")
+        if not re.fullmatch(r"[a-z][a-z0-9_.-]{0,99}", stage.name) or stage.name in names:
+            raise StageCheckpointError("stage names must be unique lowercase bounded identifiers")
+        if not callable(stage.handler) or not callable(stage.permission_check):
+            raise TypeError("every stage requires a handler and permission check")
+        names.add(stage.name)
+
+    current = registry.get_pipeline_run(pipeline_run_id)
+    if current is None or current["record"]["status"] != "running":
+        raise StageCheckpointError("checkpointed pipeline requires an existing running pipeline run")
+    if sha256_fingerprint(input_context) not in current["record"]["input_hashes"]:
+        raise StageCheckpointError("input context fingerprint is not bound to the running pipeline")
+
+    outputs: dict[str, Any] = {}
+    stage_results: list[dict[str, Any]] = []
+    checkpoint_store = StageCheckpointStore(registry)
+    for ordinal, stage in enumerate(stage_list):
+        stage_context = {"input": deepcopy(input_context), "outputs": deepcopy(outputs)}
+        input_hash = sha256_fingerprint(stage_context)
+        try:
+            result = execute_checkpointed_stage(
+                registry, pipeline_run_id, ordinal, stage.name, stage_context,
+                stage.handler, actor=actor, reason=f"{reason}_stage_{ordinal}",
+                permission_check=stage.permission_check,
+                provider_namespace=stage.provider_namespace,
+                reconcile=stage.reconcile, replay_safe=stage.replay_safe,
+                reconstruct=stage.reconstruct,
+            )
+        except StageCheckpointError:
+            checkpoint = checkpoint_store.get(pipeline_run_id, ordinal)
+            if checkpoint is None:
+                raise
+            stage_results.append({
+                "stage": stage.name, "status": checkpoint.status,
+                "input_hash": input_hash,
+            })
+            if checkpoint.status in {"failed", "blocked"}:
+                latest = registry.get_pipeline_run(pipeline_run_id)
+                record = dict(latest["record"])
+                record.update(
+                    status="failed",
+                    finished_at=(now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(),
+                    failure_code="stage_failed",
+                    failure_detail="A checkpointed stage failed or was blocked; details are held in its checkpoint.",
+                    output_hashes=[],
+                    stage_results=stage_results + [
+                        {"stage": remaining.name, "status": "blocked"}
+                        for remaining in stage_list[ordinal + 1:]
+                    ],
+                )
+                registry.transition_pipeline_run(
+                    pipeline_run_id, record, expected_revision=latest["revision"],
+                    actor=actor, reason=f"{reason}_failed_stage_{ordinal}",
+                )
+                return {"status": "failed", "pipeline_run_id": pipeline_run_id,
+                        "stage_results": record["stage_results"]}
+            return {
+                "status": "indeterminate" if checkpoint.status == "indeterminate" else "pending",
+                "pipeline_run_id": pipeline_run_id,
+                "stage_results": stage_results,
+                "checkpoint_status": checkpoint.status,
+            }
+        outputs[stage.name] = result["output"]
+        stage_results.append({
+            "stage": stage.name, "status": "succeeded",
+            "input_hash": input_hash,
+            "output_hash": result["output_fingerprint"],
+        })
+
+    latest = registry.get_pipeline_run(pipeline_run_id)
+    if latest is None or latest["record"]["status"] != "running":
+        raise StageCheckpointError("pipeline run changed before durable completion")
+    finished_at = now or datetime.now(timezone.utc)
+    if finished_at.tzinfo is None or finished_at.utcoffset() is None:
+        raise ValueError("completion time must be timezone-aware")
+    finished_at = finished_at.astimezone(timezone.utc)
+    started_at = datetime.fromisoformat(
+        latest["record"]["started_at"].replace("Z", "+00:00")
+    ).astimezone(timezone.utc)
+    if finished_at < started_at:
+        finished_at = started_at
+    record = dict(
+        latest["record"],
+        status="succeeded",
+        finished_at=finished_at.isoformat(),
+        output_hashes=sorted({item["output_hash"] for item in stage_results}),
+        stage_results=stage_results,
+    )
+    completed = registry.transition_pipeline_run(
+        pipeline_run_id, record, expected_revision=latest["revision"],
+        actor=actor, reason=f"{reason}_completed",
+    )
+    return {
+        "status": "succeeded", "pipeline_run_id": pipeline_run_id,
+        "revision": completed["revision"], "stage_results": stage_results,
+        "output_hashes": record["output_hashes"], "outputs": outputs,
+    }
