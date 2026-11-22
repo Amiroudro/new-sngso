@@ -1,6 +1,6 @@
 # Section 9.13: External Worker Supervision and Bounded Stage Execution
 
-Status: **architecture contract, POSIX subprocess primitive, and protected lease-control IPC primitive implemented; parent-side lease/checkpoint integration and production supervision remain incomplete.**
+Status: **architecture contract, POSIX subprocess primitive, protected lease-control IPC, and parent-side lease-session integration implemented; checkpoint/provider integration and production supervision remain incomplete.**
 
 ## Purpose
 
@@ -52,7 +52,7 @@ A child can be paused after its last lease check and resume after another worker
 
 If the provider cannot enforce fencing or idempotency, the operation is not safe for automatic execution under lease takeover. Local SQLite fencing metadata alone is insufficient.
 
-## IPC and output handling\n\nThe initial protected channel is implemented in `sngso_engine.worker_control`: a parent-side writer sends a bounded JSON lease envelope through a private pipe; a separate pipe carries a one-byte cooperative cancellation signal. The child-side reader validates the envelope and exposes a bounded cancellation poll. The primitive is tested with an inherited descriptor subprocess. It is not yet wired into `WorkerSupervisor.run`, does not renew the lease, and does not interpret a child acknowledgement or update checkpoint state.
+## IPC and output handling\n\nThe protected channel is implemented in `sngso_engine.worker_control` and integrated into `WorkerSupervisor.run` when a started `WorkerLeaseSession` is supplied. The parent verifies ownership before launch, sends the bounded lease envelope through an inherited private pipe, and observes the heartbeat/cancellation state while the child runs. The separate cancellation pipe carries a cooperative byte signal. The child must explicitly return cancellation_acknowledged=true in its validated result to be classified as cooperatively cancelled. The supervisor does not acknowledge cancellation in the registry or mutate checkpoint state; the caller owns the session lifecycle and must reconcile checkpoints after uncertain outcomes.
 
 - Use a bounded, versioned message envelope with explicit message types.
 - Reject oversized, malformed, duplicate-terminal, or out-of-order messages.
@@ -99,4 +99,4 @@ External acceptance still requires authenticated worker identity, a shared durab
 
 ## Current decision
 
-Section 9.13 is **design-only**. No process supervisor, worker executable, external watchdog, timeout enforcement, provider fencing, or production operation is implemented by this document. Existing Section 9.11 and 9.12 local behavior remains unchanged. Draft PR only; no merge, deployment, scheduler activation, live collection, or publication.
+Section 9.13 is **partially implemented locally**: POSIX subprocess supervision, protected lease handoff, heartbeat-loss detection, and cooperative cancellation propagation exist. Checkpoint outcome integration, provider-enforced fencing/idempotency, OS resource quotas, service-manager supervision, restart recovery, and production operations remain unimplemented. Existing Section 9.11 and 9.12 local behavior remains unchanged. Draft PR only; no merge, deployment, scheduler activation, live collection, or publication.
