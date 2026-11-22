@@ -43,7 +43,7 @@ Expiry is a coordination signal, not proof that the old process has stopped. A p
 
 `WorkerLeaseStore.acquire(...)` returns a `WorkerLease` containing the one-time token and fencing generation. The token is excluded from its representation. Store the token only in process memory or a protected secret handoff; never put it in logs, checkpoints, audit payloads, or pipeline records.
 
-`heartbeat`, `assert_current`, `release`, `request_cancellation`, `cancellation_requested`, and `acknowledge_cancellation` expose the lifecycle operations. `WorkerLeaseSession` optionally runs a bounded in-process heartbeat thread, exposes a cancellation event, reports heartbeat failure, and releases the lease when its context closes normally. It starts no thread until explicitly entered or started. `execute_checkpointed_pipeline` accepts an optional `lease_store` + `lease` pair to enforce lease checks and cooperative cancellation between stages. Existing runner behavior remains unchanged when these arguments are omitted.
+`heartbeat`, `assert_current`, `release`, `request_cancellation`, `cancellation_requested`, and `acknowledge_cancellation` expose the lifecycle operations. `WorkerLeaseSession` optionally runs a bounded in-process heartbeat thread, exposes a cancellation event, reports heartbeat failure, exposes `check_cancellation()` / `raise_if_cancelled()` for worker loops, and releases the lease when its context closes normally. It starts no thread until explicitly entered or started. `execute_checkpointed_pipeline` accepts an optional `lease_store` + `lease` pair to enforce lease checks and cooperative cancellation between stages. Existing runner behavior remains unchanged when these arguments are omitted.
 
 ## Verification requirements
 
