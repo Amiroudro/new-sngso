@@ -14,6 +14,7 @@ from sngso_engine import (
     LeaseExpiredError,
     LeaseLostError,
     SQLiteRegistry,
+    WorkerLeaseBackend,
     WorkerLeaseError,
     WorkerLeaseStore,
     WorkerLeaseSession,
@@ -36,6 +37,20 @@ def _running(registry, run_id="pipeline-run:lease-test"):
     }
     registry.add_pipeline_run(payload, actor="test_scheduler", reason="create_running_lease_test")
     return context
+
+
+def test_sqlite_worker_lease_store_conforms_to_backend_contract():
+    with SQLiteRegistry() as registry:
+        _running(registry)
+        store = WorkerLeaseStore(registry)
+        assert isinstance(store, WorkerLeaseBackend)
+        lease = store.acquire(
+            "pipeline-run:lease-test", "worker_protocol", actor="scheduler",
+            reason="backend_protocol_conformance",
+        )
+        assert store.assert_current(lease) is None
+        assert store.cancellation_requested(lease) is False
+        store.release(lease, actor="worker_protocol")
 
 
 def test_independent_registry_connections_share_one_file_lease_authority(tmp_path):
