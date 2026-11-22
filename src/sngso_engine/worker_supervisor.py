@@ -360,3 +360,46 @@ class WorkerSupervisor:
             stdout_truncated=stdout.truncated, stderr_truncated=stderr.truncated,
             termination=termination,
         )
+
+
+class WorkerProcessExecutionError(WorkerSupervisorError):
+    """A supervised child did not produce a successful, validated stage result."""
+
+    def __init__(self, result: WorkerProcessResult) -> None:
+        self.process_result = result
+        super().__init__(
+            "supervised worker did not complete successfully "
+            f"(status={result.status}, termination={result.termination})"
+        )
+
+
+def supervised_checkpoint_handler(
+    supervisor: WorkerSupervisor,
+    entrypoint: str,
+    request_factory: Any,
+    lease_session: WorkerLeaseSession,
+):
+    """Adapt a supervised child into a checkpoint-stage handler.
+
+    The request factory receives the in-memory stage context and deterministic
+    idempotency key. Only a validated successful child result becomes stage output.
+    Any timeout, lease loss, cancellation, or protocol failure raises, allowing
+    execute_checkpointed_stage to leave a non-replay-safe stage indeterminate.
+    """
+    if not isinstance(supervisor, WorkerSupervisor):
+        raise TypeError("supervisor must be a WorkerSupervisor")
+    if not isinstance(entrypoint, str) or entrypoint not in supervisor._entrypoints:
+        raise WorkerSupervisorError("worker entrypoint is not registered")
+    if not callable(request_factory):
+        raise TypeError("request_factory must be callable")
+    if not isinstance(lease_session, WorkerLeaseSession):
+        raise TypeError("lease_session must be a WorkerLeaseSession")
+
+    def handler(context: dict[str, Any], idempotency_key: str) -> Mapping[str, Any]:
+        request = request_factory(context, idempotency_key)
+        result = supervisor.run(entrypoint, request, lease_session=lease_session)
+        if result.status != "succeeded" or result.result is None:
+            raise WorkerProcessExecutionError(result)
+        return dict(result.result)
+
+    return handler
