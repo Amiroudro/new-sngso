@@ -311,6 +311,63 @@ def test_ambiguous_or_denied_provider_outcomes_never_replay(outcome, expected):
         assert store.get("pipeline-run:checkpoint-test", 0).status == expected
 
 
+def test_indeterminate_checkpoint_can_later_reconcile_to_completed_without_replay():
+    context = {"batch": "later-completed-fixture"}
+    calls = []
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        with pytest.raises(StageCheckpointError):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:checkpoint-test", 0, "remote_write", context,
+                lambda current, key: calls.append("duplicate"),
+                actor="test_worker", reason="first_unknown_result",
+                permission_check=lambda: True, provider_namespace="provider_x",
+                reconcile=lambda key, ref: Reconciliation("unknown"),
+            )
+        result = execute_checkpointed_stage(
+            registry, "pipeline-run:checkpoint-test", 0, "remote_write", context,
+            lambda current, key: calls.append("must_not_execute"),
+            actor="test_worker", reason="later_completed_result",
+            permission_check=lambda: True, provider_namespace="provider_x",
+            reconcile=lambda key, ref: Reconciliation(
+                "completed", output={"receipt": "confirmed"},
+                operation_ref="provider_op_1",
+            ),
+        )
+        assert result["status"] == "succeeded"
+        assert result["output"] == {"receipt": "confirmed"}
+        assert calls == []
+        assert StageCheckpointStore(registry).get("pipeline-run:checkpoint-test", 0).status == "succeeded"
+
+
+def test_indeterminate_checkpoint_reexecutes_only_after_later_not_started_proof():
+    context = {"batch": "later-not-started-fixture"}
+    calls = []
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        with pytest.raises(StageCheckpointError):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:checkpoint-test", 0, "remote_write", context,
+                lambda current, key: calls.append("must-not-run"),
+                actor="test_worker", reason="first_unknown_result",
+                permission_check=lambda: True, provider_namespace="provider_x",
+                reconcile=lambda key, ref: Reconciliation("unknown"),
+            )
+        result = execute_checkpointed_stage(
+            registry, "pipeline-run:checkpoint-test", 0, "remote_write", context,
+            lambda current, key: calls.append(key) or {"accepted": True},
+            actor="test_worker", reason="later_not_started_result",
+            permission_check=lambda: True, provider_namespace="provider_x",
+            reconcile=lambda key, ref: Reconciliation("not_started"),
+        )
+        assert result["status"] == "succeeded"
+        assert calls == [result["idempotency_key"]]
+        history = StageCheckpointStore(registry).history("pipeline-run:checkpoint-test", 0)
+        assert [item["status"] for item in history] == [
+            "executing", "indeterminate", "executing", "succeeded",
+        ]
+
+
 def test_permission_is_rechecked_before_execution_and_denial_blocks():
     context = {"batch": "permission-fixture"}
     calls = []
