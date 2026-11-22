@@ -27,7 +27,7 @@ The latest verified full Python 3.12 suite for the current Section 9 code baseli
 
 ## P0 live schema inspection implementation
 
-The read-only `inspect_sqlite_schema` utility inspects an existing SQLite database directly. It reports live `sqlite_master` definitions, schema version and contiguous migration history, integrity-check output, foreign-key violations, retained audit-chain validity, object counts, and a deterministic schema digest. It refuses to create a missing database and opens the target with URI `mode=ro`. The command-line usage and limitations are documented in [live SQLite schema inspection](SECTION_9_SCHEMA_INSPECTION.md).
+The read-only `inspect_sqlite_schema` utility inspects an existing SQLite database directly. It reports live `sqlite_master` definitions, schema version and contiguous migration history, integrity-check output, foreign-key violations, retained audit-chain validity, optional comparison with an independently held audit checkpoint, object counts, and a deterministic schema digest. It refuses to create a missing database and opens the target with URI `mode=ro`. The command-line usage and limitations are documented in [live SQLite schema inspection](SECTION_9_SCHEMA_INSPECTION.md).
 
 **Verified live schema-v33 fixture:** GitHub Actions [run #45054352627](https://github.com/Amiroudro/new-sngso/actions/runs/45054352627) passed the complete suite and generated/uploaded the schema inspection artifact. The actual report confirms:
 - Schema version **33**, with migration records 1–33 contiguous.
@@ -48,6 +48,7 @@ This closes the live-fixture and mechanical inventory portion of P0. It does **n
 - [Final acceptance and closure plan](SECTION_9_FINAL_ACCEPTANCE_AND_CLOSURE_PLAN.md): non-negotiable invariants, repository engineering gates, PostgreSQL implementation sequence, provider conformance, deployment controls, external editorial gates, CI matrix, and release safeguards.
 - [Live SQLite schema inspection](SECTION_9_SCHEMA_INSPECTION.md): read-only live database inventory, integrity and foreign-key checks, audit-chain verification, and deterministic schema digest.
 - [Trigger porting ledger](SECTION_9_TRIGGER_PORTING_LEDGER.md): live trigger event distribution, table coverage, high-risk families, and the per-trigger PostgreSQL semantic-review requirements.
+- [Complete trigger inventory](SECTION_9_TRIGGER_INVENTORY_COMPLETE.md): all 131 migration-defined trigger SQL bodies with mechanical event, predicate, and reference extraction. Human review remains pending.
 
 The PostgreSQL documents remain design and inventory artifacts only. The live SQLite inspector is implemented with tests, but those tests have not yet been run in CI. None of these artifacts constitutes a PostgreSQL implementation or multi-host acceptance.
 
