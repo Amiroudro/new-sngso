@@ -1,6 +1,6 @@
 # Section 9.12: Worker Leases, Heartbeats, and Cooperative Cancellation
 
-Status: **local implementation candidate; full-suite CI acceptance pending.**
+Status: **local implementation complete and full-suite CI verified; production integration gates remain open.**
 
 ## Scope
 
@@ -63,3 +63,10 @@ Expiry is a coordination signal, not proof that the old process has stopped. A p
 ## Remaining production gates
 
 This is a local SQLite coordination primitive, not a distributed lock service or process supervisor. The heartbeat session is an in-process helper, not an external watchdog: it cannot recover a dead process or terminate a stuck handler. Production acceptance still requires provider-enforced fencing, authenticated worker identity, shared-database durability/HA, an external process supervisor, bounded stage timeouts, signal handling, and operational monitoring. No scheduler activation, live collection, publication, release, or deployment is authorized.
+
+
+## Implementation verification
+
+Schema migration 33, the worker lease store, managed heartbeat session, cancellation authorization, and checkpoint-runner integration are implemented in the engine. Full Python 3.12 regression suite: **934 passed in 13.93 seconds** in GitHub Actions [run #45017991562](https://github.com/Amiroudro/new-sngso/actions/runs/45017991562), on code commit 7144226f6d0b17db8f76b15056febe081c5c96db.
+
+This verifies the local SQLite implementation only. It does not verify external provider fencing, production identity, shared database failover, or process supervision.
