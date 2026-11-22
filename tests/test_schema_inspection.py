@@ -94,3 +94,63 @@ def test_inspection_detects_foreign_key_violations(tmp_path):
 
 def test_schema_inspector_is_exported_from_package():
     assert exported_inspector is inspect_sqlite_schema
+
+
+def test_inspection_detects_migration_history_gap(tmp_path):
+    database = tmp_path / "registry.sqlite"
+    with SQLiteRegistry(database) as registry:
+        registry._connection.execute(
+            "DELETE FROM schema_migrations WHERE version = 17"
+        )
+
+    report = inspect_sqlite_schema(database)
+
+    assert report["migration_history_valid"] is False
+    assert report["healthy"] is False
+
+
+def test_external_audit_checkpoint_detects_tail_truncation(tmp_path):
+    database = tmp_path / "registry.sqlite"
+    with SQLiteRegistry(database) as registry:
+        with registry._transaction() as connection:
+            registry._append_audit(
+                connection,
+                event_type="test.event",
+                entity_type="test",
+                entity_id="entity-1",
+                payload={"value": 1},
+            )
+        expected = registry.audit_checkpoint()
+
+    matching = inspect_sqlite_schema(
+        database, expected_audit_checkpoint=expected
+    )
+    assert matching["external_audit_checkpoint_matches"] is True
+    assert matching["healthy"] is True
+
+    with SQLiteRegistry(database) as registry:
+        registry._connection.execute("DROP TRIGGER audit_events_no_delete")
+        registry._connection.execute("DELETE FROM audit_events")
+
+    truncated = inspect_sqlite_schema(
+        database, expected_audit_checkpoint=expected
+    )
+    assert truncated["audit_chain_valid"] is True
+    assert truncated["external_audit_checkpoint_matches"] is False
+    assert truncated["healthy"] is False
+
+
+def test_external_audit_checkpoint_rejects_malformed_values(tmp_path):
+    database = tmp_path / "registry.sqlite"
+    with SQLiteRegistry(database):
+        pass
+
+    with pytest.raises(SchemaInspectionError, match="malformed"):
+        inspect_sqlite_schema(
+            database, expected_audit_checkpoint={"sequence": True, "event_hash": None}
+        )
+
+    with pytest.raises(SchemaInspectionError, match="must contain"):
+        inspect_sqlite_schema(
+            database, expected_audit_checkpoint={"sequence": 0}
+        )
