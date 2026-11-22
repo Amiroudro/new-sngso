@@ -121,10 +121,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 34
+        assert registry.schema_version() == 35
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 34
+        assert reopened.schema_version() == 35
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
