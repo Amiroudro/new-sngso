@@ -1,6 +1,6 @@
 # Section 9.13 implementation note: bounded POSIX worker subprocesses
 
-Status: **first local process-supervision primitive implemented and full-suite CI verified; integration and production acceptance remain open.**
+Status: **local POSIX subprocess supervision and lease-aware process-control integration implemented; fresh full-suite CI and checkpoint/provider acceptance remain open.**
 
 ## Implemented API
 
@@ -21,18 +21,18 @@ The process group is also terminated when the main child exits but a descendant 
 - POSIX only. Construction fails closed on Windows until equivalent process-group semantics are implemented and tested there.
 - The API launches only statically registered argv vectors. It does not import arbitrary Python callables or accept shell commands.
 - This is a local process primitive, not a daemon, distributed supervisor, service manager, or worker pool.
-- It is not yet integrated with `WorkerLeaseSession` or `execute_checkpointed_pipeline`. The caller must not treat child exit or timeout as proof that a provider operation did not happen.
+- `WorkerSupervisor.run` now accepts a started `WorkerLeaseSession`, verifies lease ownership before launch, and passes the lease envelope and fencing generation through the private control descriptor. A parent-side polling loop observes heartbeat loss and durable cancellation while the child runs. The child receives cancellation on a separate descriptor. A result is classified as `cancelled` only when the child explicitly returns `cancellation_acknowledged: true`; otherwise it is `cancelled_unacknowledged`. The supervisor never acknowledges cancellation in the registry on the child's behalf. The caller remains responsible for session lifecycle and for checkpoint reconciliation after any non-success outcome.
 - Provider fencing, idempotency, and reconciliation remain mandatory before replaying an interrupted side effect.
 - `sngso_engine.worker_control` now provides a bounded versioned lease envelope over an inherited private pipe, a separate one-byte cancellation pipe, a child-side envelope reader, and a bounded cancellation poll. Descriptor numbers may be passed as environment values; bearer tokens are never passed in argv, JSON request payloads, environment values, or output.\n- The protected IPC primitive is not yet connected to `WorkerSupervisor.run`; the supervisor does not yet own a `WorkerLeaseSession`, renew leases during child execution, propagate durable cancellation automatically, or reconcile child termination with checkpoint state.\n- This cut does not implement CPU/memory/file-descriptor resource limits, external signal orchestration, or supervisor restart recovery.
 - The supervisor does not trigger collection, scheduling, publication, release, or deployment.
 
 ## Test coverage added
 
-Tests cover successful stdin/stdout protocol, static entrypoint allowlisting, request size and schema rejection, result schema rejection, nonzero exits, graceful-stop/kill escalation, bounded stdout/stderr draining, explicit environment isolation, request separation from argv, and descendants retaining inherited pipes. Separate protected-IPC tests cover lease envelope validation, inherited descriptor delivery, token absence from argv/environment/result output, cooperative cancellation signaling, descriptor closure, and bounded cancellation polling.
+Tests cover successful stdin/stdout protocol, static entrypoint allowlisting, request/result schema rejection, nonzero exits, timeout escalation, bounded stdout/stderr draining, environment isolation, and descendant cleanup. Lease-aware tests cover private-FD credential handoff, heartbeat renewal during child execution, durable cancellation propagation, explicit acknowledgement versus unacknowledged cancellation, and child termination after lease loss. Protected-IPC unit tests cover envelope validation, token isolation, cancellation signaling, descriptor cleanup, and bounded polling.
 
 ## Acceptance still required
 
-Before production use: integrate lease identity and fencing through a protected IPC channel; make the worker validate current lease before each side effect; persist unresolved checkpoint state and require provider reconciliation after timeout/exit; add platform-tested CPU/memory/FD limits; add supervisor signal/shutdown orchestration and restart recovery; test cancellation, worker identity, stale fencing at provider boundaries, and crash windows; provide external monitoring, shared durable lease storage, backup/restore, and an explicit operator release decision.
+Before production use: make the worker validate lease ownership and fencing at each side-effect boundary; connect child outcomes to checkpoint reconciliation without replaying uncertain work; add platform-tested CPU/memory/FD limits; add supervisor signal/shutdown orchestration and restart recovery; test stale fencing at provider boundaries and crash windows; provide external monitoring, shared durable lease storage, backup/restore, and an explicit operator release decision.
 
 No live worker is enabled by this module. No scheduler activation, collection, publication, release, merge, or deployment is authorized.
 
