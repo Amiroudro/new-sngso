@@ -153,6 +153,15 @@ class StageCheckpointStore:
             run = connection.execute("SELECT status FROM pipeline_runs WHERE id = ?", (pipeline_run_id,)).fetchone()
             if run is None or run["status"] != "running":
                 raise StageCheckpointError("checkpoint requires an existing running pipeline run")
+            predecessors = connection.execute(
+                """SELECT COUNT(*) AS total,
+                          SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded
+                   FROM pipeline_stage_checkpoints
+                   WHERE pipeline_run_id = ? AND stage_ordinal < ?""",
+                (pipeline_run_id, stage_ordinal),
+            ).fetchone()
+            if predecessors["total"] != stage_ordinal or (predecessors["succeeded"] or 0) != stage_ordinal:
+                raise StageCheckpointError("all preceding stage checkpoints must exist and be durably succeeded")
             existing = connection.execute(
                 """SELECT * FROM pipeline_stage_checkpoints
                    WHERE pipeline_run_id = ? AND stage_ordinal = ?""",
@@ -256,6 +265,7 @@ def execute_checkpointed_stage(
     provider_namespace: str | None = None,
     reconcile: Callable[[str, str | None], Reconciliation] | None = None,
     replay_safe: bool = False,
+    reconstruct: Callable[[StageCheckpoint], Any] | None = None,
 ) -> dict[str, Any]:
     """Execute or reconcile one stage without blindly repeating an external effect.
 
@@ -271,8 +281,17 @@ def execute_checkpointed_stage(
         provider_namespace=provider_namespace, actor=actor, reason=reason,
     )
     if checkpoint.status == "succeeded":
+        if reconstruct is None:
+            raise StageCheckpointError("successful checkpoint requires a result reconstruction callback")
+        try:
+            reconstructed = reconstruct(checkpoint)
+            reconstructed_fingerprint = sha256_fingerprint(reconstructed)
+        except Exception as exc:
+            raise StageCheckpointError("stage result reconstruction failed") from exc
+        if reconstructed_fingerprint != checkpoint.output_fingerprint:
+            raise StageCheckpointError("reconstructed stage result fingerprint does not match checkpoint")
         return {"status": "succeeded", "output_fingerprint": checkpoint.output_fingerprint,
-                "reused": True, "idempotency_key": checkpoint.idempotency_key}
+                "output": reconstructed, "reused": True, "idempotency_key": checkpoint.idempotency_key}
     if checkpoint.status != "executing":
         raise StageCheckpointError(f"checkpoint is {checkpoint.status}; explicit operator action is required")
 
@@ -299,7 +318,8 @@ def execute_checkpointed_stage(
                                  output_fingerprint=fingerprint,
                                  metadata={"reconciliation": "completed"})
                 return {"status": "succeeded", "output_fingerprint": fingerprint,
-                        "reused": True, "idempotency_key": checkpoint.idempotency_key}
+                        "output": resolution.output, "reused": True,
+                        "idempotency_key": checkpoint.idempotency_key}
             if resolution.status == "pending":
                 raise StageCheckpointError("provider operation remains pending; no replay attempted")
             if resolution.status == "unknown":
@@ -329,4 +349,4 @@ def execute_checkpointed_stage(
     store.transition(checkpoint, "succeeded", actor=actor, reason="stage_handler_succeeded",
                      output_fingerprint=output_fingerprint)
     return {"status": "succeeded", "output_fingerprint": output_fingerprint,
-            "reused": False, "idempotency_key": checkpoint.idempotency_key}
+            "output": output, "reused": False, "idempotency_key": checkpoint.idempotency_key}
