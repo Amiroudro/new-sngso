@@ -2785,9 +2785,8 @@ _MIGRATION_35 = (
            THEN RAISE(ABORT, 'domain record revision requires actor, reason and timestamp') END;
          SELECT CASE WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
            THEN RAISE(ABORT, 'domain record payload ID must match indexed identity') END;
-         SELECT CASE WHEN julianday(NEW.updated_at) < julianday(OLD.updated_at)
-             OR julianday(NEW.last_revision_at) < julianday(OLD.last_revision_at)
-           THEN RAISE(ABORT, 'domain record timestamps cannot move backwards') END;
+         SELECT CASE WHEN julianday(NEW.last_revision_at) < julianday(OLD.last_revision_at)
+           THEN RAISE(ABORT, 'domain record revision timestamp cannot move backwards') END;
          SELECT CASE WHEN OLD.record_type = 'article'
              AND (
                json_extract(NEW.payload_json, '$.source_id') IS NOT json_extract(OLD.payload_json, '$.source_id')
