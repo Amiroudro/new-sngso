@@ -31,7 +31,7 @@ Expiry is a coordination signal, not proof that the old process has stopped. A p
 
 ## Heartbeat and cancellation
 
-- Heartbeats are explicit calls; the library does not start timers or background threads.
+- The lease store exposes explicit heartbeat calls. The optional `WorkerLeaseSession` starts a managed in-process heartbeat thread only when explicitly started or entered; it is not an external watchdog and cannot terminate a stuck handler.
 - TTL is bounded to 10–3600 seconds.
 - Cancellation is a durable, immutable request attached to the current lease. Repeated requests return the existing request. The caller must supply an authorization callback that returns exactly `True`; exceptions and all other results deny the request.
 - Workers poll cancellation between stages. The checkpoint-aware pipeline runner checks lease ownership before each stage, immediately before the handler, after the handler before checkpoint success, and before pipeline completion.
