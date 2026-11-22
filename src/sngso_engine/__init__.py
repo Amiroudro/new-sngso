@@ -91,9 +91,9 @@ from .worker_control import (
 )
 from .worker_supervisor import (
     WorkerEntrypoint,
-    WorkerProcessResult,
+    WorkerProcessExecutionError,\n    WorkerProcessResult,
     WorkerSupervisor,
-    WorkerSupervisorError,
+    WorkerSupervisorError,\n    supervised_checkpoint_handler,
 )
 from .worker_leases import (
     CancellationRequested,
@@ -205,7 +205,7 @@ __all__ = [
     "read_worker_control",
     "worker_cancellation_requested",
     "WorkerEntrypoint",
-    "WorkerProcessResult",
+    "WorkerProcessExecutionError",\n    "WorkerProcessResult",\n    "supervised_checkpoint_handler",
     "WorkerSupervisor",
     "WorkerSupervisorError",
     "PipelineExecutionError",
