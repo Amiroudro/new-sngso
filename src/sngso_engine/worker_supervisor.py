@@ -72,6 +72,7 @@ class WorkerEntrypoint:
         },
     })
     result_schema: Mapping[str, Any] = field(default_factory=lambda: {"type": "object"})
+    resource_limits: WorkerResourceLimits | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not re.fullmatch(r"[a-z][a-z0-9_.-]{0,63}", self.name):
