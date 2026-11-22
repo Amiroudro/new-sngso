@@ -2347,6 +2347,9 @@ _MIGRATION_32 = (
               OR NEW.idempotency_key != OLD.idempotency_key
               OR NEW.provider_namespace IS NOT OLD.provider_namespace
            THEN RAISE(ABORT, 'stage checkpoint identity is immutable') END;
+         SELECT CASE WHEN OLD.provider_operation_ref IS NOT NULL
+              AND NEW.provider_operation_ref IS NOT OLD.provider_operation_ref
+           THEN RAISE(ABORT, 'provider operation reference is immutable once recorded') END;
          SELECT CASE WHEN NOT (
            (OLD.status = 'executing' AND NEW.status IN ('succeeded', 'failed', 'indeterminate', 'blocked'))
            OR (OLD.status = 'indeterminate' AND NEW.status IN ('executing', 'succeeded', 'blocked'))
