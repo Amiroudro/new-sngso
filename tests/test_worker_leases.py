@@ -200,7 +200,7 @@ def test_cancellation_request_fails_closed_without_authorized_permission():
     with SQLiteRegistry() as registry:
         _running(registry)
         store = WorkerLeaseStore(registry)
-        store.acquire(
+        lease = store.acquire(
             "pipeline-run:lease-test", "worker_one", actor="scheduler",
             reason="initial_claim",
         )
@@ -209,12 +209,7 @@ def test_cancellation_request_fails_closed_without_authorized_permission():
                 "pipeline-run:lease-test", actor="operator",
                 reason_code="operator_requested", permission_check=lambda: False,
             )
-        assert store.cancellation_requested(
-            store.acquire if False else WorkerLeaseStore(registry).acquire(
-                "pipeline-run:lease-test", "worker_two", actor="scheduler",
-                reason="unused",
-            )
-        ) is False
+        assert store.cancellation_requested(lease) is False
 
 
 def test_cancellation_request_fields_cannot_be_rewritten_in_sql():
