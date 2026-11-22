@@ -154,3 +154,28 @@ def test_external_audit_checkpoint_rejects_malformed_values(tmp_path):
         inspect_sqlite_schema(
             database, expected_audit_checkpoint={"sequence": 0}
         )
+
+
+def test_external_checkpoint_detects_modified_retained_audit_event(tmp_path):
+    database = tmp_path / "registry.sqlite"
+    with SQLiteRegistry(database) as registry:
+        with registry._transaction() as connection:
+            registry._append_audit(
+                connection,
+                event_type="test.event",
+                entity_type="test",
+                entity_id="entity-2",
+                payload={"value": 2},
+            )
+        expected = registry.audit_checkpoint()
+        registry._connection.execute("DROP TRIGGER audit_events_no_update")
+        registry._connection.execute(
+            "UPDATE audit_events SET event_hash = 'sha256:tampered'"
+        )
+
+    report = inspect_sqlite_schema(
+        database, expected_audit_checkpoint=expected
+    )
+    assert report["audit_chain_valid"] is False
+    assert report["external_audit_checkpoint_matches"] is False
+    assert report["healthy"] is False
