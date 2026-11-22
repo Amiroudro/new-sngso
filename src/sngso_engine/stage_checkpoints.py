@@ -370,6 +370,8 @@ def execute_checkpointed_stage(
         store.transition(checkpoint, target, actor=actor, reason="stage_handler_failed",
                          metadata={"failure_code": "handler_exception"})
         raise StageCheckpointError("stage handler failed; exception details were not persisted") from exc
+    if lease_guard is not None:
+        lease_guard()
     store.transition(checkpoint, "succeeded", actor=actor, reason="stage_handler_succeeded",
                      output_fingerprint=output_fingerprint)
     return {"status": "succeeded", "output_fingerprint": output_fingerprint,
