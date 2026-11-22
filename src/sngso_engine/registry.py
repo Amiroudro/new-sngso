@@ -2668,35 +2668,32 @@ _MIGRATION_34 = (
              AND NOT EXISTS (
                SELECT 1 FROM benchmark_principals p
                WHERE p.principal_id = NEW.last_actor AND p.active = 1
-                 AND p.principal_kind = 'human'
-                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                                  AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
                              WHERE role.value = 'benchmark_reviewer')
                  AND EXISTS (SELECT 1 FROM json_each(p.languages_json) language
                              WHERE language.value = NEW.language)
              )
-           THEN RAISE(ABORT, 'assignment reviewer must be an active qualified human') END;
+           THEN RAISE(ABORT, 'assignment reviewer must be active and language-qualified') END;
          SELECT CASE WHEN NEW.status IN ('cancelled', 'expired')
              AND NEW.last_actor = OLD.assigned_by
              AND NOT EXISTS (
                SELECT 1 FROM benchmark_principals p
                WHERE p.principal_id = NEW.last_actor AND p.active = 1
-                 AND p.principal_kind = 'human'
-                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                                  AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
                              WHERE role.value = 'benchmark_curator')
              )
-           THEN RAISE(ABORT, 'assignment curator must be an active human') END;
+           THEN RAISE(ABORT, 'assignment curator must be active and qualified') END;
          SELECT CASE WHEN NEW.status = 'cancelled'
              AND NEW.last_actor = OLD.reviewer_id
              AND NOT EXISTS (
                SELECT 1 FROM benchmark_principals p
                WHERE p.principal_id = NEW.last_actor AND p.active = 1
-                 AND p.principal_kind = 'human'
-                 AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                                  AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
                              WHERE role.value = 'benchmark_reviewer')
                  AND EXISTS (SELECT 1 FROM json_each(p.languages_json) language
                              WHERE language.value = NEW.language)
              )
-           THEN RAISE(ABORT, 'assignment reviewer must be an active qualified human') END;
+           THEN RAISE(ABORT, 'assignment reviewer must be active and language-qualified') END;
          SELECT CASE WHEN NEW.status = 'accepted'
              AND (json_extract(NEW.payload_json, '$.accepted_at') IS NULL
                OR julianday(json_extract(NEW.payload_json, '$.accepted_at')) >= julianday(OLD.due_at))
