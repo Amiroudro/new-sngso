@@ -22,6 +22,7 @@ def test_inspection_reports_actual_migrated_schema_and_integrity(tmp_path):
     assert report["schema_version"] == 33
     assert report["integrity_check"] == ["ok"]
     assert report["foreign_key_violations"] == []
+    assert report["audit_chain_valid"] is True
     assert report["healthy"] is True
     assert report["object_counts"]["table"] >= 47
     assert report["object_counts"]["trigger"] >= 131
