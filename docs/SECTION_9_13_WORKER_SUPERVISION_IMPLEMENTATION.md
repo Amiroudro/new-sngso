@@ -92,3 +92,27 @@ deduplication, conflicting-payload rejection, stale local lease refusal, and
 end-to-end checkpoint-handler integration with the deterministic checkpoint key.
 No concrete production provider adapter exists yet, so this work establishes
 and tests the interface rather than claiming a real external system is fenced.
+
+### Reconciliation reference integrity and lease-loss crash window
+
+The checkpoint reconciler now validates every non-null provider operation
+reference returned by an adapter. Malformed references and references that
+differ from the first durably recorded pending-operation handle are treated as
+an unknown provider outcome. They cannot replace the original handle, authorize
+a retry, or turn a mismatched operation into checkpoint success. The original
+checkpoint remains indeterminate for a later operator/provider investigation.
+
+A provider call may complete remotely while the worker loses its lease before
+the response can be committed locally. The dispatch wrapper's postflight lease
+check rejects the stale worker's result. The checkpoint runner then revalidates
+ownership on the exception path, so the stale worker cannot mark the stage
+failed or succeeded. The checkpoint remains executing and must be reconciled
+using the stable idempotency key (and the persisted operation reference if one
+was previously recorded) before any replay. This is intentionally conservative:
+a remote success is not inferred from a lost local response.
+
+New regression tests cover mismatched operation references, malformed
+references, and a provider completing during lease takeover. The latter proves
+that the remote call may have happened once while local checkpoint success
+remains uncommitted and the checkpoint remains unresolved.
+
