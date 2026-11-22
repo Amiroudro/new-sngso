@@ -9,9 +9,11 @@ from sngso_engine.canonical import sha256_fingerprint
 from sngso_engine.operations import create_pipeline_run_idempotently
 from sngso_engine.registry import SQLiteRegistry
 from sngso_engine.stage_checkpoints import (
+    CheckpointedStage,
     Reconciliation,
     StageCheckpointError,
     StageCheckpointStore,
+    execute_checkpointed_pipeline,
     execute_checkpointed_stage,
     stage_idempotency_key,
 )
@@ -30,6 +32,110 @@ def _running_run(registry, *, run_id="pipeline-run:checkpoint-test"):
         "initiated_by": "test-scheduler",
     }
     return registry.add_pipeline_run(payload, actor="test_scheduler", reason="create_running_test_run")
+
+
+def test_checkpointed_pipeline_executes_in_order_and_completes_run():
+    context = {"batch": "safe-fixture"}
+    observed = []
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        result = execute_checkpointed_pipeline(
+            registry, "pipeline-run:checkpoint-test",
+            input_context=context,
+            stages=[
+                CheckpointedStage(
+                    "collect",
+                    lambda current, key: observed.append("collect") or {"count": 2},
+                    permission_check=lambda: True,
+                    replay_safe=True,
+                ),
+                CheckpointedStage(
+                    "normalize",
+                    lambda current, key: observed.append("normalize") or {
+                        "normalized_count": current["outputs"]["collect"]["count"]
+                    },
+                    permission_check=lambda: True,
+                    replay_safe=True,
+                ),
+            ],
+            actor="test_worker", reason="checkpointed_pipeline_test",
+        )
+        stored = registry.get_pipeline_run("pipeline-run:checkpoint-test")
+        assert result["status"] == "succeeded"
+        assert result["outputs"]["normalize"] == {"normalized_count": 2}
+        assert observed == ["collect", "normalize"]
+        assert stored["record"]["status"] == "succeeded"
+        assert [item["status"] for item in stored["record"]["stage_results"]] == [
+            "succeeded", "succeeded",
+        ]
+        store = StageCheckpointStore(registry)
+        assert store.get("pipeline-run:checkpoint-test", 0).status == "succeeded"
+        assert store.get("pipeline-run:checkpoint-test", 1).status == "succeeded"
+
+
+def test_checkpointed_pipeline_stops_on_indeterminate_stage_without_advancing():
+    context = {"batch": "safe-fixture"}
+    calls = []
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        result = execute_checkpointed_pipeline(
+            registry, "pipeline-run:checkpoint-test",
+            input_context=context,
+            stages=[
+                CheckpointedStage(
+                    "remote_write",
+                    lambda current, key: (_ for _ in ()).throw(RuntimeError("provider timeout")),
+                    permission_check=lambda: True,
+                    provider_namespace="provider_x",
+                ),
+                CheckpointedStage(
+                    "assemble",
+                    lambda current, key: calls.append("must-not-run") or {"ok": True},
+                    permission_check=lambda: True,
+                    replay_safe=True,
+                ),
+            ],
+            actor="test_worker", reason="checkpointed_pending_test",
+        )
+        assert result["status"] == "indeterminate"
+        assert result["checkpoint_status"] == "indeterminate"
+        assert calls == []
+        assert registry.get_pipeline_run("pipeline-run:checkpoint-test")["record"]["status"] == "running"
+        assert StageCheckpointStore(registry).get("pipeline-run:checkpoint-test", 1) is None
+
+
+def test_checkpointed_pipeline_reconstructs_completed_stage_before_next_stage():
+    context = {"batch": "safe-fixture"}
+    first_context = {"input": context, "outputs": {}}
+    first_output = {"collected": 2}
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        execute_checkpointed_stage(
+            registry, "pipeline-run:checkpoint-test", 0, "collect", first_context,
+            lambda current, key: first_output,
+            actor="test_worker", reason="seed_completed_stage",
+            permission_check=lambda: True, replay_safe=True,
+        )
+        result = execute_checkpointed_pipeline(
+            registry, "pipeline-run:checkpoint-test",
+            input_context=context,
+            stages=[
+                CheckpointedStage(
+                    "collect", lambda current, key: {"duplicate": True},
+                    permission_check=lambda: True, replay_safe=True,
+                    reconstruct=lambda checkpoint: first_output,
+                ),
+                CheckpointedStage(
+                    "assemble",
+                    lambda current, key: {"count": current["outputs"]["collect"]["collected"]},
+                    permission_check=lambda: True, replay_safe=True,
+                ),
+            ],
+            actor="test_worker", reason="resume_checkpointed_pipeline",
+        )
+        assert result["status"] == "succeeded"
+        assert result["outputs"]["collect"] == first_output
+        assert result["outputs"]["assemble"] == {"count": 2}
 
 
 def test_idempotency_key_is_deterministic_and_bound_to_stage_identity():
