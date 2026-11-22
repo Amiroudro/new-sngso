@@ -26,7 +26,7 @@ The current registry is schema version 35. Its migrations establish these releva
 | `pipeline_worker_leases` | 33 | Current owner, token verifier, fencing generation, cancellation intent |
 | `pipeline_worker_lease_revisions` | 33 | Append-only lease history |
 
-The current SQLite baseline is migration 34: 47 tables, 25 explicit indexes, and 138 triggers. Migrations 34–35 add direct-SQL guards for domain revision inserts and automatic head/revision snapshots, permission-grant revision/head transitions, and benchmark assignment revision/state transitions. Their exact SQL and semantic review records are in the [complete trigger inventory](SECTION_9_TRIGGER_INVENTORY_COMPLETE.md) and linked review documents.
+The current SQLite baseline is migration 35: 47 tables, 25 explicit indexes, and 138 triggers. Migrations 34–35 add direct-SQL guards for domain revision inserts and automatic head/revision snapshots, permission-grant revision/head transitions, and benchmark assignment revision/state transitions. Their exact SQL and semantic review records are in the [complete trigger inventory](SECTION_9_TRIGGER_INVENTORY_COMPLETE.md) and linked review documents.
 
 The foreign-key relationships from checkpoint and lease records to `pipeline_runs` are part of the database contract. The application also composes run-state validation, lease mutation, checkpoint mutation, and audit append operations inside `SQLiteRegistry._transaction()`.
 
@@ -245,7 +245,7 @@ Do not start by implementing a lease adapter in isolation. Phase A must produce 
 
 ## 11. Current status and non-goals
 
-- SQLite schema v34 remains the only implemented storage backend.
+- SQLite schema v35 remains the only implemented storage backend.
 - `WorkerLeaseBackend` is an API protocol, not a database abstraction for the entire registry.
 - PostgreSQL schema, repository, driver, pool, importer, CI service, failover configuration, and deployment are **not implemented**.
 - No distributed lease HA or multi-host acceptance is claimed.
