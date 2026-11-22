@@ -40,6 +40,15 @@ def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
         integrity_rows = [
             str(row[0]) for row in connection.execute("PRAGMA integrity_check")
         ]
+        migration_rows = [
+            {"version": int(row["version"]), "applied_at": str(row["applied_at"])}
+            for row in connection.execute(
+                "SELECT version, applied_at FROM schema_migrations ORDER BY version"
+            )
+        ]
+        migration_history_valid = [
+            row["version"] for row in migration_rows
+        ] == list(range(1, version + 1))
         foreign_key_violations = [
             {
                 "table": str(row[0]),
@@ -108,6 +117,8 @@ def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
             "format": "sngso-sqlite-schema-inventory-v1",
             "database": path.name,
             "schema_version": version,
+            "migration_history": migration_rows,
+            "migration_history_valid": migration_history_valid,
             "integrity_check": integrity_rows,
             "foreign_key_violations": foreign_key_violations,
             "audit_chain_valid": audit_chain_valid,
@@ -117,6 +128,7 @@ def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
             "healthy": (
                 version > 0
                 and integrity_rows == ["ok"]
+                and migration_history_valid
                 and not foreign_key_violations
                 and audit_chain_valid
             ),
