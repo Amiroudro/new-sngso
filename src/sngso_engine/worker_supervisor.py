@@ -6,7 +6,7 @@ bounded diagnostic output, and never invokes a shell.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
 import re
@@ -15,6 +15,8 @@ import subprocess
 import threading
 import time
 from typing import Any, Mapping, Sequence
+
+from jsonschema import Draft202012Validator
 
 
 class WorkerSupervisorError(RuntimeError):
@@ -28,6 +30,17 @@ class WorkerEntrypoint:
     name: str
     argv: tuple[str, ...]
     environment: Mapping[str, str] | None = None
+    request_schema: Mapping[str, Any] = field(default_factory=lambda: {
+        "type": "object",
+        "required": ["schema_version", "request_id", "payload"],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"const": "1"},
+            "request_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,100}$"},
+            "payload": {"type": "object"},
+        },
+    })
+    result_schema: Mapping[str, Any] = field(default_factory=lambda: {"type": "object"})
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not re.fullmatch(r"[a-z][a-z0-9_.-]{0,63}", self.name):
@@ -37,6 +50,10 @@ class WorkerEntrypoint:
         for item in self.argv:
             if not isinstance(item, str) or not item or "\x00" in item or len(item) > 4096:
                 raise ValueError("entrypoint argv contains an invalid argument")
+        for schema in (self.request_schema, self.result_schema):
+            if not isinstance(schema, Mapping):
+                raise ValueError("worker request and result schemas must be JSON Schema objects")
+            Draft202012Validator.check_schema(schema)
         if self.environment is not None:
             if not isinstance(self.environment, Mapping) or len(self.environment) > 32:
                 raise ValueError("entrypoint environment must be a bounded mapping")
@@ -175,8 +192,12 @@ class WorkerSupervisor:
         """Run a registered worker. Request data is JSON on stdin, never argv."""
         if not isinstance(entrypoint, str) or entrypoint not in self._entrypoints:
             raise WorkerSupervisorError("worker entrypoint is not registered")
-        payload = _bounded_json(request, self.max_request_bytes)
         config = self._entrypoints[entrypoint]
+        try:
+            Draft202012Validator(config.request_schema).validate(request)
+        except Exception as exc:
+            raise ValueError("worker request does not match its registered schema") from exc
+        payload = _bounded_json(request, self.max_request_bytes)
         started = time.monotonic()
         process = subprocess.Popen(
             config.argv,
@@ -235,6 +256,7 @@ class WorkerSupervisor:
                             or decoded.get("schema_version") != "1"
                             or not isinstance(decoded.get("result"), dict)):
                         raise ValueError
+                    Draft202012Validator(config.result_schema).validate(decoded["result"])
                     result = decoded["result"]
                 except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
                     status = "protocol_error"
