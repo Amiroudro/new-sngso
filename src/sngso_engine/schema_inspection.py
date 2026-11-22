@@ -16,7 +16,11 @@ class SchemaInspectionError(RuntimeError):
     """Raised when a registry cannot be safely inspected."""
 
 
-def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
+def inspect_sqlite_schema(
+    database: str | Path,
+    *,
+    expected_audit_checkpoint: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return a deterministic, read-only schema and integrity inventory.
 
     The target must already exist. The connection is opened with SQLite URI
@@ -24,6 +28,23 @@ def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
     SQL definitions are included verbatim to support review of CHECK clauses,
     partial indexes, foreign keys, and trigger behavior.
     """
+    if expected_audit_checkpoint is not None:
+        if set(expected_audit_checkpoint) != {"sequence", "event_hash"}:
+            raise SchemaInspectionError(
+                "expected audit checkpoint must contain sequence and event_hash"
+            )
+        sequence = expected_audit_checkpoint["sequence"]
+        event_hash = expected_audit_checkpoint["event_hash"]
+        if (
+            isinstance(sequence, bool)
+            or not isinstance(sequence, int)
+            or sequence < 0
+            or (event_hash is not None and not isinstance(event_hash, str))
+            or (sequence == 0 and event_hash is not None)
+            or (sequence > 0 and not event_hash)
+        ):
+            raise SchemaInspectionError("expected audit checkpoint is malformed")
+
     path = Path(database).expanduser().resolve()
     if not path.is_file():
         raise SchemaInspectionError(f"database file does not exist: {path}")
@@ -89,6 +110,20 @@ def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
                 break
             previous_hash = row["event_hash"]
 
+        tip = connection.execute(
+            "SELECT sequence, event_hash FROM audit_events ORDER BY sequence DESC LIMIT 1"
+        ).fetchone()
+        actual_audit_checkpoint = (
+            {"sequence": 0, "event_hash": None}
+            if tip is None
+            else {"sequence": int(tip["sequence"]), "event_hash": str(tip["event_hash"])}
+        )
+        external_audit_checkpoint_matches = (
+            None
+            if expected_audit_checkpoint is None
+            else actual_audit_checkpoint == expected_audit_checkpoint
+        )
+
         objects = [
             {
                 "type": str(row["type"]),
@@ -122,6 +157,8 @@ def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
             "integrity_check": integrity_rows,
             "foreign_key_violations": foreign_key_violations,
             "audit_chain_valid": audit_chain_valid,
+            "audit_checkpoint": actual_audit_checkpoint,
+            "external_audit_checkpoint_matches": external_audit_checkpoint_matches,
             "object_counts": counts,
             "schema_sha256": hashlib.sha256(schema_json).hexdigest(),
             "objects": objects,
@@ -131,6 +168,7 @@ def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
                 and migration_history_valid
                 and not foreign_key_violations
                 and audit_chain_valid
+                and external_audit_checkpoint_matches is not False
             ),
         }
     except sqlite3.Error as exc:
