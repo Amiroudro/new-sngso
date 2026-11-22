@@ -1,25 +1,25 @@
 # Section 9 Trigger Porting Ledger
 
-Status: **live SQLite trigger inventory captured; semantic PostgreSQL port review not yet complete.**
+Status: **live schema-v34 trigger inventory captured; all 136 triggers have source-level semantic review records. PostgreSQL port implementation and complete direct-SQL conformance remain open.**
 
-Evidence source: CI-generated schema-v33 inspection artifact from [GitHub Actions run #45054352627](https://github.com/Amiroudro/new-sngso/actions/runs/45054352627). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
+Evidence source: CI-generated schema-v34 inspection artifact from [GitHub Actions run #45054352627](https://github.com/Amiroudro/new-sngso/actions/runs/45054352627). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
 
 ## Live trigger event distribution
 
-The freshly migrated schema contains **131 triggers across 39 tables**.
+The freshly migrated schema contains **136 triggers across 40 tables**.
 
 | SQLite event timing | Trigger count |
 |---|---:|
-| BEFORE INSERT | 34 |
-| BEFORE UPDATE | 45 |
+| BEFORE INSERT | 37 |
+| BEFORE UPDATE | 47 |
 | BEFORE UPDATE OF payload_json | 2 |
 | BEFORE UPDATE OF principal_kind | 1 |
 | BEFORE DELETE | 38 |
 | AFTER INSERT | 6 |
 | AFTER UPDATE | 5 |
-| **Total** | **131** |
+| **Total** | **136** |
 
-**54** triggers include a `WHEN` predicate. The count above is extracted from the live SQL definitions; it does not imply that a trigger has been semantically reviewed or ported.
+**54** triggers include a `WHEN` predicate. The count above is extracted from the live SQL definitions. All 136 triggers now have source-level review records in the linked family reviews; this does not mean they have been ported or that all direct-SQL tests are complete.
 
 ## Trigger coverage by table
 
@@ -30,8 +30,8 @@ The freshly migrated schema contains **131 triggers across 39 tables**.
 | benchmark_adjudications | 3 |
 | benchmark_artifacts | 2 |
 | benchmark_principals | 1 |
-| benchmark_review_assignment_revisions | 2 |
-| benchmark_review_assignments | 6 |
+| benchmark_review_assignment_revisions | 3 |
+| benchmark_review_assignments | 7 |
 | benchmark_review_identity_attestations | 2 |
 | benchmark_review_revisions | 3 |
 | benchmark_reviews | 5 |
@@ -40,7 +40,7 @@ The freshly migrated schema contains **131 triggers across 39 tables**.
 | benchmark_study_protocols | 4 |
 | claim_relations | 3 |
 | collection_observations | 2 |
-| domain_record_revisions | 2 |
+| domain_record_revisions | 3 |
 | domain_records | 3 |
 | edition_artifacts | 3 |
 | edition_decisions | 3 |
@@ -53,7 +53,7 @@ The freshly migrated schema contains **131 triggers across 39 tables**.
 | ingestion_decisions | 3 |
 | learning_object_revisions | 3 |
 | learning_objects | 15 |
-| permission_grant_revisions | 2 |
+| permission_grant_revisions | 3 |
 | perspectives | 3 |
 | pipeline_run_revisions | 3 |
 | pipeline_runs | 4 |
@@ -64,7 +64,7 @@ The freshly migrated schema contains **131 triggers across 39 tables**.
 | story_decision_applications | 2 |
 | story_decisions | 2 |
 | timeline_events | 4 |
-| **Total** | **131** |
+| **Total** | **136** |
 
 ## Required semantic review record
 
