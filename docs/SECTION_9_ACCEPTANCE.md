@@ -21,7 +21,7 @@ Repository scope: `Amiroudro/new-sngso` only. This register distinguishes commit
 
 The latest full Python 3.12 suite passed **893 tests in 9.84 seconds** in GitHub Actions [run #44941362943](https://github.com/Amiroudro/new-sngso/actions/runs/44941362943), on code commit `cad4c823976791f3d9801b1add21bb52e45bf716`.
 
-## Remaining engineering gates
+| 9.11 | Durable stage checkpoint and crash-reconciliation design contract | Design documented on a dedicated feature branch; schema, registry API, runner, and crash tests not yet implemented or accepted |\n\n## Remaining engineering gates
 
 These are not implemented or accepted:
 
