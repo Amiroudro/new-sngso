@@ -31,7 +31,7 @@ The read-only `inspect_sqlite_schema` utility inspects an existing SQLite databa
 
 **Schema-v34 implementation:** migration 34 adds database-level guards for domain revision insertion, permission-grant revision insertion and legal head transitions, and benchmark assignment revision insertion and legal status transitions. Direct-SQL regression tests cover forged domain/grant revisions, grant-head updates without a matching revision, and illegal assignment status jumps. A schema-33-to-34 migration test verifies all five new triggers.
 
-The schema-v34 fixture is configured in CI to generate and upload a fresh live schema inspection. Expected inventory is **47 tables, 25 explicit indexes, 136 triggers across 40 tables, and 0 views**. CI verification of the migration-34 code and artifact is pending.
+**Verified schema-v34 fixture:** GitHub Actions [run #45056334657](https://github.com/Amiroudro/new-sngso/actions/runs/45056334657) passed **1,032 tests in 20.46 seconds**, generated a fresh schema-v34 registry, ran the read-only inspector, and uploaded `sqlite-schema-v34-inspection` (artifact ID `14767845801`, retained until 6 December 2026). The actual artifact confirms migration history 1–34 contiguous, `PRAGMA integrity_check = ok`, zero foreign-key violations, a valid retained audit chain, and **47 tables, 25 explicit indexes, 136 triggers across 40 tables, and 0 views**. Schema SHA-256: `76de0802628d5da3933305254c8f50eb490e35da233691f6b01292e7b2f13e6d`.
 
 All **136 of 136** SQLite triggers now have source-level semantic review records across the four linked review documents. This does not close all direct-SQL negative test cases, prove PostgreSQL equivalence, or complete P0. Remaining work includes broader adversarial SQL tests, PostgreSQL implementation/conformance, external audit-checkpoint delivery, and operational acceptance.
 
@@ -48,7 +48,7 @@ All **136 of 136** SQLite triggers now have source-level semantic review records
 - [Benchmark governance trigger review](SECTION_9_BENCHMARK_GOVERNANCE_TRIGGER_REVIEW.md): source-level review of all 39 benchmark-governance triggers, including schema-v34 assignment revision and status-transition guards.
 - [Content, provenance, and ingestion trigger review](SECTION_9_CONTENT_PROVENANCE_TRIGGER_REVIEW.md): source-level review of 47 content/provenance/ingestion triggers, including schema-v34 domain and permission-grant revision guards. Together, the four review documents cover all 136 SQLite triggers.
 
-The PostgreSQL documents remain design and inventory artifacts only. The live SQLite inspector and its regression tests passed in earlier CI runs against schema v33; schema-v34 migration verification is pending. All 136 current SQLite triggers have source-level semantic review records, but direct-SQL conformance gaps remain and no PostgreSQL implementation or multi-host acceptance has been achieved.
+The PostgreSQL documents remain design and inventory artifacts only. The live SQLite inspector, schema-v34 migration, and current direct-SQL regression tests passed in CI. All 136 current SQLite triggers have source-level semantic review records. Direct-SQL conformance gaps remain, and no PostgreSQL implementation or multi-host acceptance has been achieved.
 
 ## Remaining engineering gates
 
