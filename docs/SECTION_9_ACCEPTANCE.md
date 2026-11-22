@@ -51,6 +51,7 @@ This closes the live-fixture and mechanical inventory portion of P0. It does **n
 - [Complete trigger inventory](SECTION_9_TRIGGER_INVENTORY_COMPLETE.md): all 131 migration-defined trigger SQL bodies with mechanical event, predicate, and reference extraction.
 - [Operational trigger semantic review](SECTION_9_OPERATIONAL_TRIGGER_SEMANTIC_REVIEW.md): source-level review of all 23 pipeline-run, checkpoint, and worker-lease triggers, with PostgreSQL translation hazards and explicit remaining direct-SQL test gaps.
 - [Publication, staging, and audit trigger review](SECTION_9_PUBLICATION_AUDIT_TRIGGER_REVIEW.md): source-level review of 27 edition/publication, audit, story-decision, and timeline-event triggers, with current test evidence and PostgreSQL migration hazards.
+- [Benchmark governance trigger review](SECTION_9_BENCHMARK_GOVERNANCE_TRIGGER_REVIEW.md): source-level review of all 37 benchmark-governance triggers, including database-boundary gaps around assignment/review transitions and revision insertion.
 
 The PostgreSQL documents remain design and inventory artifacts only. The live SQLite inspector is implemented with tests, but those tests have not yet been run in CI. None of these artifacts constitutes a PostgreSQL implementation or multi-host acceptance.
 
