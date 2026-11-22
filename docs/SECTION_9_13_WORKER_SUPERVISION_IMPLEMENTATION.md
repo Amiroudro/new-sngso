@@ -1,6 +1,6 @@
 # Section 9.13 implementation note: bounded POSIX worker subprocesses
 
-Status: **first local process-supervision primitive implemented; full-suite CI and integration acceptance pending.**
+Status: **first local process-supervision primitive implemented and full-suite CI verified; integration and production acceptance remain open.**
 
 ## Implemented API
 
@@ -35,3 +35,8 @@ Tests cover successful stdin/stdout protocol, static entrypoint allowlisting, re
 Before production use: integrate lease identity and fencing through a protected IPC channel; make the worker validate current lease before each side effect; persist unresolved checkpoint state and require provider reconciliation after timeout/exit; add platform-tested CPU/memory/FD limits; add supervisor signal/shutdown orchestration and restart recovery; test cancellation, worker identity, stale fencing at provider boundaries, and crash windows; provide external monitoring, shared durable lease storage, backup/restore, and an explicit operator release decision.
 
 No live worker is enabled by this module. No scheduler activation, collection, publication, release, merge, or deployment is authorized.
+
+
+## Verification
+
+Full Python 3.12 regression suite: **948 passed in 17.28 seconds** in GitHub Actions [run #45020303163](https://github.com/Amiroudro/new-sngso/actions/runs/45020303163), on code commit `aad427d7e6da9365a1642b4cb612e60b083d746f`. This verifies the local POSIX subprocess primitive and regression suite only; it does not verify lease integration, provider fencing, production process management, or non-POSIX behavior.
