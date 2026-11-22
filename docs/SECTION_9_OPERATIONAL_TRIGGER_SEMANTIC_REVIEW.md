@@ -16,7 +16,7 @@ Scope: 23 triggers in the `pipeline_runs`, `pipeline_run_revisions`, `pipeline_s
 | `pipeline_run_revision_no_delete` | Run revision history is append-only | BEFORE DELETE trigger plus restricted application role | Direct-SQL negative test still needed |
 | `pipeline_run_revision_matches_current` | Inserted revision must match current run head revision and payload | BEFORE INSERT trigger reading locked current head | Transaction/revision tests exist; direct mismatched-revision insert test still needed |
 
-## 2. Stage checkpoint state and history (10 triggers)
+## 2. Stage checkpoint state and history (9 triggers)
 
 | Trigger | Enforced invariant | PostgreSQL enforcement design | Existing test evidence |
 |---|---|---|---|
@@ -30,7 +30,7 @@ Scope: 23 triggers in the `pipeline_runs`, `pipeline_run_revisions`, `pipeline_s
 | `pipeline_stage_checkpoint_revisions_no_delete` | Revision history cannot be deleted | BEFORE DELETE trigger and restricted application role | Direct-SQL negative test still needed |
 | `pipeline_stage_checkpoints_no_delete` | Checkpoint heads cannot be deleted | BEFORE DELETE trigger and restricted application role | Direct-SQL negative test still needed |
 
-## 3. Worker lease ownership and history (6 triggers)
+## 3. Worker lease ownership and history (7 triggers)
 
 | Trigger | Enforced invariant | PostgreSQL enforcement design | Existing test evidence |
 |---|---|---|---|
@@ -42,7 +42,7 @@ Scope: 23 triggers in the `pipeline_runs`, `pipeline_run_revisions`, `pipeline_s
 | `pipeline_worker_lease_revisions_no_delete` | Lease history cannot be deleted | BEFORE DELETE trigger and restricted application role | Direct-SQL negative test still needed |
 | `pipeline_worker_leases_no_delete` | Lease head cannot be deleted | BEFORE DELETE trigger and restricted application role | Direct-SQL negative test still needed |
 
-*Correction: this group contains 7 lease triggers, not 6. The combined reviewed scope is 24 triggers, not 23.*
+The combined reviewed scope is 23 triggers: 7 pipeline-run, 9 checkpoint, and 7 worker-lease triggers.
 
 ## 4. PostgreSQL translation hazards
 
