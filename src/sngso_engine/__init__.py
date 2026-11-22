@@ -89,6 +89,7 @@ from .worker_leases import (
     WorkerLease,
     WorkerLeaseError,
     WorkerLeaseStore,
+    WorkerLeaseSession,
 )
 from .orchestrator import (
     PipelineExecutionError,
@@ -182,6 +183,7 @@ __all__ = [
     "WorkerLease",
     "WorkerLeaseError",
     "WorkerLeaseStore",
+    "WorkerLeaseSession",
     "PipelineExecutionError",
     "PipelineStage",
     "PipelineStageFailure",
