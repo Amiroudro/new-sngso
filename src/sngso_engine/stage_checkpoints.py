@@ -366,6 +366,10 @@ def execute_checkpointed_stage(
         output = handler(context, checkpoint.idempotency_key)
         output_fingerprint = sha256_fingerprint(output)
     except Exception as exc:
+        # A worker that lost its lease must not mutate the checkpoint after
+        # ownership has moved. Leave the executing checkpoint for reconciliation.
+        if lease_guard is not None:
+            lease_guard()
         target = "failed" if replay_safe else "indeterminate"
         store.transition(checkpoint, target, actor=actor, reason="stage_handler_failed",
                          metadata={"failure_code": "handler_exception"})
