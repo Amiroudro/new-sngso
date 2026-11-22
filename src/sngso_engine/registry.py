@@ -2349,7 +2349,7 @@ _MIGRATION_32 = (
            THEN RAISE(ABORT, 'stage checkpoint identity is immutable') END;
          SELECT CASE WHEN NOT (
            (OLD.status = 'executing' AND NEW.status IN ('succeeded', 'failed', 'indeterminate', 'blocked'))
-           OR (OLD.status = 'indeterminate' AND NEW.status IN ('succeeded', 'blocked'))
+           OR (OLD.status = 'indeterminate' AND NEW.status IN ('executing', 'succeeded', 'blocked'))
            OR (OLD.status = 'failed' AND NEW.status = 'blocked')
          ) THEN RAISE(ABORT, 'invalid stage checkpoint status transition') END;
          SELECT CASE WHEN NEW.status = 'succeeded' AND NEW.output_fingerprint IS NULL
