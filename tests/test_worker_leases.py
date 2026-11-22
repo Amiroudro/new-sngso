@@ -397,6 +397,10 @@ def test_worker_lease_session_rejects_unsafe_heartbeat_interval():
             WorkerLeaseSession(
                 store, lease, heartbeat_interval_seconds=5, ttl_seconds=10,
             )
+        with pytest.raises(ValueError, match="less than half"):
+            WorkerLeaseSession(
+                store, lease, heartbeat_interval_seconds=float("nan"), ttl_seconds=10,
+            )
 
 
 def test_worker_lease_schema_migrates_from_v32(tmp_path, monkeypatch):
