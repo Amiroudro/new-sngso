@@ -57,6 +57,10 @@ def inspect_sqlite_schema(
 
     try:
         connection.row_factory = sqlite3.Row
+        # Pin all inventory queries to one SQLite read snapshot. Without an
+        # explicit transaction, concurrent commits could make the schema,
+        # migration history, and audit tip describe different database states.
+        connection.execute("BEGIN")
         version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         integrity_rows = [
             str(row[0]) for row in connection.execute("PRAGMA integrity_check")
