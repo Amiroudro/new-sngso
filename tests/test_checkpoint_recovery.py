@@ -56,10 +56,12 @@ def _plan(context, *, handler, reconcile, replay_safe=False):
 def test_recovery_accepts_backend_protocol_without_sqlite_registry_attribute():
     class BackendAdapter:
         def __init__(self, delegate):
-            self._delegate = delegate
-
-        def __getattr__(self, name):
-            return getattr(self._delegate, name)
+            for name in (
+                "acquire", "heartbeat", "assert_current", "release",
+                "request_cancellation", "cancellation_requested",
+                "acknowledge_cancellation", "history",
+            ):
+                setattr(self, name, getattr(delegate, name))
 
     with SQLiteRegistry() as registry:
         _running_run(registry)
