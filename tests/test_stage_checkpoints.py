@@ -438,7 +438,13 @@ def test_checkpoint_identity_and_revision_guards_reject_tampering():
             )
         changed = store.transition(
             checkpoint, "indeterminate", actor="test_worker", reason="first_transition",
+            provider_operation_ref="provider_op_1",
         )
+        with pytest.raises(sqlite3.IntegrityError, match="reference is immutable"):
+            store.transition(
+                changed, "blocked", actor="test_worker", reason="provider_ref_tamper",
+                provider_operation_ref="provider_op_2",
+            )
         with pytest.raises(StageCheckpointError, match="revision conflict"):
             store.transition(
                 checkpoint, "blocked", actor="test_worker", reason="stale_transition",
