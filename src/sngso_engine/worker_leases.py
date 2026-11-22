@@ -177,8 +177,7 @@ class WorkerLeaseStore:
                 connection.execute(
                     """UPDATE pipeline_worker_leases SET worker_id = ?, token_hash = ?,
                        fencing_token = ?, status = 'active', acquired_at = ?, heartbeat_at = ?,
-                       expires_at = ?, cancel_requested_at = NULL, cancel_requested_by = NULL,
-                       cancel_reason_code = NULL, revision = ?, updated_at = ?, actor = ?, reason = ?
+                       expires_at = ?, revision = ?, updated_at = ?, actor = ?, reason = ?
                        WHERE pipeline_run_id = ? AND revision = ?""",
                     (worker_id, token_hash, generation, stamp, stamp, expires, revision,
                      stamp, actor, reason, pipeline_run_id, row["revision"]),
