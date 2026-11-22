@@ -27,11 +27,19 @@ The latest verified full Python 3.12 suite for the current Section 9 code baseli
 
 ## P0 live schema inspection implementation
 
-The read-only `inspect_sqlite_schema` utility now inspects an existing SQLite database directly. It reports live `sqlite_master` definitions, schema version, integrity-check output, foreign-key violations, retained audit-chain validity, object counts, and a deterministic schema digest. It refuses to create a missing database and opens the target with URI `mode=ro`. The command-line usage and limitations are documented in [live SQLite schema inspection](SECTION_9_SCHEMA_INSPECTION.md).
+The read-only `inspect_sqlite_schema` utility inspects an existing SQLite database directly. It reports live `sqlite_master` definitions, schema version and contiguous migration history, integrity-check output, foreign-key violations, retained audit-chain validity, object counts, and a deterministic schema digest. It refuses to create a missing database and opens the target with URI `mode=ro`. The command-line usage and limitations are documented in [live SQLite schema inspection](SECTION_9_SCHEMA_INSPECTION.md).
 
-The first CI run for this implementation passed **1,020 tests in 19.37 seconds** in [GitHub Actions run #45054193523](https://github.com/Amiroudro/new-sngso/actions/runs/45054193523), tested code commit `8f5c417563054629077a0821154e6de8c2f33608`. This includes the inspector and its initial five tests. A subsequent test-only commit adds an explicit package-export test; a fresh CI run for that later head is pending.
+**Verified live schema-v33 fixture:** GitHub Actions [run #45054352627](https://github.com/Amiroudro/new-sngso/actions/runs/45054352627) passed the complete suite and generated/uploaded the schema inspection artifact. The actual report confirms:
+- Schema version **33**, with migration records 1–33 contiguous.
+- `PRAGMA integrity_check`: `ok`.
+- **0** foreign-key violations.
+- Audit hash chain valid.
+- Exactly **47 tables, 25 explicit indexes, 131 triggers, and 0 views**.
+- Schema SHA-256: `42fd958579890d61fa64b3e84d769eb9a3eadcd905a101f7465e3a094b28b499`.
 
-This closes the first implementation slice of P0, not P0 itself. A golden schema snapshot from a real schema-v33 fixture, per-trigger semantic tests, independent external audit checkpoint comparison, and full manual review of all 131 trigger definitions remain outstanding.
+The CI run tested code commit `91114152de0d36a6126b3f1f9e8cd0721725dc92`. Its `sqlite-schema-v33-inspection` artifact is retained by GitHub Actions until **6 December 2026**. This provides a real live-schema baseline rather than a migration-source-only inventory.
+
+This closes the live-fixture and mechanical inventory portion of P0. It does **not** close semantic review of every SQL object. Manual trigger-by-trigger review, negative direct-SQL tests for each protected invariant, an independent external audit checkpoint comparison, and migration mapping remain outstanding.
 
 ## PostgreSQL migration design artifacts
 
