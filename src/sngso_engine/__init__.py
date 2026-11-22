@@ -91,9 +91,11 @@ from .worker_control import (
 )
 from .worker_supervisor import (
     WorkerEntrypoint,
-    WorkerProcessExecutionError,\n    WorkerProcessResult,
+    WorkerProcessExecutionError,
+    WorkerProcessResult,
     WorkerSupervisor,
-    WorkerSupervisorError,\n    supervised_checkpoint_handler,
+    WorkerSupervisorError,
+    supervised_checkpoint_handler,
 )
 from .worker_leases import (
     CancellationRequested,
