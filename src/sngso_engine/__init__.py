@@ -71,6 +71,14 @@ from .models import (
     StoryRecord,
 )
 from .permissions import PermissionDecision, evaluate_permission
+from .stage_checkpoints import (
+    Reconciliation,
+    StageCheckpoint,
+    StageCheckpointError,
+    StageCheckpointStore,
+    execute_checkpointed_stage,
+    stage_idempotency_key,
+)
 from .orchestrator import (
     PipelineExecutionError,
     PipelineStage,
@@ -148,6 +156,12 @@ __all__ = [
     "IngestionError",
     "IngestionRepository",
     "PipelineRunRepository",
+    "Reconciliation",
+    "StageCheckpoint",
+    "StageCheckpointError",
+    "StageCheckpointStore",
+    "execute_checkpointed_stage",
+    "stage_idempotency_key",
     "PipelineExecutionError",
     "PipelineStage",
     "PipelineStageFailure",
