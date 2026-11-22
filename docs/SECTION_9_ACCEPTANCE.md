@@ -21,14 +21,13 @@ Repository scope: `Amiroudro/new-sngso` only. This register distinguishes commit
 
 The latest full Python 3.12 suite passed **893 tests in 9.84 seconds** in GitHub Actions [run #44941362943](https://github.com/Amiroudro/new-sngso/actions/runs/44941362943), on code commit `cad4c823976791f3d9801b1add21bb52e45bf716`.
 
-| 9.11 | Durable stage checkpoint and crash-reconciliation design contract | Design documented on a dedicated feature branch; schema, registry API, runner, and crash tests not yet implemented or accepted |\n\n## Remaining engineering gates
+| 9.11 | Durable stage checkpoints and crash reconciliation | Implemented candidate: schema v32, metadata-only immutable checkpoint heads/revisions, deterministic idempotency keys, ordered checkpoint-aware pipeline runner, provider reconciliation outcomes, point-of-use permission callback, atomic audit transitions, SQLite privacy guards, and crash-window/rollback/concurrency/reconstruction tests. Full Python 3.12 suite: **914 passed in 8.87 seconds** in GitHub Actions [run #45014403338](https://github.com/Amiroudro/new-sngso/actions/runs/45014403338), on commit `4eddc75a2c97d627529aade3e851fb8434057a1f`. Draft PR #8; external provider adapters, worker leases, and production acceptance remain outstanding. |\n\n## Remaining engineering gates
 
 These are not implemented or accepted:
 
-1. Durable per-stage checkpoints and crash reconciliation. The current runner deliberately cannot resume a `running` record.
-2. Stage-level idempotency keys and durable external-operation references, including reconciliation after a side effect succeeds but the registry commit fails.
-3. Worker lease, heartbeat, timeout, cancellation and process supervision semantics.
-4. Authenticated service-worker identities and real handler-level permission checks at point of use.
+1. Provider-specific idempotency/reconciliation adapters and durable result reconstruction. The engine now supplies stable keys and fail-closed reconciliation contracts, but no live provider adapter is approved.
+2. Worker lease, heartbeat, timeout, cancellation and process supervision semantics. A stale `executing` checkpoint is a reconciliation candidate, not proof that its worker is dead.
+3. Authenticated service-worker identities and production permission adapters. The checkpoint runner requires a point-of-use permission callback, but trusted identity and real permission evidence remain external infrastructure.
 5. Structured operational event/metric/trace correlation and alert delivery.
 6. Automated encrypted backups, key management, off-site storage, retention, and production-like restore drills.
 7. Automated delivery of audit checkpoints to an independently controlled account or storage system.
