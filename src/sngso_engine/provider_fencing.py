@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
 from .canonical import sha256_fingerprint
 from .worker_leases import WorkerLease, WorkerLeaseStore
@@ -107,3 +107,39 @@ def execute_fenced_provider_command(
     # this worker proceed to local checkpoint success. Reconcile remotely.
     lease_store.assert_current(lease)
     return result
+
+
+
+def fenced_provider_stage_handler(
+    provider: FencedProviderAdapter,
+    lease_store: WorkerLeaseStore,
+    lease: WorkerLease,
+    *,
+    provider_namespace: str,
+    stage_ordinal: int,
+    request_builder: Callable[[dict[str, Any]], Mapping[str, Any]],
+) -> Callable[[dict[str, Any], str], Any]:
+    """Build a handler compatible with CheckpointedStage.
+
+    The request builder receives only the in-memory stage context. The
+    checkpoint runner supplies its deterministic idempotency key, which is
+    forwarded with the captured lease fencing generation to the provider.
+    """
+    if not callable(request_builder):
+        raise TypeError("request_builder must be callable")
+
+    def handler(context: dict[str, Any], idempotency_key: str) -> Any:
+        if not isinstance(context, dict):
+            raise TypeError("stage context must be a dictionary")
+        request = request_builder(context)
+        if not isinstance(request, Mapping):
+            raise TypeError("request_builder must return a mapping")
+        return execute_fenced_provider_command(
+            provider, lease_store, lease,
+            provider_namespace=provider_namespace,
+            stage_ordinal=stage_ordinal,
+            idempotency_key=idempotency_key,
+            request=request,
+        )
+
+    return handler
