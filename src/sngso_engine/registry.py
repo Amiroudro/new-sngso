@@ -2385,8 +2385,10 @@ _MIGRATION_32 = (
          OR EXISTS (
            SELECT 1 FROM json_each(NEW.metadata_json)
            WHERE key NOT IN ('adapter_version', 'provider_state', 'failure_code', 'reconciliation', 'attempt')
-              OR (key = 'attempt' AND type != 'integer')
-              OR (key != 'attempt' AND type != 'text')
+              OR (key = 'attempt' AND (type != 'integer' OR CAST(value AS INTEGER) NOT BETWEEN 1 AND 1000))
+              OR (key != 'attempt' AND
+                  (type != 'text' OR length(value) NOT BETWEEN 1 AND 128
+                   OR value GLOB '*[^A-Za-z0-9_.:-]*'))
          )
        BEGIN SELECT RAISE(ABORT, 'stage checkpoint metadata contains unsupported fields or types'); END""",
     """CREATE TRIGGER pipeline_stage_checkpoint_revision_matches_head
