@@ -588,10 +588,16 @@ def test_schema_31_migrates_to_32_with_checkpoint_tables(tmp_path, monkeypatch):
 def test_pending_reconciliation_persists_operation_reference_for_later_lookup():
     with SQLiteRegistry() as registry:
         _running_run(registry)
+        context = {"payload": {"safe": True}}
+        StageCheckpointStore(registry).begin(
+            "pipeline-run:checkpoint-test", 0, "remote_write",
+            sha256_fingerprint(context), provider_namespace="provider_x",
+            actor="test_worker", reason="seed_pending_checkpoint",
+        )
         with pytest.raises(StageCheckpointError, match="remains pending"):
             execute_checkpointed_stage(
                 registry, "pipeline-run:checkpoint-test", 0, "remote_write",
-                {"payload": {"safe": True}},
+                context,
                 lambda current, key: pytest.fail("pending operation must never replay"),
                 actor="test_worker", reason="pending_provider_reconcile",
                 permission_check=lambda: True, provider_namespace="provider_x",
@@ -616,10 +622,16 @@ def test_pending_reconciliation_can_be_polled_again_using_persisted_operation_re
     calls = []
     with SQLiteRegistry() as registry:
         _running_run(registry)
+        context = {"payload": {"safe": True}}
+        StageCheckpointStore(registry).begin(
+            "pipeline-run:checkpoint-test", 0, "remote_write",
+            sha256_fingerprint(context), provider_namespace="provider_x",
+            actor="test_worker", reason="seed_pending_checkpoint",
+        )
         with pytest.raises(StageCheckpointError, match="remains pending"):
             execute_checkpointed_stage(
                 registry, "pipeline-run:checkpoint-test", 0, "remote_write",
-                {"payload": {"safe": True}},
+                context,
                 lambda current, key: pytest.fail("pending operation must never replay"),
                 actor="test_worker", reason="first_pending_poll",
                 permission_check=lambda: True, provider_namespace="provider_x",
@@ -633,7 +645,7 @@ def test_pending_reconciliation_can_be_polled_again_using_persisted_operation_re
             return Reconciliation("completed", output={"remote_id": "done"}, operation_ref=ref)
         result = execute_checkpointed_stage(
             registry, "pipeline-run:checkpoint-test", 0, "remote_write",
-            {"payload": {"safe": True}},
+            context,
             lambda current, key: pytest.fail("confirmed completion must not replay"),
             actor="test_worker", reason="second_pending_poll",
             permission_check=lambda: True, provider_namespace="provider_x",
