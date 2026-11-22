@@ -29,32 +29,26 @@ The latest verified full Python 3.12 suite for the current Section 9 code baseli
 
 The read-only `inspect_sqlite_schema` utility inspects an existing SQLite database directly. It reports live `sqlite_master` definitions, schema version and contiguous migration history, integrity-check output, foreign-key violations, retained audit-chain validity, optional comparison with an independently held audit checkpoint, object counts, and a deterministic schema digest. It refuses to create a missing database and opens the target with URI `mode=ro`. The command-line usage and limitations are documented in [live SQLite schema inspection](SECTION_9_SCHEMA_INSPECTION.md).
 
-**Verified live schema-v33 fixture:** GitHub Actions [run #45054352627](https://github.com/Amiroudro/new-sngso/actions/runs/45054352627) passed the complete suite and generated/uploaded the schema inspection artifact. The actual report confirms:
-- Schema version **33**, with migration records 1–33 contiguous.
-- `PRAGMA integrity_check`: `ok`.
-- **0** foreign-key violations.
-- Audit hash chain valid.
-- Exactly **47 tables, 25 explicit indexes, 131 triggers, and 0 views**.
-- Schema SHA-256: `42fd958579890d61fa64b3e84d769eb9a3eadcd905a101f7465e3a094b28b499`.
+**Schema-v34 implementation:** migration 34 adds database-level guards for domain revision insertion, permission-grant revision insertion and legal head transitions, and benchmark assignment revision insertion and legal status transitions. Direct-SQL regression tests cover forged domain/grant revisions, grant-head updates without a matching revision, and illegal assignment status jumps. A schema-33-to-34 migration test verifies all five new triggers.
 
-The CI run tested code commit `91114152de0d36a6126b3f1f9e8cd0721725dc92`. Its `sqlite-schema-v33-inspection` artifact is retained by GitHub Actions until **6 December 2026**. This provides a real live-schema baseline rather than a migration-source-only inventory.
+The schema-v34 fixture is configured in CI to generate and upload a fresh live schema inspection. Expected inventory is **47 tables, 25 explicit indexes, 136 triggers across 40 tables, and 0 views**. CI verification of the migration-34 code and artifact is pending.
 
-This closes the live-fixture and mechanical inventory portion of P0. It does **not** close semantic review of every SQL object. Manual trigger-by-trigger review, negative direct-SQL tests for each protected invariant, an independent external audit checkpoint comparison, and migration mapping remain outstanding.
+All **136 of 136** SQLite triggers now have source-level semantic review records across the four linked review documents. This does not close all direct-SQL negative test cases, prove PostgreSQL equivalence, or complete P0. Remaining work includes broader adversarial SQL tests, PostgreSQL implementation/conformance, external audit-checkpoint delivery, and operational acceptance.
 
 ## PostgreSQL migration design artifacts
 
 - [Operational PostgreSQL migration architecture](SECTION_9_OPERATIONAL_POSTGRESQL_MIGRATION_DESIGN.md): transaction boundary, schema mapping, locking, audit serialization, migration, cutover, rollback, and CI acceptance design.
-- [PostgreSQL schema inventory](SECTION_9_POSTGRESQL_SCHEMA_INVENTORY.md): source-derived inventory of migrations 1–33, 47 tables, 25 indexes, and 131 triggers.
+- [PostgreSQL schema inventory](SECTION_9_POSTGRESQL_SCHEMA_INVENTORY.md): source-derived inventory of migrations 1–34, 47 tables, 25 indexes, and 136 triggers.
 - [Final acceptance and closure plan](SECTION_9_FINAL_ACCEPTANCE_AND_CLOSURE_PLAN.md): non-negotiable invariants, repository engineering gates, PostgreSQL implementation sequence, provider conformance, deployment controls, external editorial gates, CI matrix, and release safeguards.
 - [Live SQLite schema inspection](SECTION_9_SCHEMA_INSPECTION.md): read-only live database inventory, integrity and foreign-key checks, audit-chain verification, and deterministic schema digest.
 - [Trigger porting ledger](SECTION_9_TRIGGER_PORTING_LEDGER.md): live trigger event distribution, table coverage, high-risk families, and the per-trigger PostgreSQL semantic-review requirements.
-- [Complete trigger inventory](SECTION_9_TRIGGER_INVENTORY_COMPLETE.md): all 131 migration-defined trigger SQL bodies with mechanical event, predicate, and reference extraction.
+- [Complete trigger inventory](SECTION_9_TRIGGER_INVENTORY_COMPLETE.md): all 136 migration-defined trigger SQL bodies with mechanical event, predicate, and reference extraction.
 - [Operational trigger semantic review](SECTION_9_OPERATIONAL_TRIGGER_SEMANTIC_REVIEW.md): source-level review of all 23 pipeline-run, checkpoint, and worker-lease triggers, with PostgreSQL translation hazards and explicit remaining direct-SQL test gaps.
 - [Publication, staging, and audit trigger review](SECTION_9_PUBLICATION_AUDIT_TRIGGER_REVIEW.md): source-level review of 27 edition/publication, audit, story-decision, and timeline-event triggers, with current test evidence and PostgreSQL migration hazards.
-- [Benchmark governance trigger review](SECTION_9_BENCHMARK_GOVERNANCE_TRIGGER_REVIEW.md): source-level review of all 37 benchmark-governance triggers, including database-boundary gaps around assignment/review transitions and revision insertion.
-- [Content, provenance, and ingestion trigger review](SECTION_9_CONTENT_PROVENANCE_TRIGGER_REVIEW.md): source-level review of the remaining 44 triggers. Together, the four review documents cover all 131 SQLite triggers and identify the direct-SQL gaps that must be closed before PostgreSQL parity.
+- [Benchmark governance trigger review](SECTION_9_BENCHMARK_GOVERNANCE_TRIGGER_REVIEW.md): source-level review of all 39 benchmark-governance triggers, including schema-v34 assignment revision and status-transition guards.
+- [Content, provenance, and ingestion trigger review](SECTION_9_CONTENT_PROVENANCE_TRIGGER_REVIEW.md): source-level review of 47 content/provenance/ingestion triggers, including schema-v34 domain and permission-grant revision guards. Together, the four review documents cover all 136 SQLite triggers.
 
-The PostgreSQL documents remain design and inventory artifacts only. The live SQLite inspector and its regression tests have run successfully in CI, including the schema-v33 inspection artifact. All 131 SQLite triggers now have source-level semantic review records, but direct-SQL conformance gaps remain and no PostgreSQL implementation or multi-host acceptance has been achieved.
+The PostgreSQL documents remain design and inventory artifacts only. The live SQLite inspector and its regression tests passed in earlier CI runs against schema v33; schema-v34 migration verification is pending. All 136 current SQLite triggers have source-level semantic review records, but direct-SQL conformance gaps remain and no PostgreSQL implementation or multi-host acceptance has been achieved.
 
 ## Remaining engineering gates
 
