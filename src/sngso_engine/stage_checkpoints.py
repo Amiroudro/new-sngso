@@ -123,6 +123,32 @@ class StageCheckpointStore:
             ).fetchone()
         return None if row is None else self._decode(row)
 
+    def list_unresolved(self, pipeline_run_id: str | None = None) -> list[StageCheckpoint]:
+        """List executing/indeterminate checkpoints for restart reconciliation.
+
+        This is a read-only recovery inventory. It never acquires a lease,
+        invokes a provider, changes checkpoint state, or authorizes replay.
+        """
+        if pipeline_run_id is not None and (
+            not isinstance(pipeline_run_id, str) or not pipeline_run_id.strip()
+        ):
+            raise ValueError("pipeline_run_id must be a non-empty string when supplied")
+        with self.registry._lock:
+            if pipeline_run_id is None:
+                rows = self.registry._connection.execute(
+                    """SELECT * FROM pipeline_stage_checkpoints
+                       WHERE status IN ('executing', 'indeterminate')
+                       ORDER BY pipeline_run_id, stage_ordinal"""
+                ).fetchall()
+            else:
+                rows = self.registry._connection.execute(
+                    """SELECT * FROM pipeline_stage_checkpoints
+                       WHERE pipeline_run_id = ? AND status IN ('executing', 'indeterminate')
+                       ORDER BY stage_ordinal""",
+                    (pipeline_run_id,),
+                ).fetchall()
+        return [self._decode(row) for row in rows]
+
     def history(self, pipeline_run_id: str, stage_ordinal: int) -> list[dict[str, Any]]:
         with self.registry._lock:
             rows = self.registry._connection.execute(
