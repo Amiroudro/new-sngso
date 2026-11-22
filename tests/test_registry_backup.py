@@ -44,7 +44,7 @@ def test_backup_and_restore_preserve_schema_pipeline_runs_and_audit_chain(tmp_pa
         with pytest.raises(FileExistsError):
             backup_registry_database(registry, backup)
 
-    verified = verify_registry_backup(backup, expected_schema_version=31)
+    verified = verify_registry_backup(backup, expected_schema_version=32)
     assert verified["integrity_check"] == "ok"
     assert verified["audit_chain_valid"] is True
     restored_result = restore_registry_backup(backup, restored)
