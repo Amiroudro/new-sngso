@@ -186,7 +186,7 @@ def test_checkpoint_identity_and_revision_guards_reject_tampering():
         with pytest.raises(sqlite3.IntegrityError, match="identity is immutable"):
             registry._connection.execute(
                 """UPDATE pipeline_stage_checkpoints
-                   SET stage_name = 'tampered' WHERE pipeline_run_id = ? AND stage_ordinal = 0""",
+                   SET stage_name = 'tampered', revision = 2 WHERE pipeline_run_id = ? AND stage_ordinal = 0""",
                 ("pipeline-run:checkpoint-test",),
             )
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
