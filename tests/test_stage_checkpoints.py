@@ -584,3 +584,61 @@ def test_schema_31_migrates_to_32_with_checkpoint_tables(tmp_path, monkeypatch):
         }
         assert "pipeline_stage_checkpoints" in tables
         assert "pipeline_stage_checkpoint_revisions" in tables
+
+def test_pending_reconciliation_persists_operation_reference_for_later_lookup():
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        with pytest.raises(StageCheckpointError, match="remains pending"):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:checkpoint-test", 0, "remote_write",
+                {"payload": {"safe": True}},
+                lambda current, key: pytest.fail("pending operation must never replay"),
+                actor="test_worker", reason="pending_provider_reconcile",
+                permission_check=lambda: True, provider_namespace="provider_x",
+                reconcile=lambda key, ref: Reconciliation(
+                    "pending", operation_ref="provider-op-7",
+                    metadata={"poll_after": "later"},
+                ),
+                replay_safe=False,
+            )
+        checkpoint = StageCheckpointStore(registry).get("pipeline-run:checkpoint-test", 0)
+        assert checkpoint.status == "indeterminate"
+        assert checkpoint.provider_operation_ref == "provider-op-7"
+        assert checkpoint.metadata == {
+            "provider_state": "pending", "reconciliation": "pending",
+        }
+        history = StageCheckpointStore(registry).history("pipeline-run:checkpoint-test", 0)
+        assert history[-1]["provider_operation_ref"] == "provider-op-7"
+        assert history[-1]["metadata"]["reconciliation"] == "pending"
+
+
+def test_pending_reconciliation_can_be_polled_again_using_persisted_operation_reference():
+    calls = []
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        with pytest.raises(StageCheckpointError, match="remains pending"):
+            execute_checkpointed_stage(
+                registry, "pipeline-run:checkpoint-test", 0, "remote_write",
+                {"payload": {"safe": True}},
+                lambda current, key: pytest.fail("pending operation must never replay"),
+                actor="test_worker", reason="first_pending_poll",
+                permission_check=lambda: True, provider_namespace="provider_x",
+                reconcile=lambda key, ref: Reconciliation(
+                    "pending", operation_ref="provider-op-8",
+                ),
+                replay_safe=False,
+            )
+        def reconcile_again(key, ref):
+            calls.append((key, ref))
+            return Reconciliation("completed", output={"remote_id": "done"}, operation_ref=ref)
+        result = execute_checkpointed_stage(
+            registry, "pipeline-run:checkpoint-test", 0, "remote_write",
+            {"payload": {"safe": True}},
+            lambda current, key: pytest.fail("confirmed completion must not replay"),
+            actor="test_worker", reason="second_pending_poll",
+            permission_check=lambda: True, provider_namespace="provider_x",
+            reconcile=reconcile_again, replay_safe=False,
+        )
+        assert result["status"] == "succeeded"
+        assert result["output"] == {"remote_id": "done"}
+        assert calls == [(result["idempotency_key"], "provider-op-8")]
