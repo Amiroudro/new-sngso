@@ -230,14 +230,17 @@ def test_supervisor_propagates_durable_cancellation_and_requires_child_ack():
     from sngso_engine import SQLiteRegistry, WorkerLeaseSession, WorkerLeaseStore
 
     code = (
-        "import json,os,select,time; "
-        "control=json.loads(os.read(int(os.environ['SNGSO_WORKER_CONTROL_FD']),8192)); "
-        "cancel=int(os.environ['SNGSO_WORKER_CANCEL_FD']); "
-        "ready=time.monotonic()+3; acknowledged=False; "
-        "while time.monotonic()<ready:\n"
-        " r,_,_=select.select([cancel],[],[],0.02); "
-        "\n if r and os.read(cancel,1)==b'\\x01': acknowledged=True; break; "
-        "\nprint(json.dumps({'schema_version':'1','result':"
+        "import json,os,select,time\\n"
+        "control=json.loads(os.read(int(os.environ['SNGSO_WORKER_CONTROL_FD']),8192))\\n"
+        "cancel=int(os.environ['SNGSO_WORKER_CANCEL_FD'])\\n"
+        "ready=time.monotonic()+3\\n"
+        "acknowledged=False\\n"
+        "while time.monotonic()<ready:\\n"
+        "    readable,_,_=select.select([cancel],[],[],0.02)\\n"
+        "    if readable and os.read(cancel,1)==b'\\\\x01':\\n"
+        "        acknowledged=True\\n"
+        "        break\\n"
+        "print(json.dumps({'schema_version':'1','result':"
         "{'cancellation_acknowledged':acknowledged,'generation':control['fencing_token']}}))"
     )
     with SQLiteRegistry() as registry:
