@@ -9,6 +9,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .canonical import sha256_fingerprint
+
 
 class SchemaInspectionError(RuntimeError):
     """Raised when a registry cannot be safely inspected."""
@@ -47,6 +49,37 @@ def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
             }
             for row in connection.execute("PRAGMA foreign_key_check")
         ]
+        audit_chain_valid = True
+        previous_hash = None
+        for row in connection.execute(
+            """
+            SELECT event_id, event_type, entity_type, entity_id, occurred_at,
+                   policy_version, payload_json, previous_hash, event_hash
+            FROM audit_events ORDER BY sequence
+            """
+        ):
+            try:
+                payload = json.loads(row["payload_json"])
+                expected = sha256_fingerprint(
+                    {
+                        "event_id": row["event_id"],
+                        "event_type": row["event_type"],
+                        "entity_type": row["entity_type"],
+                        "entity_id": row["entity_id"],
+                        "occurred_at": row["occurred_at"],
+                        "policy_version": row["policy_version"],
+                        "payload": payload,
+                        "previous_hash": previous_hash,
+                    }
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                audit_chain_valid = False
+                break
+            if row["previous_hash"] != previous_hash or row["event_hash"] != expected:
+                audit_chain_valid = False
+                break
+            previous_hash = row["event_hash"]
+
         objects = [
             {
                 "type": str(row["type"]),
@@ -77,6 +110,7 @@ def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
             "schema_version": version,
             "integrity_check": integrity_rows,
             "foreign_key_violations": foreign_key_violations,
+            "audit_chain_valid": audit_chain_valid,
             "object_counts": counts,
             "schema_sha256": hashlib.sha256(schema_json).hexdigest(),
             "objects": objects,
@@ -84,6 +118,7 @@ def inspect_sqlite_schema(database: str | Path) -> dict[str, Any]:
                 version > 0
                 and integrity_rows == ["ok"]
                 and not foreign_key_violations
+                and audit_chain_valid
             ),
         }
     except sqlite3.Error as exc:
