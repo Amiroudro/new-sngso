@@ -2777,3 +2777,99 @@ def test_permission_grant_sql_transition_cannot_rewrite_scope_or_evidence():
                         row["revision"],
                     ),
                 )
+
+
+def test_domain_record_direct_sql_update_appends_revision_automatically():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        row = registry._connection.execute(
+            """SELECT revision, payload_json FROM domain_records
+               WHERE record_type = 'story' AND id = 'story:sample-event'"""
+        ).fetchone()
+        payload = json.loads(row["payload_json"])
+        payload["status"] = "ongoing"
+        payload["revision"] = 2
+        payload["updated_at"] = "2026-11-21T00:00:00Z"
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+        registry._connection.execute(
+            """UPDATE domain_records
+               SET revision = 2, updated_at = ?, payload_json = ?,
+                   last_actor = 'direct-sql-reviewer',
+                   last_reason = 'Verified database trigger snapshot',
+                   last_revision_at = ?
+               WHERE record_type = 'story' AND id = 'story:sample-event' AND revision = 1""",
+            ("2026-11-21T00:00:00Z", encoded, "2026-11-21T00:00:00Z"),
+        )
+
+        history = registry.domain_record_history("story", "story:sample-event")
+        assert [entry["revision"] for entry in history] == [1, 2]
+        assert history[1]["actor"] == "direct-sql-reviewer"
+        assert history[1]["reason"] == "Verified database trigger snapshot"
+        assert history[1]["record"]["status"] == "ongoing"
+
+
+def test_domain_record_sql_guard_rejects_revision_jump_and_article_rebinding():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        story = registry._connection.execute(
+            """SELECT payload_json FROM domain_records
+               WHERE record_type = 'story' AND id = 'story:sample-event'"""
+        ).fetchone()
+        story_payload = json.loads(story["payload_json"])
+        story_payload["revision"] = 3
+        with pytest.raises(sqlite3.IntegrityError, match="revision must increment by one"):
+            registry._connection.execute(
+                """UPDATE domain_records
+                   SET revision = 3, payload_json = ?, last_actor = 'editor',
+                       last_reason = 'illegal revision jump', last_revision_at = ?
+                   WHERE record_type = 'story' AND id = 'story:sample-event'""",
+                (json.dumps(story_payload, sort_keys=True, separators=(",", ":")),
+                 "2026-11-22T00:00:00Z"),
+            )
+
+        article = registry._connection.execute(
+            """SELECT payload_json FROM domain_records
+               WHERE record_type = 'article' AND id = 'article:publisher-a-001'"""
+        ).fetchone()
+        article_payload = json.loads(article["payload_json"])
+        article_payload["source_id"] = "source:attacker"
+        with pytest.raises(sqlite3.IntegrityError, match="article source and canonical identity are immutable"):
+            registry._connection.execute(
+                """UPDATE domain_records
+                   SET revision = 2, payload_json = ?, last_actor = 'editor',
+                       last_reason = 'attempted rebind', last_revision_at = ?
+                   WHERE record_type = 'article' AND id = 'article:publisher-a-001'""",
+                (json.dumps(article_payload, sort_keys=True, separators=(",", ":")),
+                 "2026-11-22T00:00:00Z"),
+            )
+
+
+def test_schema_34_migrates_to_35_with_automatic_domain_revision_triggers(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v34.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 34)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 34
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 35)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 35
+        columns = {
+            row["name"]
+            for row in migrated._connection.execute("PRAGMA table_info(domain_records)")
+        }
+        assert {"last_actor", "last_reason", "last_revision_at"} <= columns
+        triggers = {
+            row["name"]
+            for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert {
+            "domain_records_revision_guard",
+            "domain_records_record_update",
+        } <= triggers
