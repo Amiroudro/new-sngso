@@ -9,8 +9,10 @@ from sngso_engine.provider_fencing import (
     ProviderCommand,
     ProviderFenceError,
     execute_fenced_provider_command,
+    fenced_provider_stage_handler,
 )
 from sngso_engine.registry import SQLiteRegistry
+from sngso_engine.stage_checkpoints import execute_checkpointed_stage
 from sngso_engine.worker_leases import LeaseLostError, WorkerLeaseStore
 
 
@@ -132,3 +134,34 @@ def test_dispatch_wrapper_refuses_old_lease_after_takeover_without_calling_provi
                 request={"operation": "publish", "item": "safe-id"},
             )
         assert provider.calls == 0
+
+
+
+def test_fenced_provider_stage_handler_integrates_checkpoint_idempotency_and_lease_generation():
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        leases = WorkerLeaseStore(registry)
+        lease = leases.acquire(
+            "pipeline-run:provider-fence-test", "worker_one", ttl_seconds=60,
+            actor="worker_one", reason="start_worker",
+        )
+        provider = FakeFencedProvider()
+        handler = fenced_provider_stage_handler(
+            provider, leases, lease,
+            provider_namespace="provider_x",
+            stage_ordinal=0,
+            request_builder=lambda context: {"value": context["value"]},
+        )
+        result = execute_checkpointed_stage(
+            registry, "pipeline-run:provider-fence-test", 0, "remote_write",
+            {"value": "safe"},
+            handler,
+            actor="worker_one", reason="fenced_provider_stage",
+            permission_check=lambda: True,
+            provider_namespace="provider_x",
+            lease_guard=lambda: leases.assert_current(lease),
+        )
+        assert result["status"] == "succeeded"
+        assert result["output"] == {"provider_receipt": "receipt-1"}
+        assert provider.calls == 1
+        assert provider.highest_generation[("provider_x", lease.pipeline_run_id)] == lease.fencing_token
