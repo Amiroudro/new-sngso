@@ -81,6 +81,12 @@ from .stage_checkpoints import (
     execute_checkpointed_stage,
     stage_idempotency_key,
 )
+from .worker_supervisor import (
+    WorkerEntrypoint,
+    WorkerProcessResult,
+    WorkerSupervisor,
+    WorkerSupervisorError,
+)
 from .worker_leases import (
     CancellationRequested,
     LeaseConflictError,
@@ -184,6 +190,10 @@ __all__ = [
     "WorkerLeaseError",
     "WorkerLeaseStore",
     "WorkerLeaseSession",
+    "WorkerEntrypoint",
+    "WorkerProcessResult",
+    "WorkerSupervisor",
+    "WorkerSupervisorError",
     "PipelineExecutionError",
     "PipelineStage",
     "PipelineStageFailure",
