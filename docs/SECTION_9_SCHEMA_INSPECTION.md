@@ -23,13 +23,13 @@ The target must already exist. The inspector opens it using SQLite URI `mode=ro`
 
 ## Report contents
 
-- SQLite `user_version`.
+- SQLite `user_version` and ordered `schema_migrations` history, including a contiguous-version check.
 - `PRAGMA integrity_check` output.
 - `PRAGMA foreign_key_check` violations.
 - Read-only verification of the complete retained audit hash chain using the registry's canonical fingerprint function.
 - Exact SQL definitions for user tables, indexes, triggers, and views from `sqlite_master`.
 - Deterministic SHA-256 of the ordered schema-object inventory.
-- Object counts and a combined `healthy` result.
+- Object counts and a combined `healthy` result. The schema-v33 test fixture asserts exactly 47 user tables, 25 explicit indexes, 131 triggers, and zero views.
 
 The report intentionally preserves SQL definitions, not just object names. Reviewers can inspect CHECK clauses, foreign-key actions, partial-index predicates, and trigger bodies.
 
