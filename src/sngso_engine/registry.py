@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 32
+_SCHEMA_VERSION = 33
 
 
 _MIGRATION_14 = (
@@ -2422,6 +2422,143 @@ _MIGRATION_32 = (
 )
 
 
+_MIGRATION_33 = (
+    """CREATE TABLE pipeline_worker_leases (
+        pipeline_run_id TEXT PRIMARY KEY,
+        worker_id TEXT NOT NULL CHECK (length(worker_id) BETWEEN 1 AND 100
+            AND worker_id NOT GLOB '*[^A-Za-z0-9_.:-]*'),
+        token_hash TEXT NOT NULL CHECK (token_hash GLOB 'sha256:*'),
+        fencing_token INTEGER NOT NULL CHECK (fencing_token >= 1),
+        status TEXT NOT NULL CHECK (status IN ('active', 'released', 'expired', 'cancelled')),
+        acquired_at TEXT NOT NULL,
+        heartbeat_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        cancel_requested_at TEXT,
+        cancel_requested_by TEXT,
+        cancel_reason_code TEXT,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        updated_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_runs(id) ON DELETE RESTRICT,
+        CHECK ((cancel_requested_at IS NULL AND cancel_requested_by IS NULL AND cancel_reason_code IS NULL)
+            OR (cancel_requested_at IS NOT NULL AND cancel_requested_by IS NOT NULL
+                AND cancel_reason_code IS NOT NULL
+                AND cancel_reason_code GLOB '[a-z]*'
+                AND length(cancel_reason_code) BETWEEN 1 AND 100))
+    )""",
+    """CREATE TABLE pipeline_worker_lease_revisions (
+        pipeline_run_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        worker_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        fencing_token INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        acquired_at TEXT NOT NULL,
+        heartbeat_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        cancel_requested_at TEXT,
+        cancel_requested_by TEXT,
+        cancel_reason_code TEXT,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        PRIMARY KEY (pipeline_run_id, revision),
+        FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_worker_leases(pipeline_run_id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX pipeline_worker_leases_expiry ON pipeline_worker_leases(status, expires_at)",
+    """CREATE TRIGGER pipeline_worker_lease_initial_revision
+       AFTER INSERT ON pipeline_worker_leases
+       BEGIN
+         INSERT INTO pipeline_worker_lease_revisions
+         (pipeline_run_id, revision, created_at, worker_id, token_hash, fencing_token,
+          status, acquired_at, heartbeat_at, expires_at, cancel_requested_at,
+          cancel_requested_by, cancel_reason_code, actor, reason)
+         VALUES (NEW.pipeline_run_id, NEW.revision, NEW.updated_at, NEW.worker_id,
+          NEW.token_hash, NEW.fencing_token, NEW.status, NEW.acquired_at,
+          NEW.heartbeat_at, NEW.expires_at, NEW.cancel_requested_at,
+          NEW.cancel_requested_by, NEW.cancel_reason_code, NEW.actor, NEW.reason);
+       END""",
+    """CREATE TRIGGER pipeline_worker_lease_revision_guard
+       BEFORE UPDATE ON pipeline_worker_leases
+       BEGIN
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'worker lease revisions must increment sequentially') END;
+         SELECT CASE WHEN NEW.pipeline_run_id != OLD.pipeline_run_id
+           THEN RAISE(ABORT, 'worker lease run identity is immutable') END;
+         SELECT CASE WHEN NOT (
+           (OLD.status = 'active' AND NEW.status = 'active'
+             AND NEW.worker_id = OLD.worker_id
+             AND NEW.token_hash = OLD.token_hash
+             AND NEW.fencing_token = OLD.fencing_token
+             AND NEW.acquired_at = OLD.acquired_at
+             AND NEW.heartbeat_at >= OLD.heartbeat_at
+             AND NEW.expires_at > NEW.heartbeat_at)
+           OR (OLD.status = 'active' AND NEW.status IN ('released', 'expired', 'cancelled')
+             AND NEW.worker_id = OLD.worker_id
+             AND NEW.token_hash = OLD.token_hash
+             AND NEW.fencing_token = OLD.fencing_token
+             AND NEW.acquired_at = OLD.acquired_at)
+           OR (OLD.status IN ('released', 'expired') AND NEW.status = 'active'
+             AND NEW.fencing_token = OLD.fencing_token + 1
+             AND NEW.token_hash != OLD.token_hash
+             AND NEW.acquired_at = NEW.heartbeat_at
+             AND NEW.expires_at > NEW.heartbeat_at
+             AND NEW.cancel_requested_at IS NULL
+             AND NEW.cancel_requested_by IS NULL
+             AND NEW.cancel_reason_code IS NULL)
+         ) THEN RAISE(ABORT, 'invalid worker lease ownership or status transition') END;
+         SELECT CASE WHEN OLD.cancel_requested_at IS NOT NULL
+             AND (NEW.cancel_requested_at IS NOT OLD.cancel_requested_at
+               OR NEW.cancel_requested_by IS NOT OLD.cancel_requested_by
+               OR NEW.cancel_reason_code IS NOT OLD.cancel_reason_code)
+           THEN RAISE(ABORT, 'worker cancellation request is immutable once recorded') END;
+         SELECT CASE WHEN OLD.cancel_requested_at IS NULL
+             AND NEW.cancel_requested_at IS NOT NULL
+             AND (NEW.status != 'active' OR NEW.cancel_requested_by IS NULL
+               OR NEW.cancel_reason_code IS NULL)
+           THEN RAISE(ABORT, 'cancellation request requires an active lease and complete request') END;
+       END""",
+    """CREATE TRIGGER pipeline_worker_lease_revision_snapshot
+       AFTER UPDATE ON pipeline_worker_leases
+       BEGIN
+         INSERT INTO pipeline_worker_lease_revisions
+         (pipeline_run_id, revision, created_at, worker_id, token_hash, fencing_token,
+          status, acquired_at, heartbeat_at, expires_at, cancel_requested_at,
+          cancel_requested_by, cancel_reason_code, actor, reason)
+         VALUES (NEW.pipeline_run_id, NEW.revision, NEW.updated_at, NEW.worker_id,
+          NEW.token_hash, NEW.fencing_token, NEW.status, NEW.acquired_at,
+          NEW.heartbeat_at, NEW.expires_at, NEW.cancel_requested_at,
+          NEW.cancel_requested_by, NEW.cancel_reason_code, NEW.actor, NEW.reason);
+       END""",
+    """CREATE TRIGGER pipeline_worker_lease_revision_matches_head
+       BEFORE INSERT ON pipeline_worker_lease_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM pipeline_worker_leases l
+         WHERE l.pipeline_run_id = NEW.pipeline_run_id
+           AND l.revision = NEW.revision AND l.updated_at = NEW.created_at
+           AND l.worker_id = NEW.worker_id AND l.token_hash = NEW.token_hash
+           AND l.fencing_token = NEW.fencing_token AND l.status = NEW.status
+           AND l.acquired_at = NEW.acquired_at AND l.heartbeat_at = NEW.heartbeat_at
+           AND l.expires_at = NEW.expires_at
+           AND l.cancel_requested_at IS NEW.cancel_requested_at
+           AND l.cancel_requested_by IS NEW.cancel_requested_by
+           AND l.cancel_reason_code IS NEW.cancel_reason_code
+           AND l.actor = NEW.actor AND l.reason = NEW.reason
+       )
+       BEGIN SELECT RAISE(ABORT, 'worker lease revision must match current head'); END""",
+    """CREATE TRIGGER pipeline_worker_lease_revisions_no_update
+       BEFORE UPDATE ON pipeline_worker_lease_revisions
+       BEGIN SELECT RAISE(ABORT, 'worker lease revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_worker_lease_revisions_no_delete
+       BEFORE DELETE ON pipeline_worker_lease_revisions
+       BEGIN SELECT RAISE(ABORT, 'worker lease revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_worker_leases_no_delete
+       BEFORE DELETE ON pipeline_worker_leases
+       BEGIN SELECT RAISE(ABORT, 'worker leases cannot be deleted'); END""",
+)
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -2929,6 +3066,19 @@ class SQLiteRegistry:
                     version = 32
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 32 failed; transaction rolled back") from exc
+
+            if version == 32 and _SCHEMA_VERSION >= 33:
+                try:
+                    for statement in _MIGRATION_33:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (33, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 33")
+                    version = 33
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 33 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
