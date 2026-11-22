@@ -12,7 +12,7 @@ from sngso_engine.checkpoint_recovery import (
 )
 from sngso_engine.registry import SQLiteRegistry
 from sngso_engine.stage_checkpoints import Reconciliation, StageCheckpointStore
-from sngso_engine.worker_leases import WorkerLeaseStore
+from sngso_engine.worker_leases import WorkerLeaseBackend, WorkerLeaseStore
 
 
 def _running_run(registry, run_id="pipeline-run:recovery-test"):
@@ -51,6 +51,28 @@ def _plan(context, *, handler, reconcile, replay_safe=False):
         reconcile=reconcile,
         replay_safe=replay_safe,
     )
+
+
+def test_recovery_accepts_backend_protocol_without_sqlite_registry_attribute():
+    class BackendAdapter:
+        def __init__(self, delegate):
+            self._delegate = delegate
+
+        def __getattr__(self, name):
+            return getattr(self._delegate, name)
+
+    with SQLiteRegistry() as registry:
+        _running_run(registry)
+        backend = BackendAdapter(WorkerLeaseStore(registry))
+        assert isinstance(backend, WorkerLeaseBackend)
+        assert not hasattr(backend, "registry")
+        result = recover_unresolved_checkpoints(
+            registry, backend, "pipeline-run:recovery-test", "worker_protocol",
+            authorize=lambda worker, run: worker == "worker_protocol",
+            resolve_plan=lambda checkpoint: pytest.fail("there are no unresolved checkpoints"),
+        )
+        assert result["status"] == "completed"
+        assert backend.history("pipeline-run:recovery-test")[-1]["status"] == "released"
 
 
 def test_recovery_reconciles_confirmed_completion_without_replaying_handler():
