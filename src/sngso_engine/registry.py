@@ -2363,6 +2363,42 @@ _MIGRATION_32 = (
                  NEW.actor, NEW.reason, NEW.status, NEW.provider_operation_ref,
                  NEW.output_fingerprint, NEW.metadata_json);
        END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_metadata_guard_insert
+       BEFORE INSERT ON pipeline_stage_checkpoints
+       WHEN json_type(NEW.metadata_json) IS NOT 'object'
+         OR EXISTS (
+           SELECT 1 FROM json_each(NEW.metadata_json)
+           WHERE key NOT IN ('adapter_version', 'provider_state', 'failure_code', 'reconciliation', 'attempt')
+              OR (key = 'attempt' AND type != 'integer')
+              OR (key != 'attempt' AND type != 'text')
+         )
+       BEGIN SELECT RAISE(ABORT, 'stage checkpoint metadata contains unsupported fields or types'); END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_metadata_guard_update
+       BEFORE UPDATE ON pipeline_stage_checkpoints
+       WHEN json_type(NEW.metadata_json) IS NOT 'object'
+         OR EXISTS (
+           SELECT 1 FROM json_each(NEW.metadata_json)
+           WHERE key NOT IN ('adapter_version', 'provider_state', 'failure_code', 'reconciliation', 'attempt')
+              OR (key = 'attempt' AND type != 'integer')
+              OR (key != 'attempt' AND type != 'text')
+         )
+       BEGIN SELECT RAISE(ABORT, 'stage checkpoint metadata contains unsupported fields or types'); END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_revision_matches_head
+       BEFORE INSERT ON pipeline_stage_checkpoint_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM pipeline_stage_checkpoints c
+         WHERE c.pipeline_run_id = NEW.pipeline_run_id
+           AND c.stage_ordinal = NEW.stage_ordinal
+           AND c.revision = NEW.revision
+           AND c.updated_at = NEW.created_at
+           AND c.actor = NEW.actor
+           AND c.reason = NEW.reason
+           AND c.status = NEW.status
+           AND c.provider_operation_ref IS NEW.provider_operation_ref
+           AND c.output_fingerprint IS NEW.output_fingerprint
+           AND c.metadata_json = NEW.metadata_json
+       )
+       BEGIN SELECT RAISE(ABORT, 'checkpoint revision must match its current head'); END""",
     """CREATE TRIGGER pipeline_stage_checkpoint_revisions_no_update
        BEFORE UPDATE ON pipeline_stage_checkpoint_revisions
        BEGIN SELECT RAISE(ABORT, 'stage checkpoint revisions are append-only'); END""",
