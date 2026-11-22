@@ -72,10 +72,12 @@ from .models import (
 )
 from .permissions import PermissionDecision, evaluate_permission
 from .stage_checkpoints import (
+    CheckpointedStage,
     Reconciliation,
     StageCheckpoint,
     StageCheckpointError,
     StageCheckpointStore,
+    execute_checkpointed_pipeline,
     execute_checkpointed_stage,
     stage_idempotency_key,
 )
@@ -156,10 +158,12 @@ __all__ = [
     "IngestionError",
     "IngestionRepository",
     "PipelineRunRepository",
+    "CheckpointedStage",
     "Reconciliation",
     "StageCheckpoint",
     "StageCheckpointError",
     "StageCheckpointStore",
+    "execute_checkpointed_pipeline",
     "execute_checkpointed_stage",
     "stage_idempotency_key",
     "PipelineExecutionError",
