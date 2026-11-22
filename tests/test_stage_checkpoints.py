@@ -654,3 +654,51 @@ def test_pending_reconciliation_can_be_polled_again_using_persisted_operation_re
         assert result["status"] == "succeeded"
         assert result["output"] == {"remote_id": "done"}
         assert calls == [(result["idempotency_key"], "provider-op-8")]
+
+
+
+def test_restart_recovery_inventory_lists_unresolved_checkpoints_without_mutating_them():
+    with SQLiteRegistry() as registry:
+        _running_run(registry, run_id="pipeline-run:restart-a")
+        _running_run(registry, run_id="pipeline-run:restart-b")
+        store = StageCheckpointStore(registry)
+        indeterminate = store.begin(
+            "pipeline-run:restart-a", 0, "remote_write",
+            sha256_fingerprint({"payload": "a"}),
+            provider_namespace="provider_x", actor="test_worker",
+            reason="seed_interrupted_checkpoint",
+        )
+        store.transition(
+            indeterminate, "indeterminate", actor="test_worker",
+            reason="seed_provider_pending",
+            provider_operation_ref="provider-operation-a",
+            metadata={"reconciliation": "pending", "provider_state": "pending"},
+        )
+        executing = store.begin(
+            "pipeline-run:restart-b", 0, "local_transform",
+            sha256_fingerprint({"payload": "b"}),
+            provider_namespace=None, actor="test_worker",
+            reason="seed_executing_checkpoint",
+        )
+
+        candidates = store.list_unresolved()
+        assert [(item.pipeline_run_id, item.status) for item in candidates] == [
+            ("pipeline-run:restart-a", "indeterminate"),
+            ("pipeline-run:restart-b", "executing"),
+        ]
+        assert candidates[0].provider_operation_ref == "provider-operation-a"
+        assert candidates[0].idempotency_key
+        assert store.get("pipeline-run:restart-a", 0).revision == candidates[0].revision
+        assert store.get("pipeline-run:restart-b", 0).revision == executing.revision
+
+        scoped = store.list_unresolved("pipeline-run:restart-a")
+        assert len(scoped) == 1
+        assert scoped[0].pipeline_run_id == "pipeline-run:restart-a"
+        assert store.list_unresolved("pipeline-run:missing") == []
+
+
+def test_restart_recovery_inventory_rejects_empty_run_filter():
+    with SQLiteRegistry() as registry:
+        store = StageCheckpointStore(registry)
+        with pytest.raises(ValueError, match="non-empty"):
+            store.list_unresolved("")
