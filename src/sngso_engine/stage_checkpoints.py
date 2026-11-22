@@ -206,7 +206,7 @@ class StageCheckpointStore:
     ) -> StageCheckpoint:
         actor, reason = _actor_reason(actor, reason)
         metadata_json = _safe_metadata(metadata)
-        if status not in {"succeeded", "failed", "indeterminate", "blocked"}:
+        if status not in {"executing", "succeeded", "failed", "indeterminate", "blocked"}:
             raise ValueError("unsupported checkpoint transition")
         if provider_operation_ref is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}", provider_operation_ref):
             raise ValueError("provider operation reference must be a bounded opaque token")
@@ -293,15 +293,16 @@ def execute_checkpointed_stage(
             raise StageCheckpointError("reconstructed stage result fingerprint does not match checkpoint")
         return {"status": "succeeded", "output_fingerprint": checkpoint.output_fingerprint,
                 "output": reconstructed, "reused": True, "idempotency_key": checkpoint.idempotency_key}
-    if checkpoint.status != "executing":
+    if checkpoint.status not in {"executing", "indeterminate"}:
         raise StageCheckpointError(f"checkpoint is {checkpoint.status}; explicit operator action is required")
 
     if not checkpoint.created:
         if replay_safe:
             pass
         elif reconcile is None:
-            store.transition(checkpoint, "indeterminate", actor=actor, reason="reconciliation_unavailable",
-                             metadata={"reconciliation": "unavailable"})
+            if checkpoint.status == "executing":
+                store.transition(checkpoint, "indeterminate", actor=actor, reason="reconciliation_unavailable",
+                                 metadata={"reconciliation": "unavailable"})
             raise StageCheckpointError("existing execution has no reconciliation adapter; stopped indeterminate")
         else:
             try:
@@ -324,9 +325,10 @@ def execute_checkpointed_stage(
             if resolution.status == "pending":
                 raise StageCheckpointError("provider operation remains pending; no replay attempted")
             if resolution.status == "unknown":
-                store.transition(checkpoint, "indeterminate", actor=actor, reason="provider_outcome_unknown",
-                                 provider_operation_ref=resolution.operation_ref,
-                                 metadata={"reconciliation": "unknown"})
+                if checkpoint.status == "executing":
+                    store.transition(checkpoint, "indeterminate", actor=actor, reason="provider_outcome_unknown",
+                                     provider_operation_ref=resolution.operation_ref,
+                                     metadata={"reconciliation": "unknown"})
                 raise StageCheckpointError("provider outcome is unknown; no replay attempted")
             if resolution.status == "denied":
                 store.transition(checkpoint, "blocked", actor=actor, reason="provider_reconciliation_denied",
@@ -334,6 +336,12 @@ def execute_checkpointed_stage(
                                  metadata={"reconciliation": "denied"})
                 raise StageCheckpointError("provider denied reconciliation; stage blocked")
             # not_started is the only provider result that permits a side-effecting retry.
+            if checkpoint.status == "indeterminate":
+                checkpoint = store.transition(
+                    checkpoint, "executing", actor=actor, reason="provider_confirmed_not_started",
+                    provider_operation_ref=resolution.operation_ref,
+                    metadata={"reconciliation": "not_started"},
+                )
 
     try:
         permitted = permission_check() is True
