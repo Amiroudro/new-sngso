@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pytest
@@ -2652,3 +2653,64 @@ def test_schema_30_migrates_to_31_staging_channel(tmp_path, monkeypatch) -> None
             "channel": "staging", "state_revision": 0, "current_event_id": None,
             "current_export_id": None, "lkg_event_id": None, "lkg_export_id": None,
         }
+
+
+def test_domain_revision_insert_must_match_the_current_head():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        with pytest.raises(sqlite3.IntegrityError, match="must match current head"):
+            registry._connection.execute(
+                """INSERT INTO domain_record_revisions
+                   (record_type, record_id, revision, created_at, actor, reason, payload_json)
+                   VALUES ('article', 'article:sample-001', 2, ?, 'attacker', 'forged', ?)""",
+                ("2026-11-20T00:00:00Z", '{"id":"article:sample-001","forged":true}'),
+            )
+
+
+def test_permission_grant_revision_insert_and_head_update_are_guarded():
+    with SQLiteRegistry() as registry:
+        populate_registry(registry)
+        registry.add_permission_grant(grant_record())
+        with pytest.raises(sqlite3.IntegrityError, match="current or next legal head"):
+            registry._connection.execute(
+                """INSERT INTO permission_grant_revisions
+                   (grant_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, 3, ?, 'attacker', 'forged', ?)""",
+                (
+                    "permission:publisher-a-discovery-001",
+                    "2026-11-20T00:00:00Z",
+                    '{"id":"permission:publisher-a-discovery-001","source_id":"source:publisher-a","status":"revoked"}',
+                ),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="requires matching revision"):
+            registry._connection.execute(
+                """UPDATE permission_grants
+                   SET status = 'revoked', revision = revision + 1,
+                       payload_json = json_set(payload_json, '$.status', 'revoked')
+                   WHERE id = ?""",
+                ("permission:publisher-a-discovery-001",),
+            )
+
+
+def test_assignment_sql_boundary_rejects_illegal_status_jump():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(
+            payload, actor="curator", reason="Assign independent review",
+        )
+        forged = dict(payload)
+        forged.update(
+            status="submitted",
+            accepted_at="2026-11-20T01:00:00Z",
+            submitted_review_id="review:forged",
+            closed_at="2026-11-20T02:00:00Z",
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="current or next legal head"):
+            registry._connection.execute(
+                """INSERT INTO benchmark_review_assignment_revisions
+                   (assignment_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, 2, ?, 'editor:lead', 'forged submission', ?)""",
+                (payload["assignment_id"], "2026-11-20T02:00:00Z", json.dumps(forged)),
+            )
