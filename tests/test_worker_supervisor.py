@@ -333,3 +333,80 @@ def test_entrypoint_cannot_override_reserved_control_descriptor_environment():
             "test_worker", (sys.executable, "-c", code),
             environment={"SNGSO_WORKER_CONTROL_FD": "999"},
         )
+
+
+def test_supervised_worker_handler_commits_only_validated_child_output_to_checkpoint():
+    import json
+    from sngso_engine import (
+        SQLiteRegistry, StageCheckpointStore, WorkerLeaseSession,
+        execute_checkpointed_stage, supervised_checkpoint_handler,
+    )
+
+    code = (
+        "import json,sys; request=json.load(sys.stdin); "
+        "print(json.dumps({'schema_version':'1','result':"
+        "{'processed':3,'key':request['payload']['idempotency_key']}}))"
+    )
+    with SQLiteRegistry() as registry:
+        store, lease = _lease_fixture(registry)
+        session = WorkerLeaseSession(
+            store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
+        ).start()
+        try:
+            handler = supervised_checkpoint_handler(
+                _supervisor(code), "test_worker",
+                lambda context, key: _request({"idempotency_key": key}),
+                session,
+            )
+            result = execute_checkpointed_stage(
+                registry, lease.pipeline_run_id, 0, "normalize",
+                {"input": {"safe": True}}, handler,
+                actor=lease.worker_id, reason="supervised_stage_success",
+                permission_check=lambda: True, replay_safe=False,
+                lease_guard=session.assert_healthy,
+            )
+            checkpoint = StageCheckpointStore(registry).get(lease.pipeline_run_id, 0)
+            assert result["status"] == "succeeded"
+            assert result["output"] == {
+                "processed": 3, "key": result["idempotency_key"],
+            }
+            assert checkpoint.status == "succeeded"
+            assert checkpoint.output_fingerprint == result["output_fingerprint"]
+        finally:
+            session.close()
+
+
+def test_supervised_worker_timeout_leaves_side_effecting_checkpoint_indeterminate():
+    import pytest
+    from sngso_engine import (
+        SQLiteRegistry, StageCheckpointError, StageCheckpointStore,
+        WorkerLeaseSession, WorkerProcessExecutionError,
+        execute_checkpointed_stage, supervised_checkpoint_handler,
+    )
+
+    with SQLiteRegistry() as registry:
+        store, lease = _lease_fixture(registry)
+        session = WorkerLeaseSession(
+            store, lease, heartbeat_interval_seconds=0.05, ttl_seconds=10,
+        ).start()
+        try:
+            handler = supervised_checkpoint_handler(
+                _supervisor("import time; time.sleep(5)", timeout_seconds=0.1,
+                            termination_grace_seconds=0.05),
+                "test_worker", lambda context, key: _request(), session,
+            )
+            with pytest.raises(StageCheckpointError) as captured:
+                execute_checkpointed_stage(
+                    registry, lease.pipeline_run_id, 0, "remote_write",
+                    {"input": {"safe": True}}, handler,
+                    actor=lease.worker_id, reason="supervised_stage_timeout",
+                    permission_check=lambda: True, replay_safe=False,
+                    provider_namespace="provider_x",
+                    lease_guard=session.assert_healthy,
+                )
+            checkpoint = StageCheckpointStore(registry).get(lease.pipeline_run_id, 0)
+            assert checkpoint.status == "indeterminate"
+            assert isinstance(captured.value.__cause__, WorkerProcessExecutionError)
+            assert captured.value.__cause__.process_result.status == "timeout"
+        finally:
+            session.close(release=False)
