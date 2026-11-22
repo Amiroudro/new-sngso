@@ -114,6 +114,7 @@ from .worker_supervisor import (
 from .worker_auth import OIDCWorkerRecoveryAuthorizer, WorkerRecoveryAuthorizationError
 from .worker_observability import WorkerTelemetry, WorkerTelemetryError
 from .worker_leases import (
+    WorkerLeaseBackend,
     CancellationRequested,
     LeaseConflictError,
     LeaseExpiredError,
@@ -222,6 +223,7 @@ __all__ = [
     "LeaseLostError",
     "WorkerLease",
     "WorkerLeaseError",
+    "WorkerLeaseBackend",
     "WorkerLeaseStore",
     "WorkerLeaseSession",
     "OIDCWorkerRecoveryAuthorizer",
