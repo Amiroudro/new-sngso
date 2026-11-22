@@ -8,7 +8,7 @@ import secrets
 from dataclasses import dataclass, field
 from threading import Event, RLock, Thread
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from .canonical import sha256_fingerprint
 
@@ -373,6 +373,50 @@ class WorkerLeaseStore:
         return [dict(row) for row in rows]
 
 
+@runtime_checkable
+class WorkerLeaseBackend(Protocol):
+    """Storage-independent contract consumed by worker execution components.
+
+    Implementations must provide atomic per-run ownership transitions,
+    monotonically increasing fencing generations, token verification,
+    durable cancellation state, and append-only history. This protocol does
+    not itself prove those properties; each backend needs conformance tests
+    against its actual transaction and failover semantics.
+    """
+
+    def acquire(
+        self, pipeline_run_id: str, worker_id: str, *, ttl_seconds: int = 60,
+        actor: str, reason: str, now: datetime | None = None,
+    ) -> WorkerLease: ...
+
+    def heartbeat(
+        self, lease: WorkerLease, *, ttl_seconds: int = 60, actor: str,
+        reason: str = "heartbeat", now: datetime | None = None,
+    ) -> WorkerLease: ...
+
+    def assert_current(self, lease: WorkerLease, *, now: datetime | None = None) -> None: ...
+
+    def release(
+        self, lease: WorkerLease, *, actor: str, reason: str = "worker_finished",
+        now: datetime | None = None,
+    ) -> None: ...
+
+    def request_cancellation(
+        self, pipeline_run_id: str, *, actor: str, reason_code: str,
+        permission_check: Any, now: datetime | None = None,
+    ) -> dict[str, Any]: ...
+
+    def cancellation_requested(
+        self, lease: WorkerLease, *, now: datetime | None = None,
+    ) -> bool: ...
+
+    def acknowledge_cancellation(
+        self, lease: WorkerLease, *, actor: str, now: datetime | None = None,
+    ) -> dict[str, Any]: ...
+
+    def history(self, pipeline_run_id: str) -> list[dict[str, Any]]: ...
+
+
 class WorkerLeaseSession:
     """Optional in-process heartbeat loop for one worker lease.
 
@@ -382,11 +426,11 @@ class WorkerLeaseSession:
     """
 
     def __init__(
-        self, store: WorkerLeaseStore, lease: WorkerLease, *,
+        self, store: WorkerLeaseBackend, lease: WorkerLease, *,
         heartbeat_interval_seconds: float = 10.0, ttl_seconds: int = 60,
     ) -> None:
-        if not isinstance(store, WorkerLeaseStore) or not isinstance(lease, WorkerLease):
-            raise TypeError("store and lease must be WorkerLeaseStore and WorkerLease")
+        if not isinstance(store, WorkerLeaseBackend) or not isinstance(lease, WorkerLease):
+            raise TypeError("store must implement WorkerLeaseBackend and lease must be WorkerLease")
         if isinstance(heartbeat_interval_seconds, bool) or not isinstance(
             heartbeat_interval_seconds, (int, float)
         ):
