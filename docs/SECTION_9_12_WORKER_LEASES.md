@@ -54,6 +54,10 @@ Expiry is a coordination signal, not proof that the old process has stopped. A p
 - A worker acknowledges cancellation only while it still owns an unexpired lease. Acknowledgement atomically transitions the pipeline run to `cancelled` and the lease to `cancelled`.
 - If a worker disappears, the request remains recorded and is inherited by a replacement lease so the replacement worker can observe and acknowledge it.
 
+## Backend contract
+
+The public `WorkerLeaseBackend` protocol now defines the operations consumed by managed worker lease sessions. `WorkerLeaseStore` is the current SQLite implementation and is tested for protocol conformance. This is an extension point, not a PostgreSQL implementation. See the [backend contract and acceptance requirements](SECTION_9_12_BACKEND_CONTRACT.md).
+
 ## API
 
 `WorkerLeaseStore.acquire(...)` returns a `WorkerLease` containing the one-time token and fencing generation. The token is excluded from its representation. Store the token only in process memory or a protected secret handoff; never put it in logs, checkpoints, audit payloads, or pipeline records.
