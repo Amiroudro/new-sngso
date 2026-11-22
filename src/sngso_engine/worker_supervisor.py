@@ -185,6 +185,52 @@ class WorkerSupervisor:
         self.max_request_bytes = max_request_bytes
         self.max_stdout_bytes = max_stdout_bytes
         self.max_stderr_bytes = max_stderr_bytes
+        self._state_lock = threading.RLock()
+        self._shutdown_event = threading.Event()
+        self._active_processes: dict[int, subprocess.Popen[bytes]] = {}
+
+    @property
+    def shutting_down(self) -> bool:
+        """Whether this supervisor has stopped accepting new children."""
+        return self._shutdown_event.is_set()
+
+    def shutdown(self, *, timeout_seconds: float = 5.0) -> bool:
+        """Stop accepting children and terminate all active process groups.
+
+        The timeout is a single global budget, not a per-child allowance.
+        Returns true only when every registered direct child has been reaped.
+        This method does not mutate leases or checkpoint state; callers must
+        reconcile any in-flight side effects after shutdown.
+        """
+        if (isinstance(timeout_seconds, bool)
+                or not isinstance(timeout_seconds, (int, float))
+                or not 0.0 <= timeout_seconds <= 60.0):
+            raise ValueError("shutdown timeout_seconds must be between zero and 60")
+        deadline = time.monotonic() + float(timeout_seconds)
+        with self._state_lock:
+            self._shutdown_event.set()
+            processes = tuple(self._active_processes.values())
+        for process in processes:
+            if process.poll() is None:
+                self._terminate_group(process, hard=False)
+        for process in processes:
+            remaining = max(0.0, deadline - time.monotonic())
+            if process.poll() is None and remaining > 0:
+                try:
+                    process.wait(timeout=remaining)
+                except subprocess.TimeoutExpired:
+                    pass
+        for process in processes:
+            if process.poll() is None:
+                self._terminate_group(process, hard=True)
+        for process in processes:
+            remaining = max(0.0, deadline - time.monotonic())
+            if process.poll() is None and remaining > 0:
+                try:
+                    process.wait(timeout=remaining)
+                except subprocess.TimeoutExpired:
+                    pass
+        return all(process.poll() is not None for process in processes)
 
     @staticmethod
     def _terminate_group(process: subprocess.Popen[bytes], *, hard: bool) -> None:
@@ -230,11 +276,15 @@ class WorkerSupervisor:
                 environment["SNGSO_WORKER_CONTROL_FD"] = str(control_fd)
                 environment["SNGSO_WORKER_CANCEL_FD"] = str(cancel_fd)
                 pass_fds = (control_fd, cancel_fd)
-            process = subprocess.Popen(
-                config.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, shell=False, close_fds=True,
-                pass_fds=pass_fds, start_new_session=True, env=environment,
-            )
+            with self._state_lock:
+                if self._shutdown_event.is_set():
+                    raise WorkerSupervisorError("supervisor is shutting down; refusing child launch")
+                process = subprocess.Popen(
+                    config.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, shell=False, close_fds=True,
+                    pass_fds=pass_fds, start_new_session=True, env=environment,
+                )
+                self._active_processes[process.pid] = process
             if channel is not None:
                 channel.close_child_handles()
         except Exception:
@@ -256,6 +306,20 @@ class WorkerSupervisor:
         try:
             while process.poll() is None:
                 now = time.monotonic()
+                if self._shutdown_event.is_set():
+                    status = "shutdown"
+                    termination = "sigterm"
+                    self._terminate_group(process, hard=False)
+                    try:
+                        process.wait(timeout=self.termination_grace_seconds)
+                    except subprocess.TimeoutExpired:
+                        termination = "sigkill"
+                        self._terminate_group(process, hard=True)
+                        try:
+                            process.wait(timeout=max(1.0, self.termination_grace_seconds))
+                        except subprocess.TimeoutExpired:
+                            termination = "kill_unconfirmed"
+                    break
                 if lease_session is not None:
                     if lease_session.heartbeat_error is not None:
                         status = "lease_lost"
@@ -342,6 +406,9 @@ class WorkerSupervisor:
         finally:
             if channel is not None:
                 channel.close()
+            if process is not None:
+                with self._state_lock:
+                    self._active_processes.pop(process.pid, None)
         writer.join(timeout=1.0)
         stdout.join(timeout=1.0)
         stderr.join(timeout=1.0)
