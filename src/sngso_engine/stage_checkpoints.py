@@ -332,6 +332,19 @@ def execute_checkpointed_stage(
                         "output": resolution.output, "reused": True,
                         "idempotency_key": checkpoint.idempotency_key}
             if resolution.status == "pending":
+                # Persist the provider's opaque operation reference on the first
+                # unresolved response. This gives a later reconciliation attempt
+                # a stable lookup handle after the supervised child has exited.
+                # An already-indeterminate checkpoint is intentionally not
+                # rewritten: its operation reference is immutable and its prior
+                # pending/unknown evidence remains in the append-only history.
+                if checkpoint.status == "executing":
+                    store.transition(
+                        checkpoint, "indeterminate", actor=actor,
+                        reason="provider_operation_pending",
+                        provider_operation_ref=resolution.operation_ref,
+                        metadata={"reconciliation": "pending", "provider_state": "pending"},
+                    )
                 raise StageCheckpointError("provider operation remains pending; no replay attempted")
             if resolution.status == "unknown":
                 if checkpoint.status == "executing":
