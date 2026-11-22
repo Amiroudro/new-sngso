@@ -14,7 +14,7 @@ Until that migration is implemented and verified, SQLite remains the authoritati
 
 ## 2. What the current code actually couples
 
-The current registry is schema version 33. Its migrations establish these relevant records:
+The current registry is schema version 34. Its migrations establish these relevant records:
 
 | Current SQLite object | Introduced | Why it belongs in the migration boundary |
 |---|---:|---|
@@ -25,6 +25,8 @@ The current registry is schema version 33. Its migrations establish these releva
 | `pipeline_stage_checkpoint_revisions` | 32 | Append-only checkpoint history |
 | `pipeline_worker_leases` | 33 | Current owner, token verifier, fencing generation, cancellation intent |
 | `pipeline_worker_lease_revisions` | 33 | Append-only lease history |
+
+The current SQLite baseline is migration 34: 47 tables, 25 explicit indexes, and 136 triggers. Migration 34 adds direct-SQL guards for domain revision inserts, permission-grant revision/head transitions, and benchmark assignment revision/state transitions. Their exact SQL and semantic review records are in the [complete trigger inventory](SECTION_9_TRIGGER_INVENTORY_COMPLETE.md) and linked review documents.
 
 The foreign-key relationships from checkpoint and lease records to `pipeline_runs` are part of the database contract. The application also composes run-state validation, lease mutation, checkpoint mutation, and audit append operations inside `SQLiteRegistry._transaction()`.
 
@@ -38,7 +40,7 @@ There is one additional coupling that makes a narrow database split unsafe: ordi
 
 ### Preferred target
 
-Move the complete SQLite registry schema at version 33 to PostgreSQL in one database. Keep the existing domain services and validation rules where practical, but replace direct SQLite-specific persistence behavior with a PostgreSQL repository/transaction implementation.
+Move the complete SQLite registry schema at version 34 to PostgreSQL in one database. Keep the existing domain services and validation rules where practical, but replace direct SQLite-specific persistence behavior with a PostgreSQL repository/transaction implementation.
 
 The first PostgreSQL release should not attempt to split the registry across databases or services. One transaction must be able to commit or roll back:
 
@@ -60,7 +62,7 @@ Other registry domains, their immutable histories, foreign keys, and audit write
 
 ## 4. PostgreSQL schema mapping
 
-Create a PostgreSQL baseline representing the current schema version 33, then evolve it through PostgreSQL-native migrations. Do not mechanically translate SQLite trigger SQL line by line.
+Create a PostgreSQL baseline representing the current schema version 34, then evolve it through PostgreSQL-native migrations. Do not mechanically translate SQLite trigger SQL line by line.
 
 | SQLite pattern | PostgreSQL target |
 |---|---|
@@ -148,7 +150,7 @@ All retries must be bounded and operation-specific. Do not retry arbitrary trans
 
 ## 7. Migration from SQLite schema versions 1–33
 
-Do not run SQLite migrations against PostgreSQL. Build and review a PostgreSQL baseline schema corresponding to SQLite version 33, with a separate PostgreSQL migration ledger and ordered PostgreSQL migrations.
+Do not run SQLite migrations against PostgreSQL. Build and review a PostgreSQL baseline schema corresponding to SQLite version 34, with a separate PostgreSQL migration ledger and ordered PostgreSQL migrations.
 
 ### Pre-migration inventory
 
@@ -229,7 +231,7 @@ Tests involving process crashes, database restart, and failover must use indepen
 
 | Phase | Deliverable | Exit gate |
 |---|---|---|
-| A | Schema inventory and invariant catalogue for all SQLite migrations 1–33 | Every table, trigger, index, FK, and audit writer is accounted for |
+| A | Schema inventory and invariant catalogue for all SQLite migrations 1–34 | Every table, trigger, index, FK, and audit writer is accounted for |
 | B | PostgreSQL baseline schema and migration ledger | Fresh database and migration tests pass |
 | C | PostgreSQL registry transaction/repository layer | Existing domain and operational tests pass against PostgreSQL |
 | D | Audit-chain implementation | Concurrent append and independent verification tests pass |
@@ -243,7 +245,7 @@ Do not start by implementing a lease adapter in isolation. Phase A must produce 
 
 ## 11. Current status and non-goals
 
-- SQLite schema v33 remains the only implemented storage backend.
+- SQLite schema v34 remains the only implemented storage backend.
 - `WorkerLeaseBackend` is an API protocol, not a database abstraction for the entire registry.
 - PostgreSQL schema, repository, driver, pool, importer, CI service, failover configuration, and deployment are **not implemented**.
 - No distributed lease HA or multi-host acceptance is claimed.
@@ -285,4 +287,4 @@ The following names were extracted from the current migration definitions. They 
 `audit_events_no_delete`, `audit_events_no_update`, `benchmark_acceptance_reviews_no_delete`, `benchmark_acceptance_reviews_no_update`, `benchmark_acceptance_reviews_payload_guard`, `benchmark_adjudications_no_delete`, `benchmark_adjudications_no_update`, `benchmark_adjudications_one_per_artifact`, `benchmark_artifacts_no_delete`, `benchmark_artifacts_no_update`, `benchmark_principal_kind_immutable`, `benchmark_review_assignment_initial_revision`, `benchmark_review_assignment_payload_guard_insert`, `benchmark_review_assignment_payload_guard_update`, `benchmark_review_assignment_revision_guard`, `benchmark_review_assignment_revisions_no_delete`, `benchmark_review_assignment_revisions_no_update`, `benchmark_review_assignment_update_requires_revision`, `benchmark_review_assignments_no_delete`, `benchmark_review_identity_attestations_no_delete`, `benchmark_review_identity_attestations_no_update`, `benchmark_review_revisions_no_delete`, `benchmark_review_revisions_no_update`, `benchmark_review_revisions_validate_insert`, `benchmark_reviews_no_delete`, `benchmark_reviews_record_insert`, `benchmark_reviews_record_update`, `benchmark_reviews_validate_insert`, `benchmark_reviews_validate_update`, `benchmark_scores_no_delete`, `benchmark_scores_no_update`, `benchmark_scores_payload_guard_insert`, `benchmark_study_executions_no_delete`, `benchmark_study_executions_no_update`, `benchmark_study_executions_payload_guard`, `benchmark_study_protocols_no_delete`, `benchmark_study_protocols_no_update`, `benchmark_study_protocols_payload_guard`, `benchmark_study_protocols_version_guard`, `claim_relations_no_delete`, `claim_relations_no_update`, `claim_relations_validate_insert`, `collection_observations_no_delete`, `collection_observations_no_update`, `domain_revisions_no_delete`, `domain_revisions_no_update`, `edition_artifacts_no_delete`, `edition_artifacts_no_update`, `edition_artifacts_payload_guard`, `edition_decisions_no_delete`, `edition_decisions_no_update`, `edition_decisions_payload_guard`, `edition_domain_records_no_delete`, `edition_domain_records_no_published_insert`, `edition_domain_records_no_update`, `edition_release_authorizations_insert_guard`, `edition_release_authorizations_no_delete`, `edition_release_authorizations_no_update`, `edition_staging_events_insert_guard`, `edition_staging_events_no_delete`, `edition_staging_events_no_update`, `edition_staging_state_no_delete`, `edition_staging_state_update_guard`, `glossary_entries_no_delete`, `glossary_entries_record_insert`, `glossary_entries_record_update`, `glossary_entries_validate_insert`, `glossary_entries_validate_update`, `glossary_entry_revisions_no_delete`, `glossary_entry_revisions_no_update`, `glossary_entry_revisions_validate_insert`, `grant_revisions_no_delete`, `grant_revisions_no_update`, `ingestion_current_no_delete`, `ingestion_current_validate`, `ingestion_current_validate_update`, `ingestion_decisions_no_delete`, `ingestion_decisions_no_update`, `ingestion_decisions_validate_article`, `learning_object_question_answer_evidence_insert`, `learning_object_question_answer_evidence_update`, `learning_object_revisions_no_delete`, `learning_object_revisions_no_update`, `learning_object_revisions_validate_insert`, `learning_object_vocabulary_source_evidence_insert`, `learning_object_vocabulary_source_evidence_update`, `learning_objects_glossary_validate_insert`, `learning_objects_glossary_validate_update`, `learning_objects_mcq_validate_insert`, `learning_objects_mcq_validate_update`, `learning_objects_no_delete`, `learning_objects_record_insert`, `learning_objects_record_update`, `learning_objects_validate_insert`, `learning_objects_validate_update`, `learning_objects_variant_group_validate_insert`, `learning_objects_variant_group_validate_update`, `perspectives_no_delete`, `perspectives_no_update`, `perspectives_validate_insert`, `pipeline_run_identity_guard`, `pipeline_run_payload_guard_insert`, `pipeline_run_payload_guard_update`, `pipeline_run_revision_matches_current`, `pipeline_run_revision_no_delete`, `pipeline_run_revision_no_update`, `pipeline_runs_no_delete`, `pipeline_stage_checkpoint_initial_revision`, `pipeline_stage_checkpoint_metadata_guard_insert`, `pipeline_stage_checkpoint_metadata_guard_update`, `pipeline_stage_checkpoint_revision_guard`, `pipeline_stage_checkpoint_revision_matches_head`, `pipeline_stage_checkpoint_revision_snapshot`, `pipeline_stage_checkpoint_revisions_no_delete`, `pipeline_stage_checkpoint_revisions_no_update`, `pipeline_stage_checkpoints_no_delete`, `pipeline_worker_lease_initial_revision`, `pipeline_worker_lease_revision_guard`, `pipeline_worker_lease_revision_matches_head`, `pipeline_worker_lease_revision_snapshot`, `pipeline_worker_lease_revisions_no_delete`, `pipeline_worker_lease_revisions_no_update`, `pipeline_worker_leases_no_delete`, `story_decision_applications_no_delete`, `story_decision_applications_no_update`, `story_decisions_no_delete`, `story_decisions_no_update`, `timeline_events_no_delete`, `timeline_events_no_update`, `timeline_events_review_validate_insert`, `timeline_events_validate_insert`
 
 
-The migration-by-migration source inventory is maintained in the [PostgreSQL schema inventory](SECTION_9_POSTGRESQL_SCHEMA_INVENTORY.md). It enumerates all 33 migration definitions and the source-declared tables, indexes, and triggers; each SQL body still requires semantic review during implementation.
+The migration-by-migration source inventory is maintained in the [PostgreSQL schema inventory](SECTION_9_POSTGRESQL_SCHEMA_INVENTORY.md). It enumerates all 34 migration definitions and the source-declared tables, indexes, and triggers; each SQL body still requires semantic review during implementation.
