@@ -234,6 +234,8 @@ class WorkerSupervisor:
                     termination = "kill_unconfirmed"
         if process.poll() is not None:
             status = "succeeded" if status != "timeout" and process.returncode == 0 else status
+        if writer.error is not None and status == "succeeded":
+            status = "protocol_error"
         writer.join(timeout=1.0)
         stdout.join(timeout=1.0)
         stderr.join(timeout=1.0)
