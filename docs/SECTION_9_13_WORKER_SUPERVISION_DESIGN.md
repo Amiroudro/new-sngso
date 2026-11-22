@@ -1,6 +1,6 @@
 # Section 9.13: External Worker Supervision and Bounded Stage Execution
 
-Status: **architecture contract plus first local POSIX subprocess primitive implemented; production process supervision and lease/checkpoint integration remain incomplete.**
+Status: **architecture contract, POSIX subprocess primitive, and protected lease-control IPC primitive implemented; parent-side lease/checkpoint integration and production supervision remain incomplete.**
 
 ## Purpose
 
@@ -31,7 +31,7 @@ The process boundary must be real: a separate OS process with an independently e
 2. Validate the request against the entrypoint's versioned schema and strict byte/field limits.
 3. Construct an argument vector and invoke without a shell. Never concatenate user-controlled values into a command string.
 4. Use a minimal environment allowlist. Do not inherit ambient credentials or dump environment values into logs.
-5. Pass worker identity, pipeline run ID, lease token, and fencing generation only through a protected process handoff. Never place the bearer token in argv, logs, checkpoint metadata, or audit payloads. Prefer an inherited private pipe or equivalent protected IPC.
+5. Pass worker identity, pipeline run ID, lease token, and fencing generation only through a protected process handoff. The local `worker_control` primitive now writes a bounded versioned envelope to an inherited private pipe; descriptor numbers may be supplied through the child's explicit environment, but bearer tokens must never appear in argv, environment values, stdin, logs, checkpoint metadata, or audit payloads.
 6. Apply OS-level resource limits where supported: wall-clock deadline, memory, CPU, file descriptors, and output byte ceilings. Document platform-specific gaps rather than silently skipping limits.
 7. Start the child in a process group/session that permits bounded termination escalation without signaling the supervisor itself.
 
@@ -52,7 +52,7 @@ A child can be paused after its last lease check and resume after another worker
 
 If the provider cannot enforce fencing or idempotency, the operation is not safe for automatic execution under lease takeover. Local SQLite fencing metadata alone is insufficient.
 
-## IPC and output handling
+## IPC and output handling\n\nThe initial protected channel is implemented in `sngso_engine.worker_control`: a parent-side writer sends a bounded JSON lease envelope through a private pipe; a separate pipe carries a one-byte cooperative cancellation signal. The child-side reader validates the envelope and exposes a bounded cancellation poll. The primitive is tested with an inherited descriptor subprocess. It is not yet wired into `WorkerSupervisor.run`, does not renew the lease, and does not interpret a child acknowledgement or update checkpoint state.
 
 - Use a bounded, versioned message envelope with explicit message types.
 - Reject oversized, malformed, duplicate-terminal, or out-of-order messages.
