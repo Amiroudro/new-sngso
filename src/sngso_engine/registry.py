@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 34
+_SCHEMA_VERSION = 35
 
 
 _MIGRATION_14 = (
@@ -2741,6 +2741,80 @@ _MIGRATION_34 = (
        END""",
 )
 
+_MIGRATION_35 = (
+    """ALTER TABLE domain_records
+       ADD COLUMN last_actor TEXT NOT NULL DEFAULT 'migration'
+       CHECK (length(trim(last_actor)) > 0)""",
+    """ALTER TABLE domain_records
+       ADD COLUMN last_reason TEXT NOT NULL DEFAULT 'schema migration'
+       CHECK (length(trim(last_reason)) > 0)""",
+    """ALTER TABLE domain_records
+       ADD COLUMN last_revision_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'
+       CHECK (length(trim(last_revision_at)) > 0)""",
+    """UPDATE domain_records
+       SET last_actor = COALESCE((
+             SELECT r.actor FROM domain_record_revisions r
+             WHERE r.record_type = domain_records.record_type
+               AND r.record_id = domain_records.id
+             ORDER BY r.revision DESC LIMIT 1
+           ), 'migration'),
+           last_reason = COALESCE((
+             SELECT r.reason FROM domain_record_revisions r
+             WHERE r.record_type = domain_records.record_type
+               AND r.record_id = domain_records.id
+             ORDER BY r.revision DESC LIMIT 1
+           ), 'schema migration'),
+           last_revision_at = COALESCE((
+             SELECT r.created_at FROM domain_record_revisions r
+             WHERE r.record_type = domain_records.record_type
+               AND r.record_id = domain_records.id
+             ORDER BY r.revision DESC LIMIT 1
+           ), created_at)""",
+    """CREATE TRIGGER domain_records_revision_guard
+       BEFORE UPDATE ON domain_records
+       BEGIN
+         SELECT CASE WHEN NEW.record_type IS NOT OLD.record_type
+             OR NEW.id IS NOT OLD.id
+             OR NEW.created_at IS NOT OLD.created_at
+           THEN RAISE(ABORT, 'domain record identity and creation time are immutable') END;
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'domain record revision must increment by one') END;
+         SELECT CASE WHEN length(trim(NEW.last_actor)) = 0
+             OR length(trim(NEW.last_reason)) = 0
+             OR length(trim(NEW.last_revision_at)) = 0
+           THEN RAISE(ABORT, 'domain record revision requires actor, reason and timestamp') END;
+         SELECT CASE WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
+           THEN RAISE(ABORT, 'domain record payload ID must match indexed identity') END;
+         SELECT CASE WHEN julianday(NEW.updated_at) < julianday(OLD.updated_at)
+             OR julianday(NEW.last_revision_at) < julianday(OLD.last_revision_at)
+           THEN RAISE(ABORT, 'domain record timestamps cannot move backwards') END;
+         SELECT CASE WHEN OLD.record_type = 'article'
+             AND (
+               json_extract(NEW.payload_json, '$.source_id') IS NOT json_extract(OLD.payload_json, '$.source_id')
+               OR json_extract(NEW.payload_json, '$.canonical_uri') IS NOT json_extract(OLD.payload_json, '$.canonical_uri')
+             )
+           THEN RAISE(ABORT, 'article source and canonical identity are immutable') END;
+         SELECT CASE WHEN OLD.record_type = 'evidence'
+             AND (
+               json_extract(NEW.payload_json, '$.source_id') IS NOT json_extract(OLD.payload_json, '$.source_id')
+               OR json_extract(NEW.payload_json, '$.claim_id') IS NOT json_extract(OLD.payload_json, '$.claim_id')
+               OR json_extract(NEW.payload_json, '$.article_id') IS NOT json_extract(OLD.payload_json, '$.article_id')
+               OR json_extract(NEW.payload_json, '$.observation_id') IS NOT json_extract(OLD.payload_json, '$.observation_id')
+               OR json_extract(NEW.payload_json, '$.locator') IS NOT json_extract(OLD.payload_json, '$.locator')
+             )
+           THEN RAISE(ABORT, 'evidence provenance identity is immutable') END;
+       END""",
+    """CREATE TRIGGER domain_records_record_update
+       AFTER UPDATE ON domain_records
+       BEGIN
+         INSERT INTO domain_record_revisions
+         (record_type, record_id, revision, created_at, actor, reason, payload_json)
+         VALUES (NEW.record_type, NEW.id, NEW.revision, NEW.last_revision_at,
+                 NEW.last_actor, NEW.last_reason, NEW.payload_json);
+       END""",
+)
+
+
 
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
@@ -3275,6 +3349,19 @@ class SQLiteRegistry:
                     version = 34
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 34 failed; transaction rolled back") from exc
+
+            if version == 34 and _SCHEMA_VERSION >= 35:
+                try:
+                    for statement in _MIGRATION_35:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (35, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 35")
+                    version = 35
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 35 failed; transaction rolled back") from exc
 
     def _append_audit(
         self,
