@@ -143,7 +143,7 @@ def test_release_control_has_independent_preflight_gates_and_no_live_actions():
 
 
 def test_release_control_separates_approval_authorization_and_publication():
-    html = (ROOT / "apps" / "editorial-console" / "index.html").read_text(encoding="utf-8")
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
     for label in ("Editorial approval", "Release authorization", "Publication", "Publisher service"):
         assert label in html
     assert "Role names and permissions are design examples" in html
