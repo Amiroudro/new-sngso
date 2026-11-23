@@ -94,3 +94,27 @@ def test_evidence_workspace_keeps_conflicts_visible_and_non_actionable():
     assert '"kind": "warning"' in script
     assert "no approval can be recorded" in html
     assert "Illustrative event sequence, not a persisted audit log" in html
+
+
+def test_edition_composition_exposes_ordering_and_local_only_boundary():
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    script = (ROOT / "studio.js").read_text(encoding="utf-8")
+    assert 'id="edition-story-list"' in html
+    assert 'id="reset-edition-order"' in html
+    assert "Local demo ordering only" in html
+    assert "let editionOrder" in script
+    assert "renderEditionComposition()" in script
+    assert 'data-move' in script
+    assert "has not been saved" in script
+
+
+def test_edition_readiness_keeps_language_rights_and_approval_gates_separate():
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    script = (ROOT / "studio.js").read_text(encoding="utf-8")
+    assert 'id="edition-readiness"' in html
+    match = re.search(r'<button[^>]*id="publish-edition"[^>]*>', html)
+    assert match is not None and "disabled" in match.group(0)
+    for field in ("claimsResolved", "languagesReviewed", "rightsCleared"):
+        assert field in script
+    assert "atomic state transition and audit guarantees" in script
+    assert "English and Bangla variants independently reviewed" in script
