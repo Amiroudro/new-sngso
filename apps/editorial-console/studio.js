@@ -7,7 +7,8 @@
     stories: ["Story desk", "Track developing stories, evidence status, topics and editorial progress."],
     review: ["Review queue", "Human decisions, unresolved evidence and language checks that block release."],
     sources: ["Sources & rights", "Inspect operation-specific permission records and review dates."],
-    operations: ["Operations", "A preview of worker supervision, durable checkpoints and audit visibility."]
+    operations: ["Operations", "A preview of worker supervision, durable checkpoints and audit visibility."],
+    release: ["Release control", "Inspect preflight blockers and the boundaries between approval, authorization and publication."]
   };
   function show(view) {
     if (!labels[view]) return;
@@ -349,6 +350,41 @@
   storyList.addEventListener("click",event=>{const button=event.target.closest("[data-move]");if(!button||button.disabled)return;const id=button.dataset.storyId;const from=editionOrder.indexOf(id);const to=from+(button.dataset.move==="up"?-1:1);if(from<0||to<0||to>=editionOrder.length)return;[editionOrder[from],editionOrder[to]]=[editionOrder[to],editionOrder[from]];renderEditionComposition();toast(id+" moved locally. This order has not been saved.");storyList.querySelector('[data-story-id="'+id+'"][data-move="'+button.dataset.move+'"]')?.focus();});
   document.getElementById("reset-edition-order").addEventListener("click",()=>{editionOrder=editionStories.map(story=>story.id);renderEditionComposition();toast("Sample edition order reset locally.");});
   renderEditionComposition();
+
+  // This report is derived from fictional fixtures and never authorizes a command.
+  function renderReleasePreflight() {
+    const gates = [
+      ["Evidence and claim resolution", editionStories.every(story => story.claimsResolved), "At least one included story has unresolved evidence or attribution."],
+      ["English and Bangla review", editionStories.every(story => story.languagesReviewed), "Both language variants must be reviewed independently."],
+      ["Operation-specific source rights", editionStories.every(story => story.rightsCleared), "At least one source permission is unknown or uncleared."],
+      ["Approved immutable edition revision", false, "No authenticated editor approval exists for a versioned edition snapshot."],
+      ["Release authorization and audit readiness", false, "No server-enforced release authority, atomic command or durable audit record is connected."]
+    ];
+    const list = document.getElementById("release-gate-list");
+    list.replaceChildren(...gates.map(([label, passed, detail], index) => {
+      const item = document.createElement("li");
+      item.className = passed ? "release-gate-pass" : "release-gate-blocked";
+      const number = document.createElement("span");
+      number.className = "release-gate-number";
+      number.textContent = String(index + 1).padStart(2, "0");
+      const body = document.createElement("div");
+      const heading = document.createElement("strong");
+      heading.textContent = label;
+      const note = document.createElement("small");
+      note.textContent = passed ? "Fixture check passed; this is not a live verification." : detail;
+      body.append(heading, note);
+      const status = document.createElement("b");
+      status.className = "release-gate-status";
+      status.textContent = passed ? "PASS" : "BLOCKED";
+      item.append(number, body, status);
+      return item;
+    }));
+    const passed = gates.filter(([, ok]) => ok).length;
+    document.getElementById("release-gates-count").textContent = passed + " / " + gates.length;
+    document.getElementById("release-blocker-count").textContent = String(gates.length - passed);
+    document.getElementById("release-overall-status").textContent = passed === gates.length ? "Preflight passed" : "Blocked";
+  }
+  renderReleasePreflight();
 
   const initial = location.hash.replace("#", "");
   show(labels[initial] ? initial : "overview");
