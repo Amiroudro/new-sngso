@@ -3981,6 +3981,15 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
                     sql.Identifier(schema_name), sql.Identifier(schema_name), sql.Identifier(role_name)
                 )
             )
+            artifact_schema = connection.execute(
+                "SELECT table_schema FROM information_schema.tables "
+                "WHERE table_name = 'edition_artifacts'"
+            ).fetchone()[0]
+            assert artifact_schema == schema_name
+            assert connection.execute(
+                "SELECT has_table_privilege(%s, %s, 'SELECT')",
+                (role_name, f"{schema_name}.edition_artifacts"),
+            ).fetchone()[0] is True
 
         with connect() as writer:
             writer.autocommit = True
