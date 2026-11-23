@@ -24,6 +24,8 @@ _MIGRATIONS = (
     (12, "0012_pipeline_runs.sql"),
     (13, "0013_pipeline_stage_checkpoints.sql"),
     (14, "0014_pipeline_worker_leases.sql"),
+    (15, "0015_edition_artifacts.sql"),
+    (16, "0016_edition_decisions.sql"),
 )
 
 
