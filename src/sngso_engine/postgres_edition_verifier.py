@@ -70,6 +70,14 @@ def build_postgres_staging_export_reverifier(
         approval = json.loads(approval_row[0])
         if not isinstance(approval, dict) or approval.get("decision") != "approve":
             raise ValueError("edition re-verification requires an approval decision")
+        validate_payload("edition-decision", approval)
+        if (
+            approval.get("manifest_id") != manifest_id
+            or approval.get("edition_id") != artifact["edition_id"]
+            or approval.get("edition_revision") != artifact["edition_revision"]
+            or approval.get("payload_sha256") != artifact["payload_sha256"]
+        ):
+            raise ValueError("approval decision does not bind the exact edition artifact")
 
         cursor.execute(
             """SELECT payload_json FROM edition_release_authorizations
@@ -83,6 +91,17 @@ def build_postgres_staging_export_reverifier(
         authorization = json.loads(authorization_row[0])
         if not isinstance(authorization, dict) or authorization.get("release_authorized") is not True:
             raise ValueError("edition re-verification requires a valid release authorization")
+        validate_payload("edition-release-authorization", authorization)
+        if (
+            authorization.get("manifest_id") != manifest_id
+            or authorization.get("edition_id") != artifact["edition_id"]
+            or authorization.get("edition_revision") != artifact["edition_revision"]
+            or authorization.get("payload_sha256") != artifact["payload_sha256"]
+            or authorization.get("approval_decision_id") != approval.get("decision_id")
+            or authorization.get("approver_principal_id") != approval.get("principal_id")
+            or authorization.get("authorizer_principal_id") == approval.get("principal_id")
+        ):
+            raise ValueError("release authorization does not bind the exact approved artifact")
 
         package = {
             "schema_version": "1.0.0",
