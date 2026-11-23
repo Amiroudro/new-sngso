@@ -63,10 +63,13 @@ revision history and acceptance quality reports rather than failing solely
 because linked benchmark evidence exists.
 
 The latest verified backend test checkpoint is [CI run
-#45235178227](https://github.com/Amiroudro/new-sngso/actions/runs/45235178227):
-**58 PostgreSQL integration tests passed in 12.04 seconds**, and contract
-validation passed. The verifier documentation update also passed
-[CI run #45235298683](https://github.com/Amiroudro/new-sngso/actions/runs/45235298683).
+#45236813759](https://github.com/Amiroudro/new-sngso/actions/runs/45236813759):
+**61 PostgreSQL integration tests passed in 12.26 seconds**, and contract
+validation passed. This includes exact SQLite/PostgreSQL benchmark-linked
+story snapshot comparison, live source-permission rechecking and locking,
+exact study protocol/execution acceptance evidence, and the full two-distinct-
+attested-human-review positive path. The verifier documentation update also
+passed [CI run #45235298683](https://github.com/Amiroudro/new-sngso/actions/runs/45235298683).
 PR #8 remains draft and unmerged.
 
 This does not satisfy the PostgreSQL migration acceptance exit criteria.
