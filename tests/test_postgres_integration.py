@@ -2738,6 +2738,24 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "VALUES (%s, 'queued', 1, %s, %s)",
             (pipeline_id, stamp, json.dumps(pipeline_payload)),
         )
+        connection.execute(
+            """INSERT INTO pipeline_stage_checkpoints
+            (pipeline_run_id, stage_ordinal, stage_name, input_fingerprint,
+             idempotency_key, status, revision, created_at, updated_at,
+             actor, reason, metadata_json)
+            VALUES (%s, 0, 'collect', %s, %s, 'executing', 1, %s, %s,
+                    'fixture', 'initial', '{}')""",
+            (pipeline_id, "sha256:" + "a" * 64, "sha256:" + "b" * 64, stamp, stamp),
+        )
+        connection.execute(
+            """INSERT INTO pipeline_worker_leases
+            (pipeline_run_id, worker_id, token_hash, fencing_token, status,
+             acquired_at, heartbeat_at, expires_at, revision, updated_at,
+             actor, reason)
+            VALUES (%s, 'worker:read-view', %s, 1, 'active', %s, %s,
+                    '2026-11-23T00:10:00Z', 1, %s, 'fixture', 'initial')""",
+            (pipeline_id, "sha256:" + "c" * 64, stamp, stamp, stamp),
+        )
 
     with connect() as connection:
         view = PostgresEditionRegistryReadView(connection.cursor())
@@ -2751,6 +2769,14 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
         assert view.get_endpoint(endpoint_id).to_payload() == endpoint_payload
         assert view.get_benchmark_principal("principal:read-view")["active"] is True
         assert view.get_pipeline_run(pipeline_id)["record"] == pipeline_payload
+        checkpoints = view.get_pipeline_stage_checkpoints(pipeline_id)
+        assert len(checkpoints) == 1
+        assert checkpoints[0]["stage_name"] == "collect"
+        assert checkpoints[0]["history"][0]["revision"] == 1
+        lease = view.get_pipeline_worker_lease(pipeline_id)
+        assert lease["worker_id"] == "worker:read-view"
+        assert lease["fencing_token"] == 1
+        assert lease["history"][0]["revision"] == 1
         with pytest.raises(PostgresEditionReadAdapterIncomplete, match="story snapshot"):
             view.story_editorial_snapshot(story_id)
         with pytest.raises(PostgresEditionReadAdapterIncomplete, match="quality gates"):
