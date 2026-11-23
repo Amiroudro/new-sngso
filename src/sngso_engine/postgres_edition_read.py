@@ -93,7 +93,29 @@ class PostgresEditionRegistryReadView:
             or record.get("started_at") != indexed_started_at
         ):
             raise PostgresEditionReadAdapterError("pipeline run indexed identity does not match its payload")
-        return {"revision": revision, "record": record}
+        self._cursor.execute(
+            """SELECT revision, created_at, actor, reason, payload_json
+               FROM pipeline_run_revisions
+               WHERE pipeline_run_id = %s
+               ORDER BY revision
+               FOR SHARE""",
+            (pipeline_run_id,),
+        )
+        history_rows = self._cursor.fetchall()
+        if (
+            len(history_rows) != revision
+            or [item[0] for item in history_rows] != list(range(1, revision + 1))
+            or history_rows[-1][4] != raw
+        ):
+            raise PostgresEditionReadAdapterError("pipeline run history is incomplete or does not match its current revision")
+        history = [
+            {
+                "revision": item[0], "created_at": item[1], "actor": item[2],
+                "reason": item[3], "record": self._object(item[4], "pipeline run revision"),
+            }
+            for item in history_rows
+        ]
+        return {"revision": revision, "record": record, "history": history}
 
     def get_pipeline_stage_checkpoints(self, pipeline_run_id: str) -> list[dict[str, Any]]:
         """Read and lock every checkpoint plus its append-only revision history."""
@@ -134,8 +156,11 @@ class PostgresEditionRegistryReadView:
                 (pipeline_run_id, ordinal),
             )
             history_rows = self._cursor.fetchall()
-            if not history_rows or history_rows[-1][0] != revision:
-                raise PostgresEditionReadAdapterError("pipeline checkpoint history does not end at its current revision")
+            if (
+                len(history_rows) != revision
+                or [item[0] for item in history_rows] != list(range(1, revision + 1))
+            ):
+                raise PostgresEditionReadAdapterError("pipeline checkpoint history is incomplete or does not end at its current revision")
             history = []
             for item in history_rows:
                 try:
@@ -188,8 +213,11 @@ class PostgresEditionRegistryReadView:
             (pipeline_run_id,),
         )
         history = self._cursor.fetchall()
-        if not history or history[-1][0] != row[10]:
-            raise PostgresEditionReadAdapterError("pipeline worker lease history does not end at its current revision")
+        if (
+            len(history) != row[10]
+            or [item[0] for item in history] != list(range(1, row[10] + 1))
+        ):
+            raise PostgresEditionReadAdapterError("pipeline worker lease history is incomplete or does not end at its current revision")
         return {
             "pipeline_run_id": pipeline_run_id, "worker_id": row[0],
             "token_hash": row[1], "fencing_token": row[2], "status": row[3],
