@@ -3533,6 +3533,14 @@ def test_postgres_approved_benchmark_review_rechecks_live_source_permission(post
         assert report["eligible_for_current_use"] is True
         checks = {item["name"]: item["passed"] for item in report["checks"]}
         assert checks["current_source_permission"] is True
+        with connect() as contender:
+            contender.execute("SET lock_timeout = '150ms'")
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                contender.execute(
+                    "UPDATE permission_evidence SET review_status = 'pending' WHERE id = %s",
+                    (evidence_id,),
+                )
+            contender.rollback()
 
     with connect() as connection:
         connection.execute(
