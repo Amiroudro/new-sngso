@@ -2836,7 +2836,7 @@ _MIGRATION_36 = (
            AND r.manifest_id = NEW.manifest_id
        )
        BEGIN
-         SELECT RAISE(ABORT, 'staging event authority identities must match recorded approval and release authorization');
+         SELECT RAISE(ABORT, 'staging event failed authority identities must match recorded approval and release authorization');
        END""",
 )
 
