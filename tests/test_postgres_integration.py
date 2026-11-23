@@ -3665,3 +3665,116 @@ def test_postgres_acceptance_quality_rechecks_exact_protocol_execution_and_revie
         assert report["eligible_for_scoped_reference"] is False
         assert report["production_ready"] is False
         assert report["authorization_granted"] is False
+
+
+def test_postgres_benchmark_story_snapshot_matches_sqlite_canonical_fingerprint(postgres_schema):
+    from sngso_engine.registry import SQLiteRegistry
+    from sngso_engine.postgres_story_snapshot import load_postgres_story_editorial_snapshot
+
+    connect = postgres_schema
+    stamp = "2026-11-23T00:00:00Z"
+    source_id = "source:benchmark-parity"
+    article_id = "article:benchmark-parity"
+    story_id = "story:benchmark-parity"
+    artifact_id = "benchmark:story-parity"
+    artifact = {"artifact_id": artifact_id, "items": [{"id": "item-parity"}]}
+    artifact_fp = sha256_fingerprint(artifact)
+    source = {
+        "schema_version": "1.0.0", "id": source_id,
+        "publisher_name": "Parity Publisher", "publisher_type": "newspaper",
+        "canonical_homepage": "https://parity.example/",
+        "domains": ["parity.example"], "status": "active",
+        "created_at": stamp, "updated_at": stamp,
+    }
+    article = {
+        "schema_version": "1.0.0", "id": article_id, "source_id": source_id,
+        "canonical_uri": "https://parity.example/article", "title": "Parity article",
+        "source_language": "en", "discovered_at": stamp, "record_status": "active",
+    }
+    story = {
+        "schema_version": "1.0.0", "id": story_id, "canonical_title": "Parity story",
+        "status": "developing", "created_at": stamp, "updated_at": stamp,
+        "article_ids": [article_id],
+    }
+    review = {
+        "review_id": "review:benchmark-parity", "benchmark_id": artifact_id,
+        "benchmark_fingerprint": artifact_fp, "language": "en", "status": "draft",
+        "reviewed_at": stamp,
+        "reviewer": {
+            "reviewer_id": "reviewer:parity", "role": "benchmark_reviewer",
+            "language": "en", "qualification_basis": "Documented editorial and subject-matter experience.",
+        },
+        "source_materials": [{
+            "article_id": article_id, "source_id": source_id,
+            "approved_use_reference": "evidence:parity",
+            "permission_grant_id": "grant:parity", "endpoint_id": "endpoint:parity",
+            "permission_operation": "excerpt_storage",
+            "canonical_uri": article["canonical_uri"],
+            "content_fingerprint": "sha256:" + "c" * 64, "checked_at": stamp,
+        }],
+        "corrections": [], "adjudication_note": "",
+    }
+
+    with SQLiteRegistry() as sqlite_registry:
+        sqlite_registry.add_source(source)
+        sqlite_registry.add_domain_record("article", article)
+        sqlite_registry.add_domain_record("story", story)
+        sqlite_conn = sqlite_registry._connection
+        sqlite_conn.execute(
+            "INSERT INTO benchmark_artifacts "
+            "(artifact_id, language, canonicalization, content_fingerprint, content_json, "
+            "created_at, actor, reason) VALUES (?, 'en', 'canonical-json-v1', ?, ?, ?, "
+            "'fixture', 'snapshot parity')",
+            (artifact_id, artifact_fp, json.dumps(artifact), stamp),
+        )
+        sqlite_conn.execute(
+            "INSERT INTO benchmark_reviews "
+            "(review_id, benchmark_id, benchmark_fingerprint, language, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES (?, ?, ?, 'en', 'draft', 1, ?, ?, 'fixture', 'snapshot parity', ?)",
+            (review["review_id"], artifact_id, artifact_fp, stamp, stamp, json.dumps(review)),
+        )
+        sqlite_snapshot = sqlite_registry.story_editorial_snapshot(story_id)
+
+        source_row = sqlite_conn.execute(
+            "SELECT id, publisher_name, status, created_at, updated_at, payload_json "
+            "FROM sources WHERE id = ?", (source_id,),
+        ).fetchone()
+        domain_rows = sqlite_conn.execute(
+            """SELECT record_type, id, revision, created_at, updated_at, payload_json,
+                      last_actor, last_reason, last_revision_at
+               FROM domain_records WHERE (record_type, id) IN (('article', ?), ('story', ?))
+               ORDER BY record_type, id""",
+            (article_id, story_id),
+        ).fetchall()
+
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            tuple(source_row),
+        )
+        for row in domain_rows:
+            connection.execute(
+                "INSERT INTO domain_records "
+                "(record_type, id, revision, created_at, updated_at, payload_json, "
+                "last_actor, last_reason, last_revision_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                tuple(row),
+            )
+        connection.execute(
+            "INSERT INTO benchmark_artifacts "
+            "(artifact_id, language, canonicalization, content_fingerprint, content_json, "
+            "created_at, actor, reason) VALUES (%s, 'en', 'canonical-json-v1', %s, %s, %s, "
+            "'fixture', 'snapshot parity')",
+            (artifact_id, artifact_fp, json.dumps(artifact), stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_reviews "
+            "(review_id, benchmark_id, benchmark_fingerprint, language, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, %s, 'en', 'draft', 1, %s, %s, 'fixture', 'snapshot parity', %s)",
+            (review["review_id"], artifact_id, artifact_fp, stamp, stamp, json.dumps(review)),
+        )
+        postgres_snapshot = load_postgres_story_editorial_snapshot(connection.cursor(), story_id)
+
+    assert postgres_snapshot == sqlite_snapshot
