@@ -4150,3 +4150,79 @@ def test_postgres_learning_object_quality_report_matches_sqlite_for_draft_summar
         ).learning_object_quality_report(draft.id)
 
     assert postgres_report == sqlite_report
+
+
+def test_postgres_approved_supported_learning_quality_report_matches_sqlite(postgres_schema):
+    from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
+    from test_learning_objects import (
+        _approve_learning_object, _prepared, _summary, _support_claim_with_evidence,
+    )
+
+    connect = postgres_schema
+    with _prepared() as sqlite_registry:
+        _support_claim_with_evidence(sqlite_registry)
+        approved = _approve_learning_object(sqlite_registry, _summary())
+        sqlite_report = sqlite_registry.learning_object_quality_report(approved.id)
+        sqlite_conn = sqlite_registry._connection
+        source_row = sqlite_conn.execute(
+            """SELECT id, publisher_name, status, created_at, updated_at, payload_json
+               FROM sources WHERE id = 'source:publisher'"""
+        ).fetchone()
+        domain_rows = sqlite_conn.execute(
+            """SELECT record_type, id, revision, created_at, updated_at, payload_json,
+                      last_actor, last_reason, last_revision_at
+               FROM domain_records
+               WHERE id IN ('article:one', 'story:one', 'claim:one', 'evidence:one')"""
+        ).fetchall()
+        learning_row = sqlite_conn.execute(
+            """SELECT id, story_id, kind, language, status, revision, created_at,
+                      updated_at, last_actor, last_reason, payload_json
+               FROM learning_objects WHERE id = ?""",
+            (approved.id,),
+        ).fetchone()
+        draft_revision = sqlite_conn.execute(
+            """SELECT created_at, actor, reason, payload_json
+               FROM learning_object_revisions
+               WHERE learning_object_id = ? AND revision = 1""",
+            (approved.id,),
+        ).fetchone()
+
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            tuple(source_row),
+        )
+        for row in sorted(domain_rows, key=lambda item: {"article": 0, "story": 1, "claim": 2, "evidence": 3}[item[0]]):
+            connection.execute(
+                "INSERT INTO domain_records "
+                "(record_type, id, revision, created_at, updated_at, payload_json, "
+                "last_actor, last_reason, last_revision_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                tuple(row),
+            )
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, %s, %s, 'draft', 1, %s, %s, %s, %s, %s)",
+            (
+                learning_row[0], learning_row[1], learning_row[2], learning_row[3],
+                learning_row[6], draft_revision[0], draft_revision[1], draft_revision[2],
+                draft_revision[3],
+            ),
+        )
+        connection.execute(
+            "UPDATE learning_objects SET status = %s, revision = %s, updated_at = %s, "
+            "last_actor = %s, last_reason = %s, payload_json = %s WHERE id = %s",
+            (
+                learning_row[4], learning_row[5], learning_row[7], learning_row[8],
+                learning_row[9], learning_row[10], learning_row[0],
+            ),
+        )
+        postgres_report = PostgresEditionRegistryReadView(
+            connection.cursor()
+        ).learning_object_quality_report(approved.id)
+
+    assert sqlite_report["meets_registry_quality_gates"] is True
+    assert postgres_report == sqlite_report
