@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1,)
+            assert apply_postgres_migrations(connection) == (1, 2)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -170,6 +170,88 @@ def test_postgres_default_runtime_role_cannot_mutate_audit_storage(postgres_sche
             for statement in denied_statements:
                 with pytest.raises(psycopg.errors.InsufficientPrivilege):
                     restricted.execute(statement)
+    finally:
+        if schema_name is not None:
+            with psycopg.connect(
+                os.environ["TEST_POSTGRES_DSN"], autocommit=True
+            ) as admin:
+                admin.execute(
+                    sql.SQL("REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} FROM {}").format(
+                        sql.Identifier(schema_name), sql.Identifier(role_name)
+                    )
+                )
+                admin.execute(
+                    sql.SQL("REVOKE ALL PRIVILEGES ON SCHEMA {} FROM {}").format(
+                        sql.Identifier(schema_name), sql.Identifier(role_name)
+                    )
+                )
+                admin.execute(
+                    sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role_name))
+                )
+
+
+
+def test_postgres_runtime_writer_can_append_but_cannot_rewrite_audit_head(postgres_schema):
+    connect = postgres_schema
+    role_name = "sngso_audit_writer_" + uuid.uuid4().hex[:12]
+    schema_name = None
+    try:
+        with connect() as owner:
+            schema_name = owner.execute("SELECT current_schema()").fetchone()[0]
+            owner.execute(
+                sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(role_name))
+            )
+            owner.execute(
+                sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(
+                    sql.Identifier(schema_name), sql.Identifier(role_name)
+                )
+            )
+            owner.execute(
+                sql.SQL("GRANT SELECT, INSERT ON audit_events TO {}").format(
+                    sql.Identifier(role_name)
+                )
+            )
+            owner.execute(
+                sql.SQL("GRANT SELECT, UPDATE ON audit_chain_head TO {}").format(
+                    sql.Identifier(role_name)
+                )
+            )
+
+        with connect() as writer:
+            writer.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(role_name)))
+            appended = run_atomic(
+                writer,
+                lambda cursor: append_audit_event(
+                    cursor,
+                    event_id="restricted-writer-append",
+                    event_type="integration.test",
+                    entity_type="test",
+                    entity_id="restricted-writer",
+                    occurred_at="2026-11-23T00:00:00Z",
+                    payload={"writer": "restricted"},
+                ),
+            )
+            assert appended["sequence"] == 1
+
+        with connect() as restricted:
+            restricted.autocommit = True
+            restricted.execute(
+                sql.SQL("SET ROLE {}").format(sql.Identifier(role_name))
+            )
+            with pytest.raises(psycopg.errors.CheckViolation, match="advance exactly one"):
+                restricted.execute(
+                    "UPDATE audit_chain_head SET sequence = 0, event_hash = NULL "
+                    "WHERE singleton_id = 1"
+                )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                restricted.execute(
+                    "DELETE FROM audit_chain_head WHERE singleton_id = 1"
+                )
+
+        with connect() as owner:
+            assert owner.execute(
+                "SELECT sequence, event_hash FROM audit_chain_head WHERE singleton_id = 1"
+            ).fetchone() == (1, appended["event_hash"])
     finally:
         if schema_name is not None:
             with psycopg.connect(
