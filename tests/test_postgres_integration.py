@@ -2099,3 +2099,276 @@ def test_postgres_domain_record_updates_require_monotonic_revisions_and_snapshot
                     "WHERE record_type = 'story' AND id = 'domain-revision-1'",
                     (json.dumps({"id": "domain-revision-1", "revision": 4, "status": "approved"}),),
                 )
+
+
+def _seed_atomic_staging_case(connection):
+    from datetime import datetime, timedelta, timezone
+    from sngso_engine.benchmark_access import AuthenticatedIdentity
+
+    now = datetime(2026, 11, 23, 0, 4, tzinfo=timezone.utc)
+    operator_identity = AuthenticatedIdentity(
+        principal_id="atomic-operator",
+        issuer="https://identity.example",
+        audience="sarangsho-editorial",
+        authenticated_at=now - timedelta(minutes=1),
+        expires_at=now + timedelta(minutes=30),
+        session_id="atomic-operator-session",
+        subject="oidc|atomic-operator",
+        authentication_methods=("pwd", "mfa"),
+        authentication_context="urn:example:loa:2",
+        provider_key_id="key-1",
+        provider_adapter="test-oidc",
+    )
+    principals = (
+        ("atomic-approver", ["edition_approver"]),
+        ("atomic-authorizer", ["edition_release_authorizer"]),
+        ("atomic-operator", ["edition_staging_operator"]),
+    )
+    for principal_id, roles in principals:
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, reason, principal_kind) "
+            "VALUES (%s, %s, %s, 1, %s, 'test-admin', 'integration fixture', 'human')",
+            (principal_id, principal_id, json.dumps(roles), now.isoformat()),
+        )
+
+    edition_payload = {
+        "edition_id": "atomic-edition",
+        "edition_revision": 1,
+        "edition_key": "2026-11-23",
+    }
+    payload_sha = sha256_fingerprint(edition_payload)
+    manifest = {
+        "schema_version": "1.0.0",
+        "manifest_id": "atomic-manifest",
+        "edition_id": "atomic-edition",
+        "edition_revision": 1,
+        "edition_key": "2026-11-23",
+        "created_at": now.isoformat(),
+        "pipeline_run_id": "atomic-pipeline",
+        "payload_sha256": payload_sha,
+        "story_bindings": [{
+            "story_id": "atomic-story",
+            "story_revision": 1,
+            "story_snapshot_sha256": "sha256:" + "a" * 64,
+            "learning_objects": [
+                {
+                    "learning_object_id": "atomic-bn",
+                    "learning_object_revision": 1,
+                    "learning_object_sha256": "sha256:" + "b" * 64,
+                    "kind": "headline_summary",
+                    "language": "bn",
+                },
+                {
+                    "learning_object_id": "atomic-en",
+                    "learning_object_revision": 1,
+                    "learning_object_sha256": "sha256:" + "c" * 64,
+                    "kind": "headline_summary",
+                    "language": "en",
+                },
+            ],
+        }],
+        "source_permissions": [{
+            "source_id": "atomic-source",
+            "endpoint_id": "atomic-endpoint",
+            "grant_id": "atomic-grant",
+            "operation": "republication",
+        }],
+    }
+    connection.execute(
+        "INSERT INTO edition_artifacts "
+        "(manifest_id, edition_id, edition_revision, payload_sha256, payload_json, "
+        "manifest_json, verification_json, created_at, actor, reason) "
+        "VALUES (%s, %s, 1, %s, %s, %s, %s, %s, 'test-verifier', 'verified fixture')",
+        (
+            "atomic-manifest", "atomic-edition", payload_sha,
+            json.dumps(edition_payload), json.dumps(manifest),
+            json.dumps({"publication_authorized": False}),
+            now.isoformat(),
+        ),
+    )
+    identity_attestation = {
+        "issuer": "https://identity.example",
+        "audience": "sarangsho-editorial",
+        "subject": "oidc|atomic-approver",
+        "authenticated_at": (now - timedelta(minutes=1)).isoformat(),
+        "expires_at": (now + timedelta(minutes=30)).isoformat(),
+        "authentication_methods": ["pwd", "mfa"],
+        "authentication_context": "urn:example:loa:2",
+        "provider_key_id": "key-1",
+        "provider_adapter": "test-oidc",
+        "session_fingerprint": "sha256:" + "d" * 64,
+    }
+    approval = {
+        "schema_version": "1.0.0",
+        "decision_id": "atomic-decision",
+        "manifest_id": "atomic-manifest",
+        "edition_id": "atomic-edition",
+        "edition_revision": 1,
+        "payload_sha256": payload_sha,
+        "decision": "approve",
+        "scope": "staging_candidate_review",
+        "principal_id": "atomic-approver",
+        "role": "edition_approver",
+        "decided_at": now.isoformat(),
+        "reason": "approved for staging",
+        "identity_attestation": identity_attestation,
+        "publication_authorized": False,
+    }
+    connection.execute(
+        "INSERT INTO edition_decisions "
+        "(decision_id, manifest_id, edition_id, edition_revision, payload_sha256, "
+        "decision, principal_id, decided_at, payload_json) "
+        "VALUES (%s, %s, %s, 1, %s, 'approve', %s, %s, %s)",
+        (
+            "atomic-decision", "atomic-manifest", "atomic-edition", payload_sha,
+            "atomic-approver", now.isoformat(), json.dumps(approval),
+        ),
+    )
+    authorization = {
+        "schema_version": "1.0.0",
+        "authorization_id": "atomic-authorization",
+        "manifest_id": "atomic-manifest",
+        "edition_id": "atomic-edition",
+        "edition_revision": 1,
+        "payload_sha256": payload_sha,
+        "approval_decision_id": "atomic-decision",
+        "approver_principal_id": "atomic-approver",
+        "authorizer_principal_id": "atomic-authorizer",
+        "authorized_at": now.isoformat(),
+        "scope": "controlled_release_gate",
+        "reason": "independent release authorization",
+        "identity_attestation": {
+            **identity_attestation,
+            "subject": "oidc|atomic-authorizer",
+        },
+        "release_authorized": True,
+        "publication_authorized": False,
+    }
+    connection.execute(
+        "INSERT INTO edition_release_authorizations "
+        "(authorization_id, manifest_id, edition_id, edition_revision, payload_sha256, "
+        "approval_decision_id, approver_principal_id, authorizer_principal_id, "
+        "authorized_at, payload_json) "
+        "VALUES (%s, %s, %s, 1, %s, %s, %s, %s, %s, %s)",
+        (
+            "atomic-authorization", "atomic-manifest", "atomic-edition", payload_sha,
+            "atomic-decision", "atomic-approver", "atomic-authorizer",
+            now.isoformat(), json.dumps(authorization),
+        ),
+    )
+    package = {
+        "schema_version": "1.0.0",
+        "export_id": "atomic-export-1",
+        "target": "staging",
+        "created_at": now.isoformat(),
+        "manifest_id": "atomic-manifest",
+        "edition_id": "atomic-edition",
+        "edition_revision": 1,
+        "payload_sha256": payload_sha,
+        "edition_payload": edition_payload,
+        "provenance_manifest": manifest,
+        "staging_decision": approval,
+        "release_authorization": authorization,
+        "publication_authorized": False,
+    }
+    return operator_identity, now, package
+
+
+def test_postgres_atomic_staging_commits_event_state_and_global_audit_together(postgres_schema):
+    from sngso_engine.postgres_edition_staging import stage_edition_export
+
+    connect = postgres_schema
+    with connect() as connection:
+        identity, now, package = _seed_atomic_staging_case(connection)
+    with connect() as connection:
+        result = stage_edition_export(
+            connection,
+            manifest_id="atomic-manifest",
+            operation="promote",
+            identity=identity,
+            reason="integration staging promotion",
+            expected_state_revision=0,
+            reverify_export=lambda cursor, artifact, evaluated_at: package,
+            event_id="atomic-stage-event",
+            now=now,
+        )
+        assert result["state"]["state_revision"] == 1
+        assert result["state"]["current_export_id"] == "atomic-export-1"
+        assert result["audit"]["sequence"] == 1
+        assert connection.execute(
+            "SELECT state_revision, current_event_id, current_export_id "
+            "FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone() == (1, "atomic-stage-event", "atomic-export-1")
+        assert connection.execute(
+            "SELECT count(*) FROM edition_staging_events"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT sequence, event_type, entity_id FROM audit_events"
+        ).fetchone() == (1, "edition_staging.promoted", "atomic-stage-event")
+        assert connection.execute(
+            "SELECT sequence FROM audit_chain_head WHERE singleton_id = 1"
+        ).fetchone()[0] == 1
+
+
+def test_postgres_atomic_staging_rolls_back_event_and_state_if_audit_append_fails(
+    postgres_schema, monkeypatch
+):
+    import sngso_engine.postgres_edition_staging as staging
+
+    connect = postgres_schema
+    with connect() as connection:
+        identity, now, package = _seed_atomic_staging_case(connection)
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("injected audit append failure")
+
+    monkeypatch.setattr(staging, "append_audit_event", fail_audit)
+    with connect() as connection:
+        with pytest.raises(RuntimeError, match="injected audit append failure"):
+            staging.stage_edition_export(
+                connection,
+                manifest_id="atomic-manifest",
+                operation="promote",
+                identity=identity,
+                reason="failure-injection promotion",
+                expected_state_revision=0,
+                reverify_export=lambda cursor, artifact, evaluated_at: package,
+                event_id="atomic-stage-event-fail",
+                now=now,
+            )
+        assert connection.execute(
+            "SELECT state_revision, current_event_id, current_export_id "
+            "FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone() == (0, None, None)
+        assert connection.execute(
+            "SELECT count(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT sequence FROM audit_chain_head WHERE singleton_id = 1"
+        ).fetchone()[0] == 0
+
+
+def test_postgres_atomic_staging_rejects_stale_state_before_reverification(postgres_schema):
+    from sngso_engine.postgres_edition_staging import (
+        PostgresStagingError, stage_edition_export,
+    )
+
+    connect = postgres_schema
+    with connect() as connection:
+        identity, now, package = _seed_atomic_staging_case(connection)
+    callback_calls = []
+    with connect() as connection:
+        with pytest.raises(PostgresStagingError, match="state revision conflict"):
+            stage_edition_export(
+                connection,
+                manifest_id="atomic-manifest",
+                operation="promote",
+                identity=identity,
+                reason="stale request",
+                expected_state_revision=7,
+                reverify_export=lambda cursor, artifact, evaluated_at: callback_calls.append(True) or package,
+                event_id="atomic-stage-event-stale",
+                now=now,
+            )
+    assert callback_calls == []
