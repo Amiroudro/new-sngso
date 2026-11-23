@@ -3289,3 +3289,94 @@ def test_postgres_benchmark_quality_reports_fail_closed_for_unknown_records(post
             benchmark_review_quality_report(connection.cursor(), "missing-review")
         with pytest.raises(PostgresBenchmarkQualityError, match="unknown benchmark acceptance review"):
             benchmark_acceptance_review_quality_report(connection.cursor(), "missing-acceptance")
+
+
+def test_postgres_story_snapshot_includes_benchmark_review_quality_and_history(postgres_schema):
+    from sngso_engine.postgres_story_snapshot import load_postgres_story_editorial_snapshot
+
+    connect = postgres_schema
+    stamp = "2026-11-23T00:00:00Z"
+    artifact = {"artifact_id": "benchmark-story", "items": [{"id": "item-story"}]}
+    fingerprint = sha256_fingerprint(artifact)
+    review = {
+        "review_id": "review-story",
+        "benchmark_id": "benchmark-story",
+        "benchmark_fingerprint": fingerprint,
+        "language": "en",
+        "status": "draft",
+        "reviewed_at": stamp,
+        "reviewer": {
+            "reviewer_id": "reviewer-story",
+            "role": "benchmark_reviewer",
+            "language": "en",
+            "qualification_basis": "Documented editorial and subject-matter experience.",
+        },
+        "source_materials": [{
+            "article_id": "article-story-benchmark",
+            "source_id": "source-story-benchmark",
+            "approved_use_reference": "permission-story-benchmark",
+            "permission_grant_id": "grant-story-benchmark",
+            "endpoint_id": "endpoint-story-benchmark",
+            "permission_operation": "excerpt_storage",
+            "canonical_uri": "https://example.test/story-benchmark",
+            "content_fingerprint": "sha256:" + "b" * 64,
+            "checked_at": stamp,
+        }],
+        "corrections": [],
+        "adjudication_note": None,
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES ('source-story-benchmark', 'Publisher', 'active', %s, %s, %s)",
+            (stamp, stamp, json.dumps({"id": "source-story-benchmark", "status": "active"})),
+        )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('story', 'story-benchmark', 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (stamp, stamp, json.dumps({
+                "id": "story-benchmark", "status": "active",
+                "article_ids": ["article-story-benchmark"],
+            }), stamp),
+        )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('article', 'article-story-benchmark', 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (stamp, stamp, json.dumps({
+                "id": "article-story-benchmark",
+                "source_id": "source-story-benchmark",
+                "canonical_uri": "https://example.test/story-benchmark",
+                "content_fingerprint": "sha256:" + "b" * 64,
+                "title": "Benchmark source article",
+            }), stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_artifacts "
+            "(artifact_id, language, canonicalization, content_fingerprint, content_json, "
+            "created_at, actor, reason) VALUES ('benchmark-story', 'en', 'canonical-json-v1', "
+            "%s, %s, %s, 'fixture', 'story snapshot test')",
+            (fingerprint, json.dumps(artifact), stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_reviews "
+            "(review_id, benchmark_id, benchmark_fingerprint, language, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES ('review-story', 'benchmark-story', %s, 'en', 'draft', 1, %s, %s, "
+            "'fixture', 'story snapshot test', %s)",
+            (fingerprint, stamp, stamp, json.dumps(review)),
+        )
+        snapshot = load_postgres_story_editorial_snapshot(connection.cursor(), "story-benchmark")
+        assert len(snapshot["benchmark_reviews"]) == 1
+        benchmark_review = snapshot["benchmark_reviews"][0]
+        assert benchmark_review["review_id"] == "review-story"
+        assert benchmark_review["revision"] == 1
+        assert benchmark_review["quality_report"]["eligible_for_current_use"] is False
+        assert benchmark_review["history"][0]["revision"] == 1
+        assert snapshot["benchmark_acceptance_reviews"] == []
+        assert snapshot["fingerprint"] == sha256_fingerprint({
+            key: value for key, value in snapshot.items() if key != "fingerprint"
+        })
