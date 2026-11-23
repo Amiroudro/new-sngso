@@ -12,6 +12,7 @@ _LOCK_KEY = 0x534E47534F504731  # Stable namespace key: "SNGSOPG1".
 _MIGRATIONS = (
     (1, "0001_audit_chain.sql"),
     (2, "0002_audit_head_guards.sql"),
+    (3, "0003_source_permission_domain_registry.sql"),
 )
 
 
