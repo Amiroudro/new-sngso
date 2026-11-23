@@ -118,3 +118,32 @@ def test_edition_readiness_keeps_language_rights_and_approval_gates_separate():
         assert field in script
     assert "atomic state transition and audit guarantees" in script
     assert "English and Bangla variants independently reviewed" in script
+
+
+def test_release_control_has_independent_preflight_gates_and_no_live_actions():
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    script = (ROOT / "studio.js").read_text(encoding="utf-8")
+    assert 'data-view="release"' in html
+    assert 'id="view-release"' in html
+    assert 'id="release-gate-list"' in html
+    assert 'id="release-overall-status"' in html
+    assert "function renderReleasePreflight()" in script
+    for gate in (
+        "Evidence and claim resolution",
+        "English and Bangla review",
+        "Operation-specific source rights",
+        "Approved immutable edition revision",
+        "Release authorization and audit readiness",
+    ):
+        assert gate in script
+    assert "fixture check passed; this is not a live verification" in script
+    for control_id in ("authorize-release", "publish-release"):
+        match = re.search(rf'<button[^>]*id="{re.escape(control_id)}"[^>]*>', html)
+        assert match is not None and "disabled" in match.group(0)
+
+
+def test_release_control_separates_approval_authorization_and_publication():
+    html = (ROOT / "apps" / "editorial-console" / "index.html").read_text(encoding="utf-8")
+    for label in ("Editorial approval", "Release authorization", "Publication", "Publisher service"):
+        assert label in html
+    assert "Role names and permissions are design examples" in html
