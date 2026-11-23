@@ -734,7 +734,7 @@ def test_postgres_benchmark_assignments_identity_attestations_and_scores_are_dur
             "WHERE assignment_id = 'assignment-1'"
         ).fetchall() == [(1, "curator-assign", "initial assignment")]
 
-        accepted_payload = {**assignment_payload, "status": "accepted"}
+        accepted_payload = {**assignment_payload, "status": "accepted", "accepted_at": "2026-11-23T00:00:30Z", "last_transition": {"actor": "reviewer-assign", "reason": "accepted assignment"}}
         connection.execute(
             "UPDATE benchmark_review_assignments SET status = 'accepted', revision = 2, "
             "payload_json = %s, updated_at = '2026-11-23T00:01:00Z', "
