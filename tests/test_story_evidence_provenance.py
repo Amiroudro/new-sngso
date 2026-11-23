@@ -807,3 +807,36 @@ def test_story_decision_application_ledger_is_unique_and_append_only():
         assert registry.verify_audit_chain()
     finally:
         registry.close()
+
+
+
+def test_story_decision_sql_boundary_rejects_direct_update_and_delete():
+    registry, _, _, article_a, _, _, article_b = _prepared_registry()
+    try:
+        _add_second_story(registry, [article_b])
+        decision = registry.add_domain_record(
+            "story_decision",
+            _story_decision(
+                "merge",
+                ["story:shared-event", "story:secondary"],
+                "story:shared-event",
+                [article_a, article_b],
+            ),
+        )
+
+        with pytest.raises(sqlite3.IntegrityError, match="story decisions are append-only"):
+            registry._connection.execute(
+                "UPDATE story_decisions SET rationale = 'forged' WHERE id = ?",
+                (decision.id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="story decisions are append-only"):
+            registry._connection.execute(
+                "DELETE FROM story_decisions WHERE id = ?",
+                (decision.id,),
+            )
+        assert registry.story_decision_history("story:shared-event") == [
+            decision.to_payload()
+        ]
+        assert registry.verify_audit_chain()
+    finally:
+        registry.close()
