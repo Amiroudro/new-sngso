@@ -3546,3 +3546,115 @@ def test_postgres_approved_benchmark_review_rechecks_live_source_permission(post
         assert report["eligible_for_current_use"] is False
         checks = {item["name"]: item["passed"] for item in report["checks"]}
         assert checks["current_source_permission"] is False
+
+
+def test_postgres_acceptance_quality_rechecks_exact_protocol_execution_and_review_coverage(postgres_schema):
+    from datetime import datetime, timezone
+    from sngso_engine.benchmark_study import validate_benchmark_study_protocol
+    from sngso_engine.benchmark_study_execution import validate_benchmark_study_execution
+    from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
+    from test_benchmark_study import _protocol
+    from test_benchmark_study_execution import _execution
+    from test_benchmark_acceptance_review import _review
+
+    connect = postgres_schema
+    stamp = "2026-11-23T00:00:00Z"
+    artifact_id = "artifact:bn:headlines"
+    artifact = {"artifact_id": artifact_id, "items": [{"id": "blind:1"}, {"id": "blind:2"}]}
+    artifact_fp = sha256_fingerprint(artifact)
+    protocol = _protocol()
+    protocol["benchmark_fingerprint"] = artifact_fp
+    protocol_report = validate_benchmark_study_protocol(protocol)
+    protocol_fp = protocol_report["protocol_fingerprint"]
+    protocol_id = "protocol-record:acceptance-test"
+    protocol["protocol_fingerprint"] = protocol_fp
+    execution = _execution()
+    execution.update({
+        "protocol_fingerprint": protocol_fp,
+        "benchmark_fingerprint": artifact_fp,
+    })
+    execution_report = validate_benchmark_study_execution(execution)
+    execution_fp = execution_report["execution_fingerprint"]
+    execution_id = execution["execution_id"]
+    review = _review()
+    review.update({
+        "study_id": protocol["study_id"],
+        "study_version": protocol["study_version"],
+        "protocol_fingerprint": protocol_fp,
+        "execution_id": execution_id,
+        "execution_fingerprint": execution_fp,
+        "benchmark_id": artifact_id,
+        "benchmark_fingerprint": artifact_fp,
+        "rubric_version": protocol["rubric_version"],
+        "reviewer_id": "acceptance:quality-test",
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+    })
+    acceptance_fp = sha256_fingerprint(review)
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO benchmark_artifacts "
+            "(artifact_id, language, canonicalization, content_fingerprint, content_json, "
+            "created_at, actor, reason) VALUES (%s, 'bn', 'canonical-json-v1', %s, %s, %s, "
+            "'fixture', 'acceptance quality test')",
+            (artifact_id, artifact_fp, json.dumps(artifact), stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, reason, "
+            "languages_json, principal_kind) VALUES "
+            "('methodologist:one', 'Methodologist', '[]', 1, %s, 'fixture', 'test', '[\"bn\"]', 'human'), "
+            "('acceptance:quality-test', 'Acceptance Reviewer', '[\"benchmark_acceptance_reviewer\"]', "
+            "1, %s, 'fixture', 'test', '[\"bn\"]', 'human')",
+            (stamp, stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_study_protocols "
+            "(protocol_record_id, study_id, study_version, benchmark_id, benchmark_fingerprint, "
+            "rubric_version, protocol_fingerprint, status, payload_json, created_at, actor, reason) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, 'protocol_only', %s, %s, 'fixture', 'test')",
+            (protocol_id, protocol["study_id"], protocol["study_version"], artifact_id,
+             artifact_fp, protocol["rubric_version"], protocol_fp, json.dumps(protocol), stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_study_executions "
+            "(execution_id, protocol_record_id, study_id, study_version, protocol_fingerprint, "
+            "benchmark_id, benchmark_fingerprint, rubric_version, execution_fingerprint, status, "
+            "methodologist_id, issuer, subject, provider_key_id, provider_adapter, authenticated_at, "
+            "payload_json, created_at, actor, reason) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'analysis_reviewed', "
+            "'methodologist:one', 'https://login.example.test/', 'oidc:methodologist:one', "
+            "'test-key', 'test-adapter/1', %s, %s, %s, 'fixture', 'test')",
+            (execution_id, protocol_id, execution["study_id"], execution["study_version"],
+             protocol_fp, artifact_id, artifact_fp, execution["rubric_version"], execution_fp,
+             stamp, json.dumps(execution), stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_acceptance_reviews "
+            "(review_id, execution_id, protocol_record_id, study_id, study_version, "
+            "protocol_fingerprint, execution_fingerprint, acceptance_fingerprint, benchmark_id, "
+            "benchmark_fingerprint, rubric_version, reviewer_id, reviewer_role, decision, issuer, "
+            "subject, provider_key_id, provider_adapter, authenticated_at, payload_json, created_at, "
+            "actor, reason) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+            "'independent_acceptance_reviewer', %s, 'https://login.example.test/', "
+            "'oidc:acceptance:quality-test', 'test-key', 'test-adapter/1', %s, %s, %s, "
+            "'fixture', 'test')",
+            (review["review_id"], execution_id, protocol_id, review["study_id"],
+             review["study_version"], protocol_fp, execution_fp, acceptance_fp, artifact_id,
+             artifact_fp, review["rubric_version"], review["reviewer_id"], review["decision"],
+             stamp, json.dumps(review), stamp),
+        )
+    with connect() as connection:
+        report = PostgresEditionRegistryReadView(connection.cursor()).benchmark_acceptance_review_quality_report(
+            review["review_id"]
+        )
+        checks = {item["name"]: item["passed"] for item in report["checks"]}
+        assert checks["acceptance_fingerprint"] is True
+        assert checks["registered_protocol"] is True
+        assert checks["registered_execution"] is True
+        assert checks["benchmark_artifact"] is True
+        assert checks["acceptance_contract"] is True
+        assert checks["accepted_decision"] is True
+        assert checks["current_human_source_reviews"] is False
+        assert report["eligible_for_scoped_reference"] is False
+        assert report["production_ready"] is False
+        assert report["authorization_granted"] is False
