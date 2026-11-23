@@ -2798,8 +2798,8 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
         assert lease["worker_id"] == "worker:read-view"
         assert lease["fencing_token"] == 1
         assert lease["history"][0]["revision"] == 1
-        from sngso_engine.registry import Registry
-        sqlite_registry = Registry(":memory:")
+        from sngso_engine.registry import SQLiteRegistry
+        sqlite_registry = SQLiteRegistry(":memory:")
         sqlite_registry._connection.execute(
             "INSERT INTO domain_records "
             "(record_type, id, revision, created_at, updated_at, payload_json, "
