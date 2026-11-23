@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -299,6 +299,102 @@ def test_postgres_collection_ingestion_provenance_and_current_pointer(postgres_s
             "SELECT decision_id FROM ingestion_current "
             "WHERE observation_id = 'observation-ingest'"
         ).fetchone() == ("decision-ingest",)
+
+
+
+def test_postgres_story_decisions_and_timeline_event_invariants(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json) "
+            "VALUES ('story', 'story-timeline', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "story-timeline", "status": "active", "article_ids": []}),),
+        )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json) "
+            "VALUES ('claim', 'claim-timeline', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "claim-timeline", "story_id": "story-timeline"}),),
+        )
+        connection.execute(
+            "INSERT INTO story_decisions "
+            "(id, operation, canonical_story_id, story_ids_json, article_ids_json, "
+            "decided_by, rationale, decided_at, payload_json) "
+            "VALUES ('story-decision-1', 'merge', 'story-timeline', %s, %s, "
+            "'editor', 'duplicate story records', '2026-11-23T00:00:00Z', %s)",
+            (json.dumps(["story-timeline"]), json.dumps([]),
+             json.dumps({"decision": "merge"})),
+        )
+        connection.execute(
+            "INSERT INTO story_decision_applications "
+            "(application_id, decision_id, applied_at, actor, rationale, "
+            "decision_fingerprint, impact_fingerprint, result_json) "
+            "VALUES ('story-application-1', 'story-decision-1', "
+            "'2026-11-23T00:00:01Z', 'editor', 'reviewed impact', %s, %s, %s)",
+            ("sha256:" + "c" * 64, "sha256:" + "d" * 64,
+             json.dumps({"applied": True})),
+        )
+        connection.execute(
+            "INSERT INTO timeline_events "
+            "(id, story_id, occurred_sort_key, precision, created_at, payload_json) "
+            "VALUES ('timeline-event-1', 'story-timeline', '2026-11-22', 'date', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({
+                "claim_ids": ["claim-timeline"],
+                "review_status": "approved",
+                "reviewed_at": "2026-11-23T00:00:00Z",
+                "reviewed_by": "reviewer",
+                "review_note": "Evidence checked"
+            }),),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="claims must belong to its story"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO timeline_events "
+                    "(id, story_id, precision, created_at, payload_json) "
+                    "VALUES ('timeline-event-bad', 'story-timeline', 'date', "
+                    "'2026-11-23T00:00:00Z', %s)",
+                    (json.dumps({"claim_ids": ["claim-not-in-story"]}),),
+                )
+        with pytest.raises(psycopg.errors.CheckViolation, match="requires reviewer"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO timeline_events "
+                    "(id, story_id, precision, created_at, payload_json) "
+                    "VALUES ('timeline-event-unreviewed', 'story-timeline', 'date', "
+                    "'2026-11-23T00:00:00Z', %s)",
+                    (json.dumps({
+                        "claim_ids": ["claim-timeline"],
+                        "review_status": "approved",
+                        "reviewed_by": "reviewer"
+                    }),),
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE story_decisions SET rationale = 'rewritten' "
+                "WHERE id = 'story-decision-1'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM story_decision_applications "
+                "WHERE application_id = 'story-application-1'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE timeline_events SET occurred_sort_key = '2026-11-24' "
+                "WHERE id = 'timeline-event-1'"
+            )
+        connection.rollback()
+        assert connection.execute(
+            "SELECT count(*) FROM timeline_events"
+        ).fetchone()[0] == 1
 
 
 def test_postgres_audit_append_serializes_independent_connections(postgres_schema):
