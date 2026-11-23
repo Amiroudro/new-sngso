@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql")]
 
 
 
@@ -1645,5 +1645,118 @@ def test_postgres_worker_leases_fence_reacquisition_and_preserve_history(postgre
             connection.execute(
                 "DELETE FROM pipeline_worker_lease_revisions "
                 "WHERE pipeline_run_id = 'lease-run' AND revision = 1"
+            )
+        connection.rollback()
+
+
+
+def test_postgres_edition_artifacts_and_human_approval_decisions_are_bound_and_immutable(postgres_schema):
+    connect = postgres_schema
+    fingerprint = "sha256:" + "a" * 64
+    manifest = {
+        "manifest_id": "manifest-edition-1",
+        "edition_id": "edition-1",
+        "edition_revision": 1,
+        "payload_sha256": fingerprint,
+        "target": "staging"
+    }
+    decision = {
+        "schema_version": "1.0.0",
+        "decision_id": "decision-edition-1",
+        "manifest_id": "manifest-edition-1",
+        "edition_id": "edition-1",
+        "edition_revision": 1,
+        "payload_sha256": fingerprint,
+        "decision": "approve",
+        "scope": "staging_candidate_review",
+        "principal_id": "approver-1",
+        "role": "edition_approver",
+        "decided_at": "2026-11-23T00:01:00Z",
+        "reason": "independent staging review",
+        "identity_attestation": {"issuer": "https://identity.example"},
+        "publication_authorized": False
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, reason, principal_kind) "
+            "VALUES ('approver-1', 'Human Approver', %s, 1, '2026-11-23T00:00:00Z', "
+            "'admin', 'test principal', 'human')",
+            (json.dumps(["edition_approver"]),),
+        )
+        connection.execute(
+            "INSERT INTO edition_artifacts "
+            "(manifest_id, edition_id, edition_revision, payload_sha256, payload_json, "
+            "manifest_json, verification_json, created_at, actor, reason) "
+            "VALUES ('manifest-edition-1', 'edition-1', 1, %s, %s, %s, %s, "
+            "'2026-11-23T00:00:00Z', 'verifier', 'freshly verified artifact')",
+            (
+                fingerprint,
+                json.dumps({"edition_id": "edition-1", "stories": []}),
+                json.dumps(manifest),
+                json.dumps({"verified": True, "publication_authorized": False}),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO edition_decisions "
+            "(decision_id, manifest_id, edition_id, edition_revision, payload_sha256, "
+            "decision, principal_id, decided_at, payload_json) "
+            "VALUES ('decision-edition-1', 'manifest-edition-1', 'edition-1', 1, %s, "
+            "'approve', 'approver-1', '2026-11-23T00:01:00Z', %s)",
+            (fingerprint, json.dumps(decision)),
+        )
+        assert connection.execute(
+            "SELECT decision, principal_id FROM edition_decisions "
+            "WHERE decision_id = 'decision-edition-1'"
+        ).fetchone() == ("approve", "approver-1")
+
+        inactive_decision = {
+            **decision, "decision_id": "decision-inactive",
+            "manifest_id": "manifest-edition-2", "principal_id": "inactive-approver"
+        }
+        manifest2 = {
+            **manifest, "manifest_id": "manifest-edition-2", "edition_revision": 2
+        }
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, reason, principal_kind) "
+            "VALUES ('inactive-approver', 'Inactive Approver', %s, 0, "
+            "'2026-11-23T00:00:00Z', 'admin', 'inactive test principal', 'human')",
+            (json.dumps(["edition_approver"]),),
+        )
+        connection.execute(
+            "INSERT INTO edition_artifacts "
+            "(manifest_id, edition_id, edition_revision, payload_sha256, payload_json, "
+            "manifest_json, verification_json, created_at, actor, reason) "
+            "VALUES ('manifest-edition-2', 'edition-1', 2, %s, %s, %s, %s, "
+            "'2026-11-23T00:00:00Z', 'verifier', 'second artifact')",
+            (
+                fingerprint,
+                json.dumps({"edition_id": "edition-1", "stories": []}),
+                json.dumps(manifest2),
+                json.dumps({"verified": True}),
+            ),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="active human approver"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO edition_decisions "
+                    "(decision_id, manifest_id, edition_id, edition_revision, payload_sha256, "
+                    "decision, principal_id, decided_at, payload_json) "
+                    "VALUES ('decision-inactive', 'manifest-edition-2', 'edition-1', 2, %s, "
+                    "'approve', 'inactive-approver', '2026-11-23T00:01:00Z', %s)",
+                    (fingerprint, json.dumps(inactive_decision)),
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE edition_artifacts SET reason = 'rewritten' "
+                "WHERE manifest_id = 'manifest-edition-1'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM edition_decisions WHERE decision_id = 'decision-edition-1'"
             )
         connection.rollback()
