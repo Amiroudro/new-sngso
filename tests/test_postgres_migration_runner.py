@@ -61,7 +61,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     connection = FakeConnection()
     applied = apply_postgres_migrations(connection)
 
-    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
+    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
     assert connection.commits == 1
     assert connection.rollbacks == 0
     sql = [statement[0] for statement in connection.db_cursor.statements]
@@ -85,6 +85,8 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     edition_snapshot_guard_sql = next(statement for statement in sql if "edition_domain_records_no_published_insert" in statement)
     release_authorization_sql = next(statement for statement in sql if "CREATE TABLE edition_release_authorizations" in statement)
     staging_sql = next(statement for statement in sql if "CREATE TABLE edition_staging_events" in statement)
+    final_guards_sql = next(statement for statement in sql if "CREATE FUNCTION validate_permission_grant_revision_insert" in statement)
+    domain_revision_sql = next(statement for statement in sql if "CREATE FUNCTION validate_domain_record_revision_update" in statement)
     assert "CREATE TABLE audit_chain_head" in migration_sql
     assert "audit_events_no_update" in migration_sql
     assert "audit_events_no_delete" in migration_sql
@@ -144,6 +146,10 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert "edition_staging_events_insert_guard" in staging_sql
     assert "edition_staging_state_update_guard" in staging_sql
     assert "staging event history is append-only" in staging_sql
+    assert "permission_grants_revision_guard" in final_guards_sql
+    assert "benchmark_review_assignment_status_transition_guard" in final_guards_sql
+    assert "domain_records_revision_guard" in domain_revision_sql
+    assert "domain_records_record_update" in domain_revision_sql
     assert connection.db_cursor.rows[0][0:2] == (1, "0001_audit_chain.sql")
     assert connection.db_cursor.rows[1][0:2] == (2, "0002_audit_head_guards.sql")
     assert connection.db_cursor.rows[2][0:2] == (3, "0003_source_permission_domain_registry.sql")
@@ -163,12 +169,14 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert connection.db_cursor.rows[16][0:2] == (17, "0017_edition_snapshot_guards.sql")
     assert connection.db_cursor.rows[17][0:2] == (18, "0018_edition_release_authorizations.sql")
     assert connection.db_cursor.rows[18][0:2] == (19, "0019_edition_staging_state.sql")
+    assert connection.db_cursor.rows[19][0:2] == (20, "0020_final_revision_and_assignment_guards.sql")
+    assert connection.db_cursor.rows[20][0:2] == (21, "0021_domain_record_revision_guards.sql")
     assert all(row[2].startswith("sha256:") for row in connection.db_cursor.rows)
 
     applied_again = apply_postgres_migrations(connection)
     assert applied_again == ()
     assert connection.commits == 2
-    assert len(connection.db_cursor.rows) == 19
+    assert len(connection.db_cursor.rows) == 21
 
 
 def test_postgres_migration_runner_rejects_modified_applied_migration():
