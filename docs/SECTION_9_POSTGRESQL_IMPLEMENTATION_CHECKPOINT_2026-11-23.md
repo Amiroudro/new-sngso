@@ -826,3 +826,35 @@ and schema-v36 inspection/artifact upload passed. The integration test now
 exercises the transaction-bound story history readers against an active
 registered story with empty event, perspective, relation, and decision
 histories.
+
+
+## Initial PostgreSQL story snapshot parity port
+
+Added `src/sngso_engine/postgres_story_snapshot.py`. It reconstructs the
+SQLite-compatible story snapshot under shared row locks for stories without
+benchmark-linked reviews. It ports the current story/article/claim/evidence
+snapshot, timeline, perspective and claim-relation histories, story decisions,
+learning objects, glossary entries, ingestion duplicate-review summary,
+source-independence caveat, perspective-attribution report, and the existing
+pure-Python narrative assembly. The final canonical fingerprint is generated
+with the same canonical JSON digest helper.
+
+The read view now uses this builder by default. If a story has benchmark
+reviews linked to its articles, it fails closed rather than fabricating an
+empty benchmark section. The verifier factory no longer requires an external
+story snapshot callback for this supported subset; a learning-object quality
+loader is still mandatory.
+
+[CI run #1648](https://github.com/Amiroudro/new-sngso/actions/runs/45226215835)
+passed **53 PostgreSQL integration tests in 9.99 seconds**, with contract
+validation and schema-v36 inspection generation/artifact upload passing. The
+new parity test compares the complete PostgreSQL snapshot and fingerprint
+against `SQLiteRegistry.story_editorial_snapshot()` for a minimal story with
+a linked draft learning object.
+
+**Remaining snapshot/verification limits:** the parity test does not yet
+cover populated article/claim/evidence/timeline/perspective/duplicate-review
+graphs. Benchmark-linked stories remain unsupported until the PostgreSQL
+benchmark review and acceptance-review quality reports are ported. The
+learning-object quality report is still not implemented, so the complete
+registry-backed staging re-verifier remains unavailable.
