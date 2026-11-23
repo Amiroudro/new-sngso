@@ -3936,3 +3936,54 @@ def test_staging_export_package_direct_sql_rejects_missing_keys_and_wrong_types(
         assert registry._connection.execute(
             "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
         ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    "forged_state",
+    [
+        {"state_revision": 2},
+        {"current_event_id": None, "current_export_id": None},
+        {"current_export_id": "export:forged"},
+        {"lkg_event_id": "event:state-guard", "lkg_export_id": "export:forged"},
+    ],
+)
+def test_staging_channel_state_direct_sql_rejects_nonmatching_event_pointers(
+    forged_state,
+):
+    with SQLiteRegistry() as registry:
+        event, package = _valid_staging_sql_fixture(registry)
+        event["event_id"] = "event:state-guard"
+        _insert_valid_staging_event(registry, event, package)
+        state = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        values = {
+            "channel": state["channel"],
+            "state_revision": 1,
+            "current_event_id": event["event_id"],
+            "current_export_id": event["export_id"],
+            "lkg_event_id": None,
+            "lkg_export_id": None,
+        }
+        values.update(forged_state)
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="staging state must advance atomically",
+        ):
+            registry._connection.execute(
+                """UPDATE edition_staging_channel_state
+                   SET state_revision = ?, current_event_id = ?, current_export_id = ?,
+                       lkg_event_id = ?, lkg_export_id = ?
+                   WHERE channel = 'staging'""",
+                (
+                    values["state_revision"], values["current_event_id"],
+                    values["current_export_id"], values["lkg_event_id"],
+                    values["lkg_export_id"],
+                ),
+            )
+        unchanged = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert unchanged["state_revision"] == 0
+        assert unchanged["current_event_id"] is None
+        assert unchanged["current_export_id"] is None
