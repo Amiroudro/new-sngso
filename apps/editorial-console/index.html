@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101b2b">
+  <title>Sarangsho Studio | Editorial Console</title>
+  <link rel="stylesheet" href="./studio.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <a class="brand" href="#overview" aria-label="Sarangsho Studio home">
+        <span class="brand-mark">স</span>
+        <span><strong>Sarangsho</strong><small>STUDIO</small></span>
+      </a>
+      <div class="workspace-label">WORKSPACE</div>
+      <nav id="primary-nav">
+        <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span>Overview</button>
+        <button class="nav-item" data-view="editions"><span class="nav-icon">▤</span>Editions</button>
+        <button class="nav-item" data-view="stories"><span class="nav-icon">◉</span>Stories</button>
+        <button class="nav-item" data-view="review"><span class="nav-icon">☷</span>Review queue <span class="nav-count">4</span></button>
+        <button class="nav-item" data-view="sources"><span class="nav-icon">◎</span>Sources & rights</button>
+        <button class="nav-item" data-view="operations"><span class="nav-icon">⌁</span>Operations</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="demo-note"><span class="pulse"></span><div><b>Prototype workspace</b><small>Local sample data only</small></div></div>
+        <div class="user-row"><div class="avatar">ED</div><div><b>Editorial desk</b><small>Demo account · read-only</small></div><span class="more">···</span></div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="breadcrumb"><span>Workspace</span><span class="slash">/</span><b id="crumb-current">Overview</b></div>
+        <div class="top-actions"><span class="env-pill"><i></i> DEMO ENVIRONMENT</span><button class="icon-button" aria-label="Notifications" title="Notifications">♧<em></em></button><div class="avatar small">ED</div></div>
+      </header>
+      <div class="content">
+        <div class="page-heading">
+          <div><p class="eyebrow" id="page-eyebrow">MONDAY, 23 NOVEMBER 2026</p><h1 id="page-title">Editorial overview</h1><p class="subheading" id="page-subtitle">A clear view of what is moving, what needs attention, and what is ready for review.</p></div>
+          <div class="heading-actions"><button class="button button-quiet" id="export-button">↓ <span>Export snapshot</span></button><button class="button button-primary" id="new-edition" disabled title="Requires a connected backend">＋ <span>New edition</span></button></div>
+        </div>
+
+        <div class="demo-banner"><span class="banner-icon">i</span><div><b>You're viewing a UI prototype</b><span>All figures and stories below are illustrative sample records. No source is being collected and no editorial action is being saved.</span></div><button id="dismiss-banner" aria-label="Dismiss notice">×</button></div>
+
+        <section class="view active" id="view-overview">
+          <div class="stat-grid">
+            <article class="stat-card"><div class="stat-top"><span>Active editions</span><span class="stat-icon violet">▤</span></div><strong>03</strong><small><span class="trend neutral">●</span> 1 in editorial review</small></article>
+            <article class="stat-card"><div class="stat-top"><span>Stories in progress</span><span class="stat-icon blue">◉</span></div><strong>28</strong><small><span class="trend positive">↗ 6</span> compared with previous cycle</small></article>
+            <article class="stat-card"><div class="stat-top"><span>Needs human review</span><span class="stat-icon amber">☷</span></div><strong>04</strong><small><span class="trend warning">● 2 high priority</span> awaiting a decision</small></article>
+            <article class="stat-card"><div class="stat-top"><span>Source permissions</span><span class="stat-icon green">◎</span></div><strong>92%</strong><small><span class="trend positive">●</span> illustrative registry coverage</small></article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="panel activity-panel">
+              <div class="panel-heading"><div><h2>Editorial pipeline</h2><p>Sample workload by current stage</p></div><button class="text-button" data-go="stories">View stories ↗</button></div>
+              <div class="pipeline">
+                <div class="pipeline-row"><div class="pipeline-label"><span class="dot slate"></span><span>Discovered</span><b>12</b></div><div class="track"><span style="width:42%"></span></div></div>
+                <div class="pipeline-row"><div class="pipeline-label"><span class="dot blue-dot"></span><span>Evidence review</span><b>08</b></div><div class="track"><span style="width:28%"></span></div></div>
+                <div class="pipeline-row"><div class="pipeline-label"><span class="dot amber-dot"></span><span>Editorial draft</span><b>05</b></div><div class="track"><span style="width:18%"></span></div></div>
+                <div class="pipeline-row"><div class="pipeline-label"><span class="dot green-dot"></span><span>Ready for approval</span><b>03</b></div><div class="track"><span style="width:11%"></span></div></div>
+              </div>
+              <div class="panel-foot"><span>28 sample stories across all stages</span><span class="muted">Not connected to a live pipeline</span></div>
+            </section>
+
+            <section class="panel attention-panel">
+              <div class="panel-heading"><div><h2>Needs attention</h2><p>Items that should not move forward automatically</p></div><span class="count-badge">4</span></div>
+              <div class="attention-list">
+                <div class="attention-item"><span class="attention-mark red">!</span><div><b>Conflicting casualty figures</b><small>Evidence review · Story S-024</small></div><span class="priority high">High</span></div>
+                <div class="attention-item"><span class="attention-mark amber">⌁</span><div><b>Bangla translation review</b><small>Language desk · Edition E-018</small></div><span class="priority medium">Medium</span></div>
+                <div class="attention-item"><span class="attention-mark amber">◷</span><div><b>Permission record expires soon</b><small>Source governance · SRC-009</small></div><span class="priority medium">Medium</span></div>
+                <div class="attention-item"><span class="attention-mark blue">?</span><div><b>Attribution needs clarification</b><small>Editorial review · Story S-019</small></div><span class="priority low">Low</span></div>
+              </div>
+              <button class="panel-link" data-go="review">Open review queue <span>→</span></button>
+            </section>
+          </div>
+
+          <section class="panel table-panel">
+            <div class="panel-heading"><div><h2>Recent editions</h2><p>Latest sample editorial packages</p></div><button class="text-button" data-go="editions">All editions ↗</button></div>
+            <div class="table-wrap"><table><thead><tr><th>EDITION</th><th>LANGUAGES</th><th>STORIES</th><th>LAST UPDATED</th><th>STATUS</th></tr></thead><tbody>
+              <tr><td><b>Morning briefing</b><small class="cell-sub">E-018 · 23 Nov 2026</small></td><td><span class="lang-tag">EN</span><span class="lang-tag">BN</span></td><td>12</td><td>09:42 AM</td><td><span class="status status-review">In review</span></td></tr>
+              <tr><td><b>Evening briefing</b><small class="cell-sub">E-017 · 22 Nov 2026</small></td><td><span class="lang-tag">EN</span><span class="lang-tag">BN</span></td><td>15</td><td>Yesterday</td><td><span class="status status-draft">Draft</span></td></tr>
+              <tr><td><b>Weekly explainer</b><small class="cell-sub">E-016 · 21 Nov 2026</small></td><td><span class="lang-tag">EN</span></td><td>08</td><td>21 Nov</td><td><span class="status status-ready">Ready for approval</span></td></tr>
+            </tbody></table></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-editions">
+          <div class="section-toolbar"><div class="filter-tabs"><button class="filter-tab selected">All editions <span>3</span></button><button class="filter-tab">In review</button><button class="filter-tab">Draft</button><button class="filter-tab">Approved</button></div><span class="muted">Sample records · actions disabled</span></div>
+          <div class="edition-grid">
+            <article class="edition-card"><div class="edition-cover cover-one"><span>DAILY BRIEFING</span><strong>23<span>NOV</span></strong><small>MONDAY EDITION</small></div><div class="edition-info"><div class="edition-title"><h3>Morning briefing</h3><span class="status status-review">In review</span></div><p>12 stories · English + Bangla</p><div class="edition-meta"><span>Updated 09:42 AM</span><span>E-018</span></div><button class="button button-quiet full-width" disabled>Open edition</button></div></article>
+            <article class="edition-card"><div class="edition-cover cover-two"><span>DAILY BRIEFING</span><strong>22<span>NOV</span></strong><small>SUNDAY EDITION</small></div><div class="edition-info"><div class="edition-title"><h3>Evening briefing</h3><span class="status status-draft">Draft</span></div><p>15 stories · English + Bangla</p><div class="edition-meta"><span>Updated yesterday</span><span>E-017</span></div><button class="button button-quiet full-width" disabled>Open edition</button></div></article>
+            <article class="edition-card"><div class="edition-cover cover-three"><span>WEEKLY EXPLAINER</span><strong>21<span>NOV</span></strong><small>WEEK 47</small></div><div class="edition-info"><div class="edition-title"><h3>Weekly explainer</h3><span class="status status-ready">Ready</span></div><p>8 stories · English</p><div class="edition-meta"><span>Updated 21 Nov</span><span>E-016</span></div><button class="button button-quiet full-width" disabled>Open edition</button></div></article>
+          </div>
+        </section>
+
+        <section class="view" id="view-stories">
+          <div class="list-toolbar"><label class="search-box"><span>⌕</span><input id="story-search" type="search" placeholder="Search stories, topics or IDs…" aria-label="Search stories"></label><select id="story-filter" aria-label="Filter by status"><option value="all">All statuses</option><option value="Evidence review">Evidence review</option><option value="Editorial draft">Editorial draft</option><option value="Ready for approval">Ready for approval</option></select></div>
+          <section class="panel table-panel"><div class="table-wrap"><table id="stories-table"><thead><tr><th>STORY</th><th>TOPIC</th><th>SOURCES</th><th>UPDATED</th><th>STAGE</th></tr></thead><tbody>
+            <tr data-status="Evidence review"><td><b>Central bank policy decision</b><small class="cell-sub">S-024 · Conflicting figures under review</small></td><td>Economy</td><td>4</td><td>23 Nov, 09:10</td><td><span class="status status-review">Evidence review</span></td></tr>
+            <tr data-status="Editorial draft"><td><b>Coastal resilience programme</b><small class="cell-sub">S-023 · Evidence linked</small></td><td>Climate</td><td>3</td><td>23 Nov, 08:45</td><td><span class="status status-draft">Editorial draft</span></td></tr>
+            <tr data-status="Ready for approval"><td><b>Public health budget allocation</b><small class="cell-sub">S-022 · Language review complete</small></td><td>Health</td><td>5</td><td>22 Nov, 18:20</td><td><span class="status status-ready">Ready for approval</span></td></tr>
+            <tr data-status="Evidence review"><td><b>Regional transport corridor</b><small class="cell-sub">S-019 · Attribution clarification needed</small></td><td>Infrastructure</td><td>2</td><td>22 Nov, 16:05</td><td><span class="status status-review">Evidence review</span></td></tr>
+          </tbody></table></div><div class="empty-state" id="stories-empty" hidden>No sample stories match this search.</div></section>
+        </section>
+
+        <section class="view" id="view-review">
+          <div class="review-intro"><div><h2>Human review is a release gate</h2><p>These sample issues require an explicit editorial decision. The prototype does not record approvals.</p></div><span class="status status-review">4 pending</span></div>
+          <div class="review-list">
+            <article class="review-card"><div class="review-type"><span class="attention-mark red">!</span><span>FACT CHECK · HIGH PRIORITY</span></div><h3>Conflicting casualty figures</h3><p>Two sample observations report materially different totals. The evidence record needs source attribution and a documented resolution or explicit disclosure.</p><div class="review-bottom"><span>Story S-024 · 4 source observations</span><button disabled class="button button-quiet">Review evidence</button></div></article>
+            <article class="review-card"><div class="review-type"><span class="attention-mark amber">⌁</span><span>LANGUAGE · MEDIUM PRIORITY</span></div><h3>Bangla translation review</h3><p>The Bangla variant is marked review-required. It must not inherit the English approval state.</p><div class="review-bottom"><span>Edition E-018 · bn-BD</span><button disabled class="button button-quiet">Review translation</button></div></article>
+            <article class="review-card"><div class="review-type"><span class="attention-mark amber">◷</span><span>RIGHTS · MEDIUM PRIORITY</span></div><h3>Permission record expires soon</h3><p>A sample source permission is approaching its review date. Collection and storage permissions must be evaluated separately.</p><div class="review-bottom"><span>Source SRC-009 · Permission review</span><button disabled class="button button-quiet">Inspect permission</button></div></article>
+            <article class="review-card"><div class="review-type"><span class="attention-mark blue">?</span><span>ATTRIBUTION · LOW PRIORITY</span></div><h3>Attribution needs clarification</h3><p>A claim's current locator does not make the underlying attribution clear enough for publication.</p><div class="review-bottom"><span>Story S-019 · Claim C-118</span><button disabled class="button button-quiet">Inspect claim</button></div></article>
+          </div>
+        </section>
+
+        <section class="view" id="view-sources">
+          <div class="rights-callout"><b>Rights are operation-specific.</b><span>A source being publicly accessible does not automatically grant permission to store full text, translate, retain images or republish.</span></div>
+          <section class="panel table-panel"><div class="panel-heading"><div><h2>Source permission register</h2><p>Illustrative records, not real publisher permissions</p></div><span class="status status-review">Demo only</span></div><div class="table-wrap"><table><thead><tr><th>SOURCE</th><th>DISCOVERY</th><th>METADATA</th><th>FULL TEXT</th><th>TRANSLATION</th><th>REVIEW DATE</th></tr></thead><tbody>
+            <tr><td><b>Sample Publisher A</b><small class="cell-sub">SRC-001</small></td><td><span class="permission yes">Allowed</span></td><td><span class="permission yes">Allowed</span></td><td><span class="permission no">Not granted</span></td><td><span class="permission no">Not granted</span></td><td>15 Dec 2026</td></tr>
+            <tr><td><b>Sample Publisher B</b><small class="cell-sub">SRC-009</small></td><td><span class="permission yes">Allowed</span></td><td><span class="permission yes">Allowed</span></td><td><span class="permission pending">Unknown</span></td><td><span class="permission pending">Unknown</span></td><td>28 Nov 2026</td></tr>
+            <tr><td><b>Sample Publisher C</b><small class="cell-sub">SRC-014</small></td><td><span class="permission pending">Unknown</span></td><td><span class="permission pending">Unknown</span></td><td><span class="permission no">Denied</span></td><td><span class="permission no">Denied</span></td><td>Not reviewed</td></tr>
+          </tbody></table></div></section>
+        </section>
+
+        <section class="view" id="view-operations">
+          <div class="ops-status"><span class="ops-indicator"></span><div><b>No live system connected</b><small>This panel is a visual design preview. It is not reading worker or pipeline health.</small></div><span class="status status-draft">Disconnected</span></div>
+          <div class="stat-grid ops-stats"><article class="stat-card"><div class="stat-top"><span>Pipeline runs</span><span class="stat-icon blue">⌁</span></div><strong>—</strong><small>No backend connection</small></article><article class="stat-card"><div class="stat-top"><span>Healthy workers</span><span class="stat-icon green">◉</span></div><strong>—</strong><small>No heartbeat data</small></article><article class="stat-card"><div class="stat-top"><span>Open incidents</span><span class="stat-icon amber">!</span></div><strong>—</strong><small>No incident feed</small></article><article class="stat-card"><div class="stat-top"><span>Last checkpoint</span><span class="stat-icon violet">◷</span></div><strong>—</strong><small>No checkpoint data</small></article></div>
+          <section class="panel"><div class="panel-heading"><div><h2>Operational controls</h2><p>Controls will require authenticated roles and server-side authorization.</p></div></div><div class="control-grid"><div><b>Run recovery</b><small>Resume only from a verified durable checkpoint.</small><button disabled class="button button-quiet">Recover run</button></div><div><b>Worker supervision</b><small>Inspect heartbeat, lease owner and fencing token.</small><button disabled class="button button-quiet">Inspect workers</button></div><div><b>Audit history</b><small>Append-only record of authorized operational actions.</small><button disabled class="button button-quiet">View audit log</button></div></div></section>
+        </section>
+
+        <footer class="page-footer"><span>© Sarangsho Studio · Product interface prototype</span><span>Backend not connected <i class="footer-dot"></i></span></footer>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="./studio.js"></script>
+</body>
+</html>
