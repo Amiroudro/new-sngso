@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql"), (19, "0019_edition_staging_state.sql")]
 
 
 
@@ -1893,3 +1893,143 @@ def test_postgres_edition_domain_snapshots_cannot_bypass_controlled_publication(
                     "DELETE FROM domain_records "
                     "WHERE record_type = 'edition' AND id = 'edition-draft'"
                 )
+
+
+
+def test_postgres_staging_event_binds_three_human_authorities_and_advances_state(postgres_schema):
+    connect = postgres_schema
+    fingerprint = "sha256:" + "c" * 64
+    export_fingerprint = "sha256:" + "d" * 64
+    manifest = {
+        "manifest_id": "manifest-stage-1", "edition_id": "edition-stage",
+        "edition_revision": 1, "payload_sha256": fingerprint
+    }
+    approval = {
+        "schema_version": "1.0.0", "decision_id": "decision-stage-1",
+        "manifest_id": "manifest-stage-1", "edition_id": "edition-stage",
+        "edition_revision": 1, "payload_sha256": fingerprint,
+        "decision": "approve", "scope": "staging_candidate_review",
+        "principal_id": "stage-approver", "role": "edition_approver",
+        "decided_at": "2026-11-23T00:01:00Z", "reason": "approved for staging",
+        "identity_attestation": {"issuer": "https://identity.example"},
+        "publication_authorized": False
+    }
+    authorization = {
+        "schema_version": "1.0.0", "authorization_id": "stage-release-auth",
+        "manifest_id": "manifest-stage-1", "edition_id": "edition-stage",
+        "edition_revision": 1, "payload_sha256": fingerprint,
+        "approval_decision_id": "decision-stage-1",
+        "approver_principal_id": "stage-approver",
+        "authorizer_principal_id": "stage-authorizer",
+        "authorized_at": "2026-11-23T00:02:00Z",
+        "scope": "controlled_release_gate", "release_authorized": True,
+        "publication_authorized": False
+    }
+    event_payload = {
+        "event_id": "stage-event-1", "state_revision": 1, "channel": "staging",
+        "operation": "promote", "manifest_id": "manifest-stage-1",
+        "edition_id": "edition-stage", "edition_revision": 1,
+        "payload_sha256": fingerprint, "export_id": "export-stage-1",
+        "export_sha256": export_fingerprint,
+        "previous_current_export_id": None, "lkg_export_id": None,
+        "operator_principal_id": "stage-operator",
+        "occurred_at": "2026-11-23T00:03:00Z", "reason": "first staging promotion",
+        "publication_authorized": False, "target": "staging",
+        "staging_decision": {
+            "decision_id": "decision-stage-1", "principal_id": "stage-approver"
+        },
+        "release_authorization": {
+            "authorization_id": "stage-release-auth",
+            "authorizer_principal_id": "stage-authorizer"
+        }
+    }
+    export_package = {
+        "export_id": "export-stage-1", "manifest_id": "manifest-stage-1",
+        "payload_sha256": fingerprint, "target": "staging",
+        "publication_authorized": False
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, reason, principal_kind) "
+            "VALUES ('stage-approver', 'Approver', %s, 1, '2026-11-23T00:00:00Z', 'admin', 'approver', 'human'), "
+            "('stage-authorizer', 'Authorizer', %s, 1, '2026-11-23T00:00:00Z', 'admin', 'authorizer', 'human'), "
+            "('stage-operator', 'Operator', %s, 1, '2026-11-23T00:00:00Z', 'admin', 'operator', 'human')",
+            (
+                json.dumps(["edition_approver"]),
+                json.dumps(["edition_release_authorizer"]),
+                json.dumps(["edition_staging_operator"])
+            ),
+        )
+        connection.execute(
+            "INSERT INTO edition_artifacts "
+            "(manifest_id, edition_id, edition_revision, payload_sha256, payload_json, "
+            "manifest_json, verification_json, created_at, actor, reason) "
+            "VALUES ('manifest-stage-1', 'edition-stage', 1, %s, %s, %s, %s, "
+            "'2026-11-23T00:00:00Z', 'verifier', 'verified staging candidate')",
+            (
+                fingerprint, json.dumps({"edition_id": "edition-stage"}),
+                json.dumps(manifest), json.dumps({"verified": True})
+            ),
+        )
+        connection.execute(
+            "INSERT INTO edition_decisions "
+            "(decision_id, manifest_id, edition_id, edition_revision, payload_sha256, "
+            "decision, principal_id, decided_at, payload_json) "
+            "VALUES ('decision-stage-1', 'manifest-stage-1', 'edition-stage', 1, %s, "
+            "'approve', 'stage-approver', '2026-11-23T00:01:00Z', %s)",
+            (fingerprint, json.dumps(approval)),
+        )
+        connection.execute(
+            "INSERT INTO edition_release_authorizations "
+            "(authorization_id, manifest_id, edition_id, edition_revision, payload_sha256, "
+            "approval_decision_id, approver_principal_id, authorizer_principal_id, "
+            "authorized_at, payload_json) "
+            "VALUES ('stage-release-auth', 'manifest-stage-1', 'edition-stage', 1, %s, "
+            "'decision-stage-1', 'stage-approver', 'stage-authorizer', "
+            "'2026-11-23T00:02:00Z', %s)",
+            (fingerprint, json.dumps(authorization)),
+        )
+        connection.execute(
+            "INSERT INTO edition_staging_events "
+            "(event_id, state_revision, channel, operation, manifest_id, edition_id, "
+            "edition_revision, payload_sha256, export_id, export_sha256, "
+            "previous_current_export_id, lkg_export_id, operator_principal_id, "
+            "occurred_at, reason, export_package_json, payload_json) "
+            "VALUES ('stage-event-1', 1, 'staging', 'promote', 'manifest-stage-1', "
+            "'edition-stage', 1, %s, 'export-stage-1', %s, NULL, NULL, "
+            "'stage-operator', '2026-11-23T00:03:00Z', 'first staging promotion', %s, %s)",
+            (
+                fingerprint, export_fingerprint,
+                json.dumps(export_package), json.dumps(event_payload)
+            ),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="staging state must advance atomically"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE edition_staging_channel_state SET state_revision = 2, "
+                    "current_event_id = 'stage-event-1', current_export_id = 'export-stage-1' "
+                    "WHERE channel = 'staging'"
+                )
+        connection.execute(
+            "UPDATE edition_staging_channel_state SET state_revision = 1, "
+            "current_event_id = 'stage-event-1', current_export_id = 'export-stage-1' "
+            "WHERE channel = 'staging'"
+        )
+        assert connection.execute(
+            "SELECT state_revision, current_event_id, current_export_id "
+            "FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone() == (1, "stage-event-1", "export-stage-1")
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE edition_staging_events SET reason = 'rewritten' "
+                "WHERE event_id = 'stage-event-1'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM edition_staging_channel_state WHERE channel = 'staging'"
+            )
+        connection.rollback()
