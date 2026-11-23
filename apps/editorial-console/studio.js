@@ -85,6 +85,177 @@
     "S-022": {title:"Public health budget allocation", topic:"Health · Ready for approval", summary:"Sample story about a public health budget allocation. The prototype status is not a real editorial approval.", en:"Ready for human approval", bn:"Language review marked complete · separate approval required", source:"Five illustrative observations are represented. Verify the budget document, allocation category and whether amounts are proposed or approved.", claims:["C-181 · Allocation amount: check the approved budget document.","C-182 · Status: distinguish proposal from final appropriation."]},
     "S-019": {title:"Regional transport corridor", topic:"Infrastructure · Evidence review", summary:"Sample story about a regional transport corridor. Attribution is not sufficiently clear to support publication.", en:"Draft · attribution blocked", bn:"Not started · do not inherit English status", source:"Two illustrative observations are attached. The cited locator does not identify the responsible speaker or document clearly enough.", claims:["C-118 · Attribution: identify the original speaker or issuing body.","C-119 · Route description: confirm endpoints against the primary source."]}
   };
+  const observations = {
+  "S-024": [
+    {
+      "claim": "C-206 · Reported total",
+      "ref": "OBS-024-A",
+      "value": "18 (fictional)",
+      "attribution": "Sample Publisher A · article body",
+      "assessment": "Conflicts with OBS-024-B",
+      "kind": "conflict"
+    },
+    {
+      "claim": "C-206 · Reported total",
+      "ref": "OBS-024-B",
+      "value": "23 (fictional)",
+      "attribution": "Sample Publisher B · live update",
+      "assessment": "Conflicts with OBS-024-A",
+      "kind": "conflict"
+    },
+    {
+      "claim": "C-204 · Policy rate",
+      "ref": "OBS-024-C",
+      "value": "Not stated",
+      "attribution": "Sample Publisher C · headline only",
+      "assessment": "Insufficient for claim",
+      "kind": "warning"
+    },
+    {
+      "claim": "C-205 · Effective date",
+      "ref": "OBS-024-D",
+      "value": "Date not verified",
+      "attribution": "Unverified secondary reference",
+      "assessment": "Primary record required",
+      "kind": "warning"
+    }
+  ],
+  "S-023": [
+    {
+      "claim": "C-193 · Programme scope",
+      "ref": "OBS-023-A",
+      "value": "Coastal districts (unverified)",
+      "attribution": "Sample Publisher A · article body",
+      "assessment": "Needs primary-source check",
+      "kind": "warning"
+    },
+    {
+      "claim": "C-193 · Programme scope",
+      "ref": "OBS-023-B",
+      "value": "Region not specified",
+      "attribution": "Sample Publisher B · summary",
+      "assessment": "Scope remains unclear",
+      "kind": "warning"
+    },
+    {
+      "claim": "C-194 · Funding period",
+      "ref": "OBS-023-C",
+      "value": "Fiscal period not stated",
+      "attribution": "Sample Publisher C · article body",
+      "assessment": "Do not infer period",
+      "kind": "warning"
+    }
+  ],
+  "S-022": [
+    {
+      "claim": "C-181 · Allocation amount",
+      "ref": "OBS-022-A",
+      "value": "Amount omitted from fixture",
+      "attribution": "Sample Publisher A · budget report",
+      "assessment": "Check primary budget",
+      "kind": "warning"
+    },
+    {
+      "claim": "C-181 · Allocation amount",
+      "ref": "OBS-022-B",
+      "value": "Different scope; not comparable",
+      "attribution": "Sample Publisher B · analysis",
+      "assessment": "Do not combine totals",
+      "kind": "conflict"
+    },
+    {
+      "claim": "C-182 · Approval status",
+      "ref": "OBS-022-C",
+      "value": "Proposed / approved unclear",
+      "attribution": "Sample Publisher C · report",
+      "assessment": "Status not established",
+      "kind": "warning"
+    }
+  ],
+  "S-019": [
+    {
+      "claim": "C-118 · Attribution",
+      "ref": "OBS-019-A",
+      "value": "Speaker not identified",
+      "attribution": "Sample Publisher A · quoted passage",
+      "assessment": "Attribution blocked",
+      "kind": "warning"
+    },
+    {
+      "claim": "C-119 · Route endpoints",
+      "ref": "OBS-019-B",
+      "value": "Endpoints not verified",
+      "attribution": "Sample Publisher B · map reference",
+      "assessment": "Primary project document required",
+      "kind": "warning"
+    }
+  ]
+};
+  const decisionHistory = {
+  "S-024": [
+    [
+      "09:10",
+      "Story created",
+      "Sample ingestion event"
+    ],
+    [
+      "09:14",
+      "Evidence attached",
+      "Four fictional observations linked"
+    ],
+    [
+      "09:18",
+      "Conflict flagged",
+      "Claim C-206 held for human review"
+    ]
+  ],
+  "S-023": [
+    [
+      "08:45",
+      "Story created",
+      "Sample ingestion event"
+    ],
+    [
+      "08:52",
+      "Evidence linked",
+      "Three fictional observations attached"
+    ],
+    [
+      "09:02",
+      "Draft opened",
+      "Primary-source checks outstanding"
+    ]
+  ],
+  "S-022": [
+    [
+      "18:20",
+      "Story created",
+      "Sample ingestion event"
+    ],
+    [
+      "18:31",
+      "Language review marked",
+      "English and Bangla states kept separate"
+    ],
+    [
+      "18:40",
+      "Approval gate reached",
+      "Human approval still required"
+    ]
+  ],
+  "S-019": [
+    [
+      "16:05",
+      "Story created",
+      "Sample ingestion event"
+    ],
+    [
+      "16:12",
+      "Claim flagged",
+      "Attribution for C-118 unclear"
+    ]
+  ]
+};
   const dialog = document.getElementById("story-detail-dialog");
   function openStory(storyId) {
     const story = storyDetails[storyId];
@@ -95,6 +266,36 @@
     document.getElementById("story-en-state").textContent = story.en;
     document.getElementById("story-bn-state").textContent = story.bn;
     document.getElementById("story-source-note").textContent = story.source;
+    const observationRows = document.getElementById("story-observation-rows");
+    observationRows.replaceChildren(...(observations[storyId] || []).map(record => {
+      const row = document.createElement("tr");
+      [record.claim, record.ref, record.value, record.attribution].forEach(value => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.appendChild(cell);
+      });
+      const assessment = document.createElement("td");
+      const tag = document.createElement("span");
+      tag.className = "evidence-assessment " + record.kind;
+      tag.textContent = record.assessment;
+      assessment.appendChild(tag);
+      row.appendChild(assessment);
+      return row;
+    }));
+    const history = document.getElementById("story-decision-history");
+    history.replaceChildren(...(decisionHistory[storyId] || []).map(([time, title, detail]) => {
+      const item = document.createElement("li");
+      const stamp = document.createElement("time");
+      stamp.textContent = time;
+      const content = document.createElement("div");
+      const heading = document.createElement("b");
+      heading.textContent = title;
+      const note = document.createElement("span");
+      note.textContent = detail;
+      content.append(heading, note);
+      item.append(stamp, content);
+      return item;
+    }));
     const list = document.getElementById("story-claim-list");
     list.replaceChildren(...story.claims.map(claim => {
       const item = document.createElement("li");
