@@ -283,6 +283,8 @@ def stage_edition_export(
             if cursor.fetchone() is not None:
                 raise PostgresStagingError("an export may be promoted only once")
         else:
+            if current_export_id == export_id:
+                raise PostgresStagingError("rollback target is already the current staging export")
             cursor.execute(
                 """SELECT manifest_id, payload_sha256, export_sha256
                    FROM edition_staging_events
