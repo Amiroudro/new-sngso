@@ -4060,7 +4060,7 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
                 restricted.execute(
                     "UPDATE benchmark_principals SET principal_id = 'tampered-principal' "
                     "WHERE principal_id = %s",
-                    (identity["principal_id"],),
+                    ("principal:atomic-operator",),
                 )
     finally:
         if schema_name is not None:
