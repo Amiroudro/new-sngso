@@ -17,6 +17,7 @@ _MIGRATIONS = (
     (5, "0005_story_timeline.sql"),
     (6, "0006_perspectives_claim_relations.sql"),
     (7, "0007_learning_glossary_revisions.sql"),
+    (8, "0008_benchmark_review_core.sql"),
 )
 
 
