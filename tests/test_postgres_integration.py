@@ -4226,3 +4226,91 @@ def test_postgres_approved_supported_learning_quality_report_matches_sqlite(post
 
     assert sqlite_report["meets_registry_quality_gates"] is True
     assert postgres_report == sqlite_report
+
+
+def test_postgres_bilingual_learning_variants_keep_independent_review_states(postgres_schema):
+    connect = postgres_schema
+    stamp = "2026-11-23T00:00:00Z"
+    story_id = "story:variant-independence"
+    variant_group = "variant:briefing-001"
+    story = {
+        "id": story_id, "status": "developing", "canonical_title": "Variant test",
+        "article_ids": [], "created_at": stamp, "updated_at": stamp,
+    }
+    bn = {
+        "schema_version": "1.0.0", "id": "learning:variant-bn",
+        "story_id": story_id, "kind": "brief_summary", "language": "bn",
+        "status": "draft", "variant_group_id": variant_group,
+        "content": {"text": "বাংলা সারাংশ।", "segments": []},
+        "claim_ids": [], "created_at": stamp,
+    }
+    en = {
+        "schema_version": "1.0.0", "id": "learning:variant-en",
+        "story_id": story_id, "kind": "brief_summary", "language": "en",
+        "status": "draft", "variant_group_id": variant_group,
+        "content": {"text": "English summary.", "segments": []},
+        "claim_ids": [], "created_at": stamp,
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('story', %s, 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (story_id, stamp, stamp, json.dumps(story), stamp),
+        )
+        for payload in (bn, en):
+            connection.execute(
+                "INSERT INTO learning_objects "
+                "(id, story_id, kind, language, variant_group_id, status, revision, "
+                "created_at, updated_at, last_actor, last_reason, payload_json) "
+                "VALUES (%s, %s, 'brief_summary', %s, %s, 'draft', 1, %s, %s, "
+                "'fixture', 'variant draft', %s)",
+                (payload["id"], story_id, payload["language"], variant_group,
+                 stamp, stamp, json.dumps(payload)),
+            )
+
+    duplicate = {**bn, "id": "learning:variant-bn-duplicate"}
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            connection.execute(
+                "INSERT INTO learning_objects "
+                "(id, story_id, kind, language, variant_group_id, status, revision, "
+                "created_at, updated_at, last_actor, last_reason, payload_json) "
+                "VALUES (%s, %s, 'brief_summary', 'bn', %s, 'draft', 1, %s, %s, "
+                "'fixture', 'duplicate variant', %s)",
+                (duplicate["id"], story_id, variant_group, stamp, stamp, json.dumps(duplicate)),
+            )
+
+    approved_bn = {
+        **bn, "status": "approved", "reviewed_at": "2026-11-23T01:00:00Z",
+        "reviewed_by": "reviewer:bn",
+        "review_note": "The Bangla variant was reviewed independently.",
+        "language_review": {
+            "language": "bn", "rubric_version": "bn-editorial-v1",
+            "reviewer_id": "reviewer:bn", "reviewed_at": "2026-11-23T01:00:00Z",
+            "note": "The exact language-specific rubric was reviewed.",
+            "dimensions": {
+                "grammar_and_spelling": "pass",
+                "naturalness_and_register": "pass",
+                "terminology_consistency": "pass",
+                "factual_fidelity": "pass",
+                "attribution": "pass",
+                "omissions": "pass",
+                "translation_fidelity": "pass",
+            },
+        },
+    }
+    with connect() as connection:
+        connection.execute(
+            "UPDATE learning_objects SET status = 'approved', revision = 2, "
+            "updated_at = %s, last_actor = 'reviewer:bn', "
+            "last_reason = 'Approve Bangla variant', payload_json = %s WHERE id = %s",
+            ("2026-11-23T01:00:00Z", json.dumps(approved_bn), bn["id"]),
+        )
+        states = dict(connection.execute(
+            "SELECT language, status FROM learning_objects "
+            "WHERE variant_group_id = %s ORDER BY language",
+            (variant_group,),
+        ).fetchall())
+        assert states == {"bn": "approved", "en": "draft"}
