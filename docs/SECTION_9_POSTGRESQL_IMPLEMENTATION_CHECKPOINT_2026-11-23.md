@@ -809,3 +809,20 @@ table contract.
 [CI run #1634](https://github.com/Amiroudro/new-sngso/actions/runs/45225012372)
 passed **53 PostgreSQL integration tests in 11.21 seconds**. Contract
 validation and schema-v36 inspection/artifact upload passed.
+
+
+The story read surface has also been extended with transaction-bound readers
+for timeline-event history, perspective history, claim-relation history, and
+story merge/split decisions. They retain superseded records and derive the
+same supersession flags as the SQLite registry helpers. These are building
+blocks for the full editorial snapshot; reporting-independence and source-
+independence report parity, benchmark quality reports, narrative assembly,
+and the canonical snapshot fingerprint are still not implemented in
+PostgreSQL.
+
+[CI run #1640](https://github.com/Amiroudro/new-sngso/actions/runs/45225308597)
+passed **53 PostgreSQL integration tests in 9.46 seconds**. Contract validation
+and schema-v36 inspection/artifact upload passed. The integration test now
+exercises the transaction-bound story history readers against an active
+registered story with empty event, perspective, relation, and decision
+histories.
