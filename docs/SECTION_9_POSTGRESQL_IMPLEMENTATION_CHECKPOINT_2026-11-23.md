@@ -82,3 +82,23 @@ and staging-channel head; insert the immutable staging event; advance the
 staging state by revision CAS; append the global audit event; and commit once.
 Independent-connection contention and injected failures at every write
 boundary must prove that no partial state can survive.
+
+
+## Follow-up: default-privilege boundary
+
+A fourth real-PostgreSQL integration case now creates a non-owner, non-login
+reader role, grants schema usage and SELECT on audit events only, and verifies
+that UPDATE, DELETE, and TRUNCATE are denied on both audit tables. The role
+also cannot directly update the singleton chain head. This test passed in
+GitHub Actions [run #1512](https://github.com/Amiroudro/new-sngso/actions/runs/45182064103).
+
+Run #1512 passed:
+- PostgreSQL 16 integration job: **23 passed in 1.26 seconds**.
+- Contract/SQLite job: completed successfully, including the schema-v36
+  inspection artifact upload.
+
+This verifies the default denied-mutation posture for a read-only role. It
+does not define or prove the production writer role, because the append path
+currently requires a controlled chain-head update. A production writer-role
+design must allow the intended append operation without granting arbitrary
+direct mutation of audit history or an unguarded chain-head rewrite.
