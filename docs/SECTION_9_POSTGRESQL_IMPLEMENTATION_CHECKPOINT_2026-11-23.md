@@ -644,3 +644,53 @@ performs the event/state change, and appends the global audit event together
 is still outstanding. Production database role provisioning, least-privilege
 tests, concurrency races, failure injection, migration recovery, and the
 browser UI's eventual backend integration remain outstanding as well.
+
+
+## Atomic PostgreSQL staging transaction service
+
+Added `src/sngso_engine/postgres_edition_staging.py` with
+`stage_edition_export()`. It requires an expected channel-state revision,
+a trusted `AuthenticatedIdentity`, and a mandatory internal export re-verifier.
+The service runs through `run_atomic()` and:
+
+1. Locks the staging channel state row and rejects stale expected revisions.
+2. Locks and rechecks the stored artifact's canonical payload fingerprint and
+   manifest contract.
+3. Locks the immutable approval and independent release authorization and
+   checks their exact artifact bindings.
+4. Locks and rechecks the active human approver, authorizer, and staging
+   operator roles; all three authorities must be distinct.
+5. Calls the mandatory export re-verifier with the same transaction cursor,
+   checks the complete staging-export contract and exact artifact/authority
+   bindings, and fingerprints the returned package.
+6. Inserts the append-only staging event, advances the channel state using a
+   compare-and-swap update, and appends the global audit event before commit.
+
+Promotion rejects an already promoted export. Rollback requires the exact
+fingerprint of an earlier promoted export. The staging event and global audit
+event use distinct durable IDs. Exceptions from any stage abort the same
+transaction.
+
+GitHub Actions
+[run #1618](https://github.com/Amiroudro/new-sngso/actions/runs/45222987208)
+passed:
+- PostgreSQL 16 integration suite: **49 passed in 7.63 seconds**.
+- Contract validation: passed.
+- Schema-v36 inspection generation and artifact upload: passed.
+
+New integration coverage verifies that a successful operation commits event,
+state, and audit head together; an injected audit append failure rolls back
+the event and state; stale state is rejected before export re-verification;
+and two competing promotions using the same expected revision serialize so
+exactly one commits.
+
+**Remaining boundary:** the re-verifier is a required trusted application
+callback. It must perform the full PostgreSQL registry-backed revalidation
+of the edition, pipeline run, story snapshots, bilingual learning objects,
+source endpoints, grants, and permission evidence, and must lock every row it
+relies on with `FOR SHARE` (or stronger) for the transaction duration. The
+PostgreSQL read adapter that implements those checks has not yet been built
+or connected. Therefore this commit establishes and tests the atomic write
+boundary, but it is not yet a production-ready end-to-end staging integration.
+Identity-provider wiring, database least-privilege provisioning, and
+additional rollback-path and adversarial failure tests remain open.
