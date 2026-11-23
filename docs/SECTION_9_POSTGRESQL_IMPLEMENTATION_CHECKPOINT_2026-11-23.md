@@ -350,3 +350,35 @@ specialized learning evidence rules, pipeline runs, durable stage checkpoints,
 leases, edition/release records, production runtime-role provisioning, and
 the atomic staging transaction remain outstanding. The full schema-v36
 PostgreSQL consistency boundary is not complete.
+
+
+## Follow-up: benchmark assignments, identity attestations, and scores
+
+PostgreSQL migration 0009, `0009_benchmark_assignments_identity_scores.sql`,
+ports SQLite migrations 17, 19, and 20. The benchmark principal language and
+classification fields from SQLite migrations 17-18 were already included in
+PostgreSQL migration 0008, avoiding duplicate schema alterations.
+
+The migration adds reviewer assignments bound to immutable artifact identity,
+a partial unique index preventing more than one active assignment for the same
+reviewer and artifact, sequential revision enforcement, and automatic
+append-only assignment revision snapshots. It adds immutable identity
+attestations uniquely bound to a review revision and principal, plus immutable
+per-item scores with an assignment/item uniqueness constraint and payload to
+indexed-column consistency checks.
+
+Integration tests cover initial and subsequent assignment snapshots, active
+assignment collision, duplicate identity attestation, duplicate score,
+attestation mutation, score deletion, and assignment revision deletion.
+
+GitHub Actions [run #1563](https://github.com/Amiroudro/new-sngso/actions/runs/45216122496)
+passed:
+- PostgreSQL 16 integration suite: **35 passed in 3.28 seconds**.
+- Contract validation: passed.
+- Schema-v36 inspection generation and artifact upload: passed.
+
+This ports the assignment/identity/score storage layer, not the complete
+benchmark workflow. Benchmark study protocols, executions, acceptance reviews,
+specialized learning evidence rules, pipeline runs/checkpoints/leases,
+edition/release records, production runtime-role provisioning, and atomic
+staging remain outstanding. No live operations were performed.
