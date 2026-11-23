@@ -3994,6 +3994,9 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
         with connect() as writer:
             writer.autocommit = True
             writer.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(role_name)))
+            writer.execute(
+                sql.SQL("SET search_path TO {}").format(sql.Identifier(schema_name))
+            )
             result = stage_edition_export(
                 writer,
                 manifest_id="manifest:atomic",
@@ -4011,6 +4014,9 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
         with connect() as restricted:
             restricted.autocommit = True
             restricted.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(role_name)))
+            restricted.execute(
+                sql.SQL("SET search_path TO {}").format(sql.Identifier(schema_name))
+            )
             denied = (
                 "UPDATE audit_events SET event_type = 'tampered' WHERE false",
                 "DELETE FROM audit_events WHERE false",
