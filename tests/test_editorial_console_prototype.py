@@ -136,7 +136,7 @@ def test_release_control_has_independent_preflight_gates_and_no_live_actions():
         "Release authorization and audit readiness",
     ):
         assert gate in script
-    assert "fixture check passed; this is not a live verification" in script
+    assert "Fixture check passed; this is not a live verification." in script
     for control_id in ("authorize-release", "publish-release"):
         match = re.search(rf'<button[^>]*id="{re.escape(control_id)}"[^>]*>', html)
         assert match is not None and "disabled" in match.group(0)
