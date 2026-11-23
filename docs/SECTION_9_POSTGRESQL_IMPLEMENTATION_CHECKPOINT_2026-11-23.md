@@ -118,3 +118,35 @@ passed on the corrected code head:
   single skip is expected because the general job does not install the
   optional psycopg driver; the dedicated PostgreSQL job runs those tests.
 - Schema-v36 inspection completed and uploaded successfully.
+
+
+## Follow-up: database-enforced audit-head transitions
+
+PostgreSQL migration 0002, `0002_audit_head_guards.sql`, adds defensive database
+guards around the audit append protocol:
+
+- An inserted event must extend the currently locked chain head by exactly one
+  sequence and carry that head's hash as its predecessor.
+- A chain-head update must advance exactly one sequence and match the event
+  inserted at that sequence, including its predecessor link.
+- The chain-head row cannot be deleted.
+
+A restricted non-owner role is now integration-tested with only schema usage,
+SELECT/INSERT on audit events, and SELECT/UPDATE on the chain head. It can
+append through the normal application writer, but direct head reset, head
+deletion, and skipped-sequence insertion are rejected.
+
+GitHub Actions [run #1526](https://github.com/Amiroudro/new-sngso/actions/runs/45210381447)
+passed on commit `2cd8666e42140a34e2330272fcb699d7ca591213`:
+- PostgreSQL 16 integration: **27 passed in 1.17 seconds**.
+- Contract/SQLite validation: completed successfully.
+- Live schema-v36 inspection and artifact upload: completed successfully.
+
+Security boundary still outstanding: migration 0002 enforces append ordering
+and predecessor consistency, but it does not independently recompute the
+application's canonical SHA-256 event digest inside PostgreSQL. The restricted
+writer is therefore an authorized append principal, not an untrusted SQL
+principal. Production role provisioning, credential separation, ownership,
+default privileges, and the complete registry's privilege matrix still need
+a reviewed implementation. This is not the complete runtime-role model and
+does not complete the full schema-v36 port or staging transaction.
