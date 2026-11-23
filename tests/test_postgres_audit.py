@@ -104,4 +104,4 @@ def test_append_rejects_non_finite_json_numbers():
             cursor, event_id="e", event_type="t", entity_type="x",
             entity_id="y", occurred_at="now", payload={"bad": float("nan")},
         )
-    assert len(cursor.statements) == 1
+    assert cursor.statements == []
