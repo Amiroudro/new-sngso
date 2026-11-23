@@ -61,7 +61,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     connection = FakeConnection()
     applied = apply_postgres_migrations(connection)
 
-    assert applied == (1, 2, 3)
+    assert applied == (1, 2, 3, 4)
     assert connection.commits == 1
     assert connection.rollbacks == 0
     sql = [statement[0] for statement in connection.db_cursor.statements]
@@ -69,6 +69,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     migration_sql = next(statement for statement in sql if "CREATE TABLE audit_events" in statement)
     guard_sql = next(statement for statement in sql if "guard_audit_event_insert" in statement)
     registry_sql = next(statement for statement in sql if "CREATE TABLE sources" in statement)
+    ingestion_sql = next(statement for statement in sql if "CREATE TABLE collection_observations" in statement)
     assert "CREATE TABLE audit_chain_head" in migration_sql
     assert "audit_events_no_update" in migration_sql
     assert "audit_events_no_delete" in migration_sql
@@ -79,15 +80,20 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert "CREATE TABLE domain_record_revisions" in registry_sql
     assert "ON DELETE RESTRICT" in registry_sql
     assert "domain_record_revisions_no_update" in registry_sql
+    assert "CREATE TABLE ingestion_decisions" in ingestion_sql
+    assert "CREATE TABLE ingestion_current" in ingestion_sql
+    assert "validate_ingestion_decision" in ingestion_sql
+    assert "collection_observations_no_update" in ingestion_sql
     assert connection.db_cursor.rows[0][0:2] == (1, "0001_audit_chain.sql")
     assert connection.db_cursor.rows[1][0:2] == (2, "0002_audit_head_guards.sql")
     assert connection.db_cursor.rows[2][0:2] == (3, "0003_source_permission_domain_registry.sql")
+    assert connection.db_cursor.rows[3][0:2] == (4, "0004_collection_ingestion.sql")
     assert all(row[2].startswith("sha256:") for row in connection.db_cursor.rows)
 
     applied_again = apply_postgres_migrations(connection)
     assert applied_again == ()
     assert connection.commits == 2
-    assert len(connection.db_cursor.rows) == 3
+    assert len(connection.db_cursor.rows) == 4
 
 
 def test_postgres_migration_runner_rejects_modified_applied_migration():
