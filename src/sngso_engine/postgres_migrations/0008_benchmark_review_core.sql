@@ -179,7 +179,8 @@ CREATE TABLE benchmark_adjudications (
     payload_json text NOT NULL CHECK (payload_json::jsonb IS NOT NULL),
     created_at text NOT NULL,
     actor text NOT NULL,
-    reason text NOT NULL
+    reason text NOT NULL,
+    UNIQUE (benchmark_id)
 );
 CREATE FUNCTION validate_benchmark_adjudication_insert()
 RETURNS trigger LANGUAGE plpgsql AS $$
