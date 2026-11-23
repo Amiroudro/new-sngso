@@ -2777,7 +2777,9 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             match="source indexed fields do not match payload",
         ):
             view.get_source(source_id)
-        assert view.get_pipeline_run(pipeline_id)["record"] == pipeline_payload
+        pipeline_read = view.get_pipeline_run(pipeline_id)
+        assert pipeline_read["record"] == pipeline_payload
+        assert pipeline_read["history"][0]["revision"] == 1
         checkpoints = view.get_pipeline_stage_checkpoints(pipeline_id)
         assert len(checkpoints) == 1
         assert checkpoints[0]["stage_name"] == "collect"
