@@ -250,3 +250,32 @@ passed:
 The full story/perspective/claim-relations and learning/benchmark/pipeline/
 edition registry families remain outstanding; this migration is not a complete
 schema-v36 port and does not complete production privileges or atomic staging.
+
+
+## Follow-up: perspectives and claim relationships
+
+PostgreSQL migration 0006, `0006_perspectives_claim_relations.sql`, ports
+SQLite registry migrations 8-9.
+
+Perspectives retain same-story supersession, optional source attribution,
+publisher-framing requirements, article/source/story membership validation,
+claim/story membership validation, and review metadata invariants. Claim
+relations retain same-story supersession, the allowed relationship vocabulary,
+distinct claim endpoints, active-story and same-story endpoint checks, and
+review metadata invariants. Both registries are append-only and indexed by
+story and creation time.
+
+Integration tests verify a valid publisher-framing perspective and claim
+relation, reject publisher framing without its article, reject a self-relation,
+and verify update/delete attempts cannot rewrite history.
+
+GitHub Actions [run #1540](https://github.com/Amiroudro/new-sngso/actions/runs/45212454435)
+passed:
+- PostgreSQL 16 integration suite: **32 passed in 2.42 seconds**.
+- Contract validation: passed.
+- Live schema-v36 inspection and artifact upload: passed.
+
+This continues the registry port but does not yet cover learning objects,
+glossary, benchmark, pipeline/checkpoint/lease, or edition/staging records.
+Production privilege provisioning and the atomic staging transaction remain
+separate outstanding milestones.
