@@ -1036,3 +1036,16 @@ with production readiness and authorization both false. [CI run
 passed **60 PostgreSQL integration tests in 16.34 seconds**, and contract
 validation passed. The two-distinct-attested-human-review positive path is
 still not yet fixture-verified.
+
+
+The benchmark-linked story snapshot now has a direct SQLite/PostgreSQL
+equivalence test. It seeds the same source, article, story, immutable
+benchmark artifact, draft review, and review revision history in both
+backends, then compares the entire snapshot object, including benchmark
+quality report, revision history, narrative assembly, and canonical
+fingerprint. [CI run
+#45236489283](https://github.com/Amiroudro/new-sngso/actions/runs/45236489283)
+passed **61 PostgreSQL integration tests in 14.72 seconds**, and contract
+validation passed. This establishes exact snapshot parity for the draft-review
+fixture; accepted reviews with live permission evidence and acceptance reviews
+with two attested source reviewers remain separate coverage cases.
