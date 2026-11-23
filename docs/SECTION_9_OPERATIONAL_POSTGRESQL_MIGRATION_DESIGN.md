@@ -337,3 +337,20 @@ The real PostgreSQL suite must use separate connections and include:
 - audit-chain order and hash verification after concurrent staging and non-staging registry writes.
 
 The current SQLite tests provide local evidence for the promotion/rollback pointer semantics, atomic event/state commit, injected rollback, independent-connection revision contention, and malformed JSON binding rejection. They do not implement a PostgreSQL repository, prove PostgreSQL isolation behavior, or establish production authorization freshness. Those are separate implementation and acceptance gates.
+
+
+## 14. Staging authority identity binding (schema v36)
+
+The SQLite staging event payload contains decision and release-authorization identity snapshots for audit readability. Those snapshots are not independent authority: the immutable relational records are authoritative. The schema-v36 guard now requires the payload's decision principal to equal `edition_decisions.principal_id`, and the payload's authorizer principal to equal `edition_release_authorizations.authorizer_principal_id`. Both records must bind to the event manifest, and the authorization must reference the exact decision.
+
+The PostgreSQL implementation must preserve this binding in the same transaction that validates the artifact, inserts the staging event, advances channel state, and appends the audit record. Use relational joins or a stored procedure with locked rows; do not trust duplicated JSON identity fields or validate them only in application code.
+
+Migration/cutover requirements:
+
+- Before enabling the PostgreSQL write path, scan existing staging events and reject or quarantine any event whose payload authority IDs do not match its linked immutable records.
+- Prevent concurrent changes to decision, authorization, and principal activity/role state between validation and event insertion using a documented lock order and transaction isolation policy.
+- Test forged approver and authorizer payload identities against active humans who hold the same roles; both must fail under the restricted application role.
+- Test legacy mismatch handling during import and restore. Never silently rewrite historical event payloads to make them pass.
+- Retain separate authenticated-session freshness checks at the application boundary; a relational principal match is not proof of a live authenticated human.
+
+SQLite migration 36 is local evidence for the identity-binding invariant only. It is not a PostgreSQL implementation or a claim of cross-backend conformance.
