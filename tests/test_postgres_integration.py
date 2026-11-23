@@ -110,3 +110,62 @@ def test_postgres_audit_event_and_head_roll_back_together(postgres_schema):
         assert connection.execute(
             "SELECT sequence, event_hash FROM audit_chain_head WHERE singleton_id = 1"
         ).fetchone() == (0, None)
+
+
+
+def test_postgres_default_runtime_role_cannot_mutate_audit_storage(postgres_schema):
+    connect = postgres_schema
+    role_name = "sngso_audit_reader_" + uuid.uuid4().hex[:12]
+    schema_name = None
+    try:
+        with connect() as owner:
+            schema_name = owner.execute("SELECT current_schema()").fetchone()[0]
+            owner.execute(
+                sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(role_name))
+            )
+            owner.execute(
+                sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(
+                    sql.Identifier(schema_name), sql.Identifier(role_name)
+                )
+            )
+            owner.execute(
+                sql.SQL("GRANT SELECT ON audit_events TO {}").format(
+                    sql.Identifier(role_name)
+                )
+            )
+
+        with connect() as restricted:
+            restricted.autocommit = True
+            restricted.execute(
+                sql.SQL("SET ROLE {}").format(sql.Identifier(role_name))
+            )
+            assert restricted.execute("SELECT count(*) FROM audit_events").fetchone() == (0,)
+            denied_statements = (
+                "UPDATE audit_events SET event_type = 'tampered' WHERE false",
+                "DELETE FROM audit_events WHERE false",
+                "TRUNCATE audit_events",
+                "UPDATE audit_chain_head SET sequence = 0 WHERE singleton_id = 1",
+                "DELETE FROM audit_chain_head WHERE singleton_id = 1",
+                "TRUNCATE audit_chain_head",
+            )
+            for statement in denied_statements:
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    restricted.execute(statement)
+    finally:
+        if schema_name is not None:
+            with psycopg.connect(
+                os.environ["TEST_POSTGRES_DSN"], autocommit=True
+            ) as admin:
+                admin.execute(
+                    sql.SQL("REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} FROM {}").format(
+                        sql.Identifier(schema_name), sql.Identifier(role_name)
+                    )
+                )
+                admin.execute(
+                    sql.SQL("REVOKE ALL PRIVILEGES ON SCHEMA {} FROM {}").format(
+                        sql.Identifier(schema_name), sql.Identifier(role_name)
+                    )
+                )
+                admin.execute(
+                    sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role_name))
+                )
