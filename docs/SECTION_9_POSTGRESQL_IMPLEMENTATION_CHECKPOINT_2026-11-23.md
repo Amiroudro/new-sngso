@@ -446,3 +446,32 @@ This completes the specialized evidence-trigger port for SQLite migrations
 bilingual editorial rubrics and summary traceability if/where separately
 defined), pipeline runs/checkpoints/leases, edition/release records,
 production runtime-role provisioning, or atomic staging.
+
+
+## Follow-up: pipeline runs and durable stage checkpoints
+
+PostgreSQL migration 0012, `0012_pipeline_runs.sql`, ports SQLite migration
+26. It adds the pipeline-run head and revision history, indexed status/start
+lookup, payload-to-indexed-field checks, immutable run identity and inputs,
+sequential revisions, legal lifecycle transitions, and append-only history.
+The database guard also binds retry attempt/parent identity, matching the
+stronger immutability checks in the existing SQLite runtime method.
+
+PostgreSQL migration 0013, `0013_pipeline_stage_checkpoints.sql`, ports
+SQLite migration 32. It adds run-bound stage checkpoints, unique idempotency
+keys, provider operation references, status/output invariants, a restricted
+metadata vocabulary, automatic immutable revision snapshots, legal status
+transitions, and deletion protection. Once a provider operation reference is
+recorded, it cannot be replaced.
+
+GitHub Actions
+[run #1584](https://github.com/Amiroudro/new-sngso/actions/runs/45218622755)
+passed:
+- PostgreSQL 16 integration suite: **39 passed in 6.00 seconds**.
+- Contract validation: passed.
+- Schema-v36 inspection generation and artifact upload: passed.
+
+This verifies the pipeline-run and stage-checkpoint storage layer. Worker
+leases (SQLite migration 33) are the next pipeline persistence migration;
+edition artifacts, approvals, release authorizations, staging state/events,
+production role provisioning, and the atomic staging transaction remain open.
