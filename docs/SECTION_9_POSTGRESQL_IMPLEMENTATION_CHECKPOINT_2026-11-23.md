@@ -541,3 +541,39 @@ passed:
 These migrations establish the edition artifact and authority records. They
 do not by themselves perform export verification, authorize publication, or
 complete the atomic staging/audit transaction.
+
+
+## Follow-up: edition staging events and channel state
+
+PostgreSQL migration 0019, `0019_edition_staging_state.sql`, ports SQLite
+migration 31.
+
+It adds append-only staging events and the singleton staging-channel state.
+The event guard locks the current channel-state row and validates the exact
+artifact, approval decision, independent release authorization, three
+distinct active human authorities (approver, release authorizer, and staging
+operator), export-package identity, publication-disabled flags, sequential
+state revision, previous-current/LKG references, and promote/rollback
+eligibility. The state guard only permits a one-revision advance from a
+matching inserted event. Event history and channel state cannot be deleted or
+rewritten.
+
+The integration test builds the full artifact/approval/authorization chain,
+records a valid staging promotion with separate human approver, authorizer,
+and operator principals, advances the state from that exact event, and
+rejects a mismatched state advance. It also checks event-history and state
+deletion protections.
+
+GitHub Actions
+[run #1601](https://github.com/Amiroudro/new-sngso/actions/runs/45219851330)
+passed:
+- PostgreSQL 16 integration suite: **44 passed in 6.68 seconds**.
+- Contract validation: passed.
+- Schema-v36 inspection generation and artifact upload: passed.
+
+Important boundary: migration 0019 supplies the database event/state guards,
+but does not yet provide the application-level single transaction that
+reverifies the export, validates authorization and current state, inserts the
+staging event, advances state, and appends the global audit event together.
+That atomic staging service, concurrency/failure-injection coverage, and
+production privilege model remain outstanding.
