@@ -7,6 +7,7 @@
 --     -v runtime_role=sngso_staging_runtime -f ops/postgresql/grant_staging_runtime.sql
 --
 -- The LOGIN role used by the service must be a member of runtime_role only.
+-- The service connection must pin search_path to app_schema explicitly.
 -- Do not grant it membership in the schema owner or migration role.
 
 \if :{?app_schema}
