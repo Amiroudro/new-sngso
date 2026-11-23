@@ -3051,3 +3051,30 @@ def test_staging_event_direct_sql_rejects_payload_identity_mismatch():
         assert registry._connection.execute(
             "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
         ).fetchone()[0] == 0
+
+
+def test_assignment_direct_sql_head_update_cannot_skip_accepted_state():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(
+            payload, actor="curator", reason="Assign independent review",
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="invalid benchmark assignment status transition"):
+            registry._connection.execute(
+                """UPDATE benchmark_review_assignments
+                   SET status = 'submitted',
+                       last_actor = reviewer_id,
+                       last_reason = 'direct SQL attempted to skip acceptance',
+                       payload_json = json_set(
+                           payload_json,
+                           '$.status', 'submitted',
+                           '$.last_transition.actor', reviewer_id,
+                           '$.last_transition.reason', 'direct SQL attempted to skip acceptance'
+                       )
+                   WHERE assignment_id = ?""",
+                (payload["assignment_id"],),
+            )
+        stored = registry.get_benchmark_review_assignment(payload["assignment_id"])
+        assert stored["status"] == "assigned"
+        assert stored["revision"] == 1
