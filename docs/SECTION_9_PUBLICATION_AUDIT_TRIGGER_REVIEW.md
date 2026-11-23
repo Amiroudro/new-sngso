@@ -126,3 +126,12 @@ The following adversarial cases have now been added to the automated test suite:
 - `tests/storage/test_registry.py::test_edition_release_authorization_direct_sql_rejects_payload_binding_mismatch` adds 12 cases covering the exact artifact, prior approval, two-person principal identities, authorization timestamp, release scope, and the strict separation between release authorization and publication authorization.
 
 GitHub Actions run #1463 passed the complete Python 3.12 suite with **1,099 tests** in 21.51 seconds on code commit `d49373872c7d22c1ec49758d38edec315f6603c0`. It includes the 12 release-authorization binding cases, all 22 staging payload/export binding cases, and the new valid staging lifecycle and rollback tests. The run generated and uploaded schema-v35 inspection artifact `14814905301`. The new lifecycle tests prove that a valid event and matching state pointer commit together, and that an invalid state advance rolls back the preceding event insert. They exercise the database transaction boundary directly; they do not establish a higher-level staging service/API or PostgreSQL equivalence. PostgreSQL implementation remains unstarted.
+
+
+### Subsequent staging transaction and state-guard verification
+
+GitHub Actions [run #1467](https://github.com/Amiroudro/new-sngso/actions/runs/45172898812) passed the full Python 3.12 suite with **1,118 tests** in 20.58 seconds on code commit `0268b5455ababb4f60585172bd5a84ed4c99f230`. The schema-v35 inspection artifact is `14817407520`.
+
+The staging SQL test family now additionally covers a valid promotion followed by a second promotion and rollback to the first export; independent SQLite connections racing the same revision; missing required event/package JSON keys; wrong JSON scalar types; and forged current/last-known-good state pointers. Exactly one competing revision-1 writer commits. The rollback test verifies the displaced current export is retained as the last-known-good pointer.
+
+These are SQLite database-boundary tests. They do not establish an application-level staging service, PostgreSQL equivalence, PostgreSQL role enforcement, or production authorization freshness.
