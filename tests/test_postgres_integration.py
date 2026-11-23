@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql"), (19, "0019_edition_staging_state.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql"), (19, "0019_edition_staging_state.sql"), (20, "0020_final_revision_and_assignment_guards.sql"), (21, "0021_domain_record_revision_guards.sql")]
 
 
 
@@ -2033,3 +2033,69 @@ def test_postgres_staging_event_binds_three_human_authorities_and_advances_state
                 "DELETE FROM edition_staging_channel_state WHERE channel = 'staging'"
             )
         connection.rollback()
+
+
+
+def test_postgres_domain_record_updates_require_monotonic_revisions_and_snapshot_history(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('story', 'domain-revision-1', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s, 'editor', 'initial', '2026-11-23T00:00:00Z')",
+            (json.dumps({"id": "domain-revision-1", "revision": 1, "status": "draft"}),),
+        )
+        connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('story', 'domain-revision-1', 1, '2026-11-23T00:00:00Z', "
+            "'editor', 'initial', %s)",
+            (json.dumps({"id": "domain-revision-1", "revision": 1, "status": "draft"}),),
+        )
+        connection.execute(
+            "UPDATE domain_records SET revision = 2, updated_at = '2026-11-23T00:01:00Z', "
+            "payload_json = %s, last_actor = 'reviewer', last_reason = 'approved', "
+            "last_revision_at = '2026-11-23T00:01:00Z' "
+            "WHERE record_type = 'story' AND id = 'domain-revision-1'",
+            (json.dumps({"id": "domain-revision-1", "revision": 2, "status": "approved"}),),
+        )
+        assert connection.execute(
+            "SELECT revision, actor, reason FROM domain_record_revisions "
+            "WHERE record_type = 'story' AND record_id = 'domain-revision-1' ORDER BY revision"
+        ).fetchall() == [(1, "editor", "initial"), (2, "reviewer", "approved")]
+
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('article', 'article-immutable', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s, 'editor', 'initial article', '2026-11-23T00:00:00Z')",
+            (json.dumps({
+                "id": "article-immutable", "source_id": "source-original",
+                "canonical_uri": "https://example.test/original"
+            }),),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="article source and canonical identity are immutable"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE domain_records SET revision = 2, payload_json = %s, "
+                    "last_actor = 'editor', last_reason = 'attempt source swap', "
+                    "last_revision_at = '2026-11-23T00:02:00Z' "
+                    "WHERE record_type = 'article' AND id = 'article-immutable'",
+                    (json.dumps({
+                        "id": "article-immutable", "source_id": "source-changed",
+                        "canonical_uri": "https://example.test/original"
+                    }),),
+                )
+
+        with pytest.raises(psycopg.errors.CheckViolation, match="revision must increment by one"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE domain_records SET revision = 4, payload_json = %s, "
+                    "last_actor = 'editor', last_reason = 'skip revision', "
+                    "last_revision_at = '2026-11-23T00:03:00Z' "
+                    "WHERE record_type = 'story' AND id = 'domain-revision-1'",
+                    (json.dumps({"id": "domain-revision-1", "revision": 4, "status": "approved"}),),
+                )
