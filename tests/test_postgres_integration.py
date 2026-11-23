@@ -4229,36 +4229,49 @@ def test_postgres_approved_supported_learning_quality_report_matches_sqlite(post
 
 
 def test_postgres_bilingual_learning_variants_keep_independent_review_states(postgres_schema):
+    from test_learning_objects import _prepared, _summary
+
     connect = postgres_schema
-    stamp = "2026-11-23T00:00:00Z"
-    story_id = "story:variant-independence"
     variant_group = "variant:briefing-001"
-    story = {
-        "id": story_id, "status": "developing", "canonical_title": "Variant test",
-        "article_ids": [], "created_at": stamp, "updated_at": stamp,
+    with _prepared() as sqlite_registry:
+        sqlite_conn = sqlite_registry._connection
+        source_row = sqlite_conn.execute(
+            """SELECT id, publisher_name, status, created_at, updated_at, payload_json
+               FROM sources WHERE id = 'source:publisher'"""
+        ).fetchone()
+        domain_rows = sqlite_conn.execute(
+            """SELECT record_type, id, revision, created_at, updated_at, payload_json,
+                      last_actor, last_reason, last_revision_at
+               FROM domain_records
+               WHERE id IN ('article:one', 'story:one', 'claim:one')"""
+        ).fetchall()
+
+    bn = _summary("learning:variant-bn", "bn")
+    bn["variant_group_id"] = variant_group
+    en = _summary("learning:variant-en", "en")
+    en["variant_group_id"] = variant_group
+    en["content"] = {
+        "text": "The authority issued a public notice.",
+        "segments": [{
+            "text": "The authority issued a public notice.",
+            "claim_ids": ["claim:one"], "role": "fact",
+        }],
     }
-    bn = {
-        "schema_version": "1.0.0", "id": "learning:variant-bn",
-        "story_id": story_id, "kind": "brief_summary", "language": "bn",
-        "status": "draft", "variant_group_id": variant_group,
-        "content": {"text": "বাংলা সারাংশ।", "segments": []},
-        "claim_ids": [], "created_at": stamp,
-    }
-    en = {
-        "schema_version": "1.0.0", "id": "learning:variant-en",
-        "story_id": story_id, "kind": "brief_summary", "language": "en",
-        "status": "draft", "variant_group_id": variant_group,
-        "content": {"text": "English summary.", "segments": []},
-        "claim_ids": [], "created_at": stamp,
-    }
+    stamp = bn["created_at"]
     with connect() as connection:
         connection.execute(
-            "INSERT INTO domain_records "
-            "(record_type, id, revision, created_at, updated_at, payload_json, "
-            "last_actor, last_reason, last_revision_at) "
-            "VALUES ('story', %s, 1, %s, %s, %s, 'fixture', 'initial', %s)",
-            (story_id, stamp, stamp, json.dumps(story), stamp),
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            tuple(source_row),
         )
+        for row in sorted(domain_rows, key=lambda item: {"article": 0, "story": 1, "claim": 2}[item[0]]):
+            connection.execute(
+                "INSERT INTO domain_records "
+                "(record_type, id, revision, created_at, updated_at, payload_json, "
+                "last_actor, last_reason, last_revision_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                tuple(row),
+            )
         for payload in (bn, en):
             connection.execute(
                 "INSERT INTO learning_objects "
@@ -4266,7 +4279,7 @@ def test_postgres_bilingual_learning_variants_keep_independent_review_states(pos
                 "created_at, updated_at, last_actor, last_reason, payload_json) "
                 "VALUES (%s, %s, 'brief_summary', %s, %s, 'draft', 1, %s, %s, "
                 "'fixture', 'variant draft', %s)",
-                (payload["id"], story_id, payload["language"], variant_group,
+                (payload["id"], payload["story_id"], payload["language"], variant_group,
                  stamp, stamp, json.dumps(payload)),
             )
 
@@ -4279,7 +4292,7 @@ def test_postgres_bilingual_learning_variants_keep_independent_review_states(pos
                 "created_at, updated_at, last_actor, last_reason, payload_json) "
                 "VALUES (%s, %s, 'brief_summary', 'bn', %s, 'draft', 1, %s, %s, "
                 "'fixture', 'duplicate variant', %s)",
-                (duplicate["id"], story_id, variant_group, stamp, stamp, json.dumps(duplicate)),
+                (duplicate["id"], bn["story_id"], variant_group, stamp, stamp, json.dumps(duplicate)),
             )
 
     approved_bn = {
