@@ -2762,6 +2762,46 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "'draft', 1, %s, %s, 'fixture', 'initial', %s)",
             (learning_id, story_id, stamp, stamp, json.dumps(learning_payload)),
         )
+        question_payload = {
+            "schema_version": "1.0.0",
+            "id": "learning:question-valid",
+            "story_id": story_id,
+            "kind": "comprehension_question",
+            "language": "en",
+            "status": "draft",
+            "content": {
+                "question": "What did the central bank announce?",
+                "answer": "A policy decision.",
+                "explanation": "The source article reports the decision.",
+                "answer_claim_ids": [claim_id],
+                "answer_evidence": [{
+                    "claim_id": claim_id, "evidence_id": evidence_id,
+                    "evidence_revision": 1,
+                }],
+            },
+            "claim_ids": [claim_id],
+            "created_at": stamp,
+        }
+        stale_question_payload = {
+            **question_payload,
+            "id": "learning:question-stale",
+            "content": {
+                **question_payload["content"],
+                "answer_evidence": [{
+                    "claim_id": claim_id, "evidence_id": evidence_id,
+                    "evidence_revision": 2,
+                }],
+            },
+        }
+        for question in (question_payload, stale_question_payload):
+            connection.execute(
+                "INSERT INTO learning_objects "
+                "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+                "last_actor, last_reason, payload_json) "
+                "VALUES (%s, %s, 'comprehension_question', 'en', 'draft', 1, %s, %s, "
+                "'fixture', 'initial', %s)",
+                (question["id"], story_id, stamp, stamp, json.dumps(question)),
+            )
         source_payload = {
             "id": source_id, "publisher_name": "Read View Publisher",
             "status": "active", "created_at": stamp, "updated_at": stamp,
@@ -2929,12 +2969,33 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
                 learning_id, story_id, stamp, stamp, json.dumps(learning_payload),
             ),
         )
+        for question in (question_payload, stale_question_payload):
+            sqlite_registry._connection.execute(
+                "INSERT INTO learning_objects "
+                "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+                "last_actor, last_reason, payload_json) "
+                "VALUES (?, ?, 'comprehension_question', 'en', 'draft', 1, ?, ?, "
+                "'fixture', 'initial', ?)",
+                (question["id"], story_id, stamp, stamp, json.dumps(question)),
+            )
         sqlite_snapshot = sqlite_registry.story_editorial_snapshot(story_id)
         postgres_snapshot = view.story_editorial_snapshot(story_id)
         assert postgres_snapshot == sqlite_snapshot
         sqlite_quality = sqlite_registry.learning_object_quality_report(learning_id)
         postgres_quality = view.learning_object_quality_report(learning_id)
         assert postgres_quality == sqlite_quality
+        for question in (question_payload, stale_question_payload):
+            sqlite_question_quality = sqlite_registry.learning_object_quality_report(question["id"])
+            postgres_question_quality = view.learning_object_quality_report(question["id"])
+            assert postgres_question_quality == sqlite_question_quality
+        assert next(
+            item for item in view.learning_object_quality_report("learning:question-valid")["checks"]
+            if item["name"] == "answer_evidence"
+        )["passed"] is True
+        assert next(
+            item for item in view.learning_object_quality_report("learning:question-stale")["checks"]
+            if item["name"] == "answer_evidence"
+        )["passed"] is False
         sqlite_registry.close()
 
 
