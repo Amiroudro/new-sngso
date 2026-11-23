@@ -4327,3 +4327,92 @@ def test_postgres_bilingual_learning_variants_keep_independent_review_states(pos
             (variant_group,),
         ).fetchall())
         assert states == {"bn": "approved", "en": "draft"}
+
+
+def test_postgres_independent_bilingual_variant_verification_matches_sqlite(postgres_schema):
+    from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
+    from test_learning_objects import _approved_bilingual_pair, _prepared
+
+    connect = postgres_schema
+    with _prepared() as sqlite_registry:
+        pair = _approved_bilingual_pair(sqlite_registry)
+        sqlite_result = sqlite_registry.verify_independent_bilingual_variants(
+            pair["bn"], pair["en"]
+        )
+        sqlite_conn = sqlite_registry._connection
+        source_row = sqlite_conn.execute(
+            """SELECT id, publisher_name, status, created_at, updated_at, payload_json
+               FROM sources WHERE id = 'source:publisher'"""
+        ).fetchone()
+        domain_rows = sqlite_conn.execute(
+            """SELECT record_type, id, revision, created_at, updated_at, payload_json,
+                      last_actor, last_reason, last_revision_at
+               FROM domain_records
+               WHERE id IN ('article:one', 'story:one', 'claim:one', 'evidence:one')"""
+        ).fetchall()
+        principal_rows = sqlite_conn.execute(
+            """SELECT principal_id, display_name, roles_json, active, created_at,
+                      created_by, reason, languages_json, principal_kind
+               FROM benchmark_principals
+               WHERE principal_id IN ('reviewer:bn', 'reviewer:en')
+               ORDER BY principal_id"""
+        ).fetchall()
+        learning_rows = []
+        for object_id in (pair["bn"], pair["en"]):
+            current = sqlite_conn.execute(
+                """SELECT id, story_id, kind, language, variant_group_id, status, revision,
+                          created_at, updated_at, last_actor, last_reason, payload_json
+                   FROM learning_objects WHERE id = ?""",
+                (object_id,),
+            ).fetchone()
+            draft = sqlite_conn.execute(
+                """SELECT created_at, actor, reason, payload_json
+                   FROM learning_object_revisions
+                   WHERE learning_object_id = ? AND revision = 1""",
+                (object_id,),
+            ).fetchone()
+            learning_rows.append((tuple(current), tuple(draft)))
+
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            tuple(source_row),
+        )
+        for row in sorted(domain_rows, key=lambda item: {"article": 0, "story": 1, "claim": 2, "evidence": 3}[item[0]]):
+            connection.execute(
+                "INSERT INTO domain_records "
+                "(record_type, id, revision, created_at, updated_at, payload_json, "
+                "last_actor, last_reason, last_revision_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                tuple(row),
+            )
+        for principal in principal_rows:
+            connection.execute(
+                "INSERT INTO benchmark_principals "
+                "(principal_id, display_name, roles_json, active, created_at, created_by, "
+                "reason, languages_json, principal_kind) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                tuple(principal),
+            )
+        for current, draft in learning_rows:
+            connection.execute(
+                "INSERT INTO learning_objects "
+                "(id, story_id, kind, language, variant_group_id, status, revision, "
+                "created_at, updated_at, last_actor, last_reason, payload_json) "
+                "VALUES (%s, %s, %s, %s, %s, 'draft', 1, %s, %s, %s, %s, %s)",
+                (
+                    current[0], current[1], current[2], current[3], current[4],
+                    current[7], draft[0], draft[1], draft[2], draft[3],
+                ),
+            )
+            connection.execute(
+                "UPDATE learning_objects SET status = %s, revision = %s, updated_at = %s, "
+                "last_actor = %s, last_reason = %s, payload_json = %s WHERE id = %s",
+                (current[5], current[6], current[8], current[9], current[10], current[11], current[0]),
+            )
+        postgres_result = PostgresEditionRegistryReadView(
+            connection.cursor()
+        ).verify_independent_bilingual_variants(pair["bn"], pair["en"])
+
+    assert postgres_result == sqlite_result
