@@ -7,14 +7,14 @@ Android application, and backend-only Section 9 pull request.
 ## Run locally
 
 Open `index.html` in a modern browser. No build step, server, package install,
-or external API is required. The optional typeface is loaded from Google Fonts;
-system fallbacks are provided.
+or external API is required. The prototype uses system font fallbacks and does not require external font or API requests.
 
 ## What is represented
 
 - Editorial overview and pipeline workload
 - Edition list and language/status labels
-- Story desk with local search and stage filtering
+- Story desk with local search, stage filtering, and a read-only story detail file
+- Claim-linked evidence comparison, conflict flags, and illustrative decision history
 - Human review queue for evidence, translation, rights, and attribution
 - Operation-specific source permission register
 - Operations and worker-supervision preview
