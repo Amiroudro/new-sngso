@@ -66,8 +66,8 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert connection.rollbacks == 0
     sql = [statement[0] for statement in connection.db_cursor.statements]
     assert "SELECT pg_advisory_xact_lock(%s)" in sql
-    migration_sql = next(statement for statement in sql if "CREATE TABLE IF NOT EXISTS audit_events" in statement)
-    assert "audit_chain_head" in migration_sql
+    migration_sql = next(statement for statement in sql if "CREATE TABLE audit_events" in statement)
+    assert "CREATE TABLE audit_chain_head" in migration_sql
     assert "audit_events_no_update" in migration_sql
     assert "audit_events_no_delete" in migration_sql
     assert connection.db_cursor.rows[0][0:2] == (1, "0001_audit_chain.sql")
