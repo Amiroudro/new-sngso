@@ -3922,7 +3922,7 @@ def test_postgres_benchmark_story_snapshot_matches_sqlite_canonical_fingerprint(
             "VALUES (%s, %s, %s, %s, %s, %s)",
             tuple(source_row),
         )
-        for row in sorted(domain_rows, key=lambda item: {"article": 0, "story": 1, "claim": 2}[item[0]]):
+        for row in sorted(domain_rows, key=lambda item: {"article": 0, "story": 1, "claim": 2, "evidence": 3}[item[0]]):
             connection.execute(
                 "INSERT INTO domain_records "
                 "(record_type, id, revision, created_at, updated_at, payload_json, "
@@ -4114,7 +4114,7 @@ def test_postgres_learning_object_quality_report_matches_sqlite_for_draft_summar
             """SELECT record_type, id, revision, created_at, updated_at, payload_json,
                       last_actor, last_reason, last_revision_at
                FROM domain_records
-               WHERE id IN ('article:one', 'story:one', 'claim:one')
+               WHERE id IN ('article:one', 'story:one', 'claim:one', 'evidence:one')
                ORDER BY record_type, id"""
         ).fetchall()
         learning_row = sqlite_conn.execute(
