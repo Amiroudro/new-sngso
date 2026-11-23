@@ -75,20 +75,24 @@ class PostgresEditionRegistryReadView:
 
     def get_pipeline_run(self, pipeline_run_id: str) -> dict[str, Any] | None:
         self._cursor.execute(
-            "SELECT revision, payload_json FROM pipeline_runs WHERE id = %s FOR SHARE",
+            "SELECT revision, status, started_at, payload_json FROM pipeline_runs WHERE id = %s FOR SHARE",
             (pipeline_run_id,),
         )
         row = self._cursor.fetchone()
         if row is None:
             return None
-        revision, raw = row
+        revision, indexed_status, indexed_started_at, raw = row
         record = self._object(raw, "pipeline run")
         try:
             validate_payload("pipeline-run", record)
         except (ContractValidationError, FileNotFoundError, ValueError) as exc:
             raise PostgresEditionReadAdapterError(f"pipeline run contract failed: {exc}") from exc
-        if record.get("id") != pipeline_run_id:
-            raise PostgresEditionReadAdapterError("pipeline run identity does not match its key")
+        if (
+            record.get("id") != pipeline_run_id
+            or record.get("status") != indexed_status
+            or record.get("started_at") != indexed_started_at
+        ):
+            raise PostgresEditionReadAdapterError("pipeline run indexed identity does not match its payload")
         return {"revision": revision, "record": record}
 
     def get_pipeline_stage_checkpoints(self, pipeline_run_id: str) -> list[dict[str, Any]]:
@@ -220,8 +224,10 @@ class PostgresEditionRegistryReadView:
             return None
         revision, raw = row
         payload = self._object(raw, f"{record_type} record")
-        if payload.get("id") != record_id:
-            raise PostgresEditionReadAdapterError("domain record identity does not match its key")
+        if payload.get("id") != record_id or (
+            "revision" in payload and payload.get("revision") != revision
+        ):
+            raise PostgresEditionReadAdapterError("domain record identity/revision does not match its key")
         return model.from_payload(payload)
 
     def domain_record_history(self, record_type: str, record_id: str) -> list[dict[str, Any]]:
@@ -255,23 +261,41 @@ class PostgresEditionRegistryReadView:
             (record_type, record_id),
         )
         current_row = self._cursor.fetchone()
-        if not history or history[-1]["revision"] != current_row[0]:
-            raise PostgresEditionReadAdapterError("domain history does not end at the current record revision")
+        if (
+            not history
+            or history[-1]["revision"] != current_row[0]
+            or any(
+                item["record"].get("id") != record_id
+                or ("revision" in item["record"] and item["record"].get("revision") != item["revision"])
+                for item in history
+            )
+        ):
+            raise PostgresEditionReadAdapterError("domain history does not match the current record identity/revision")
         return history
 
     def get_learning_object(self, learning_object_id: str) -> LearningObjectRecord | None:
         self._cursor.execute(
-            """SELECT revision, payload_json FROM learning_objects
-               WHERE id = %s FOR SHARE""",
+            """SELECT revision, story_id, kind, language, variant_group_id, status,
+                      created_at, payload_json
+               FROM learning_objects WHERE id = %s FOR SHARE""",
             (learning_object_id,),
         )
         row = self._cursor.fetchone()
         if row is None:
             return None
-        revision, raw = row
+        revision, story_id, kind, language, variant_group_id, status, created_at, raw = row
         payload = self._object(raw, "learning object")
-        if payload.get("id") != learning_object_id:
-            raise PostgresEditionReadAdapterError("learning object identity does not match its key")
+        if (
+            payload.get("id") != learning_object_id
+            or payload.get("story_id") != story_id
+            or payload.get("kind") != kind
+            or payload.get("language") != language
+            or payload.get("variant_group_id") != variant_group_id
+            or payload.get("status") != status
+            or payload.get("created_at") != created_at
+            or ("revision" in payload and payload.get("revision") != revision)
+        ):
+            raise PostgresEditionReadAdapterError("learning-object indexed identity/revision does not match its payload")
         return LearningObjectRecord.from_payload(payload, revision=revision)
 
     def learning_object_history(self, learning_object_id: str) -> list[dict[str, Any]]:
@@ -297,45 +321,71 @@ class PostgresEditionRegistryReadView:
             for revision, created_at, actor, reason, raw in rows
         ]
         current = self.get_learning_object(learning_object_id)
-        if not history or history[-1]["revision"] != current.revision:
-            raise PostgresEditionReadAdapterError("learning-object history does not end at the current revision")
+        if (
+            not history
+            or history[-1]["revision"] != current.revision
+            or any(
+                item["record"].get("id") != learning_object_id
+                or item["record"].get("story_id") != current.story_id
+                or item["record"].get("kind") != current.kind
+                or item["record"].get("language") != current.language
+                for item in history
+            )
+        ):
+            raise PostgresEditionReadAdapterError("learning-object history does not match current identity/revision")
         return history
 
     def get_source(self, source_id: str) -> SourceRecord | None:
         self._cursor.execute(
-            "SELECT payload_json FROM sources WHERE id = %s FOR SHARE",
+            "SELECT id, publisher_name, status, payload_json FROM sources WHERE id = %s FOR SHARE",
             (source_id,),
         )
         row = self._cursor.fetchone()
-        return SourceRecord.from_payload(self._object(row[0], "source")) if row else None
+        if row is None:
+            return None
+        payload = self._object(row[3], "source")
+        if (payload.get("id"), payload.get("publisher_name"), payload.get("status")) != row[:3]:
+            raise PostgresEditionReadAdapterError("source indexed fields do not match payload")
+        return SourceRecord.from_payload(payload)
 
     def get_endpoint(self, endpoint_id: str) -> SourceEndpointRecord | None:
         self._cursor.execute(
-            "SELECT payload_json FROM source_endpoints WHERE id = %s FOR SHARE",
+            "SELECT id, source_id, endpoint_uri, status, payload_json FROM source_endpoints WHERE id = %s FOR SHARE",
             (endpoint_id,),
         )
         row = self._cursor.fetchone()
-        return SourceEndpointRecord.from_payload(self._object(row[0], "source endpoint")) if row else None
+        if row is None:
+            return None
+        payload = self._object(row[4], "source endpoint")
+        if (payload.get("id"), payload.get("source_id"), payload.get("endpoint_uri"), payload.get("status")) != row[:4]:
+            raise PostgresEditionReadAdapterError("source endpoint indexed fields do not match payload")
+        return SourceEndpointRecord.from_payload(payload)
 
     def get_permission_evidence(self, evidence_id: str) -> PermissionEvidenceRecord | None:
         self._cursor.execute(
-            "SELECT payload_json FROM permission_evidence WHERE id = %s FOR SHARE",
+            "SELECT id, source_id, review_status, content_fingerprint, payload_json FROM permission_evidence WHERE id = %s FOR SHARE",
             (evidence_id,),
         )
         row = self._cursor.fetchone()
-        return PermissionEvidenceRecord.from_payload(
-            self._object(row[0], "permission evidence")
-        ) if row else None
+        if row is None:
+            return None
+        payload = self._object(row[4], "permission evidence")
+        if (payload.get("id"), payload.get("source_id"), payload.get("review_status"), payload.get("content_fingerprint")) != row[:4]:
+            raise PostgresEditionReadAdapterError("permission evidence indexed fields do not match payload")
+        return PermissionEvidenceRecord.from_payload(payload)
 
     def get_permission_grant(self, grant_id: str) -> PermissionGrantRecord | None:
         self._cursor.execute(
-            "SELECT payload_json FROM permission_grants WHERE id = %s FOR SHARE",
+            "SELECT id, source_id, status, effective_from, effective_until, payload_json FROM permission_grants WHERE id = %s FOR SHARE",
             (grant_id,),
         )
         row = self._cursor.fetchone()
-        return PermissionGrantRecord.from_payload(
-            self._object(row[0], "permission grant")
-        ) if row else None
+        if row is None:
+            return None
+        payload = self._object(row[5], "permission grant")
+        if (payload.get("id"), payload.get("source_id"), payload.get("status"), payload.get("effective_from"), payload.get("effective_until")) != row[:5]:
+            raise PostgresEditionReadAdapterError("permission grant indexed fields do not match payload")
+        return PermissionGrantRecord.from_payload(payload)
 
     def evaluate_grant(
         self,
