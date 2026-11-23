@@ -310,6 +310,46 @@
   document.getElementById("story-dialog-done").addEventListener("click", () => dialog.close());
   dialog.addEventListener("click", event => { if (event.target === dialog) dialog.close(); });
 
+  // Edition composition fixtures are local, illustrative and non-persistent.
+  const editionStories = [
+    {id:"S-024",title:"Central bank policy decision",en:"Draft · fact check blocked",bn:"Translation pending",evidence:2,rights:0,claimsResolved:false,languagesReviewed:false,rightsCleared:false},
+    {id:"S-023",title:"Coastal resilience programme",en:"Editorial review",bn:"Not started",evidence:2,rights:1,claimsResolved:false,languagesReviewed:false,rightsCleared:false},
+    {id:"S-022",title:"Public health budget allocation",en:"Ready for human approval",bn:"Language review complete",evidence:0,rights:0,claimsResolved:true,languagesReviewed:false,rightsCleared:false},
+    {id:"S-019",title:"Regional transport corridor",en:"Attribution blocked",bn:"Not started",evidence:1,rights:0,claimsResolved:false,languagesReviewed:false,rightsCleared:false}
+  ];
+  let editionOrder = editionStories.map(story => story.id);
+  const storyById = Object.fromEntries(editionStories.map(story => [story.id, story]));
+  const storyList = document.getElementById("edition-story-list");
+  const readinessList = document.getElementById("edition-readiness");
+  function renderEditionComposition() {
+    storyList.replaceChildren(...editionOrder.map((id, index) => {
+      const story = storyById[id];
+      const item = document.createElement("li"); item.className = "composition-item";
+      const position = document.createElement("span"); position.className = "composition-position"; position.textContent = String(index + 1).padStart(2, "0");
+      const main = document.createElement("div"); main.className = "composition-story";
+      const heading = document.createElement("strong"); heading.textContent = story.title;
+      const idLine = document.createElement("small"); idLine.textContent = story.id; main.append(heading, idLine);
+      const variants = document.createElement("div"); variants.className = "composition-variants";
+      [["EN",story.en],["BN",story.bn]].forEach(([language,state]) => { const tag=document.createElement("span");tag.className="variant-state";const label=document.createElement("b");label.textContent=language;const value=document.createElement("small");value.textContent=state;tag.append(label,value);variants.appendChild(tag); });
+      const blockers = document.createElement("span"); blockers.className="composition-blockers"; blockers.textContent=story.evidence+" evidence · "+story.rights+" rights";
+      const actions=document.createElement("div");actions.className="order-actions";
+      [["up","Move up",index===0],["down","Move down",index===editionOrder.length-1]].forEach(([direction,label,disabled])=>{const button=document.createElement("button");button.type="button";button.className="order-button";button.dataset.move=direction;button.dataset.storyId=id;button.textContent=direction==="up"?"↑":"↓";button.setAttribute("aria-label",label+": "+story.title);button.disabled=disabled;actions.appendChild(button);});
+      item.append(position,main,variants,blockers,actions);return item;
+    }));
+    document.getElementById("composition-count").textContent=editionOrder.length+" stories in sequence";
+    const checks=[
+      ["Claim evidence resolved for every included story",editionStories.every(story=>story.claimsResolved),"Unresolved claims or evidence conflicts remain."],
+      ["English and Bangla variants independently reviewed",editionStories.every(story=>story.languagesReviewed),"At least one language variant still needs review."],
+      ["Required source permissions verified for each operation",editionStories.every(story=>story.rightsCleared),"Rights are unknown or not cleared for at least one story."],
+      ["Authorized human approval and durable audit prerequisites",false,"Backend role authorization, atomic state transition and audit guarantees are not connected."]
+    ];
+    readinessList.replaceChildren(...checks.map(([label,passed,detail])=>{const item=document.createElement("li");item.className=passed?"check-pass":"check-blocked";const mark=document.createElement("span");mark.setAttribute("aria-hidden","true");mark.textContent=passed?"✓":"!";const text=document.createElement("div");const title=document.createElement("strong");title.textContent=label;const note=document.createElement("small");note.textContent=passed?"Fixture check passed.":detail;text.append(title,note);item.append(mark,text);return item;}));
+    document.getElementById("readiness-status").textContent=checks.every(([,passed])=>passed)?"Ready for approval":"Blocked";
+  }
+  storyList.addEventListener("click",event=>{const button=event.target.closest("[data-move]");if(!button||button.disabled)return;const id=button.dataset.storyId;const from=editionOrder.indexOf(id);const to=from+(button.dataset.move==="up"?-1:1);if(from<0||to<0||to>=editionOrder.length)return;[editionOrder[from],editionOrder[to]]=[editionOrder[to],editionOrder[from]];renderEditionComposition();toast(id+" moved locally. This order has not been saved.");storyList.querySelector('[data-story-id="'+id+'"][data-move="'+button.dataset.move+'"]')?.focus();});
+  document.getElementById("reset-edition-order").addEventListener("click",()=>{editionOrder=editionStories.map(story=>story.id);renderEditionComposition();toast("Sample edition order reset locally.");});
+  renderEditionComposition();
+
   const initial = location.hash.replace("#", "");
   show(labels[initial] ? initial : "overview");
 })();
