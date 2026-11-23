@@ -3380,3 +3380,29 @@ def test_postgres_story_snapshot_includes_benchmark_review_quality_and_history(p
         assert snapshot["fingerprint"] == sha256_fingerprint({
             key: value for key, value in snapshot.items() if key != "fingerprint"
         })
+
+
+def test_postgres_benchmark_readiness_and_agreement_reports_are_descriptive_and_fail_closed(postgres_schema):
+    from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
+    from sngso_engine.postgres_benchmark_quality import PostgresBenchmarkQualityError
+
+    connect = postgres_schema
+    artifact = {"artifact_id": "benchmark-readiness", "items": [{"id": "item-1"}]}
+    fingerprint = sha256_fingerprint(artifact)
+    stamp = "2026-11-23T00:00:00Z"
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO benchmark_artifacts "
+            "(artifact_id, language, canonicalization, content_fingerprint, content_json, "
+            "created_at, actor, reason) VALUES ('benchmark-readiness', 'en', "
+            "'canonical-json-v1', %s, %s, %s, 'fixture', 'readiness report test')",
+            (fingerprint, json.dumps(artifact), stamp),
+        )
+        view = PostgresEditionRegistryReadView(connection.cursor())
+        report = view.benchmark_readiness_report("benchmark-readiness")
+        assert report["status"] == "human_review_pending"
+        assert report["artifact"]["fingerprint_verified"] is True
+        assert report["eligible_approved_review_count"] == 0
+        assert report["production_ready"] is False
+        with pytest.raises(PostgresBenchmarkQualityError, match="no persisted score sheets"):
+            view.benchmark_evaluator_agreement_report("benchmark-readiness", "item-1")
