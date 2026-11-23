@@ -114,3 +114,9 @@ The payload guard binds indexed columns to JSON but does not alone prove that ev
 ## 9. Review boundary
 
 This is a source-level semantic review of all 39 benchmark triggers, including two schema-v34 guards that close direct-SQL assignment revision and status-transition gaps. Together with the 23 operational triggers, 27 publication/audit/story/timeline triggers, and 49 content/provenance/ingestion triggers reviewed separately, all 138 of 138 triggers now have source-level semantic review records. PostgreSQL remains unimplemented and Section 9 P0 is not complete.
+
+## Additional direct-SQL acceptance tests committed on the Section 9 branch
+
+- `tests/storage/test_registry.py::test_assignment_direct_sql_head_update_cannot_skip_accepted_state` attempts to move an assignment directly from `assigned` to `submitted` through SQL, with a forged transition receipt. The database transition guard must reject the skipped `accepted` state, and the stored assignment must remain at revision 1.
+
+This is a committed test addition, not yet a CI-verified result. Independent-connection PostgreSQL concurrency and restricted-role acceptance remain outstanding.
