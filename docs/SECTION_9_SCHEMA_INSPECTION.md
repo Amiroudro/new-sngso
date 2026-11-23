@@ -1,6 +1,6 @@
 # Section 9 Live SQLite Schema Inspection
 
-Status: **implemented and CI verified against a freshly migrated schema-v35 database.**
+Status: **implemented and CI verified against a freshly migrated schema-v36 database.**
 
 The schema inspector turns the P0 inventory step into a repeatable read-only operation against an actual registry database. It does not infer the live schema from migration source text.
 
@@ -16,7 +16,7 @@ Write a review artifact:
 
 ```bash
 python -m sngso_engine.schema_inspection /absolute/path/to/registry.sqlite \
-  --output /absolute/path/to/schema-v35-inspection.json
+  --output /absolute/path/to/schema-v36-inspection.json
 ```
 
 The target must already exist. The inspector opens it using SQLite URI `mode=ro` and pins all queries to one read transaction, so schema, migration history, and audit-tip results describe a consistent snapshot. It does not create a missing database or mutate the registry.
@@ -30,7 +30,7 @@ The target must already exist. The inspector opens it using SQLite URI `mode=ro`
 - The actual audit tip (sequence and hash), with optional comparison against a checkpoint supplied by an independently controlled system.
 - Exact SQL definitions for user tables, indexes, triggers, and views from `sqlite_master`.
 - Deterministic SHA-256 of the ordered schema-object inventory.
-- Object counts and a combined `healthy` result. The schema-v35 test fixture asserts exactly 47 user tables, 25 explicit indexes, 138 triggers, and zero views.
+- Object counts and a combined `healthy` result. The schema-v36 test fixture asserts exactly 47 user tables, 25 explicit indexes, 139 triggers, and zero views.
 
 The report intentionally preserves SQL definitions, not just object names. Reviewers can inspect CHECK clauses, foreign-key actions, partial-index predicates, and trigger bodies.
 
@@ -44,7 +44,7 @@ The report intentionally preserves SQL definitions, not just object names. Revie
 
 ## Test coverage added
 
-- Current schema-v35 migration and object-presence assertions.
+- Current schema-v36 migration and object-presence assertions.
 - Full SQL definition availability for representative tables and triggers.
 - Read-only behavior and missing-file rejection.
 - Detection of foreign-key violations.
@@ -52,13 +52,13 @@ The report intentionally preserves SQL definitions, not just object names. Revie
 - Detection of migration-history gaps, altered retained audit events, and tail truncation using an externally supplied checkpoint.
 - Consistent read-snapshot acquisition for all inspection queries.
 
-Migration 35 adds automatic domain-record revision snapshots and actor/reason/timestamp fields. The current schema-v35 fixture is generated and inspected in CI.
+Migration 35 adds automatic domain-record revision snapshots and actor/reason/timestamp fields. The current schema-v36 fixture is generated and inspected in CI.
 
 ## Verified CI baseline
 
-GitHub Actions [run #45057281125](https://github.com/Amiroudro/new-sngso/actions/runs/45057281125) passed the full Python suite (**1,035 passed in 17.36 seconds**), generated a fresh schema-v35 database using the real migration runner, ran this inspector, and uploaded the `sqlite-schema-v35-inspection` artifact (ID `14767349041`).
+GitHub Actions [run #45057281125](https://github.com/Amiroudro/new-sngso/actions/runs/45057281125) passed the full Python suite (**1,035 passed in 17.36 seconds**), generated a fresh schema-v36 database using the real migration runner, ran this inspector, and uploaded the `sqlite-schema-v36-inspection` artifact (ID `14767349041`).
 
-The inspected database reported schema version **35**, contiguous migration history **1–35**, integrity `ok`, zero foreign-key violations, a valid retained audit chain, and exactly **47 tables, 25 explicit indexes, 138 triggers, and zero views**. Its schema SHA-256 is:
+The inspected database reported schema version **35**, contiguous migration history **1–35**, integrity `ok`, zero foreign-key violations, a valid retained audit chain, and exactly **47 tables, 25 explicit indexes, 139 triggers, and zero views**. Its schema SHA-256 is:
 
 `c6e1ba3a669f340e15450c08fc5c9eddeb34db4d881ed75cb703bdafe1519de9`
 
@@ -86,3 +86,10 @@ assert report["healthy"] is True
 The checkpoint must be obtained from an independently controlled system. Storing it only beside the registry does not protect against an attacker who can truncate both. If the external checkpoint does not match the current tip, `healthy` is false even when the remaining hash chain is internally valid. This specifically detects deletion of a valid chain tail, which ordinary link verification cannot detect.
 
 The checker validates checkpoint shape before opening the database. Sequence zero requires a null hash; positive sequences require a non-empty hash. It does not connect to or write to the external checkpoint system.
+
+
+## Schema-v36 authority-binding migration
+
+Migration 36 adds `edition_staging_events_authority_binding_guard`. The guard requires the staging decision principal declared in an event to equal the principal on the referenced immutable approval decision, and requires the declared release authorizer to equal the principal on the referenced immutable release authorization. It also binds both records to the event's manifest and verifies that the release authorization references that exact decision.
+
+This is a database-level identity-binding correction. Existing role/activity checks remain in the staging insert guard. The new guard does not replace authenticated-session freshness, and it does not establish PostgreSQL equivalence. The current schema baseline is 47 tables, 25 explicit indexes, 139 triggers, and zero views, with contiguous migrations 1–36.
