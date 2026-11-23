@@ -3922,7 +3922,7 @@ def test_postgres_benchmark_story_snapshot_matches_sqlite_canonical_fingerprint(
             "VALUES (%s, %s, %s, %s, %s, %s)",
             tuple(source_row),
         )
-        for row in domain_rows:
+        for row in sorted(domain_rows, key=lambda item: {"article": 0, "story": 1, "claim": 2}[item[0]]):
             connection.execute(
                 "INSERT INTO domain_records "
                 "(record_type, id, revision, created_at, updated_at, payload_json, "
