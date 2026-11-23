@@ -150,7 +150,7 @@ def test_postgres_registry_revision_snapshots_are_append_only(postgres_schema):
             "(grant_id, revision, created_at, actor, reason, payload_json) "
             "VALUES ('grant-revision', 1, '2026-11-23T00:00:00Z', 'reviewer', "
             "'initial grant', %s)",
-            (json.dumps({"revision": 1}),),
+            (json.dumps({"id": "grant-revision", "revision": 1}),),
         )
         connection.execute(
             "INSERT INTO domain_records "
