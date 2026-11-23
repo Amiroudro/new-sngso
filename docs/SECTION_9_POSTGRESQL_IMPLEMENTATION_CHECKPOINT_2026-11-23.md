@@ -507,3 +507,37 @@ It does not implement a production worker scheduler, lease acquisition API,
 heartbeat/reconciliation service, or complete retry orchestration. Edition
 artifacts, approval decisions, release authorizations, staging events/state,
 runtime-role provisioning, and the atomic staging transaction remain open.
+
+
+## Follow-up: edition artifacts, approvals, and release authorization
+
+PostgreSQL migrations 0015-0018 port SQLite migrations 27-30:
+
+- Migration 0015 adds immutable edition artifact/manifest records and checks
+  that the indexed manifest identity, revision, and payload fingerprint match
+  the stored manifest.
+- Migration 0016 adds append-only approval decisions bound to the exact
+  immutable artifact and an active human principal with the
+  `edition_approver` role. The decision is explicitly scoped to staging
+  candidate review and cannot authorize publication.
+- Migration 0017 blocks direct insertion of published edition snapshots and
+  makes edition domain records immutable.
+- Migration 0018 adds append-only release authorizations bound to the exact
+  approved artifact and decision. The release authorizer must be a distinct,
+  active human principal with the `edition_release_authorizer` role.
+
+Integration tests cover artifact/manifest binding, valid human approval,
+rejection of an inactive approver, independent release authorization,
+rejection of same-person approval/authorization, immutable records, and the
+controlled publication boundary.
+
+GitHub Actions
+[run #1596](https://github.com/Amiroudro/new-sngso/actions/runs/45219425597)
+passed:
+- PostgreSQL 16 integration suite: **43 passed in 10.66 seconds**.
+- Contract validation: passed.
+- Schema-v36 inspection generation and artifact upload: passed.
+
+These migrations establish the edition artifact and authority records. They
+do not by themselves perform export verification, authorize publication, or
+complete the atomic staging/audit transaction.
