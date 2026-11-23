@@ -795,3 +795,17 @@ full PostgreSQL learning-object quality report. The re-verifier factory
 refuses to build without both. Therefore the PostgreSQL read path is partly
 ported and composed, but end-to-end registry-backed staging remains blocked
 until those two editorial-verification ports are complete and tested.
+
+
+The read adapter's revision checks were tightened after review: pipeline-run,
+stage-checkpoint, worker-lease, domain-record, and learning-object histories
+must now contain every revision from 1 through the current head. A history
+with a matching final revision but missing an intermediate revision is
+rejected. Pipeline-run revision snapshots are also checked against the
+current payload. The integration fixture now includes the explicit initial
+pipeline-run revision record, matching the schema's append-only revision
+table contract.
+
+[CI run #1634](https://github.com/Amiroudro/new-sngso/actions/runs/45225012372)
+passed **53 PostgreSQL integration tests in 11.21 seconds**. Contract
+validation and schema-v36 inspection/artifact upload passed.
