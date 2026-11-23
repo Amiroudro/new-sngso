@@ -1096,3 +1096,14 @@ passed **62 PostgreSQL integration tests in 12.03 seconds**, and contract
 validation passed. This verifies the repository role-grant model in an
 isolated schema; actual deployment role creation, LOGIN membership, secrets,
 and target-schema ownership remain external acceptance tasks.
+
+
+The built-in learning-object quality report now has a direct SQLite/PostgreSQL
+equivalence test. It seeds the same source, article, story, claim, linked
+evidence, and draft learning object in both registries, then compares the full
+quality report, including blocker ordering and details.
+[CI run #45239607986](https://github.com/Amiroudro/new-sngso/actions/runs/45239607986)
+passed **63 PostgreSQL integration tests in 14.49 seconds**, and contract
+validation passed. This covers draft-summary quality parity; approved
+supported-summary, MCQ distractor, vocabulary/glossary, and bilingual variant
+positive/negative cases still need dedicated PostgreSQL parity fixtures.
