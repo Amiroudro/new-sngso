@@ -153,3 +153,6 @@ Migration 36 adds `edition_staging_events_authority_binding_guard`, which joins 
 Direct-SQL regression tests create alternate active human principals with the same required roles, then attempt to rebind each payload identity while retaining the original decision/authorization IDs. Both inserts must fail and persist no event. A separate migration test verifies a schema-v35 database upgrades to v36 without rewriting prior migrations.
 
 The additional trigger raises the live trigger inventory from 138 to 139. This review remains SQLite-specific. Authentication/session freshness, application facade controls, and PostgreSQL parity remain separate acceptance gates.
+
+
+The corrective batch is verified by GitHub Actions [run #1480](https://github.com/Amiroudro/new-sngso/actions/runs/45174698086): **1,122 passed in 26.28 seconds**, tested code commit `d4924a1e1f0e2776923db1bfcc3907998ea85f0b`, schema-v36 artifact `14818506827`. This includes the two identity-rebinding attacks, clean v35→v36 migration, and fail-closed rejection of a legacy mismatched event during upgrade. The schema inventory now contains 139 triggers. PostgreSQL parity and live authenticated-session freshness remain unimplemented.
