@@ -3406,3 +3406,143 @@ def test_postgres_benchmark_readiness_and_agreement_reports_are_descriptive_and_
         assert report["production_ready"] is False
         with pytest.raises(PostgresBenchmarkQualityError, match="no persisted score sheets"):
             view.benchmark_evaluator_agreement_report("benchmark-readiness", "item-1")
+
+
+def test_postgres_approved_benchmark_review_rechecks_live_source_permission(postgres_schema):
+    from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
+
+    connect = postgres_schema
+    stamp = "2026-11-23T00:00:00Z"
+    source_id, endpoint_id = "source:benchmark-rights", "endpoint:benchmark-rights"
+    evidence_id, grant_id = "evidence:benchmark-rights", "grant:benchmark-rights"
+    article_id, artifact_id = "article:benchmark-rights", "benchmark:approved-rights"
+    fingerprint = "sha256:" + "a" * 64
+    artifact = {"artifact_id": artifact_id, "items": [{"id": "item-1"}]}
+    artifact_fingerprint = sha256_fingerprint(artifact)
+    operations = {
+        name: {"allowed": name == "excerpt_storage",
+               "status": "approved" if name == "excerpt_storage" else "denied",
+               "conditions": [],
+               **({"evidence_ids": [evidence_id]} if name == "excerpt_storage" else {})}
+        for name in (
+            "discovery", "metadata", "excerpt_storage", "full_text_storage",
+            "translation", "image_storage", "republication",
+        )
+    }
+    grant = {
+        "schema_version": "1.0.0", "id": grant_id, "source_id": source_id,
+        "endpoint_ids": [endpoint_id], "status": "approved", "operations": operations,
+        "evidence_ids": [evidence_id], "basis": "Publisher-approved excerpt storage.",
+        "effective_from": "2026-01-01T00:00:00Z", "effective_until": "2027-01-01T00:00:00Z",
+        "created_at": stamp, "reviewed_at": stamp, "reviewed_by": "human:rights-reviewer",
+    }
+    review = {
+        "review_id": "review:approved-rights", "benchmark_id": artifact_id,
+        "benchmark_fingerprint": artifact_fingerprint, "language": "en", "status": "approved",
+        "reviewed_at": stamp,
+        "reviewer": {
+            "reviewer_id": "human:benchmark-reviewer", "role": "benchmark_reviewer",
+            "language": "en", "qualification_basis": "Documented editorial and subject-matter experience.",
+        },
+        "source_materials": [{
+            "article_id": article_id, "source_id": source_id,
+            "approved_use_reference": evidence_id, "permission_grant_id": grant_id,
+            "endpoint_id": endpoint_id, "permission_operation": "excerpt_storage",
+            "canonical_uri": "https://rights.example/benchmark-article",
+            "content_fingerprint": fingerprint, "checked_at": stamp,
+        }],
+        "corrections": [], "adjudication_note": "Source rights and benchmark metadata reviewed.",
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, 'Rights Publisher', 'active', %s, %s, %s)",
+            (source_id, stamp, stamp, json.dumps({
+                "id": source_id, "publisher_name": "Rights Publisher", "status": "active",
+                "created_at": stamp, "updated_at": stamp,
+            })),
+        )
+        connection.execute(
+            "INSERT INTO source_endpoints "
+            "(id, source_id, endpoint_uri, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, 'https://rights.example/feed', 'active', %s, %s, %s)",
+            (endpoint_id, source_id, stamp, stamp, json.dumps({
+                "id": endpoint_id, "source_id": source_id,
+                "endpoint_uri": "https://rights.example/feed", "status": "active",
+                "created_at": stamp, "updated_at": stamp,
+            })),
+        )
+        connection.execute(
+            "INSERT INTO permission_evidence "
+            "(id, source_id, review_status, content_fingerprint, captured_at, payload_json) "
+            "VALUES (%s, %s, 'verified', %s, %s, %s)",
+            (evidence_id, source_id, fingerprint, stamp, json.dumps({
+                "id": evidence_id, "source_id": source_id, "review_status": "verified",
+                "content_fingerprint": fingerprint, "captured_at": stamp,
+            })),
+        )
+        connection.execute(
+            "INSERT INTO permission_grants "
+            "(id, source_id, status, effective_from, effective_until, revision, payload_json) "
+            "VALUES (%s, %s, 'approved', %s, %s, 1, %s)",
+            (grant_id, source_id, grant["effective_from"], grant["effective_until"], json.dumps(grant)),
+        )
+        connection.execute(
+            "INSERT INTO grant_endpoints (grant_id, source_id, endpoint_id) VALUES (%s, %s, %s)",
+            (grant_id, source_id, endpoint_id),
+        )
+        connection.execute(
+            "INSERT INTO grant_evidence (grant_id, source_id, evidence_id) VALUES (%s, %s, %s)",
+            (grant_id, source_id, evidence_id),
+        )
+        connection.execute(
+            "INSERT INTO grant_operation_evidence "
+            "(grant_id, source_id, operation, evidence_id) VALUES (%s, %s, 'excerpt_storage', %s)",
+            (grant_id, source_id, evidence_id),
+        )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('article', %s, 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (article_id, stamp, stamp, json.dumps({
+                "id": article_id, "source_id": source_id,
+                "canonical_uri": "https://rights.example/benchmark-article",
+                "content_fingerprint": fingerprint,
+            }), stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_artifacts "
+            "(artifact_id, language, canonicalization, content_fingerprint, content_json, "
+            "created_at, actor, reason) VALUES (%s, 'en', 'canonical-json-v1', %s, %s, %s, "
+            "'fixture', 'approved review test')",
+            (artifact_id, artifact_fingerprint, json.dumps(artifact), stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_reviews "
+            "(review_id, benchmark_id, benchmark_fingerprint, language, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, %s, 'en', 'approved', 1, %s, %s, 'fixture', "
+            "'approved review test', %s)",
+            (review["review_id"], artifact_id, artifact_fingerprint, stamp, stamp, json.dumps(review)),
+        )
+    with connect() as connection:
+        report = PostgresEditionRegistryReadView(connection.cursor()).benchmark_review_quality_report(
+            review["review_id"]
+        )
+        assert report["eligible_for_current_use"] is True
+        checks = {item["name"]: item["passed"] for item in report["checks"]}
+        assert checks["current_source_permission"] is True
+
+    with connect() as connection:
+        connection.execute(
+            "UPDATE permission_evidence SET review_status = 'pending' WHERE id = %s",
+            (evidence_id,),
+        )
+    with connect() as connection:
+        report = PostgresEditionRegistryReadView(connection.cursor()).benchmark_review_quality_report(
+            review["review_id"]
+        )
+        assert report["eligible_for_current_use"] is False
+        checks = {item["name"]: item["passed"] for item in report["checks"]}
+        assert checks["current_source_permission"] is False
