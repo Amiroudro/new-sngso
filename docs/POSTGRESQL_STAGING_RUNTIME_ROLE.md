@@ -20,6 +20,9 @@ Use separate roles in the deployment database:
 Do not grant the staging LOGIN role membership in `sngso_migrator`, the schema
 owner, or a broad application writer role. Store login credentials in the
 deployment secret manager. The repository does not create or store passwords.
+The application connection must explicitly pin its `search_path` to the
+application schema (for example, with libpq `options=-c search_path=sngso`);
+do not rely on the default `$user, public` path or assume a role switch pins it.
 
 Example role bootstrap, executed by the database administrator after creating
 the dedicated application schema:
