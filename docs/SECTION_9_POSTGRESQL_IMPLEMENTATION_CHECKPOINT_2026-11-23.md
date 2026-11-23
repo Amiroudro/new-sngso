@@ -1150,3 +1150,12 @@ coverage, source-support failure, blockers, and human-review warnings.
 [CI run #45241012257](https://github.com/Amiroudro/new-sngso/actions/runs/45241012257)
 passed **67 PostgreSQL integration tests in 17.60 seconds**, and contract
 validation passed.
+
+
+Vocabulary quality report parity is now covered as well. The PostgreSQL fixture
+matches the SQLite draft vocabulary object to its bilingual controlled
+glossary entry and current source-evidence revision, and compares the complete
+quality report including the draft-glossary blocker.
+[CI run #45241063559](https://github.com/Amiroudro/new-sngso/actions/runs/45241063559)
+passed **68 PostgreSQL integration tests in 17.23 seconds**, and contract
+validation passed.
