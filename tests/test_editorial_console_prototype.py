@@ -71,3 +71,26 @@ def test_navigation_has_aria_current_and_keyboard_focus_style():
     css = (ROOT / "studio.css").read_text(encoding="utf-8")
     assert 'aria-current="page"' in html
     assert ":focus-visible" in css
+
+
+def test_evidence_workspace_maps_observations_to_claims_and_history():
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    script = (ROOT / "studio.js").read_text(encoding="utf-8")
+    assert 'id="story-observation-rows"' in html
+    assert 'id="story-decision-history"' in html
+    assert "const observations =" in script
+    assert "const decisionHistory =" in script
+    assert "observationRows.replaceChildren" in script
+    assert "history.replaceChildren" in script
+    assert "fictional" in html.lower()
+    for story_id in ("S-024", "S-023", "S-022", "S-019"):
+        assert f'"{story_id}": [' in script
+
+
+def test_evidence_workspace_keeps_conflicts_visible_and_non_actionable():
+    script = (ROOT / "studio.js").read_text(encoding="utf-8")
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    assert 'kind:"conflict"' in script
+    assert 'kind:"warning"' in script
+    assert "no approval can be recorded" in html
+    assert "Illustrative event sequence, not a persisted audit log" in html
