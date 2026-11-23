@@ -3476,3 +3476,204 @@ def test_edition_release_authorization_direct_sql_rejects_payload_binding_mismat
         assert registry._connection.execute(
             "SELECT COUNT(*) FROM edition_release_authorizations"
         ).fetchone()[0] == 0
+
+
+
+def _valid_staging_sql_fixture(registry):
+    """Create the complete independent-human authority chain required by staging SQL."""
+    for principal_id, role in (
+        ("principal:staging-approver", "edition_approver"),
+        ("principal:staging-authorizer", "edition_release_authorizer"),
+        ("principal:staging-operator", "edition_staging_operator"),
+    ):
+        registry.register_benchmark_principal(
+            principal_id,
+            display_name=principal_id,
+            roles=[role],
+            provisioned_by="test-bootstrap",
+            reason="Create valid staging SQL fixture",
+            principal_kind="human",
+        )
+
+    manifest = {
+        "manifest_id": "manifest:staging-transaction",
+        "edition_id": "edition:staging-transaction",
+        "edition_revision": 1,
+        "payload_sha256": "sha256:" + "a" * 64,
+    }
+    registry._connection.execute(
+        """INSERT INTO edition_artifacts
+           (manifest_id, edition_id, edition_revision, payload_sha256,
+            payload_json, manifest_json, verification_json, created_at, actor, reason)
+           VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'test', 'valid staging transaction fixture')""",
+        (
+            manifest["manifest_id"], manifest["edition_id"],
+            manifest["edition_revision"], manifest["payload_sha256"],
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")),
+            "2026-11-23T00:00:00Z",
+        ),
+    )
+
+    decision = {
+        "decision_id": "decision:staging-transaction",
+        **manifest,
+        "decision": "approve",
+        "principal_id": "principal:staging-approver",
+        "decided_at": "2026-11-23T00:01:00Z",
+        "role": "edition_approver",
+        "scope": "staging_candidate_review",
+        "publication_authorized": False,
+    }
+    registry._connection.execute(
+        """INSERT INTO edition_decisions
+           (decision_id, manifest_id, edition_id, edition_revision, payload_sha256,
+            decision, principal_id, decided_at, payload_json)
+           VALUES (?, ?, ?, ?, ?, 'approve', ?, ?, ?)""",
+        (
+            decision["decision_id"], manifest["manifest_id"], manifest["edition_id"],
+            manifest["edition_revision"], manifest["payload_sha256"],
+            decision["principal_id"], decision["decided_at"],
+            json.dumps(decision, sort_keys=True, separators=(",", ":")),
+        ),
+    )
+
+    authorization = {
+        "authorization_id": "authorization:staging-transaction",
+        **manifest,
+        "approval_decision_id": decision["decision_id"],
+        "approver_principal_id": decision["principal_id"],
+        "authorizer_principal_id": "principal:staging-authorizer",
+        "authorized_at": "2026-11-23T00:02:00Z",
+        "scope": "controlled_release_gate",
+        "release_authorized": True,
+        "publication_authorized": False,
+    }
+    registry._connection.execute(
+        """INSERT INTO edition_release_authorizations
+           (authorization_id, manifest_id, edition_id, edition_revision,
+            payload_sha256, approval_decision_id, approver_principal_id,
+            authorizer_principal_id, authorized_at, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            authorization["authorization_id"], manifest["manifest_id"],
+            manifest["edition_id"], manifest["edition_revision"],
+            manifest["payload_sha256"], decision["decision_id"],
+            decision["principal_id"], authorization["authorizer_principal_id"],
+            authorization["authorized_at"],
+            json.dumps(authorization, sort_keys=True, separators=(",", ":")),
+        ),
+    )
+
+    event = {
+        "event_id": "event:staging-transaction",
+        "state_revision": 1,
+        "channel": "staging",
+        "operation": "promote",
+        **manifest,
+        "export_id": "export:staging-transaction",
+        "export_sha256": "sha256:" + "b" * 64,
+        "previous_current_export_id": None,
+        "lkg_export_id": None,
+        "operator_principal_id": "principal:staging-operator",
+        "occurred_at": "2026-11-23T00:03:00Z",
+        "reason": "Verify atomic staging state advancement",
+        "publication_authorized": False,
+        "target": "staging",
+        "staging_decision": {
+            "decision_id": decision["decision_id"],
+            "principal_id": decision["principal_id"],
+        },
+        "release_authorization": {
+            "authorization_id": authorization["authorization_id"],
+            "authorizer_principal_id": authorization["authorizer_principal_id"],
+        },
+    }
+    export_package = {
+        "export_id": event["export_id"],
+        "manifest_id": manifest["manifest_id"],
+        "payload_sha256": manifest["payload_sha256"],
+        "target": "staging",
+        "publication_authorized": False,
+    }
+    return event, export_package
+
+
+def _insert_valid_staging_event(registry, event, export_package):
+    registry._connection.execute(
+        """INSERT INTO edition_staging_events
+           (event_id, state_revision, channel, operation, manifest_id, edition_id,
+            edition_revision, payload_sha256, export_id, export_sha256,
+            previous_current_export_id, lkg_export_id, operator_principal_id,
+            occurred_at, reason, export_package_json, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            event["event_id"], event["state_revision"], event["channel"],
+            event["operation"], event["manifest_id"], event["edition_id"],
+            event["edition_revision"], event["payload_sha256"], event["export_id"],
+            event["export_sha256"], event["previous_current_export_id"],
+            event["lkg_export_id"], event["operator_principal_id"],
+            event["occurred_at"], event["reason"],
+            json.dumps(export_package, sort_keys=True, separators=(",", ":")),
+            json.dumps(event, sort_keys=True, separators=(",", ":")),
+        ),
+    )
+
+
+def test_valid_staging_event_and_channel_state_advance_atomically():
+    with SQLiteRegistry() as registry:
+        event, export_package = _valid_staging_sql_fixture(registry)
+        with registry._transaction():
+            _insert_valid_staging_event(registry, event, export_package)
+            registry._connection.execute(
+                """UPDATE edition_staging_channel_state
+                   SET state_revision = 1,
+                       current_event_id = ?,
+                       current_export_id = ?,
+                       lkg_event_id = NULL,
+                       lkg_export_id = NULL
+                   WHERE channel = 'staging' AND state_revision = 0""",
+                (event["event_id"], event["export_id"]),
+            )
+
+        stored_event = registry._connection.execute(
+            "SELECT * FROM edition_staging_events WHERE event_id = ?",
+            (event["event_id"],),
+        ).fetchone()
+        state = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert stored_event is not None
+        assert state["state_revision"] == 1
+        assert state["current_event_id"] == event["event_id"]
+        assert state["current_export_id"] == event["export_id"]
+        assert state["lkg_event_id"] is None
+        assert state["lkg_export_id"] is None
+
+
+def test_staging_event_insert_rolls_back_when_state_advance_fails():
+    with SQLiteRegistry() as registry:
+        event, export_package = _valid_staging_sql_fixture(registry)
+        with pytest.raises(sqlite3.IntegrityError, match="matching append-only event"):
+            with registry._transaction():
+                _insert_valid_staging_event(registry, event, export_package)
+                registry._connection.execute(
+                    """UPDATE edition_staging_channel_state
+                       SET state_revision = 2,
+                           current_event_id = ?,
+                           current_export_id = ?,
+                           lkg_event_id = NULL,
+                           lkg_export_id = NULL
+                       WHERE channel = 'staging' AND state_revision = 0""",
+                    (event["event_id"], event["export_id"]),
+                )
+
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events WHERE event_id = ?",
+            (event["event_id"],),
+        ).fetchone()[0] == 0
+        state = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert state["state_revision"] == 0
+        assert state["current_event_id"] is None
+        assert state["current_export_id"] is None
