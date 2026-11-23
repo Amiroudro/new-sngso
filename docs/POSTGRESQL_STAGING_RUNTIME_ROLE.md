@@ -74,8 +74,11 @@ also retain their append-only guards. Trigger guards remain enabled
 as defense in depth.
 
 Default privileges grant SELECT only on future tables created by
-`sngso_migrator`. Any future staging write surface must be separately reviewed
-and explicitly granted. The staging role is not a general PostgreSQL registry
+`sngso_migrator`. Every future migration that adds a primary-key-bearing table
+must also install the 0023 primary-key guard on that table, and the grant script
+must be rerun after the migration so the new key columns receive lock-only
+UPDATE. Any future staging write surface must be separately reviewed and
+explicitly granted. The staging role is not a general PostgreSQL registry
 writer; other write services need their own narrowly scoped roles and APIs.
 
 ## Automated evidence
