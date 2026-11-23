@@ -354,3 +354,19 @@ Migration/cutover requirements:
 - Retain separate authenticated-session freshness checks at the application boundary; a relational principal match is not proof of a live authenticated human.
 
 SQLite migration 36 is local evidence for the identity-binding invariant only. It is not a PostgreSQL implementation or a claim of cross-backend conformance.
+
+
+## 10. Implementation status update (2026-11-23)
+
+The SQLite source baseline is schema **v36**, not v35. The current live CI evidence is schema-v36 artifact `14819744963` from Actions run #1497. The migration inventory and older design paragraphs that refer to v35 are historical context and must not be used as the current baseline.
+
+A deliberately narrow PostgreSQL foundation has now been added:
+
+- `src/sngso_engine/postgres_transaction.py`: top-level READ COMMITTED transaction wrapper; rejects non-idle connections and exposes only a cursor to the callback.
+- `src/sngso_engine/postgres_migration_runner.py`: transaction-scoped advisory lock, ordered migration ledger, packaged-SQL checksum verification, fail-closed unknown-version detection.
+- `src/sngso_engine/postgres_migrations/0001_audit_chain.sql`: initial audit-event table, singleton transactional chain head, append-only defensive triggers, and public mutation revocations.
+- `src/sngso_engine/postgres_audit.py`: row-locked hash-chain append and head compare-and-swap.
+
+This migration is only an audit-chain storage foundation. It is **not** the complete PostgreSQL baseline and does not yet migrate any SQLite domain, pipeline, checkpoint, lease, editorial, benchmark, staging, or publication table. Runtime-role ownership/grants and role-based direct-SQL tests are not yet implemented. The audit append and migration runner tests currently use fake connections/cursors; they do not establish PostgreSQL runtime correctness or independent-connection serialization.
+
+The migration runner must be exercised against a real PostgreSQL service before this slice can be accepted. Next acceptance work: provision a PostgreSQL CI service, apply migration 0001 twice, verify checksum drift and unknown-version rejection, prove append-only enforcement using a non-owner application role, and run concurrent appenders through independent connections while checking contiguous sequence and hash-chain continuity. Only then proceed to the full v36 schema port.
