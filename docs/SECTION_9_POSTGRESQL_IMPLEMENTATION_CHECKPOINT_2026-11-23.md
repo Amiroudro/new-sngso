@@ -1012,3 +1012,15 @@ validation. This verifies the baseline read-port behavior; it does not yet
 replace full adversarial fixtures for accepted source reviews, identity
 attestation expiry, accepted study decisions, and multi-evaluator score
 agreement.
+
+
+A positive-path benchmark review test now proves that an approved review is
+eligible while its registered article, active publisher/endpoint, verified
+permission evidence, relational grant scopes, operation evidence, and current
+grant all agree. The same report becomes ineligible immediately after the
+permission evidence is changed to pending. [CI run
+#45235665664](https://github.com/Amiroudro/new-sngso/actions/runs/45235665664)
+passed **59 PostgreSQL integration tests in 12.20 seconds**, and contract
+validation passed. This adds live-source-permission positive/negative coverage;
+the separate acceptance-review path still needs adversarial fixtures for a
+fully accepted study with two distinct attested reviewers.
