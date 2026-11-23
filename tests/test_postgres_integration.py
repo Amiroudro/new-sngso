@@ -3662,7 +3662,175 @@ def test_postgres_acceptance_quality_rechecks_exact_protocol_execution_and_revie
         assert checks["acceptance_contract"] is True
         assert checks["accepted_decision"] is True
         assert checks["current_human_source_reviews"] is False
+
         assert report["eligible_for_scoped_reference"] is False
+        assert report["production_ready"] is False
+        assert report["authorization_granted"] is False
+
+        source_id = "source:acceptance-review-coverage"
+        endpoint_id = "endpoint:acceptance-review-coverage"
+        evidence_id = "evidence:acceptance-review-coverage"
+        grant_id = "grant:acceptance-review-coverage"
+        article_id = "article:acceptance-review-coverage"
+        source_fingerprint = "sha256:" + "d" * 64
+        source_material = {
+            "article_id": article_id, "source_id": source_id,
+            "approved_use_reference": evidence_id, "permission_grant_id": grant_id,
+            "endpoint_id": endpoint_id, "permission_operation": "excerpt_storage",
+            "canonical_uri": "https://acceptance.example/article",
+            "content_fingerprint": source_fingerprint, "checked_at": stamp,
+        }
+        operation_records = {
+            name: {
+                "allowed": name == "excerpt_storage",
+                "status": "approved" if name == "excerpt_storage" else "denied",
+                "conditions": [],
+                **({"evidence_ids": [evidence_id]} if name == "excerpt_storage" else {}),
+            }
+            for name in (
+                "discovery", "metadata", "excerpt_storage", "full_text_storage",
+                "translation", "image_storage", "republication",
+            )
+        }
+        source_grant = {
+            "schema_version": "1.0.0", "id": grant_id, "source_id": source_id,
+            "endpoint_ids": [endpoint_id], "status": "approved",
+            "operations": operation_records, "evidence_ids": [evidence_id],
+            "basis": "Publisher-approved excerpt storage for benchmark review.",
+            "effective_from": "2026-01-01T00:00:00Z",
+            "effective_until": "2027-01-01T00:00:00Z",
+            "created_at": stamp, "reviewed_at": stamp,
+            "reviewed_by": "human:rights-reviewer",
+        }
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, 'Acceptance Publisher', 'active', %s, %s, %s)",
+            (source_id, stamp, stamp, json.dumps({
+                "id": source_id, "publisher_name": "Acceptance Publisher",
+                "status": "active", "created_at": stamp, "updated_at": stamp,
+            })),
+        )
+        connection.execute(
+            "INSERT INTO source_endpoints "
+            "(id, source_id, endpoint_uri, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, 'https://acceptance.example/feed', 'active', %s, %s, %s)",
+            (endpoint_id, source_id, stamp, stamp, json.dumps({
+                "id": endpoint_id, "source_id": source_id,
+                "endpoint_uri": "https://acceptance.example/feed", "status": "active",
+                "created_at": stamp, "updated_at": stamp,
+            })),
+        )
+        connection.execute(
+            "INSERT INTO permission_evidence "
+            "(id, source_id, review_status, content_fingerprint, captured_at, payload_json) "
+            "VALUES (%s, %s, 'verified', %s, %s, %s)",
+            (evidence_id, source_id, source_fingerprint, stamp, json.dumps({
+                "id": evidence_id, "source_id": source_id, "review_status": "verified",
+                "content_fingerprint": source_fingerprint, "captured_at": stamp,
+            })),
+        )
+        connection.execute(
+            "INSERT INTO permission_grants "
+            "(id, source_id, status, effective_from, effective_until, revision, payload_json) "
+            "VALUES (%s, %s, 'approved', %s, %s, 1, %s)",
+            (grant_id, source_id, source_grant["effective_from"],
+             source_grant["effective_until"], json.dumps(source_grant)),
+        )
+        connection.execute(
+            "INSERT INTO grant_endpoints (grant_id, source_id, endpoint_id) VALUES (%s, %s, %s)",
+            (grant_id, source_id, endpoint_id),
+        )
+        connection.execute(
+            "INSERT INTO grant_evidence (grant_id, source_id, evidence_id) VALUES (%s, %s, %s)",
+            (grant_id, source_id, evidence_id),
+        )
+        connection.execute(
+            "INSERT INTO grant_operation_evidence "
+            "(grant_id, source_id, operation, evidence_id) "
+            "VALUES (%s, %s, 'excerpt_storage', %s)",
+            (grant_id, source_id, evidence_id),
+        )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('article', %s, 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (article_id, stamp, stamp, json.dumps({
+                "id": article_id, "source_id": source_id,
+                "canonical_uri": source_material["canonical_uri"],
+                "content_fingerprint": source_fingerprint,
+            }), stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, reason, "
+            "languages_json, principal_kind) VALUES "
+            "('human:one', 'Human One', '[\"benchmark_reviewer\"]', 1, %s, 'fixture', "
+            "'reviewer', '[\"bn\"]', 'human'), "
+            "('human:two', 'Human Two', '[\"benchmark_reviewer\"]', 1, %s, 'fixture', "
+            "'reviewer', '[\"bn\"]', 'human')",
+            (stamp, stamp),
+        )
+        for reviewer_id in ("human:one", "human:two"):
+            source_review = {
+                "review_id": "review:" + reviewer_id,
+                "benchmark_id": artifact_id, "benchmark_fingerprint": artifact_fp,
+                "language": "bn", "status": "approved", "reviewed_at": stamp,
+                "reviewer": {
+                    "reviewer_id": reviewer_id, "role": "benchmark_reviewer",
+                    "language": "bn",
+                    "qualification_basis": "Documented editorial and subject-matter experience.",
+                },
+                "source_materials": [source_material], "corrections": [],
+                "adjudication_note": "Reviewed source evidence and benchmark item.",
+            }
+            connection.execute(
+                "INSERT INTO benchmark_reviews "
+                "(review_id, benchmark_id, benchmark_fingerprint, language, status, revision, "
+                "created_at, updated_at, last_actor, last_reason, payload_json) "
+                "VALUES (%s, %s, %s, 'bn', 'approved', 1, %s, %s, %s, "
+                "'source review', %s)",
+                (source_review["review_id"], artifact_id, artifact_fp, stamp, stamp,
+                 reviewer_id, json.dumps(source_review)),
+            )
+            attestation = {
+                "attestation_id": "attestation:" + reviewer_id,
+                "review_id": source_review["review_id"], "review_revision": 1,
+                "principal_id": reviewer_id, "issuer": "https://login.example.test/",
+                "audience": "sngso-benchmark-review", "subject": "oidc:" + reviewer_id,
+                "authenticated_at": "2026-11-23T00:01:00Z",
+                "expires_at": "2026-11-23T01:00:00Z",
+                "authentication_methods": ["password", "webauthn"],
+                "authentication_context": "interactive-mfa",
+                "provider_key_id": "test-key", "provider_adapter": "test-adapter/1",
+                "session_fingerprint": "sha256:" + ("e" if reviewer_id == "human:one" else "f") * 64,
+                "attested_at": "2026-11-23T00:02:00Z",
+            }
+            connection.execute(
+                "INSERT INTO benchmark_review_identity_attestations "
+                "(attestation_id, review_id, review_revision, principal_id, issuer, audience, "
+                "subject, authenticated_at, expires_at, authentication_methods_json, "
+                "authentication_context, provider_key_id, provider_adapter, session_fingerprint, "
+                "attested_at, payload_json, actor, reason) "
+                "VALUES (%s, %s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (attestation["attestation_id"], attestation["review_id"], reviewer_id,
+                 attestation["issuer"], attestation["audience"], attestation["subject"],
+                 attestation["authenticated_at"], attestation["expires_at"],
+                 json.dumps(attestation["authentication_methods"]),
+                 attestation["authentication_context"], attestation["provider_key_id"],
+                 attestation["provider_adapter"], attestation["session_fingerprint"],
+                 attestation["attested_at"], json.dumps(attestation), reviewer_id,
+                 "test attestation"),
+            )
+
+    with connect() as connection:
+        report = PostgresEditionRegistryReadView(connection.cursor()).benchmark_acceptance_review_quality_report(
+            review["review_id"]
+        )
+        checks = {item["name"]: item["passed"] for item in report["checks"]}
+        assert checks["current_human_source_reviews"] is True
+        assert len([item for item in report["source_reviews"] if item["eligible_current_source_review"]]) == 2
+        assert report["eligible_for_scoped_reference"] is True
         assert report["production_ready"] is False
         assert report["authorization_granted"] is False
 
