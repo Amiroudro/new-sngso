@@ -2884,3 +2884,98 @@ def test_schema_34_migrates_to_35_with_automatic_domain_revision_triggers(tmp_pa
             "domain_records_revision_guard",
             "domain_records_record_update",
         } <= triggers
+
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("record_type", "story"),
+        ("id", "article:rewritten-identity"),
+        ("created_at", "2026-11-01T00:00:00Z"),
+    ],
+)
+def test_domain_record_sql_guard_rejects_identity_rewrites(column, value):
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        row = registry._connection.execute(
+            """SELECT revision, payload_json FROM domain_records
+               WHERE record_type = 'article' AND id = 'article:publisher-a-001'"""
+        ).fetchone()
+        payload = json.loads(row["payload_json"])
+        payload["updated_at"] = "2026-11-21T00:00:00Z"
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+        with pytest.raises(sqlite3.IntegrityError, match="identity and creation time are immutable"):
+            registry._connection.execute(
+                f"""UPDATE domain_records
+                    SET {column} = ?, revision = revision + 1, updated_at = ?,
+                        payload_json = ?, last_actor = 'sql-reviewer',
+                        last_reason = 'attempted identity rewrite',
+                        last_revision_at = '2026-11-23T00:00:00Z'
+                    WHERE record_type = 'article' AND id = 'article:publisher-a-001'""",
+                (value, "2026-11-21T00:00:00Z", encoded),
+            )
+
+
+def test_domain_record_sql_guard_rejects_revision_timestamp_rollback():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        row = registry._connection.execute(
+            """SELECT payload_json FROM domain_records
+               WHERE record_type = 'article' AND id = 'article:publisher-a-001'"""
+        ).fetchone()
+        payload = json.loads(row["payload_json"])
+        payload["updated_at"] = "2026-11-21T00:00:00Z"
+
+        with pytest.raises(sqlite3.IntegrityError, match="timestamp cannot move backwards"):
+            registry._connection.execute(
+                """UPDATE domain_records
+                   SET revision = revision + 1, updated_at = ?, payload_json = ?,
+                       last_actor = 'sql-reviewer', last_reason = 'backdated revision',
+                       last_revision_at = '2000-01-01T00:00:00Z'
+                   WHERE record_type = 'article' AND id = 'article:publisher-a-001'""",
+                (
+                    "2026-11-21T00:00:00Z",
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+
+
+def test_domain_record_revision_history_rejects_direct_update_and_delete():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                """UPDATE domain_record_revisions
+                   SET reason = 'rewritten' WHERE record_type = 'article'
+                     AND record_id = 'article:publisher-a-001' AND revision = 1"""
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                """DELETE FROM domain_record_revisions
+                   WHERE record_type = 'article'
+                     AND record_id = 'article:publisher-a-001' AND revision = 1"""
+            )
+
+
+def test_permission_grant_revision_history_rejects_direct_update_and_delete():
+    with SQLiteRegistry() as registry:
+        populate_registry(registry)
+        registry.add_permission_grant(grant_record())
+
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                """UPDATE permission_grant_revisions
+                   SET reason = 'rewritten'
+                   WHERE grant_id = 'permission:publisher-a-discovery-001' AND revision = 1"""
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                """DELETE FROM permission_grant_revisions
+                   WHERE grant_id = 'permission:publisher-a-discovery-001' AND revision = 1"""
+            )
