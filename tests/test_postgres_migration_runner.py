@@ -61,7 +61,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     connection = FakeConnection()
     applied = apply_postgres_migrations(connection)
 
-    assert applied == (1, 2, 3, 4, 5, 6)
+    assert applied == (1, 2, 3, 4, 5, 6, 7)
     assert connection.commits == 1
     assert connection.rollbacks == 0
     sql = [statement[0] for statement in connection.db_cursor.statements]
@@ -72,6 +72,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     ingestion_sql = next(statement for statement in sql if "CREATE TABLE collection_observations" in statement)
     story_sql = next(statement for statement in sql if "CREATE TABLE story_decisions" in statement)
     perspective_sql = next(statement for statement in sql if "CREATE TABLE perspectives" in statement)
+    learning_sql = next(statement for statement in sql if "CREATE TABLE learning_objects" in statement)
     assert "CREATE TABLE audit_chain_head" in migration_sql
     assert "audit_events_no_update" in migration_sql
     assert "audit_events_no_delete" in migration_sql
@@ -94,18 +95,23 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert "validate_perspective_insert" in perspective_sql
     assert "validate_claim_relation_insert" in perspective_sql
     assert "perspectives_no_update" in perspective_sql
+    assert "CREATE TABLE learning_object_revisions" in learning_sql
+    assert "CREATE TABLE glossary_entries" in learning_sql
+    assert "record_learning_object_revision" in learning_sql
+    assert "record_glossary_entry_revision" in learning_sql
     assert connection.db_cursor.rows[0][0:2] == (1, "0001_audit_chain.sql")
     assert connection.db_cursor.rows[1][0:2] == (2, "0002_audit_head_guards.sql")
     assert connection.db_cursor.rows[2][0:2] == (3, "0003_source_permission_domain_registry.sql")
     assert connection.db_cursor.rows[3][0:2] == (4, "0004_collection_ingestion.sql")
     assert connection.db_cursor.rows[4][0:2] == (5, "0005_story_timeline.sql")
     assert connection.db_cursor.rows[5][0:2] == (6, "0006_perspectives_claim_relations.sql")
+    assert connection.db_cursor.rows[6][0:2] == (7, "0007_learning_glossary_revisions.sql")
     assert all(row[2].startswith("sha256:") for row in connection.db_cursor.rows)
 
     applied_again = apply_postgres_migrations(connection)
     assert applied_again == ()
     assert connection.commits == 2
-    assert len(connection.db_cursor.rows) == 6
+    assert len(connection.db_cursor.rows) == 7
 
 
 def test_postgres_migration_runner_rejects_modified_applied_migration():
