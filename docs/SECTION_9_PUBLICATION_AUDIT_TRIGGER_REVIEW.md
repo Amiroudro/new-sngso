@@ -110,3 +110,14 @@ Story decisions are append-only, but their application ledger also has a uniquen
 ## 11. Review boundary
 
 The 27-trigger source-level review in this document and the 23-trigger operational review together cover 50 of the 131 SQLite triggers. This is not a claim that all 50 have dedicated direct-SQL negative tests, nor that PostgreSQL equivalence has been implemented. The other 81 triggers remain to be reviewed. Section 9 P0 and production acceptance remain open.
+
+## Additional direct-SQL acceptance tests committed on the Section 9 branch
+
+The following adversarial cases have now been added to the automated test suite:
+
+- `tests/storage/test_registry.py::test_staging_channel_state_is_a_singleton_and_cannot_be_forged_or_deleted` verifies duplicate singleton initialization is rejected, a state revision cannot advance without a matching append-only event, and the state row cannot be deleted.
+- `tests/storage/test_registry.py::test_staging_event_direct_sql_rejects_payload_identity_mismatch` attempts a direct event insert whose row ID disagrees with the payload ID, then verifies that neither an event nor a state transition was persisted.
+- `tests/test_timeline_event_review.py::test_timeline_event_rows_reject_direct_sql_update_and_delete` verifies event immutability under direct SQL.
+- `tests/test_timeline_event_review.py::test_sqlite_boundary_rejects_empty_or_unregistered_timeline_claims` verifies empty and unregistered claim references are rejected by the database trigger.
+
+These are committed test additions, not yet CI-verified results. The valid staging-event lifecycle still requires full fixture-backed direct-SQL tests for the successful event/state transaction and injected rollback windows. PostgreSQL equivalence remains unimplemented.
