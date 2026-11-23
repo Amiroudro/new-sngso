@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql")]
 
 
 
@@ -188,6 +188,117 @@ def test_postgres_registry_revision_snapshots_are_append_only(postgres_schema):
         assert connection.execute(
             "SELECT count(*) FROM domain_record_revisions"
         ).fetchone()[0] == 1
+
+
+
+def test_postgres_collection_ingestion_provenance_and_current_pointer(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        for source_id in ("source-ingest-a", "source-ingest-b"):
+            connection.execute(
+                "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+                "VALUES (%s, 'Publisher', 'active', '2026-11-23T00:00:00Z', "
+                "'2026-11-23T00:00:00Z', %s)",
+                (source_id, json.dumps({"id": source_id})),
+            )
+        connection.execute(
+            "INSERT INTO source_endpoints "
+            "(id, source_id, endpoint_uri, status, created_at, updated_at, payload_json) "
+            "VALUES ('endpoint-ingest', 'source-ingest-a', 'https://ingest.example/feed', "
+            "'active', '2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "endpoint-ingest"}),),
+        )
+        connection.execute(
+            "INSERT INTO permission_grants "
+            "(id, source_id, status, effective_from, effective_until, revision, payload_json) "
+            "VALUES ('grant-ingest', 'source-ingest-a', 'active', '2026-11-23T00:00:00Z', "
+            "'2027-11-23T00:00:00Z', 1, %s)",
+            (json.dumps({"id": "grant-ingest", "revision": 1}),),
+        )
+        connection.execute(
+            "INSERT INTO collection_observations "
+            "(observation_id, source_id, endpoint_id, grant_id, grant_revision, operation, "
+            "connector_name, connector_version, observed_at, locator, metadata_json, "
+            "permission_reason, http_method) "
+            "VALUES ('observation-ingest', 'source-ingest-a', 'endpoint-ingest', "
+            "'grant-ingest', 1, 'discovery', 'test-connector', '1.0', "
+            "'2026-11-23T00:00:00Z', 'https://ingest.example/article', %s, "
+            "'approved discovery scope', 'GET')",
+            (json.dumps({"title": "Observed article"}),),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO collection_observations "
+                    "(observation_id, source_id, endpoint_id, grant_id, grant_revision, "
+                    "operation, connector_name, connector_version, observed_at, locator, "
+                    "metadata_json, permission_reason, http_method) "
+                    "VALUES ('observation-post', 'source-ingest-a', 'endpoint-ingest', "
+                    "'grant-ingest', 1, 'discovery', 'test-connector', '1.0', "
+                    "'2026-11-23T00:00:00Z', 'https://ingest.example/post', %s, "
+                    "'not allowed', 'POST')",
+                    (json.dumps({}),),
+                )
+        for article_id, source_id, uri in (
+            ("article-ingest-a", "source-ingest-a", "https://ingest.example/article"),
+            ("article-ingest-b", "source-ingest-b", "https://other.example/article"),
+        ):
+            connection.execute(
+                "INSERT INTO domain_records "
+                "(record_type, id, revision, created_at, updated_at, payload_json) "
+                "VALUES ('article', %s, 1, '2026-11-23T00:00:00Z', "
+                "'2026-11-23T00:00:00Z', %s)",
+                (article_id, json.dumps({
+                    "id": article_id, "source_id": source_id, "canonical_uri": uri
+                })),
+            )
+        connection.execute(
+            "INSERT INTO ingestion_decisions "
+            "(decision_id, observation_id, decision_revision, source_id, article_id, "
+            "outcome, fingerprint, canonical_uri, reason, decided_at) "
+            "VALUES ('decision-ingest', 'observation-ingest', 1, 'source-ingest-a', "
+            "'article-ingest-a', 'created', %s, 'https://ingest.example/article', "
+            "'new source article', '2026-11-23T00:00:00Z')",
+            ("sha256:" + "b" * 64,),
+        )
+        connection.execute(
+            "INSERT INTO ingestion_current (observation_id, decision_id) "
+            "VALUES ('observation-ingest', 'decision-ingest')"
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="article/source/URI mismatch"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO ingestion_decisions "
+                    "(decision_id, observation_id, decision_revision, source_id, article_id, "
+                    "outcome, canonical_uri, reason, decided_at) "
+                    "VALUES ('decision-wrong-source', 'observation-ingest', 2, "
+                    "'source-ingest-a', 'article-ingest-b', 'reused', "
+                    "'https://other.example/article', 'wrong source', "
+                    "'2026-11-23T00:00:01Z')"
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE ingestion_decisions SET reason = 'rewritten' "
+                "WHERE decision_id = 'decision-ingest'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM collection_observations "
+                "WHERE observation_id = 'observation-ingest'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM ingestion_current WHERE observation_id = 'observation-ingest'"
+            )
+        connection.rollback()
+        assert connection.execute(
+            "SELECT decision_id FROM ingestion_current "
+            "WHERE observation_id = 'observation-ingest'"
+        ).fetchone() == ("decision-ingest",)
 
 
 def test_postgres_audit_append_serializes_independent_connections(postgres_schema):
