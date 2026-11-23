@@ -186,3 +186,38 @@ passed:
 This is a foundational slice, not the complete schema-v36 port. The remaining
 tables, triggers, cross-record invariants, role matrix, and staging/checkpoint
 transaction boundaries are still open.
+
+
+## Follow-up: collection observations and ingestion decision registry
+
+PostgreSQL migration 0004, `0004_collection_ingestion.sql`, ports the next
+dependency layer from SQLite migrations 2-4:
+
+- append-only collection observations, including the GET-only HTTP method
+  constraint and source/endpoint/grant provenance;
+- ingestion decisions with outcome, duplicate target, fingerprint, canonical
+  URI, reason, and decision revision;
+- the current-decision pointer, constrained by a composite
+  (observation_id, decision_id) foreign key;
+- source/time, endpoint/time, fingerprint, and article source/URI indexes.
+
+The PostgreSQL decision trigger checks that the referenced article is
+registered as an article and that its source and canonical URI match the
+decision. It also requires the observation to belong to the same source and,
+when a duplicate target is supplied, requires that target to be an article
+from a different source. Observation and decision history are append-only;
+the current ingestion pointer cannot be deleted.
+
+The integration suite now verifies valid observation-to-decision provenance,
+GET-only method enforcement, rejection of an article/source mismatch, and
+immutability of observations, decisions, and current state.
+
+GitHub Actions [run #1531](https://github.com/Amiroudro/new-sngso/actions/runs/45211327959)
+passed:
+- PostgreSQL 16 integration suite: **30 passed in 1.85 seconds**.
+- Contract validation: passed.
+- Live schema-v36 inspection and artifact upload: passed.
+
+This still does not port the remaining story, timeline, learning, benchmark,
+pipeline, checkpoint, lease, or edition/staging registry domains. Nor does it
+complete the production role matrix or atomic staging workflow.
