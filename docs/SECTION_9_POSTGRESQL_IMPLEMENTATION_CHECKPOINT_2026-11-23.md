@@ -893,3 +893,12 @@ new quality parity assertion compares the PostgreSQL report with
 `SQLiteRegistry.learning_object_quality_report()` for a draft headline
 summary with no claims. This verifies deterministic blocker/check ordering for
 that baseline case, not yet the full MCQ, answer-evidence, or vocabulary paths.
+
+
+The SQLite/PostgreSQL story snapshot and learning-quality parity fixture now
+also includes a linked supported claim, its supporting evidence record,
+source/article provenance, and a factual summary segment. It compares both
+the full story snapshot fingerprint and the full deterministic learning-object
+quality report. [CI run #1656](https://github.com/Amiroudro/new-sngso/actions/runs/45227511942)
+passed **53 PostgreSQL integration tests in 10.36 seconds**; contract
+validation and schema-v36 inspection generation/artifact upload passed.
