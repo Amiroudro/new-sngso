@@ -96,3 +96,8 @@ These are prioritization labels, not completed semantic reviews. The authoritati
 ## Acceptance rule
 
 This ledger closes the **live inventory capture** portion of P0. It does not close trigger semantics review or authorize a PostgreSQL migration. Each trigger must have a reviewed implementation mapping and executable negative tests before the PostgreSQL schema is accepted.
+
+
+## Schema-v36 delta
+
+Migration 36 adds one BEFORE INSERT trigger, `edition_staging_events_authority_binding_guard`, bringing the live schema to **139 triggers**. The new trigger binds payload-declared approver and authorizer identities to the immutable linked decision and release-authorization rows. The schema-v36 CI artifact `14818506827` from run #1480 is the current live-schema evidence. The 138-trigger tables above remain an explicitly historical schema-v35 snapshot; regenerate the complete lexical ledger from the v36 artifact before PostgreSQL DDL implementation.
