@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql")]
 
 
 
@@ -589,6 +589,91 @@ def test_postgres_learning_and_glossary_revision_snapshots_are_atomic_and_append
         assert connection.execute(
             "SELECT count(*) FROM learning_object_revisions"
         ).fetchone()[0] == 2
+
+
+
+def test_postgres_benchmark_artifact_review_and_adjudication_integrity(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO benchmark_artifacts "
+            "(artifact_id, language, canonicalization, content_fingerprint, "
+            "content_json, created_at, actor, reason) "
+            "VALUES ('benchmark-artifact-1', 'en', 'canonical-json-v1', %s, "
+            "'{}', '2026-11-23T00:00:00Z', 'builder', 'frozen benchmark')",
+            ("sha256:" + "e" * 64,),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, "
+            "created_by, reason, languages_json, principal_kind) "
+            "VALUES ('benchmark-reviewer', 'Reviewer', %s, 1, "
+            "'2026-11-23T00:00:00Z', 'admin', 'review role', %s, 'human')",
+            (json.dumps(["reviewer"]), json.dumps(["en", "bn"])),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_reviews "
+            "(review_id, benchmark_id, benchmark_fingerprint, language, status, "
+            "revision, created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES ('benchmark-review-1', 'benchmark-artifact-1', %s, 'en', "
+            "'draft', 1, '2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', "
+            "'reviewer', 'initial review', %s)",
+            ("sha256:" + "e" * 64, json.dumps({"findings": []})),
+        )
+        connection.execute(
+            "UPDATE benchmark_reviews SET status = 'approved', revision = 2, "
+            "updated_at = '2026-11-23T00:01:00Z', last_actor = 'reviewer', "
+            "last_reason = 'review completed', payload_json = %s "
+            "WHERE review_id = 'benchmark-review-1'",
+            (json.dumps({"findings": ["verified"]}),),
+        )
+        assert connection.execute(
+            "SELECT revision FROM benchmark_review_revisions "
+            "WHERE review_id = 'benchmark-review-1' ORDER BY revision"
+        ).fetchall() == [(1,), (2,)]
+        connection.execute(
+            "INSERT INTO benchmark_adjudications "
+            "(adjudication_id, benchmark_id, benchmark_fingerprint, adjudicator_id, "
+            "resolved_at, payload_json, created_at, actor, reason) "
+            "VALUES ('adjudication-1', 'benchmark-artifact-1', %s, "
+            "'benchmark-reviewer', '2026-11-23T00:02:00Z', %s, "
+            "'2026-11-23T00:02:00Z', 'reviewer', 'final adjudication')",
+            ("sha256:" + "e" * 64, json.dumps({"decision": "accepted"})),
+        )
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO benchmark_adjudications "
+                    "(adjudication_id, benchmark_id, benchmark_fingerprint, adjudicator_id, "
+                    "resolved_at, payload_json, created_at, actor, reason) "
+                    "VALUES ('adjudication-2', 'benchmark-artifact-1', %s, "
+                    "'benchmark-reviewer', '2026-11-23T00:03:00Z', %s, "
+                    "'2026-11-23T00:03:00Z', 'reviewer', 'duplicate adjudication')",
+                    ("sha256:" + "e" * 64, json.dumps({"decision": "rejected"})),
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE benchmark_artifacts SET reason = 'rewritten' "
+                "WHERE artifact_id = 'benchmark-artifact-1'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE benchmark_principals SET principal_kind = 'synthetic' "
+                "WHERE principal_id = 'benchmark-reviewer'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM benchmark_review_revisions "
+                "WHERE review_id = 'benchmark-review-1' AND revision = 1"
+            )
+        connection.rollback()
+        assert connection.execute(
+            "SELECT count(*) FROM benchmark_adjudications"
+        ).fetchone()[0] == 1
 
 
 def test_postgres_audit_append_serializes_independent_connections(postgres_schema):
