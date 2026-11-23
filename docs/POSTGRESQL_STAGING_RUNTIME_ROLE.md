@@ -81,8 +81,9 @@ writer; other write services need their own narrowly scoped roles and APIs.
 ## Automated evidence
 
 The PostgreSQL integration test creates a non-owner role with this same
-privilege shape, stages an export through `stage_edition_export()`, and checks
-that UPDATE/DELETE/TRUNCATE attempts against non-key event fields and unrelated
+privilege shape, takes `FOR SHARE` locks against every table in the isolated
+schema, stages an export through `stage_edition_export()`, and checks that
+UPDATE/DELETE/TRUNCATE attempts against non-key event fields and unrelated
 source fields fail with `InsufficientPrivilege`; attempts to change protected
 primary keys fail with an integrity error. It also verifies that the permitted
 staging and audit writes commit together.
