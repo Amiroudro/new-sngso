@@ -3260,7 +3260,7 @@ def test_staging_event_direct_sql_rejects_each_payload_column_mismatch(
             match="staging event failed",
         ):
             registry._connection.execute(
-                \"\"\"INSERT INTO edition_staging_events
+                """INSERT INTO edition_staging_events
                    (event_id, state_revision, channel, operation, manifest_id, edition_id,
                     edition_revision, payload_sha256, export_id, export_sha256,
                     previous_current_export_id, lkg_export_id, operator_principal_id,
@@ -3268,7 +3268,7 @@ def test_staging_event_direct_sql_rejects_each_payload_column_mismatch(
                    VALUES ('event:expected', 1, 'staging', 'promote',
                            'manifest:expected', 'edition:expected', 1, ?, 'export:expected',
                            ?, NULL, NULL, 'operator:expected', '2026-11-23T00:00:00Z',
-                           'Staging payload binding test', ?, ?)\"\"\",
+                           'Staging payload binding test', ?, ?)""",
                 (
                     "sha256:" + "a" * 64,
                     "sha256:" + "b" * 64,
@@ -3331,7 +3331,7 @@ def test_staging_event_direct_sql_rejects_export_package_binding_mismatch(
             match="staging event failed",
         ):
             registry._connection.execute(
-                \"\"\"INSERT INTO edition_staging_events
+                """INSERT INTO edition_staging_events
                    (event_id, state_revision, channel, operation, manifest_id, edition_id,
                     edition_revision, payload_sha256, export_id, export_sha256,
                     previous_current_export_id, lkg_export_id, operator_principal_id,
@@ -3339,7 +3339,7 @@ def test_staging_event_direct_sql_rejects_export_package_binding_mismatch(
                    VALUES ('event:expected', 1, 'staging', 'promote',
                            'manifest:expected', 'edition:expected', 1, ?, 'export:expected',
                            ?, NULL, NULL, 'operator:expected', '2026-11-23T00:00:00Z',
-                           'Export package binding test', ?, ?)\"\"\",
+                           'Export package binding test', ?, ?)""",
                 (
                     "sha256:" + "a" * 64,
                     "sha256:" + "b" * 64,
