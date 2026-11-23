@@ -938,3 +938,32 @@ quality paths have parity coverage for a linked article, supported claim,
 supporting evidence, factual summary, comprehension answer evidence, draft
 MCQ rationale coverage, and vocabulary/glossary matching. Benchmark review and
 acceptance review data remain the main known unsupported story-snapshot case.
+
+
+## Follow-up: serialize specialized learning evidence validation
+
+PostgreSQL migration 0022, `0022_learning_evidence_locking.sql`, replaces the
+migration-0011 specialized learning-object trigger function without rewriting
+the already-checksummed migration. The trigger now takes `FOR SHARE` locks on
+the exact current claim and evidence rows while validating vocabulary source
+evidence and question answer-evidence references. Those locks remain held until
+the learning-object write transaction ends, preventing a concurrent claim or
+evidence revision from invalidating the just-accepted provenance before commit.
+
+The integration suite now includes an independent-connection race test: while
+a learning-object insert holds the evidence validation locks, a second
+connection attempts to revise that evidence row. PostgreSQL cancels the
+competing update at the configured lock timeout, and the evidence head remains
+at revision one.
+
+[CI run #45233191201](https://github.com/Amiroudro/new-sngso/actions/runs/45233191201)
+passed on commit `170d795cd5cefae874c89fd65b76d46dabe65285`:
+- PostgreSQL 16 integration: **54 passed in 8.78 seconds**.
+- Contract/SQLite suite: **1,143 passed, 1 skipped in 26.85 seconds**.
+- Schema-v36 inspection generated and uploaded successfully as artifact
+  [14847932761](https://github.com/Amiroudro/new-sngso/actions/runs/45233191201/artifacts/14847932761).
+
+This closes the validation-to-commit race for the specialized evidence
+trigger. It does not complete benchmark review/acceptance quality-report
+parity, production role provisioning, or the remaining Section 9 external
+acceptance gates. PR #8 remains draft and unmerged.
