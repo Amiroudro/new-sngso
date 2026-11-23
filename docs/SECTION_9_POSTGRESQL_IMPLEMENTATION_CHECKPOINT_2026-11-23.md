@@ -1024,3 +1024,15 @@ passed **59 PostgreSQL integration tests in 12.20 seconds**, and contract
 validation passed. This adds live-source-permission positive/negative coverage;
 the separate acceptance-review path still needs adversarial fixtures for a
 fully accepted study with two distinct attested reviewers.
+
+
+The acceptance-review quality path now has a PostgreSQL positive-evidence
+fixture: the acceptance fingerprint, exact protocol version/fingerprint,
+execution/fingerprint, benchmark artifact, acceptance contract, and all three
+accepted review domains verify successfully. With no qualifying current human
+source reviews, the report correctly remains ineligible for scoped reference,
+with production readiness and authorization both false. [CI run
+#45235982694](https://github.com/Amiroudro/new-sngso/actions/runs/45235982694)
+passed **60 PostgreSQL integration tests in 16.34 seconds**, and contract
+validation passed. The two-distinct-attested-human-review positive path is
+still not yet fixture-verified.
