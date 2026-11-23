@@ -141,11 +141,3 @@ BEGIN
     RETURN NEW;
 END;
 $$;
-
-CREATE TRIGGER learning_objects_specialized_evidence_insert
-BEFORE INSERT ON learning_objects
-FOR EACH ROW EXECUTE FUNCTION validate_learning_object_specialized_evidence();
-
-CREATE TRIGGER learning_objects_specialized_evidence_update
-BEFORE UPDATE OF payload_json ON learning_objects
-FOR EACH ROW EXECUTE FUNCTION validate_learning_object_specialized_evidence();
