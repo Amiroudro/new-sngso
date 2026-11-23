@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -1474,3 +1474,91 @@ def test_postgres_pipeline_run_revisions_preserve_identity_and_legal_transitions
         assert connection.execute(
             "SELECT revision, status FROM pipeline_runs WHERE id = 'pipeline-run-1'"
         ).fetchone() == (2, "running")
+
+
+
+def test_postgres_stage_checkpoints_are_idempotent_revisioned_and_immutable(postgres_schema):
+    connect = postgres_schema
+    run = {
+        "schema_version": "1.0.0", "id": "checkpoint-run",
+        "status": "queued", "started_at": "2026-11-23T00:00:00Z",
+        "software_version": "engine-2.0",
+        "config_hash": "sha256:" + "1" * 64,
+        "input_hashes": ["sha256:" + "2" * 64], "initiated_by": "operator-1"
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json) "
+            "VALUES (%s, 'queued', 1, %s, %s)",
+            (run["id"], run["started_at"], json.dumps(run)),
+        )
+        connection.execute(
+            "INSERT INTO pipeline_stage_checkpoints "
+            "(pipeline_run_id, stage_ordinal, stage_name, input_fingerprint, idempotency_key, "
+            "status, revision, created_at, updated_at, actor, reason, metadata_json) "
+            "VALUES ('checkpoint-run', 0, 'collect', %s, %s, 'executing', 1, "
+            "'2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', 'worker-1', "
+            "'stage started', %s)",
+            ("sha256:" + "3" * 64, "sha256:" + "4" * 64,
+             json.dumps({"adapter_version": "v1", "attempt": 1})),
+        )
+        connection.execute(
+            "UPDATE pipeline_stage_checkpoints SET status = 'indeterminate', revision = 2, "
+            "provider_namespace = NULL, provider_operation_ref = 'provider-op-1', "
+            "updated_at = '2026-11-23T00:01:00Z', actor = 'worker-1', "
+            "reason = 'provider outcome uncertain', metadata_json = %s "
+            "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0",
+            (json.dumps({"provider_state": "unknown", "attempt": 1}),),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="immutable once recorded"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE pipeline_stage_checkpoints SET status = 'executing', revision = 3, "
+                    "provider_operation_ref = 'provider-op-2', "
+                    "updated_at = '2026-11-23T00:02:00Z', actor = 'worker-1', "
+                    "reason = 'attempt to replace provider operation', metadata_json = %s "
+                    "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0",
+                    (json.dumps({"attempt": 2}),),
+                )
+        connection.execute(
+            "UPDATE pipeline_stage_checkpoints SET status = 'succeeded', revision = 3, "
+            "output_fingerprint = %s, updated_at = '2026-11-23T00:03:00Z', "
+            "actor = 'worker-1', reason = 'provider result reconciled', metadata_json = %s "
+            "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0",
+            ("sha256:" + "5" * 64, json.dumps({"reconciliation": "confirmed", "attempt": 2})),
+        )
+        assert connection.execute(
+            "SELECT revision, status, provider_operation_ref FROM pipeline_stage_checkpoints "
+            "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0"
+        ).fetchone() == (3, "succeeded", "provider-op-1")
+        assert connection.execute(
+            "SELECT revision, status FROM pipeline_stage_checkpoint_revisions "
+            "WHERE pipeline_run_id = 'checkpoint-run' ORDER BY revision"
+        ).fetchall() == [(1, "executing"), (2, "indeterminate"), (3, "succeeded")]
+
+        with pytest.raises(psycopg.errors.CheckViolation, match="unsupported fields or types"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO pipeline_stage_checkpoints "
+                    "(pipeline_run_id, stage_ordinal, stage_name, input_fingerprint, idempotency_key, "
+                    "status, revision, created_at, updated_at, actor, reason, metadata_json) "
+                    "VALUES ('checkpoint-run', 1, 'transform', %s, %s, 'executing', 1, "
+                    "'2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', 'worker-1', "
+                    "'invalid metadata', %s)",
+                    ("sha256:" + "6" * 64, "sha256:" + "7" * 64,
+                     json.dumps({"unapproved_field": "no"})),
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM pipeline_stage_checkpoints "
+                "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE pipeline_stage_checkpoint_revisions SET reason = 'rewritten' "
+                "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0 AND revision = 1"
+            )
+        connection.rollback()
