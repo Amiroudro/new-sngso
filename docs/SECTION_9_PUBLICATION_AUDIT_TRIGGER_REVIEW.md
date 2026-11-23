@@ -135,3 +135,21 @@ GitHub Actions [run #1467](https://github.com/Amiroudro/new-sngso/actions/runs/4
 The staging SQL test family now additionally covers a valid promotion followed by a second promotion and rollback to the first export; independent SQLite connections racing the same revision; missing required event/package JSON keys; wrong JSON scalar types; and forged current/last-known-good state pointers. Exactly one competing revision-1 writer commits. The rollback test verifies the displaced current export is retained as the last-known-good pointer.
 
 These are SQLite database-boundary tests. They do not establish an application-level staging service, PostgreSQL equivalence, PostgreSQL role enforcement, or production authorization freshness.
+
+
+## Schema-v36 corrective review: staging authority identity binding
+
+A targeted security review found that the v35 staging event insert guard validated the active-human role of the principal IDs declared inside the event payload, but did not require those IDs to equal the identities recorded on the immutable linked records. This could permit a payload to attribute an approval or release authorization to a different active human who held the same role.
+
+Migration 36 adds `edition_staging_events_authority_binding_guard`, which joins the referenced `edition_decisions` and `edition_release_authorizations` rows and requires all of the following in one relational check:
+
+- the payload decision ID resolves to the immutable decision row;
+- the payload approver principal equals `edition_decisions.principal_id`;
+- the payload authorization ID resolves to the immutable authorization row;
+- the payload authorizer principal equals `edition_release_authorizations.authorizer_principal_id`;
+- the decision and authorization both bind to the event manifest; and
+- the authorization references that exact decision.
+
+Direct-SQL regression tests create alternate active human principals with the same required roles, then attempt to rebind each payload identity while retaining the original decision/authorization IDs. Both inserts must fail and persist no event. A separate migration test verifies a schema-v35 database upgrades to v36 without rewriting prior migrations.
+
+The additional trigger raises the live trigger inventory from 138 to 139. This review remains SQLite-specific. Authentication/session freshness, application facade controls, and PostgreSQL parity remain separate acceptance gates.
