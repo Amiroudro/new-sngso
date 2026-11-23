@@ -317,3 +317,36 @@ Specialized MCQ option/key checks, bilingual editorial rubrics, vocabulary-to-
 glossary matching, summary traceability, answer-evidence provenance, and the
 additional SQLite migrations 24-25 evidence rules remain separate follow-up
 work. This migration does not claim the complete learning subsystem port.
+
+
+## Follow-up: benchmark artifact, principal, review, and adjudication core
+
+PostgreSQL migration 0008, `0008_benchmark_review_core.sql`, ports the
+benchmark artifact and review lifecycle foundations from SQLite migrations
+13-18.
+
+It adds immutable benchmark artifacts with language, canonicalization, JSON,
+and SHA-256 shape checks; benchmark principals with explicit principal-kind
+classification; revisioned benchmark reviews with identity/fingerprint
+immutability, exact revision increments, monotonic timestamps, and automatic
+append-only revision snapshots; and one immutable final adjudication per
+benchmark. Adjudication uniqueness is enforced by both a validation trigger
+and a database unique constraint, so concurrent attempts cannot create two
+final adjudications for the same benchmark.
+
+Integration tests cover artifact and principal creation, review revision
+snapshots, final adjudication, duplicate adjudication rejection, artifact
+mutation rejection, principal-kind immutability, and revision-history
+immutability.
+
+GitHub Actions [run #1548](https://github.com/Amiroudro/new-sngso/actions/runs/45213279901)
+passed:
+- PostgreSQL 16 integration suite: **34 passed in 3.42 seconds**.
+- Contract validation: passed.
+- Schema-v36 inspection generation and artifact upload: passed.
+
+This is the benchmark core only. Benchmark assignment/scoring support,
+specialized learning evidence rules, pipeline runs, durable stage checkpoints,
+leases, edition/release records, production runtime-role provisioning, and
+the atomic staging transaction remain outstanding. The full schema-v36
+PostgreSQL consistency boundary is not complete.
