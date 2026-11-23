@@ -4330,14 +4330,15 @@ def test_postgres_bilingual_learning_variants_keep_independent_review_states(pos
 
 
 def test_postgres_independent_bilingual_variant_verification_matches_sqlite(postgres_schema):
+    from sngso_engine import verify_independent_bilingual_variants
     from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
     from test_learning_objects import _approved_bilingual_pair, _prepared
 
     connect = postgres_schema
     with _prepared() as sqlite_registry:
         pair = _approved_bilingual_pair(sqlite_registry)
-        sqlite_result = sqlite_registry.verify_independent_bilingual_variants(
-            pair["bn"], pair["en"]
+        sqlite_result = verify_independent_bilingual_variants(
+            sqlite_registry, pair["bn"], pair["en"]
         )
         sqlite_conn = sqlite_registry._connection
         source_row = sqlite_conn.execute(
