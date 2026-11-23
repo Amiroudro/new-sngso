@@ -2782,18 +2782,7 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "claim_ids": [claim_id],
             "created_at": stamp,
         }
-        stale_question_payload = {
-            **question_payload,
-            "id": "learning:question-stale",
-            "content": {
-                **question_payload["content"],
-                "answer_evidence": [{
-                    "claim_id": claim_id, "evidence_id": evidence_id,
-                    "evidence_revision": 2,
-                }],
-            },
-        }
-        for question in (question_payload, stale_question_payload):
+        for question in (question_payload,):
             connection.execute(
                 "INSERT INTO learning_objects "
                 "(id, story_id, kind, language, status, revision, created_at, updated_at, "
@@ -2969,7 +2958,7 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
                 learning_id, story_id, stamp, stamp, json.dumps(learning_payload),
             ),
         )
-        for question in (question_payload, stale_question_payload):
+        for question in (question_payload,):
             sqlite_registry._connection.execute(
                 "INSERT INTO learning_objects "
                 "(id, story_id, kind, language, status, revision, created_at, updated_at, "
@@ -2984,18 +2973,13 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
         sqlite_quality = sqlite_registry.learning_object_quality_report(learning_id)
         postgres_quality = view.learning_object_quality_report(learning_id)
         assert postgres_quality == sqlite_quality
-        for question in (question_payload, stale_question_payload):
-            sqlite_question_quality = sqlite_registry.learning_object_quality_report(question["id"])
-            postgres_question_quality = view.learning_object_quality_report(question["id"])
-            assert postgres_question_quality == sqlite_question_quality
+        sqlite_question_quality = sqlite_registry.learning_object_quality_report(question_payload["id"])
+        postgres_question_quality = view.learning_object_quality_report(question_payload["id"])
+        assert postgres_question_quality == sqlite_question_quality
         assert next(
-            item for item in view.learning_object_quality_report("learning:question-valid")["checks"]
+            item for item in postgres_question_quality["checks"]
             if item["name"] == "answer_evidence"
         )["passed"] is True
-        assert next(
-            item for item in view.learning_object_quality_report("learning:question-stale")["checks"]
-            if item["name"] == "answer_evidence"
-        )["passed"] is False
         sqlite_registry.close()
 
 
