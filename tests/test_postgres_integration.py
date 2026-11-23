@@ -247,6 +247,15 @@ def test_postgres_runtime_writer_can_append_but_cannot_rewrite_audit_head(postgr
                 restricted.execute(
                     "DELETE FROM audit_chain_head WHERE singleton_id = 1"
                 )
+            with pytest.raises(psycopg.errors.CheckViolation, match="extend the current chain head"):
+                restricted.execute(
+                    "INSERT INTO audit_events "
+                    "(sequence, event_id, event_type, entity_type, entity_id, occurred_at, "
+                    "payload_json, previous_hash, event_hash) "
+                    "VALUES (3, 'skipped-sequence', 'integration.test', 'test', 'skip', "
+                    "'2026-11-23T00:00:01Z', '{}', %s, %s)",
+                    (appended["event_hash"], "sha256:" + "0" * 64),
+                )
 
         with connect() as owner:
             assert owner.execute(
