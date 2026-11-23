@@ -52,6 +52,10 @@ def append_audit_event(
     if not isinstance(payload, dict):
         raise TypeError("audit payload must be a JSON object")
 
+    payload_json = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    )
+
     cursor.execute(
         """SELECT sequence, event_hash
            FROM audit_chain_head
@@ -71,9 +75,6 @@ def append_audit_event(
     ):
         raise PostgresAuditError("non-empty audit chain head has an invalid hash")
 
-    payload_json = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
-    )
     event_hash = sha256_fingerprint({
         "event_id": event_id,
         "event_type": event_type,
