@@ -103,6 +103,13 @@ def test_postgres_source_permission_registry_preserves_composite_source_boundari
             "VALUES ('grant-a', 'source-a', 'endpoint-a')"
         )
         connection.execute(
+            "INSERT INTO permission_grants "
+            "(id, source_id, status, effective_from, effective_until, revision, payload_json) "
+            "VALUES ('grant-b', 'source-b', 'active', '2026-11-23T00:00:00Z', "
+            "'2027-11-23T00:00:00Z', 1, %s)",
+            (json.dumps({"id": "grant-b", "revision": 1}),),
+        )
+        connection.execute(
             "INSERT INTO grant_evidence (grant_id, source_id, evidence_id) "
             "VALUES ('grant-a', 'source-a', 'evidence-a')"
         )
@@ -115,7 +122,7 @@ def test_postgres_source_permission_registry_preserves_composite_source_boundari
             with connection.transaction():
                 connection.execute(
                     "INSERT INTO grant_endpoints (grant_id, source_id, endpoint_id) "
-                    "VALUES ('grant-a', 'source-b', 'endpoint-a')"
+                    "VALUES ('grant-b', 'source-b', 'endpoint-a')"
                 )
         assert connection.execute(
             "SELECT count(*) FROM grant_endpoints WHERE grant_id = 'grant-a'"
