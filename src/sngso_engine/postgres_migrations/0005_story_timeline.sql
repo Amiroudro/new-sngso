@@ -80,8 +80,11 @@ BEGIN
     END IF;
 
     claim_ids := NEW.payload_json::jsonb -> 'claim_ids';
-    IF jsonb_typeof(claim_ids) IS DISTINCT FROM 'array'
-       OR jsonb_array_length(claim_ids) = 0 THEN
+    IF jsonb_typeof(claim_ids) IS DISTINCT FROM 'array' THEN
+        RAISE EXCEPTION 'timeline event claim_ids must be an array'
+            USING ERRCODE = '23514';
+    END IF;
+    IF jsonb_array_length(claim_ids) = 0 THEN
         RAISE EXCEPTION 'timeline event requires one or more story claims'
             USING ERRCODE = '23514';
     END IF;
