@@ -1141,3 +1141,12 @@ result. [CI run
 #45240658878](https://github.com/Amiroudro/new-sngso/actions/runs/45240658878)
 passed **66 PostgreSQL integration tests in 10.55 seconds**, and contract
 validation passed.
+
+
+MCQ learning-quality report parity is now tested against SQLite using the
+same source-linked question, keyed correct option, three distractor rationales,
+and answer-evidence references. The report comparison covers rationale
+coverage, source-support failure, blockers, and human-review warnings.
+[CI run #45241012257](https://github.com/Amiroudro/new-sngso/actions/runs/45241012257)
+passed **67 PostgreSQL integration tests in 17.60 seconds**, and contract
+validation passed.
