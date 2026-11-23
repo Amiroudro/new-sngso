@@ -2740,6 +2740,12 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             (pipeline_id, stamp, json.dumps(pipeline_payload)),
         )
         connection.execute(
+            "INSERT INTO pipeline_run_revisions "
+            "(pipeline_run_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES (%s, 1, %s, 'fixture', 'initial', %s)",
+            (pipeline_id, stamp, json.dumps(pipeline_payload)),
+        )
+        connection.execute(
             """INSERT INTO pipeline_run_revisions
             (pipeline_run_id, revision, created_at, actor, reason, payload_json)
             VALUES (%s, 1, %s, 'fixture', 'initial', %s)""",
