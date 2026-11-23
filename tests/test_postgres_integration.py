@@ -2662,6 +2662,7 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
     article_id = "article:read-view"
     claim_id = "claim:read-view"
     evidence_id = "evidence:read-view"
+    glossary_id = "glossary:read-view"
     learning_id = "learning:read-view"
     source_id = "source:read-view"
     endpoint_id = "endpoint:read-view"
@@ -2740,6 +2741,35 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
             "VALUES ('evidence', %s, 1, %s, 'fixture', 'initial', %s)",
             (evidence_id, stamp, json.dumps(evidence_payload)),
+        )
+        glossary_draft = {
+            "schema_version": "1.0.0", "id": glossary_id,
+            "lemma": "policy", "term_language": "en", "part_of_speech": "noun",
+            "senses": [{
+                "language": "en",
+                "definition": "A course of action adopted by an authority.",
+            }],
+            "status": "draft", "created_at": stamp,
+        }
+        connection.execute(
+            "INSERT INTO glossary_entries "
+            "(id, lemma, lemma_key, term_language, part_of_speech, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES (%s, 'policy', 'policy', 'en', 'noun', 'draft', 1, %s, %s, "
+            "'fixture', 'initial', %s)",
+            (glossary_id, stamp, stamp, json.dumps(glossary_draft)),
+        )
+        glossary_approved = {
+            **glossary_draft, "status": "approved",
+            "reviewed_at": "2026-11-23T00:02:00Z",
+            "reviewed_by": "human:glossary-reviewer",
+            "review_note": "Definition checked against usage",
+        }
+        connection.execute(
+            "UPDATE glossary_entries SET status = 'approved', revision = 2, "
+            "updated_at = '2026-11-23T00:02:00Z', last_actor = 'human:glossary-reviewer', "
+            "last_reason = 'approved glossary entry', payload_json = %s WHERE id = %s",
+            (json.dumps(glossary_approved), glossary_id),
         )
         learning_payload = {
             "id": learning_id, "story_id": story_id, "kind": "headline_summary",
@@ -2827,6 +2857,34 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "VALUES (%s, %s, 'mcq_question', 'en', 'draft', 1, %s, %s, "
             "'fixture', 'initial', %s)",
             (mcq_payload["id"], story_id, stamp, stamp, json.dumps(mcq_payload)),
+        )
+        vocabulary_payload = {
+            "schema_version": "1.0.0",
+            "id": "learning:vocabulary",
+            "story_id": story_id,
+            "kind": "vocabulary",
+            "language": "en",
+            "status": "draft",
+            "content": {
+                "term": "policy", "term_language": "en",
+                "meaning": "A course of action adopted by an authority.",
+                "context": "The central bank announced a policy decision.",
+                "example": "The new policy affects interest rates.",
+                "part_of_speech": "noun",
+                "glossary_entry_id": glossary_id,
+                "source_evidence_id": evidence_id,
+                "source_evidence_revision": 1,
+            },
+            "claim_ids": [claim_id],
+            "created_at": stamp,
+        }
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, 'vocabulary', 'en', 'draft', 1, %s, %s, "
+            "'fixture', 'initial', %s)",
+            (vocabulary_payload["id"], story_id, stamp, stamp, json.dumps(vocabulary_payload)),
         )
         source_payload = {
             "id": source_id, "publisher_name": "Read View Publisher",
@@ -2986,6 +3044,20 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             (evidence_id, stamp, json.dumps(evidence_payload)),
         )
         sqlite_registry._connection.execute(
+            "INSERT INTO glossary_entries "
+            "(id, lemma, lemma_key, term_language, part_of_speech, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES (?, 'policy', 'policy', 'en', 'noun', 'draft', 1, ?, ?, "
+            "'fixture', 'initial', ?)",
+            (glossary_id, stamp, stamp, json.dumps(glossary_draft)),
+        )
+        sqlite_registry._connection.execute(
+            "UPDATE glossary_entries SET status = 'approved', revision = 2, "
+            "updated_at = '2026-11-23T00:02:00Z', last_actor = 'human:glossary-reviewer', "
+            "last_reason = 'approved glossary entry', payload_json = ? WHERE id = ?",
+            (json.dumps(glossary_approved), glossary_id),
+        )
+        sqlite_registry._connection.execute(
             "INSERT INTO learning_objects "
             "(id, story_id, kind, language, variant_group_id, status, revision, "
             "created_at, updated_at, last_actor, last_reason, payload_json) "
@@ -3011,6 +3083,13 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "VALUES (?, ?, 'mcq_question', 'en', 'draft', 1, ?, ?, 'fixture', 'initial', ?)",
             (mcq_payload["id"], story_id, stamp, stamp, json.dumps(mcq_payload)),
         )
+        sqlite_registry._connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES (?, ?, 'vocabulary', 'en', 'draft', 1, ?, ?, 'fixture', 'initial', ?)",
+            (vocabulary_payload["id"], story_id, stamp, stamp, json.dumps(vocabulary_payload)),
+        )
         sqlite_snapshot = sqlite_registry.story_editorial_snapshot(story_id)
         postgres_snapshot = view.story_editorial_snapshot(story_id)
         assert postgres_snapshot == sqlite_snapshot
@@ -3032,6 +3111,17 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             if item["name"] == "mcq_distractor_rationale_coverage"
         )["passed"] is True
         assert any(item["check"] == "mcq_human_distractor_review" for item in postgres_mcq_quality["warnings"])
+        sqlite_vocabulary_quality = sqlite_registry.learning_object_quality_report(vocabulary_payload["id"])
+        postgres_vocabulary_quality = view.learning_object_quality_report(vocabulary_payload["id"])
+        assert postgres_vocabulary_quality == sqlite_vocabulary_quality
+        assert next(
+            item for item in postgres_vocabulary_quality["checks"]
+            if item["name"] == "vocabulary_source_evidence"
+        )["passed"] is True
+        assert next(
+            item for item in postgres_vocabulary_quality["checks"]
+            if item["name"] == "controlled_glossary"
+        )["passed"] is True
         sqlite_registry.close()
 
 
