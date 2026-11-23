@@ -109,7 +109,7 @@ Story decisions are append-only, but their application ledger also has a uniquen
 
 ## 11. Review boundary
 
-The 28-trigger source-level review in this document and the 23-trigger operational review together cover 51 of the 139 SQLite triggers in schema v36. This is not a claim that all 50 have dedicated direct-SQL negative tests, nor that PostgreSQL equivalence has been implemented. The other 88 triggers remain outside these two review documents; they are reviewed in the benchmark and content/provenance family documents. Section 9 P0 and production acceptance remain open.
+The 28-trigger source-level review in this document and the 23-trigger operational review together cover 51 of the 139 SQLite triggers in schema v36. This is not a claim that all 51 have dedicated direct-SQL negative tests, nor that PostgreSQL equivalence has been implemented. The other 88 triggers remain outside these two review documents; they are reviewed in the benchmark and content/provenance family documents. Section 9 P0 and production acceptance remain open.
 
 ## Additional direct-SQL acceptance tests committed on the Section 9 branch
 
