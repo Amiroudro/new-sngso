@@ -25,14 +25,17 @@ def build_postgres_staging_export_reverifier(
 ) -> Callable[[Any, dict[str, Any], datetime], dict[str, Any]]:
     """Return the callback expected by stage_edition_export().
 
-    The two loaders must reproduce the current SQLite story snapshot and
-    learning-object quality report exactly, using only the supplied cursor.
-    They must lock all rows read with FOR SHARE (or stronger). The returned
+    The default story snapshot builder supports stories without benchmark
+    reviews; stories with benchmark reviews fail closed until that quality
+    port is complete. A custom snapshot loader may be supplied for parity
+    testing or future implementations. The learning-object quality loader
+    remains mandatory. Both must use only the supplied cursor and lock all
+    rows read with FOR SHARE (or stronger). The returned
     callback is trusted application code and must never run outside the
     transaction passed by stage_edition_export().
     """
-    if not callable(story_snapshot_loader):
-        raise ValueError("an exact-parity PostgreSQL story snapshot loader is required")
+    if story_snapshot_loader is not None and not callable(story_snapshot_loader):
+        raise TypeError("story_snapshot_loader must be callable when supplied")
     if not callable(learning_object_quality_loader):
         raise ValueError("a PostgreSQL learning-object quality loader is required")
     make_export_id = export_id_factory or (lambda: "export:" + uuid.uuid4().hex)
