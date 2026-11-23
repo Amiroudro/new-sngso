@@ -13,6 +13,7 @@ _MIGRATIONS = (
     (1, "0001_audit_chain.sql"),
     (2, "0002_audit_head_guards.sql"),
     (3, "0003_source_permission_domain_registry.sql"),
+    (4, "0004_collection_ingestion.sql"),
 )
 
 
