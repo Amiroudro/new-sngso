@@ -3833,3 +3833,106 @@ def test_staging_revision_compare_and_swap_serializes_independent_connections(tm
         if second_registry is not None:
             second_registry.close()
         first_registry.close()
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "remove"),
+    [
+        ("event_id", None, True),
+        ("state_revision", "1", False),
+        ("channel", 1, False),
+        ("publication_authorized", "false", False),
+        ("target", None, True),
+        ("operator_principal_id", 17, False),
+        ("staging_decision.decision_id", None, True),
+        ("release_authorization.authorizer_principal_id", 17, False),
+    ],
+)
+def test_staging_event_direct_sql_rejects_missing_keys_and_wrong_json_scalar_types(
+    path, value, remove,
+):
+    with SQLiteRegistry() as registry:
+        event, package = _valid_staging_sql_fixture(registry)
+        payload = json.loads(json.dumps(event))
+        target = payload
+        parts = path.split(".")
+        for part in parts[:-1]:
+            target = target[part]
+        if remove:
+            target.pop(parts[-1], None)
+        else:
+            target[parts[-1]] = value
+
+        forged = dict(event)
+        forged["_payload_override"] = payload
+        with pytest.raises(sqlite3.IntegrityError, match="staging event failed"):
+            registry._connection.execute(
+                """INSERT INTO edition_staging_events
+                   (event_id, state_revision, channel, operation, manifest_id, edition_id,
+                    edition_revision, payload_sha256, export_id, export_sha256,
+                    previous_current_export_id, lkg_export_id, operator_principal_id,
+                    occurred_at, reason, export_package_json, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    event["event_id"], event["state_revision"], event["channel"],
+                    event["operation"], event["manifest_id"], event["edition_id"],
+                    event["edition_revision"], event["payload_sha256"], event["export_id"],
+                    event["export_sha256"], event["previous_current_export_id"],
+                    event["lkg_export_id"], event["operator_principal_id"],
+                    event["occurred_at"], event["reason"],
+                    json.dumps(package, sort_keys=True, separators=(",", ":")),
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        assert registry._connection.execute(
+            "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "remove"),
+    [
+        ("export_id", 7, False),
+        ("manifest_id", None, True),
+        ("payload_sha256", ["sha256:" + "a" * 64], False),
+        ("target", None, True),
+        ("publication_authorized", "false", False),
+    ],
+)
+def test_staging_export_package_direct_sql_rejects_missing_keys_and_wrong_types(
+    field, value, remove,
+):
+    with SQLiteRegistry() as registry:
+        event, package = _valid_staging_sql_fixture(registry)
+        if remove:
+            package.pop(field, None)
+        else:
+            package[field] = value
+        with pytest.raises(sqlite3.IntegrityError, match="staging event failed"):
+            registry._connection.execute(
+                """INSERT INTO edition_staging_events
+                   (event_id, state_revision, channel, operation, manifest_id, edition_id,
+                    edition_revision, payload_sha256, export_id, export_sha256,
+                    previous_current_export_id, lkg_export_id, operator_principal_id,
+                    occurred_at, reason, export_package_json, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    event["event_id"], event["state_revision"], event["channel"],
+                    event["operation"], event["manifest_id"], event["edition_id"],
+                    event["edition_revision"], event["payload_sha256"], event["export_id"],
+                    event["export_sha256"], event["previous_current_export_id"],
+                    event["lkg_export_id"], event["operator_principal_id"],
+                    event["occurred_at"], event["reason"],
+                    json.dumps(package, sort_keys=True, separators=(",", ":")),
+                    json.dumps(event, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        assert registry._connection.execute(
+            "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()[0] == 0
