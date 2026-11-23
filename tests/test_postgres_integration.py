@@ -3946,3 +3946,87 @@ def test_postgres_benchmark_story_snapshot_matches_sqlite_canonical_fingerprint(
         postgres_snapshot = load_postgres_story_editorial_snapshot(connection.cursor(), story_id)
 
     assert postgres_snapshot == sqlite_snapshot
+
+
+def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_privileges(postgres_schema):
+    from sngso_engine.postgres_edition_staging import stage_edition_export
+
+    connect = postgres_schema
+    role_name = "sngso_stage_runtime_" + uuid.uuid4().hex[:12]
+    schema_name = None
+    try:
+        with connect() as connection:
+            identity, now, package = _seed_atomic_staging_case(connection)
+            schema_name = connection.execute("SELECT current_schema()").fetchone()[0]
+            connection.execute(
+                sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(role_name))
+            )
+            connection.execute(
+                sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(
+                    sql.Identifier(schema_name), sql.Identifier(role_name)
+                )
+            )
+            connection.execute(
+                sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA {} TO {}").format(
+                    sql.Identifier(schema_name), sql.Identifier(role_name)
+                )
+            )
+            connection.execute(
+                sql.SQL("GRANT INSERT ON TABLE {}.edition_staging_events, {}.audit_events TO {}").format(
+                    sql.Identifier(schema_name), sql.Identifier(schema_name), sql.Identifier(role_name)
+                )
+            )
+            connection.execute(
+                sql.SQL("GRANT UPDATE ON TABLE {}.edition_staging_channel_state, {}.audit_chain_head TO {}").format(
+                    sql.Identifier(schema_name), sql.Identifier(schema_name), sql.Identifier(role_name)
+                )
+            )
+
+        with connect() as writer:
+            writer.autocommit = True
+            writer.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(role_name)))
+            result = stage_edition_export(
+                writer,
+                manifest_id="manifest:atomic",
+                operation="promote",
+                identity=identity,
+                reason="least-privilege staging role test",
+                expected_state_revision=0,
+                reverify_export=lambda cursor, artifact, evaluated_at: package,
+                event_id="least-privilege-stage-event",
+                now=now,
+            )
+            assert result["state"]["state_revision"] == 1
+            assert result["audit"]["sequence"] == 1
+
+        with connect() as restricted:
+            restricted.autocommit = True
+            restricted.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(role_name)))
+            denied = (
+                "UPDATE audit_events SET event_type = 'tampered' WHERE false",
+                "DELETE FROM audit_events WHERE false",
+                "TRUNCATE audit_events",
+                "UPDATE edition_staging_events SET reason = 'tampered' WHERE false",
+                "DELETE FROM edition_staging_events WHERE false",
+                "TRUNCATE edition_staging_events",
+                "DELETE FROM edition_staging_channel_state WHERE false",
+                "TRUNCATE edition_staging_channel_state",
+                "UPDATE sources SET status = 'inactive' WHERE false",
+            )
+            for statement in denied:
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    restricted.execute(statement)
+    finally:
+        if schema_name is not None:
+            with psycopg.connect(os.environ["TEST_POSTGRES_DSN"], autocommit=True) as admin:
+                admin.execute(
+                    sql.SQL("REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} FROM {}").format(
+                        sql.Identifier(schema_name), sql.Identifier(role_name)
+                    )
+                )
+                admin.execute(
+                    sql.SQL("REVOKE ALL PRIVILEGES ON SCHEMA {} FROM {}").format(
+                        sql.Identifier(schema_name), sql.Identifier(role_name)
+                    )
+                )
+                admin.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role_name)))
