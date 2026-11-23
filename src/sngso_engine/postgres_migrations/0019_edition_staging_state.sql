@@ -77,18 +77,18 @@ BEGIN
              FROM edition_artifacts artifact
              JOIN edition_decisions decision
                ON decision.manifest_id = artifact.manifest_id
-             JOIN edition_release_authorizations authorization
-               ON authorization.manifest_id = artifact.manifest_id
+             JOIN edition_release_authorizations release_auth
+               ON release_auth.manifest_id = artifact.manifest_id
             WHERE artifact.manifest_id = NEW.manifest_id
               AND artifact.edition_id = NEW.edition_id
               AND artifact.edition_revision = NEW.edition_revision
               AND artifact.payload_sha256 = NEW.payload_sha256
               AND decision.decision = 'approve'
               AND decision.decision_id = payload #>> '{staging_decision,decision_id}'
-              AND authorization.authorization_id = payload #>> '{release_authorization,authorization_id}'
-              AND authorization.approval_decision_id = decision.decision_id
-              AND authorization.approver_principal_id = decision.principal_id
-              AND authorization.authorizer_principal_id <> decision.principal_id
+              AND release_auth.authorization_id = payload #>> '{release_authorization,authorization_id}'
+              AND release_auth.approval_decision_id = decision.decision_id
+              AND release_auth.approver_principal_id = decision.principal_id
+              AND release_auth.authorizer_principal_id <> decision.principal_id
        )
        OR export_package ->> 'export_id' IS DISTINCT FROM NEW.export_id
        OR export_package ->> 'manifest_id' IS DISTINCT FROM NEW.manifest_id
