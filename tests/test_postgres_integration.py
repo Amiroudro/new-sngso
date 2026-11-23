@@ -188,3 +188,37 @@ def test_postgres_default_runtime_role_cannot_mutate_audit_storage(postgres_sche
                 admin.execute(
                     sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role_name))
                 )
+
+
+def test_postgres_duplicate_audit_event_id_rolls_back_without_advancing_chain(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        first = run_atomic(
+            connection,
+            lambda cursor: append_audit_event(
+                cursor, event_id="stable-operation-id", event_type="integration.test",
+                entity_type="test", entity_id="first",
+                occurred_at="2026-11-23T00:00:00Z", payload={"attempt": 1},
+            ),
+        )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            run_atomic(
+                connection,
+                lambda cursor: append_audit_event(
+                    cursor, event_id="stable-operation-id", event_type="integration.test",
+                    entity_type="test", entity_id="duplicate",
+                    occurred_at="2026-11-23T00:00:01Z", payload={"attempt": 2},
+                ),
+            )
+
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT sequence, event_id FROM audit_events ORDER BY sequence"
+        ).fetchall()
+        head = connection.execute(
+            "SELECT sequence, event_hash FROM audit_chain_head WHERE singleton_id = 1"
+        ).fetchone()
+    assert rows == [(1, "stable-operation-id")]
+    assert head == (1, first["event_hash"])
