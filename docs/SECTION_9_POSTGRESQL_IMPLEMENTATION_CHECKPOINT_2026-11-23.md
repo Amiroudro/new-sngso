@@ -102,3 +102,19 @@ does not define or prove the production writer role, because the append path
 currently requires a controlled chain-head update. A production writer-role
 design must allow the intended append operation without granting arbitrary
 direct mutation of audit history or an unguarded chain-head rewrite.
+
+
+## Follow-up: migration ledger continuity
+
+The migration runner now rejects a ledger that is not an ordered prefix of
+the packaged migration sequence. This prevents a database with a missing
+intermediate migration from being treated as safely upgradeable. A regression
+test injects a ledger containing versions 1 and 3 while version 2 is absent.
+
+GitHub Actions [run #1515](https://github.com/Amiroudro/new-sngso/actions/runs/45182437009)
+passed on the corrected code head:
+- PostgreSQL 16 integration job: **24 passed in 0.58 seconds**.
+- Contract/SQLite job: **1,142 passed, 1 skipped in 28.12 seconds**. The
+  single skip is expected because the general job does not install the
+  optional psycopg driver; the dedicated PostgreSQL job runs those tests.
+- Schema-v36 inspection completed and uploaded successfully.
