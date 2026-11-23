@@ -3353,3 +3353,124 @@ def test_staging_event_direct_sql_rejects_export_package_binding_mismatch(
         assert registry._connection.execute(
             "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
         ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("authorization_id", "authorization:forged"),
+        ("manifest_id", "manifest:forged"),
+        ("edition_id", "edition:forged"),
+        ("edition_revision", 2),
+        ("payload_sha256", "sha256:" + "c" * 64),
+        ("approval_decision_id", "decision:forged"),
+        ("approver_principal_id", "principal:forged"),
+        ("authorizer_principal_id", "principal:forged"),
+        ("authorized_at", "2026-11-24T00:00:00Z"),
+        ("scope", "publication"),
+        ("release_authorized", False),
+        ("publication_authorized", True),
+    ],
+)
+def test_edition_release_authorization_direct_sql_rejects_payload_binding_mismatch(
+    field, forged_value,
+):
+    with SQLiteRegistry() as registry:
+        registry.register_benchmark_principal(
+            "principal:approver",
+            display_name="Test approver",
+            roles=["edition_approver"],
+            provisioned_by="test-bootstrap",
+            reason="Provision release-authorization fixture approver",
+        )
+        registry.register_benchmark_principal(
+            "principal:authorizer",
+            display_name="Test release authorizer",
+            roles=["edition_release_authorizer"],
+            provisioned_by="test-bootstrap",
+            reason="Provision release-authorization fixture authorizer",
+        )
+        manifest = {
+            "manifest_id": "manifest:release-auth-test",
+            "edition_id": "edition:release-auth-test",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+        }
+        registry._connection.execute(
+            \"\"\"INSERT INTO edition_artifacts
+               (manifest_id, edition_id, edition_revision, payload_sha256,
+                payload_json, manifest_json, verification_json, created_at, actor, reason)
+               VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer', 'release auth fixture')\"\"\",
+            (
+                manifest["manifest_id"],
+                manifest["edition_id"],
+                manifest["edition_revision"],
+                manifest["payload_sha256"],
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")),
+                "2026-11-23T00:00:00Z",
+            ),
+        )
+        decision = {
+            "decision_id": "decision:release-auth-test",
+            **manifest,
+            "decision": "approve",
+            "principal_id": "principal:approver",
+            "decided_at": "2026-11-23T00:00:00Z",
+            "role": "edition_approver",
+            "scope": "staging_candidate_review",
+            "publication_authorized": False,
+        }
+        registry._connection.execute(
+            \"\"\"INSERT INTO edition_decisions
+               (decision_id, manifest_id, edition_id, edition_revision, payload_sha256,
+                decision, principal_id, decided_at, payload_json)
+               VALUES (?, ?, ?, ?, ?, 'approve', ?, ?, ?)\"\"\",
+            (
+                decision["decision_id"],
+                manifest["manifest_id"],
+                manifest["edition_id"],
+                manifest["edition_revision"],
+                manifest["payload_sha256"],
+                "principal:approver",
+                decision["decided_at"],
+                json.dumps(decision, sort_keys=True, separators=(",", ":")),
+            ),
+        )
+        payload = {
+            "authorization_id": "authorization:expected",
+            **manifest,
+            "approval_decision_id": "decision:release-auth-test",
+            "approver_principal_id": "principal:approver",
+            "authorizer_principal_id": "principal:authorizer",
+            "authorized_at": "2026-11-23T00:00:00Z",
+            "scope": "controlled_release_gate",
+            "release_authorized": True,
+            "publication_authorized": False,
+        }
+        payload[field] = forged_value
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="release authorization must bind an approved artifact and independent active human authorizer",
+        ):
+            registry._connection.execute(
+                \"\"\"INSERT INTO edition_release_authorizations
+                   (authorization_id, manifest_id, edition_id, edition_revision,
+                    payload_sha256, approval_decision_id, approver_principal_id,
+                    authorizer_principal_id, authorized_at, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\"\"\",
+                (
+                    "authorization:expected",
+                    manifest["manifest_id"],
+                    manifest["edition_id"],
+                    manifest["edition_revision"],
+                    manifest["payload_sha256"],
+                    "decision:release-auth-test",
+                    "principal:approver",
+                    "principal:authorizer",
+                    "2026-11-23T00:00:00Z",
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_release_authorizations"
+        ).fetchone()[0] == 0
