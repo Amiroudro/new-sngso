@@ -218,6 +218,7 @@ def test_postgres_runtime_writer_can_append_but_cannot_rewrite_audit_head(postgr
             )
 
         with connect() as writer:
+            writer.autocommit = True
             writer.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(role_name)))
             appended = run_atomic(
                 writer,
