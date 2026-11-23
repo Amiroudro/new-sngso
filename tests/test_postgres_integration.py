@@ -2813,6 +2813,16 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "VALUES ('story', ?, 1, ?, 'fixture', 'initial', ?)",
             (story_id, stamp, json.dumps(story_payload)),
         )
+        sqlite_registry._connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, variant_group_id, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES (?, ?, 'headline_summary', 'en', 'variant:read-view', "
+            "'draft', 1, ?, ?, 'fixture', 'initial', ?)",
+            (
+                learning_id, story_id, stamp, stamp, json.dumps(learning_payload),
+            ),
+        )
         sqlite_snapshot = sqlite_registry.story_editorial_snapshot(story_id)
         postgres_snapshot = view.story_editorial_snapshot(story_id)
         assert postgres_snapshot == sqlite_snapshot
