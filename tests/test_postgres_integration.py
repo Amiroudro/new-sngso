@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2)
+            assert apply_postgres_migrations(connection) == (1, 2, 3)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,130 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql")]
+
+
+
+def test_postgres_source_permission_registry_preserves_composite_source_boundaries(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES ('source-a', 'Publisher A', 'active', '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s), ('source-b', 'Publisher B', 'active', "
+            "'2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "source-a"}), json.dumps({"id": "source-b"})),
+        )
+        connection.execute(
+            "INSERT INTO source_endpoints "
+            "(id, source_id, endpoint_uri, status, created_at, updated_at, payload_json) "
+            "VALUES ('endpoint-a', 'source-a', 'https://a.example/feed', 'active', "
+            "'2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "endpoint-a"}),),
+        )
+        connection.execute(
+            "INSERT INTO permission_evidence "
+            "(id, source_id, review_status, content_fingerprint, captured_at, payload_json) "
+            "VALUES ('evidence-a', 'source-a', 'approved', 'sha256:" + "a" * 64 + "', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "evidence-a"}),),
+        )
+        connection.execute(
+            "INSERT INTO permission_grants "
+            "(id, source_id, status, effective_from, effective_until, revision, payload_json) "
+            "VALUES ('grant-a', 'source-a', 'active', '2026-11-23T00:00:00Z', "
+            "'2027-11-23T00:00:00Z', 1, %s)",
+            (json.dumps({"id": "grant-a", "revision": 1}),),
+        )
+        connection.execute(
+            "INSERT INTO grant_endpoints (grant_id, source_id, endpoint_id) "
+            "VALUES ('grant-a', 'source-a', 'endpoint-a')"
+        )
+        connection.execute(
+            "INSERT INTO grant_evidence (grant_id, source_id, evidence_id) "
+            "VALUES ('grant-a', 'source-a', 'evidence-a')"
+        )
+        connection.execute(
+            "INSERT INTO grant_operation_evidence "
+            "(grant_id, source_id, operation, evidence_id) "
+            "VALUES ('grant-a', 'source-a', 'discovery', 'evidence-a')"
+        )
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            connection.execute(
+                "INSERT INTO grant_endpoints (grant_id, source_id, endpoint_id) "
+                "VALUES ('grant-a', 'source-b', 'endpoint-a')"
+            )
+        connection.rollback()
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES ('source-a', 'Publisher A', 'active', '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s) ON CONFLICT (id) DO NOTHING",
+            (json.dumps({"id": "source-a"}),),
+        )
+        assert connection.execute(
+            "SELECT count(*) FROM grant_endpoints WHERE grant_id = 'grant-a'"
+        ).fetchone()[0] == 1
+
+
+def test_postgres_registry_revision_snapshots_are_append_only(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES ('source-revision', 'Publisher', 'active', '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "source-revision"}),),
+        )
+        connection.execute(
+            "INSERT INTO permission_grants "
+            "(id, source_id, status, effective_from, effective_until, revision, payload_json) "
+            "VALUES ('grant-revision', 'source-revision', 'active', '2026-11-23T00:00:00Z', "
+            "'2027-11-23T00:00:00Z', 1, %s)",
+            (json.dumps({"id": "grant-revision", "revision": 1}),),
+        )
+        connection.execute(
+            "INSERT INTO permission_grant_revisions "
+            "(grant_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('grant-revision', 1, '2026-11-23T00:00:00Z', 'reviewer', "
+            "'initial grant', %s)",
+            (json.dumps({"revision": 1}),),
+        )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('story', 'story-revision', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s, 'reviewer', 'initial record', "
+            "'2026-11-23T00:00:00Z')",
+            (json.dumps({"id": "story-revision", "revision": 1}),),
+        )
+        connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('story', 'story-revision', 1, '2026-11-23T00:00:00Z', "
+            "'reviewer', 'initial record', %s)",
+            (json.dumps({"id": "story-revision", "revision": 1}),),
+        )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE permission_grant_revisions SET reason = 'rewritten' "
+                "WHERE grant_id = 'grant-revision' AND revision = 1"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM domain_record_revisions "
+                "WHERE record_type = 'story' AND record_id = 'story-revision' AND revision = 1"
+            )
+        connection.rollback()
+        assert connection.execute(
+            "SELECT count(*) FROM permission_grant_revisions"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM domain_record_revisions"
+        ).fetchone()[0] == 1
 
 
 def test_postgres_audit_append_serializes_independent_connections(postgres_schema):
