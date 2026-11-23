@@ -2979,3 +2979,75 @@ def test_permission_grant_revision_history_rejects_direct_update_and_delete():
                 """DELETE FROM permission_grant_revisions
                    WHERE grant_id = 'permission:publisher-a-discovery-001' AND revision = 1"""
             )
+
+
+def test_staging_channel_state_is_a_singleton_and_cannot_be_forged_or_deleted():
+    with SQLiteRegistry() as registry:
+        state = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert state is not None
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
+            registry._connection.execute(
+                """INSERT INTO edition_staging_channel_state
+                   (channel, state_revision, current_event_id, current_export_id, lkg_event_id, lkg_export_id)
+                   VALUES ('staging', 0, NULL, NULL, NULL, NULL)"""
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="matching append-only event"):
+            registry._connection.execute(
+                """UPDATE edition_staging_channel_state
+                   SET state_revision = 1 WHERE channel = 'staging'"""
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="cannot be deleted"):
+            registry._connection.execute(
+                "DELETE FROM edition_staging_channel_state WHERE channel = 'staging'"
+            )
+        state_after = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert dict(state_after) == dict(state)
+
+
+def test_staging_event_direct_sql_rejects_payload_identity_mismatch():
+    with SQLiteRegistry() as registry:
+        payload = {
+            "event_id": "payload-event-id",
+            "state_revision": 1,
+            "channel": "staging",
+            "operation": "promote",
+            "manifest_id": "manifest:unregistered",
+            "edition_id": "edition:unregistered",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+            "export_id": "export:unregistered",
+            "export_sha256": "sha256:" + "b" * 64,
+            "previous_current_export_id": None,
+            "lkg_export_id": None,
+            "operator_principal_id": "operator:unregistered",
+            "occurred_at": "2026-11-20T00:00:00Z",
+            "reason": "Direct SQL boundary test",
+            "publication_authorized": False,
+            "target": "staging",
+        }
+        with pytest.raises(sqlite3.IntegrityError, match="staging event failed"):
+            registry._connection.execute(
+                """INSERT INTO edition_staging_events
+                   (event_id, state_revision, channel, operation, manifest_id, edition_id,
+                    edition_revision, payload_sha256, export_id, export_sha256,
+                    previous_current_export_id, lkg_export_id, operator_principal_id,
+                    occurred_at, reason, export_package_json, payload_json)
+                   VALUES (?, 1, 'staging', 'promote', ?, ?, 1, ?, ?, ?, NULL, NULL,
+                           ?, ?, ?, '{}', ?)""",
+                (
+                    "row-event-id", payload["manifest_id"], payload["edition_id"],
+                    payload["payload_sha256"], payload["export_id"], payload["export_sha256"],
+                    payload["operator_principal_id"], payload["occurred_at"], payload["reason"],
+                    json.dumps(payload),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        assert registry._connection.execute(
+            "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()[0] == 0
