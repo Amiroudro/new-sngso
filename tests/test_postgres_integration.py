@@ -1376,7 +1376,10 @@ def test_postgres_specialized_learning_evidence_is_current_and_claim_linked(post
                         "content": {
                             "question": "Explain the claim.",
                             "answer_claim_ids": ["claim-evidence"],
-                            "answer_evidence": []
+                            "answer_evidence": [{
+                                "claim_id": "different-claim", "evidence_id": "evidence-1",
+                                "evidence_revision": 1
+                            }]
                         }
                     }),),
                 )
