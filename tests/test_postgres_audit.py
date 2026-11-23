@@ -81,9 +81,17 @@ def test_append_uses_existing_head_as_predecessor():
 
 
 def test_append_fails_closed_when_head_is_missing():
+    cursor = FakeCursor(head=None)
     with pytest.raises(PostgresAuditError, match="head is missing"):
-        _call(FakeCursor(head=None))
-    assert len(FakeCursor(head=None).statements) == 0
+        _call(cursor)
+    assert len(cursor.statements) == 1
+
+
+def test_append_rejects_malformed_nonempty_head_hash_before_anchor_lookup():
+    cursor = FakeCursor(head=(7, "sha256:not-a-digest"))
+    with pytest.raises(PostgresAuditError, match="invalid hash"):
+        _call(cursor)
+    assert len(cursor.statements) == 1
 
 
 def test_append_fails_closed_when_head_compare_and_swap_loses():
