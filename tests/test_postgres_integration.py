@@ -2660,6 +2660,8 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
     stamp = "2026-11-23T00:00:00Z"
     story_id = "story:read-view"
     article_id = "article:read-view"
+    claim_id = "claim:read-view"
+    evidence_id = "evidence:read-view"
     learning_id = "learning:read-view"
     source_id = "source:read-view"
     endpoint_id = "endpoint:read-view"
@@ -2701,11 +2703,56 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "VALUES ('article', %s, 1, %s, 'fixture', 'initial', %s)",
             (article_id, stamp, json.dumps(article_payload)),
         )
+        claim_payload = {
+            "id": claim_id, "story_id": story_id,
+            "text": "The central bank announced a policy decision.",
+            "assessment": "supported", "evidence_ids": [evidence_id],
+            "provenance": [{"source_id": source_id, "article_id": article_id}],
+        }
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('claim', %s, 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (claim_id, stamp, stamp, json.dumps(claim_payload), stamp),
+        )
+        connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('claim', %s, 1, %s, 'fixture', 'initial', %s)",
+            (claim_id, stamp, json.dumps(claim_payload)),
+        )
+        evidence_payload = {
+            "id": evidence_id, "claim_id": claim_id, "source_id": source_id,
+            "article_id": article_id, "relationship": "supports",
+            "locator": {"uri": "https://read-view.example/article#policy", "quote": "policy decision"},
+            "assessment_method": "direct_source_review",
+        }
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('evidence', %s, 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (evidence_id, stamp, stamp, json.dumps(evidence_payload), stamp),
+        )
+        connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('evidence', %s, 1, %s, 'fixture', 'initial', %s)",
+            (evidence_id, stamp, json.dumps(evidence_payload)),
+        )
         learning_payload = {
             "id": learning_id, "story_id": story_id, "kind": "headline_summary",
             "language": "en", "variant_group_id": "variant:read-view",
-            "status": "draft", "content": {"text": "Draft summary", "segments": []},
-            "claim_ids": [], "created_at": stamp,
+            "status": "draft",
+            "content": {
+                "text": "Draft summary",
+                "segments": [{
+                    "text": "The central bank announced a policy decision.",
+                    "claim_ids": [claim_id], "role": "fact",
+                }],
+            },
+            "claim_ids": [claim_id], "created_at": stamp,
         }
         connection.execute(
             "INSERT INTO learning_objects "
@@ -2845,6 +2892,32 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
             "VALUES ('article', ?, 1, ?, 'fixture', 'initial', ?)",
             (article_id, stamp, json.dumps(article_payload)),
+        )
+        sqlite_registry._connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('claim', ?, 1, ?, ?, ?, 'fixture', 'initial', ?)",
+            (claim_id, stamp, stamp, json.dumps(claim_payload), stamp),
+        )
+        sqlite_registry._connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('claim', ?, 1, ?, 'fixture', 'initial', ?)",
+            (claim_id, stamp, json.dumps(claim_payload)),
+        )
+        sqlite_registry._connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('evidence', ?, 1, ?, ?, ?, 'fixture', 'initial', ?)",
+            (evidence_id, stamp, stamp, json.dumps(evidence_payload), stamp),
+        )
+        sqlite_registry._connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('evidence', ?, 1, ?, 'fixture', 'initial', ?)",
+            (evidence_id, stamp, json.dumps(evidence_payload)),
         )
         sqlite_registry._connection.execute(
             "INSERT INTO learning_objects "
