@@ -4550,3 +4550,148 @@ def test_postgres_vocabulary_quality_report_matches_sqlite_glossary_and_evidence
     assert next(item for item in sqlite_report["checks"] if item["name"] == "controlled_glossary")["passed"] is False
     assert next(item for item in sqlite_report["checks"] if item["name"] == "vocabulary_source_evidence")["passed"] is True
     assert postgres_report == sqlite_report
+
+
+def test_postgres_approved_vocabulary_quality_report_matches_sqlite(postgres_schema):
+    from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
+    from test_glossary_entries import _glossary, _prepared as prepared_glossary, _vocabulary
+
+    connect = postgres_schema
+    with prepared_glossary() as sqlite_registry:
+        entry = sqlite_registry.add_glossary_entry(
+            _glossary(), actor="lexicon-editor", reason="Create controlled glossary entry."
+        )
+        draft = sqlite_registry.add_learning_object(
+            _vocabulary(), actor="vocabulary-editor", reason="Create vocabulary draft."
+        )
+        approved_entry = _glossary()
+        approved_entry.update({
+            "status": "approved", "reviewed_at": "2026-11-19T01:00:00Z",
+            "reviewed_by": "lexicon-reviewer", "review_note": "Definitions reviewed.",
+        })
+        sqlite_registry.revise_glossary_entry(
+            entry.id, approved_entry, expected_revision=1,
+            actor="lexicon-reviewer", reason="Approve bilingual glossary entry.",
+        )
+        approved_object = _vocabulary()
+        approved_object.update({
+            "status": "approved", "reviewed_at": "2026-11-19T02:00:00Z",
+            "reviewed_by": "reviewer", "review_note": "Vocabulary content reviewed.",
+            "language_review": {
+                "language": "bn", "rubric_version": "bn-editorial-v1",
+                "reviewer_id": "reviewer", "reviewed_at": "2026-11-19T02:00:00Z",
+                "note": "Bangla vocabulary language rubric checked.",
+                "dimensions": {
+                    "grammar_and_spelling": "pass",
+                    "naturalness_and_register": "pass",
+                    "terminology_consistency": "pass",
+                    "factual_fidelity": "pass",
+                    "attribution": "pass",
+                    "omissions": "pass",
+                    "translation_fidelity": "pass",
+                },
+            },
+        })
+        approved = sqlite_registry.revise_learning_object(
+            draft.id, approved_object, expected_revision=1,
+            actor="reviewer", reason="Approve vocabulary against approved glossary.",
+        )
+        sqlite_report = sqlite_registry.learning_object_quality_report(approved.id)
+        sqlite_conn = sqlite_registry._connection
+        source_row = sqlite_conn.execute(
+            """SELECT id, publisher_name, status, created_at, updated_at, payload_json
+               FROM sources WHERE id = 'source:publisher'"""
+        ).fetchone()
+        domain_rows = sqlite_conn.execute(
+            """SELECT record_type, id, revision, created_at, updated_at, payload_json,
+                      last_actor, last_reason, last_revision_at
+               FROM domain_records
+               WHERE id IN ('article:one', 'story:one', 'claim:one', 'evidence:one')"""
+        ).fetchall()
+        glossary_current = sqlite_conn.execute(
+            """SELECT id, lemma, lemma_key, term_language, part_of_speech, status, revision,
+                      created_at, updated_at, last_actor, last_reason, payload_json
+               FROM glossary_entries WHERE id = ?""",
+            (entry.id,),
+        ).fetchone()
+        glossary_draft_revision = sqlite_conn.execute(
+            """SELECT created_at, actor, reason, payload_json
+               FROM glossary_entry_revisions
+               WHERE glossary_entry_id = ? AND revision = 1""",
+            (entry.id,),
+        ).fetchone()
+        learning_current = sqlite_conn.execute(
+            """SELECT id, story_id, kind, language, status, revision, created_at,
+                      updated_at, last_actor, last_reason, payload_json
+               FROM learning_objects WHERE id = ?""",
+            (approved.id,),
+        ).fetchone()
+        learning_draft_revision = sqlite_conn.execute(
+            """SELECT created_at, actor, reason, payload_json
+               FROM learning_object_revisions
+               WHERE learning_object_id = ? AND revision = 1""",
+            (approved.id,),
+        ).fetchone()
+
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            tuple(source_row),
+        )
+        for row in sorted(domain_rows, key=lambda item: {"article": 0, "story": 1, "claim": 2, "evidence": 3}[item[0]]):
+            connection.execute(
+                "INSERT INTO domain_records "
+                "(record_type, id, revision, created_at, updated_at, payload_json, "
+                "last_actor, last_reason, last_revision_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                tuple(row),
+            )
+        connection.execute(
+            "INSERT INTO glossary_entries "
+            "(id, lemma, lemma_key, term_language, part_of_speech, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, 'draft', 1, %s, %s, %s, %s, %s)",
+            (
+                glossary_current[0], glossary_current[1], glossary_current[2],
+                glossary_current[3], glossary_current[4], glossary_current[7],
+                glossary_draft_revision[0], glossary_draft_revision[1],
+                glossary_draft_revision[2], glossary_draft_revision[3],
+            ),
+        )
+        connection.execute(
+            "UPDATE glossary_entries SET status = %s, revision = %s, updated_at = %s, "
+            "last_actor = %s, last_reason = %s, payload_json = %s WHERE id = %s",
+            (
+                glossary_current[5], glossary_current[6], glossary_current[8],
+                glossary_current[9], glossary_current[10], glossary_current[11],
+                glossary_current[0],
+            ),
+        )
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, %s, %s, 'draft', 1, %s, %s, %s, %s, %s)",
+            (
+                learning_current[0], learning_current[1], learning_current[2],
+                learning_current[3], learning_current[6], learning_draft_revision[0],
+                learning_draft_revision[1], learning_draft_revision[2],
+                learning_draft_revision[3],
+            ),
+        )
+        connection.execute(
+            "UPDATE learning_objects SET status = %s, revision = %s, updated_at = %s, "
+            "last_actor = %s, last_reason = %s, payload_json = %s WHERE id = %s",
+            (
+                learning_current[4], learning_current[5], learning_current[7],
+                learning_current[8], learning_current[9], learning_current[10],
+                learning_current[0],
+            ),
+        )
+        postgres_report = PostgresEditionRegistryReadView(
+            connection.cursor()
+        ).learning_object_quality_report(approved.id)
+
+    assert sqlite_report["meets_registry_quality_gates"] is True
+    assert postgres_report == sqlite_report
