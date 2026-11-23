@@ -81,3 +81,10 @@ These are not implemented or accepted:
 - No merge, production deployment, live collection, schedule activation, external secret configuration, paid service, or publication is authorized by this register.
 
 **Decision:** Section 9 is not complete for production. The local operational foundation is substantially implemented, while Section 9.13 has local subprocess, lease/checkpoint integration, bounded shutdown, and read-only recovery-inspection primitives, but lacks production provider enforcement and external operational controls. End-to-end operational acceptance must wait for the remaining engineering and external gates. No production worker, scheduler, live collection, publication, release, or deployment is authorized.
+
+
+## Latest staging transaction-boundary verification
+
+GitHub Actions run [#1463](https://github.com/Amiroudro/new-sngso/actions/runs/45166055307) passed **1,099 tests in 21.51 seconds** on code commit `d49373872c7d22c1ec49758d38edec315f6603c0`. The run generated the schema-v35 inspection artifact (ID `14814905301`).
+
+Two fixture-backed direct-SQL tests now cover the valid staging event/state lifecycle: one commits a fully authorized promotion event and its matching channel-state pointer in a single transaction; the other injects an invalid state revision after the event insert and verifies that both writes roll back. This closes the narrow SQLite database-transaction test gap for the first staging promotion. It does not provide a staging application service, rollback-operation lifecycle coverage, concurrent independent-connection race coverage, or PostgreSQL equivalence. Those remain open acceptance items.
