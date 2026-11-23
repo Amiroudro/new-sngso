@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -9,6 +10,7 @@ import pytest
 psycopg = pytest.importorskip("psycopg")
 from psycopg import sql
 
+from sngso_engine.canonical import sha256_fingerprint
 from sngso_engine.postgres_audit import append_audit_event
 from sngso_engine.postgres_migration_runner import apply_postgres_migrations
 from sngso_engine.postgres_transaction import run_atomic
@@ -84,6 +86,23 @@ def test_postgres_audit_append_serializes_independent_connections(postgres_schem
     for previous, current in zip(rows, rows[1:]):
         assert current[1] == previous[2]
     assert head == (count, rows[-1][2])
+
+    with connect() as connection:
+        events = connection.execute(
+            "SELECT sequence, event_id, event_type, entity_type, entity_id, occurred_at, "
+            "policy_version, payload_json, previous_hash, event_hash "
+            "FROM audit_events ORDER BY sequence"
+        ).fetchall()
+    for event in events:
+        (sequence, event_id, event_type, entity_type, entity_id, occurred_at,
+         policy_version, payload_json, previous_hash, event_hash) = event
+        expected = sha256_fingerprint({
+            "event_id": event_id, "event_type": event_type,
+            "entity_type": entity_type, "entity_id": entity_id,
+            "occurred_at": occurred_at, "policy_version": policy_version,
+            "payload": json.loads(payload_json), "previous_hash": previous_hash,
+        })
+        assert event_hash == expected, f"audit hash mismatch at sequence {sequence}"
 
 
 def test_postgres_audit_event_and_head_roll_back_together(postgres_schema):
