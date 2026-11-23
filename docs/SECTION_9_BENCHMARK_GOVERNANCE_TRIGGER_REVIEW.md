@@ -119,4 +119,4 @@ This is a source-level semantic review of all 39 benchmark triggers, including t
 
 - `tests/storage/test_registry.py::test_assignment_direct_sql_head_update_cannot_skip_accepted_state` attempts to move an assignment directly from `assigned` to `submitted` through SQL, with a forged transition receipt. The database transition guard must reject the skipped `accepted` state, and the stored assignment must remain at revision 1.
 
-This is a committed test addition, not yet a CI-verified result. Independent-connection PostgreSQL concurrency and restricted-role acceptance remain outstanding.
+The direct-SQL assignment transition test is included in the successful full-suite GitHub Actions run #1458 (1,097 passed). Independent-connection PostgreSQL concurrency and restricted-role acceptance remain outstanding.
