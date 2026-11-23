@@ -363,6 +363,91 @@ class PostgresEditionRegistryReadView:
             raise PostgresEditionReadAdapterError("learning-object history does not match current identity/revision")
         return history
 
+    def timeline_event_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Read immutable timeline assertions and correction links for one story."""
+        if self.get_domain_record("story", story_id) is None:
+            raise PostgresEditionReadAdapterError(f"unknown story: {story_id}")
+        self._cursor.execute(
+            """SELECT id, occurred_sort_key, precision, supersedes_event_id,
+                      created_at, payload_json
+               FROM timeline_events WHERE story_id = %s
+               ORDER BY (occurred_sort_key IS NULL), occurred_sort_key, created_at, id
+               FOR SHARE""",
+            (story_id,),
+        )
+        rows = self._cursor.fetchall()
+        superseded = {row[3] for row in rows if row[3]}
+        return [
+            {
+                "event_id": row[0], "precision": row[2],
+                "occurred_sort_key": row[1], "created_at": row[4],
+                "supersedes_event_id": row[3], "is_superseded": row[0] in superseded,
+                "record": self._object(row[5], "timeline event"),
+            }
+            for row in rows
+        ]
+
+    def perspective_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Read all attributed perspectives, retaining superseded history."""
+        if self.get_domain_record("story", story_id) is None:
+            raise PostgresEditionReadAdapterError(f"unknown story: {story_id}")
+        self._cursor.execute(
+            """SELECT id, source_id, article_id, supersedes_perspective_id,
+                      created_at, payload_json
+               FROM perspectives WHERE story_id = %s
+               ORDER BY created_at, id FOR SHARE""",
+            (story_id,),
+        )
+        rows = self._cursor.fetchall()
+        superseded = {row[3] for row in rows if row[3]}
+        return [
+            {
+                "perspective_id": row[0], "source_id": row[1], "article_id": row[2],
+                "created_at": row[4], "supersedes_perspective_id": row[3],
+                "is_superseded": row[0] in superseded,
+                "record": self._object(row[5], "perspective"),
+            }
+            for row in rows
+        ]
+
+    def claim_relation_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Read all explicit claim relationships, including superseded assertions."""
+        if self.get_domain_record("story", story_id) is None:
+            raise PostgresEditionReadAdapterError(f"unknown story: {story_id}")
+        self._cursor.execute(
+            """SELECT id, claim_id, related_claim_id, relationship,
+                      supersedes_relation_id, created_at, payload_json
+               FROM claim_relations WHERE story_id = %s
+               ORDER BY created_at, id FOR SHARE""",
+            (story_id,),
+        )
+        rows = self._cursor.fetchall()
+        superseded = {row[4] for row in rows if row[4]}
+        return [
+            {
+                "relation_id": row[0], "claim_id": row[1],
+                "related_claim_id": row[2], "relationship": row[3],
+                "created_at": row[5], "supersedes_relation_id": row[4],
+                "is_superseded": row[0] in superseded,
+                "record": self._object(row[6], "claim relation"),
+            }
+            for row in rows
+        ]
+
+    def story_decision_history(self, story_id: str) -> list[dict[str, Any]]:
+        """Read immutable merge/split decisions involving the requested story."""
+        if self.get_domain_record("story", story_id) is None:
+            raise PostgresEditionReadAdapterError(f"unknown story: {story_id}")
+        self._cursor.execute(
+            "SELECT payload_json FROM story_decisions ORDER BY decided_at, id FOR SHARE"
+        )
+        decisions = []
+        for (raw,) in self._cursor.fetchall():
+            payload = self._object(raw, "story decision")
+            if story_id in payload.get("story_ids", []):
+                decisions.append(payload)
+        return decisions
+
     def get_source(self, source_id: str) -> SourceRecord | None:
         self._cursor.execute(
             "SELECT id, publisher_name, status, payload_json FROM sources WHERE id = %s FOR SHARE",
