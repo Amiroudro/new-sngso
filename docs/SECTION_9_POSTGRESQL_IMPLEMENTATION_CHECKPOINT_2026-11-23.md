@@ -382,3 +382,35 @@ benchmark workflow. Benchmark study protocols, executions, acceptance reviews,
 specialized learning evidence rules, pipeline runs/checkpoints/leases,
 edition/release records, production runtime-role provisioning, and atomic
 staging remain outstanding. No live operations were performed.
+
+
+## Follow-up: benchmark study protocol, execution, and acceptance evidence
+
+PostgreSQL migration 0010, `0010_benchmark_study_evidence.sql`, ports the
+study protocol, execution, and independent acceptance-review records from
+SQLite migrations 21-23.
+
+It adds immutable, sequentially versioned study protocols with stable
+benchmark/fingerprint and rubric binding; immutable execution records tied to
+a protocol and methodologist identity; and immutable acceptance reviews
+bound to the exact execution and protocol, with a unique acceptance decision
+per execution. Payload-to-column consistency checks protect the indexed
+identities and fingerprints.
+
+Integration tests cover protocol version creation and skipped-version
+rejection, execution creation, acceptance review creation and duplicate
+execution rejection, plus update/delete immutability for all three record
+families.
+
+GitHub Actions
+[run #1569](https://github.com/Amiroudro/new-sngso/actions/runs/45216711974)
+passed on commit `6d5c0763ff7545a3ddd1e955565c8760f2981ae9`:
+- PostgreSQL 16 integration suite: **36 passed in 4.13 seconds**.
+- Contract validation: passed.
+- Schema-v36 inspection generation and artifact upload: passed.
+
+This closes the PostgreSQL storage port for the benchmark study protocol,
+execution, and acceptance-review records only. Specialized learning evidence
+rules, pipeline runs/checkpoints/leases, edition/release records, production
+runtime-role provisioning, and the atomic staging transaction remain
+outstanding. No live operations were performed.
