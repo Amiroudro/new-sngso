@@ -9,7 +9,10 @@ from .postgres_transaction import run_atomic
 
 
 _LOCK_KEY = 0x534E47534F504731  # Stable namespace key: "SNGSOPG1".
-_MIGRATIONS = ((1, "0001_audit_chain.sql"),)
+_MIGRATIONS = (
+    (1, "0001_audit_chain.sql"),
+    (2, "0002_audit_head_guards.sql"),
+)
 
 
 class PostgresMigrationError(RuntimeError):
