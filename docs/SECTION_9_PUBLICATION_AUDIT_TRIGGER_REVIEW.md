@@ -121,5 +121,7 @@ The following adversarial cases have now been added to the automated test suite:
 - `tests/test_timeline_event_review.py::test_sqlite_boundary_rejects_empty_or_unregistered_timeline_claims` verifies empty and unregistered claim references are rejected by the database trigger.
 - `tests/storage/test_registry.py::test_edition_artifact_direct_sql_rejects_manifest_identity_mismatch` parametrizes mismatches across manifest ID, edition ID, edition revision, and payload digest, and verifies no artifact row is persisted.
 - `tests/storage/test_registry.py::test_edition_decision_direct_sql_rejects_payload_identity_or_scope_mismatch` parametrizes all indexed decision identity fields plus role, scope, and publication-authorization metadata; each forged direct INSERT must fail without persisting a decision.
+- `tests/storage/test_registry.py::test_staging_event_direct_sql_rejects_each_payload_column_mismatch` adds 17 adversarial cases covering the event's JSON-to-column bindings, including channel, operation, revision, authority flag, and target.
+- `tests/storage/test_registry.py::test_staging_event_direct_sql_rejects_export_package_binding_mismatch` adds five cases covering export identity, manifest binding, payload digest, target, and publication-authorization metadata.
 
 These are committed test additions, not yet CI-verified results. The valid staging-event lifecycle still requires full fixture-backed direct-SQL tests for the successful event/state transaction and injected rollback windows. PostgreSQL equivalence remains unimplemented.
