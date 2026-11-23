@@ -4055,3 +4055,40 @@ def test_schema_35_migrates_to_36_staging_authority_binding(tmp_path, monkeypatc
             )
         ]
         assert versions == list(range(1, 37))
+
+
+def test_schema_36_migration_refuses_legacy_staging_authority_mismatch(
+    tmp_path, monkeypatch,
+):
+    database = tmp_path / "staging-authority-invalid-v35.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 35)
+    with SQLiteRegistry(database) as old:
+        event, package = _valid_staging_sql_fixture(old)
+        forged_principal = "principal:legacy-forged-approver"
+        old.register_benchmark_principal(
+            forged_principal,
+            display_name=forged_principal,
+            roles=["edition_approver"],
+            provisioned_by="test-bootstrap",
+            reason="Seed legacy identity mismatch for migration safety test",
+            principal_kind="human",
+        )
+        event["staging_decision"]["principal_id"] = forged_principal
+        _insert_valid_staging_event(old, event, package)
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 36)
+    with pytest.raises(
+        registry_module.RegistryMigrationError,
+        match="existing staging events contain authority identity mismatches",
+    ):
+        SQLiteRegistry(database)
+
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 35
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' "
+            "AND name='edition_staging_events_authority_binding_guard'"
+        ).fetchone() is None
+    finally:
+        connection.close()
