@@ -23,6 +23,7 @@ _MIGRATIONS = (
     (11, "0011_learning_specialized_evidence.sql"),
     (12, "0012_pipeline_runs.sql"),
     (13, "0013_pipeline_stage_checkpoints.sql"),
+    (14, "0014_pipeline_worker_leases.sql"),
 )
 
 
