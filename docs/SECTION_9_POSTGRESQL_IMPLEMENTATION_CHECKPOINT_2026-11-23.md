@@ -610,3 +610,37 @@ in PostgreSQL migration 0019: nested approval and authorizer identities must
 match the immutable decision and release-authorization records. The
 application-level atomic staging transaction and production role model remain
 open.
+
+
+## Section 9 migration coverage checkpoint
+
+The PostgreSQL migration set now has a reviewed implementation path for the
+full SQLite schema-v36 migration sequence. The later SQLite migration groups
+are represented as follows:
+
+| SQLite migrations | PostgreSQL migration(s) |
+| --- | --- |
+| 1-23 | 0001-0010 |
+| 24-25 | 0011 |
+| 26 | 0012 |
+| 27-28 | 0015-0016 |
+| 29-30 | 0017-0018 |
+| 31 and 36 | 0019 |
+| 32-33 | 0013-0014 |
+| 34-35 | 0020-0021 |
+
+The ordering differs because PostgreSQL migrations are grouped by dependency:
+pipeline runs precede stage checkpoints and leases, while edition artifact
+and authority records precede staging events. PostgreSQL migration 0003
+already included the actor/reason/revision timestamp columns that SQLite
+migration 35 adds later, so migration 0021 ports their guards and snapshot
+behavior without a table rewrite.
+
+This is a migration-coverage checkpoint, not a claim that Section 9 is
+finished. A final schema/trigger parity audit is still required. In
+particular, there is no complete PostgreSQL runtime registry adapter yet,
+and the atomic staging transaction that re-verifies the whole edition,
+performs the event/state change, and appends the global audit event together
+is still outstanding. Production database role provisioning, least-privilege
+tests, concurrency races, failure injection, migration recovery, and the
+browser UI's eventual backend integration remain outstanding as well.
