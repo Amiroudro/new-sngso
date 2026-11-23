@@ -3135,3 +3135,87 @@ def test_postgres_staging_reverifier_requires_exact_snapshot_and_quality_ports()
         learning_object_quality_loader=None,
     )
     assert callable(reverifier)
+
+
+def test_postgres_specialized_learning_evidence_validation_locks_current_claim_and_evidence_heads(postgres_schema):
+    """An evidence head cannot change concurrently after a learning object validates it."""
+    connect = postgres_schema
+    stamp = "2026-11-23T00:00:00Z"
+    with connect() as setup:
+        setup.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('story', 'story-lock', 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (stamp, stamp, json.dumps({"id": "story-lock", "status": "active"}), stamp),
+        )
+        setup.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('claim', 'claim-lock', 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (
+                stamp, stamp,
+                json.dumps({
+                    "id": "claim-lock", "story_id": "story-lock",
+                    "evidence_ids": ["evidence-lock"],
+                    "provenance": [{"source_id": "source-lock"}],
+                }),
+                stamp,
+            ),
+        )
+        evidence_v1 = {
+            "id": "evidence-lock", "claim_id": "claim-lock",
+            "source_id": "source-lock", "relationship": "supports",
+            "locator": {"uri": "https://example.test/lock#evidence"},
+        }
+        setup.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('evidence', 'evidence-lock', 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (stamp, stamp, json.dumps(evidence_v1), stamp),
+        )
+
+    learning_payload = {
+        "id": "learning-lock", "story_id": "story-lock",
+        "kind": "comprehension_question", "language": "en", "status": "draft",
+        "created_at": stamp, "claim_ids": ["claim-lock"],
+        "content": {
+            "question": "What does the evidence support?",
+            "answer_claim_ids": ["claim-lock"],
+            "answer_evidence": [{
+                "claim_id": "claim-lock", "evidence_id": "evidence-lock",
+                "evidence_revision": 1,
+            }],
+        },
+    }
+    evidence_v2 = {**evidence_v1, "summary": "Revised evidence description."}
+    with connect() as holder:
+        # The BEFORE INSERT trigger must hold FOR SHARE locks until this
+        # transaction commits, not merely inspect a statement-level snapshot.
+        holder.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES ('learning-lock', 'story-lock', 'comprehension_question', 'en', "
+            "'draft', 1, %s, %s, 'fixture', 'evidence lock test', %s)",
+            (stamp, stamp, json.dumps(learning_payload)),
+        )
+        with connect() as contender:
+            contender.execute("SET lock_timeout = '150ms'")
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                contender.execute(
+                    "UPDATE domain_records SET revision = 2, updated_at = %s, "
+                    "payload_json = %s, last_actor = 'concurrent-editor', "
+                    "last_reason = 'concurrent evidence revision', last_revision_at = %s "
+                    "WHERE record_type = 'evidence' AND id = 'evidence-lock'",
+                    (stamp, json.dumps(evidence_v2), stamp),
+                )
+            contender.rollback()
+
+    with connect() as check:
+        assert check.execute(
+            "SELECT revision FROM domain_records "
+            "WHERE record_type = 'evidence' AND id = 'evidence-lock'"
+        ).fetchone() == (1,)
