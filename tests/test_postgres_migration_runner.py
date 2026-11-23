@@ -111,7 +111,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert "benchmark_review_identity_attestations" in assignment_sql
     assert "benchmark_scores_no_update" in assignment_sql
     assert "benchmark_study_protocols_no_update" in study_sql
-    assert "benchmark_study_executions_no_delete" in study_sql
+    assert "benchmark_study_executions_no_update" in study_sql
     assert "benchmark_acceptance_reviews_no_update" in study_sql
     assert connection.db_cursor.rows[0][0:2] == (1, "0001_audit_chain.sql")
     assert connection.db_cursor.rows[1][0:2] == (2, "0002_audit_head_guards.sql")
