@@ -25,13 +25,13 @@ def build_postgres_staging_export_reverifier(
 ) -> Callable[[Any, dict[str, Any], datetime], dict[str, Any]]:
     """Return the callback expected by stage_edition_export().
 
-    The default story snapshot builder supports stories without benchmark
-    reviews; stories with benchmark reviews fail closed until that quality
-    port is complete. A custom snapshot loader may be supplied for parity
-    testing or future implementations. The built-in learning-object quality
-    report is used by default; a custom quality loader may be supplied for
-    parity testing. Both use only the supplied cursor and lock all rows read
-    with FOR SHARE (or stronger). The returned
+    The default story snapshot builder includes current benchmark review and
+    acceptance quality reports, complete benchmark-review revision history,
+    and canonical snapshot fingerprinting. The built-in learning-object
+    quality report is also used by default. Optional custom loaders remain
+    available for parity testing and controlled integration. Both ports use
+    only the supplied cursor and lock all rows read with FOR SHARE (or stronger).
+    The returned
     callback is trusted application code and must never run outside the
     transaction passed by stage_edition_export().
     """
