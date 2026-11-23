@@ -3391,6 +3391,27 @@ class SQLiteRegistry:
 
             if version == 35 and _SCHEMA_VERSION >= 36:
                 try:
+                    legacy_identity_mismatch = connection.execute(
+                        """SELECT 1
+                           FROM edition_staging_events e
+                           WHERE NOT EXISTS (
+                             SELECT 1
+                             FROM edition_decisions d
+                             JOIN edition_release_authorizations r
+                               ON r.approval_decision_id = d.decision_id
+                             WHERE d.decision_id = json_extract(e.payload_json, '$.staging_decision.decision_id')
+                               AND d.principal_id = json_extract(e.payload_json, '$.staging_decision.principal_id')
+                               AND d.manifest_id = e.manifest_id
+                               AND r.authorization_id = json_extract(e.payload_json, '$.release_authorization.authorization_id')
+                               AND r.authorizer_principal_id = json_extract(e.payload_json, '$.release_authorization.authorizer_principal_id')
+                               AND r.manifest_id = e.manifest_id
+                           )
+                           LIMIT 1"""
+                    ).fetchone()
+                    if legacy_identity_mismatch is not None:
+                        raise RegistryMigrationError(
+                            "Migration 36 refused: existing staging events contain authority identity mismatches"
+                        )
                     for statement in _MIGRATION_36:
                         connection.execute(statement)
                     connection.execute(
