@@ -4417,3 +4417,62 @@ def test_postgres_independent_bilingual_variant_verification_matches_sqlite(post
         ).verify_independent_bilingual_variants(pair["bn"], pair["en"])
 
     assert postgres_result == sqlite_result
+
+
+def test_postgres_mcq_quality_report_matches_sqlite_rationale_and_source_checks(postgres_schema):
+    from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
+    from test_learning_objects import _mcq, _prepared
+
+    connect = postgres_schema
+    with _prepared() as sqlite_registry:
+        mcq = _mcq()
+        sqlite_registry.add_learning_object(
+            mcq, actor="question-editor", reason="Create MCQ for PostgreSQL parity."
+        )
+        sqlite_report = sqlite_registry.learning_object_quality_report(mcq["id"])
+        sqlite_conn = sqlite_registry._connection
+        source_row = sqlite_conn.execute(
+            """SELECT id, publisher_name, status, created_at, updated_at, payload_json
+               FROM sources WHERE id = 'source:publisher'"""
+        ).fetchone()
+        domain_rows = sqlite_conn.execute(
+            """SELECT record_type, id, revision, created_at, updated_at, payload_json,
+                      last_actor, last_reason, last_revision_at
+               FROM domain_records
+               WHERE id IN ('article:one', 'story:one', 'claim:one', 'evidence:one')"""
+        ).fetchall()
+        learning_row = sqlite_conn.execute(
+            """SELECT id, story_id, kind, language, status, revision, created_at,
+                      updated_at, last_actor, last_reason, payload_json
+               FROM learning_objects WHERE id = ?""",
+            (mcq["id"],),
+        ).fetchone()
+
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            tuple(source_row),
+        )
+        for row in sorted(domain_rows, key=lambda item: {"article": 0, "story": 1, "claim": 2, "evidence": 3}[item[0]]):
+            connection.execute(
+                "INSERT INTO domain_records "
+                "(record_type, id, revision, created_at, updated_at, payload_json, "
+                "last_actor, last_reason, last_revision_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                tuple(row),
+            )
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            tuple(learning_row),
+        )
+        postgres_report = PostgresEditionRegistryReadView(
+            connection.cursor()
+        ).learning_object_quality_report(mcq["id"])
+
+    assert next(item for item in sqlite_report["checks"] if item["name"] == "mcq_distractor_rationale_coverage")["passed"] is True
+    assert next(item for item in sqlite_report["checks"] if item["name"] == "mcq_distractor_rationale_source_support")["passed"] is False
+    assert postgres_report == sqlite_report
