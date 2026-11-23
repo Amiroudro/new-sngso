@@ -858,3 +858,12 @@ graphs. Benchmark-linked stories remain unsupported until the PostgreSQL
 benchmark review and acceptance-review quality reports are ported. The
 learning-object quality report is still not implemented, so the complete
 registry-backed staging re-verifier remains unavailable.
+
+
+The parity fixture was extended to include a real linked article record as well
+as the draft learning object. It now compares the full snapshot and fingerprint
+with SQLite for a story with article provenance, publisher-count/duplicate
+review reporting, and source-independence output (with no ingestion duplicate
+decisions). [CI run #1650](https://github.com/Amiroudro/new-sngso/actions/runs/45226483268)
+passed **53 PostgreSQL integration tests in 17.77 seconds**; contract
+validation and schema-v36 inspection generation/artifact upload passed.
