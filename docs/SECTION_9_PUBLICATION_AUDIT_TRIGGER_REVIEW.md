@@ -109,7 +109,7 @@ Story decisions are append-only, but their application ledger also has a uniquen
 
 ## 11. Review boundary
 
-The 27-trigger source-level review in this document and the 23-trigger operational review together cover 50 of the 131 SQLite triggers. This is not a claim that all 50 have dedicated direct-SQL negative tests, nor that PostgreSQL equivalence has been implemented. The other 81 triggers remain to be reviewed. Section 9 P0 and production acceptance remain open.
+The 27-trigger source-level review in this document and the 23-trigger operational review together cover 50 of the 138 SQLite triggers in schema v35. This is not a claim that all 50 have dedicated direct-SQL negative tests, nor that PostgreSQL equivalence has been implemented. The other 88 triggers remain to be reviewed. Section 9 P0 and production acceptance remain open.
 
 ## Additional direct-SQL acceptance tests committed on the Section 9 branch
 
@@ -124,4 +124,4 @@ The following adversarial cases have now been added to the automated test suite:
 - `tests/storage/test_registry.py::test_staging_event_direct_sql_rejects_each_payload_column_mismatch` adds 17 adversarial cases covering the event's JSON-to-column bindings, including channel, operation, revision, authority flag, and target.
 - `tests/storage/test_registry.py::test_staging_event_direct_sql_rejects_export_package_binding_mismatch` adds five cases covering export identity, manifest binding, payload digest, target, and publication-authorization metadata.
 
-These are committed test additions, not yet CI-verified results. The valid staging-event lifecycle still requires full fixture-backed direct-SQL tests for the successful event/state transaction and injected rollback windows. PostgreSQL equivalence remains unimplemented.
+GitHub Actions run #1448 passed the complete Python 3.12 suite with 1,063 tests, including the earlier timeline, artifact, and decision boundary additions. The newer 22 parametrized staging payload/export binding cases were added after that run and are awaiting their own CI result. The valid staging-event lifecycle still requires full fixture-backed direct-SQL tests for the successful event/state transaction and injected rollback windows. PostgreSQL equivalence remains unimplemented.
