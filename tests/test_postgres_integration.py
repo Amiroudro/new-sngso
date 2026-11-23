@@ -2768,6 +2768,10 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
         view = PostgresEditionRegistryReadView(connection.cursor())
         assert view.get_domain_record("story", story_id).to_payload() == story_payload
         assert view.domain_record_history("story", story_id)[0]["revision"] == 1
+        assert view.timeline_event_history(story_id) == []
+        assert view.perspective_history(story_id) == []
+        assert view.claim_relation_history(story_id) == []
+        assert view.story_decision_history(story_id) == []
         learning = view.get_learning_object(learning_id)
         assert learning is not None and learning.revision == 1
         assert learning.to_payload() == learning_payload
