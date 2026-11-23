@@ -2798,8 +2798,25 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
         assert lease["worker_id"] == "worker:read-view"
         assert lease["fencing_token"] == 1
         assert lease["history"][0]["revision"] == 1
-        with pytest.raises(PostgresEditionReadAdapterIncomplete, match="story snapshot"):
-            view.story_editorial_snapshot(story_id)
+        from sngso_engine.registry import Registry
+        sqlite_registry = Registry(":memory:")
+        sqlite_registry._connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('story', ?, 1, ?, ?, ?, 'fixture', 'initial', ?)",
+            (story_id, stamp, stamp, json.dumps(story_payload), stamp),
+        )
+        sqlite_registry._connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('story', ?, 1, ?, 'fixture', 'initial', ?)",
+            (story_id, stamp, json.dumps(story_payload)),
+        )
+        sqlite_snapshot = sqlite_registry.story_editorial_snapshot(story_id)
+        postgres_snapshot = view.story_editorial_snapshot(story_id)
+        assert postgres_snapshot == sqlite_snapshot
+        sqlite_registry.close()
         with pytest.raises(PostgresEditionReadAdapterIncomplete, match="quality gates"):
             view.learning_object_quality_report(learning_id)
 
@@ -2809,11 +2826,11 @@ def test_postgres_staging_reverifier_requires_exact_snapshot_and_quality_ports()
         build_postgres_staging_export_reverifier,
     )
 
-    with pytest.raises(ValueError, match="story snapshot loader"):
-        build_postgres_staging_export_reverifier(
-            story_snapshot_loader=None,
-            learning_object_quality_loader=lambda cursor, object_id: {},
-        )
+    reverifier = build_postgres_staging_export_reverifier(
+        story_snapshot_loader=None,
+        learning_object_quality_loader=lambda cursor, object_id: {},
+    )
+    assert callable(reverifier)
     with pytest.raises(ValueError, match="learning-object quality loader"):
         build_postgres_staging_export_reverifier(
             story_snapshot_loader=lambda cursor, story_id: {},
