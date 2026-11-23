@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql")]
 
 
 
@@ -1272,3 +1272,121 @@ def test_postgres_duplicate_audit_event_id_rolls_back_without_advancing_chain(po
         ).fetchone()
     assert rows == [(1, "stable-operation-id")]
     assert head == (1, first["event_hash"])
+
+
+
+def test_postgres_specialized_learning_evidence_is_current_and_claim_linked(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json) "
+            "VALUES ('story', 'story-evidence', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "story-evidence", "status": "active"}),),
+        )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json) "
+            "VALUES ('claim', 'claim-evidence', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({
+                "id": "claim-evidence", "story_id": "story-evidence",
+                "evidence_ids": ["evidence-1"],
+                "provenance": [{
+                    "source_id": "source-1", "article_id": "article-1",
+                    "observation_id": "observation-1"
+                }]
+            }),),
+        )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json) "
+            "VALUES ('evidence', 'evidence-1', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({
+                "id": "evidence-1", "claim_id": "claim-evidence",
+                "source_id": "source-1", "article_id": "article-1",
+                "observation_id": "observation-1", "relationship": "supports",
+                "locator": {"uri": "https://example.test/source#claim"}
+            }),),
+        )
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES ('vocabulary-evidence', 'story-evidence', 'vocabulary', 'en', "
+            "'draft', 1, '2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', "
+            "'editor', 'source-backed vocabulary', %s)",
+            (json.dumps({
+                "claim_ids": ["claim-evidence"],
+                "content": {
+                    "term": "resilience", "source_evidence_id": "evidence-1",
+                    "source_evidence_revision": 1
+                }
+            }),),
+        )
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES ('question-evidence', 'story-evidence', 'comprehension_question', "
+            "'en', 'draft', 1, '2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', "
+            "'editor', 'evidence-backed question', %s)",
+            (json.dumps({
+                "claim_ids": ["claim-evidence"],
+                "content": {
+                    "question": "What does the source support?",
+                    "answer_claim_ids": ["claim-evidence"],
+                    "answer_evidence": [{
+                        "claim_id": "claim-evidence", "evidence_id": "evidence-1",
+                        "evidence_revision": 1
+                    }]
+                }
+            }),),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="current and linked"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO learning_objects "
+                    "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+                    "last_actor, last_reason, payload_json) "
+                    "VALUES ('stale-vocabulary', 'story-evidence', 'vocabulary', 'en', "
+                    "'draft', 1, '2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', "
+                    "'editor', 'stale evidence reference', %s)",
+                    (json.dumps({
+                        "claim_ids": ["claim-evidence"],
+                        "content": {
+                            "term": "resilience", "source_evidence_id": "evidence-1",
+                            "source_evidence_revision": 2
+                        }
+                    }),),
+                )
+        with pytest.raises(psycopg.errors.CheckViolation, match="cover every answer claim"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO learning_objects "
+                    "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+                    "last_actor, last_reason, payload_json) "
+                    "VALUES ('uncovered-question', 'story-evidence', 'analysis_question', "
+                    "'en', 'draft', 1, '2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', "
+                    "'editor', 'missing answer provenance', %s)",
+                    (json.dumps({
+                        "claim_ids": ["claim-evidence"],
+                        "content": {
+                            "question": "Explain the claim.",
+                            "answer_claim_ids": ["claim-evidence"],
+                            "answer_evidence": []
+                        }
+                    }),),
+                )
+
+    with connect() as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM learning_objects "
+            "WHERE id IN ('vocabulary-evidence', 'question-evidence')"
+        ).fetchone()[0] == 2
+        assert connection.execute(
+            "SELECT count(*) FROM learning_object_revisions "
+            "WHERE learning_object_id IN ('vocabulary-evidence', 'question-evidence')"
+        ).fetchone()[0] == 2
