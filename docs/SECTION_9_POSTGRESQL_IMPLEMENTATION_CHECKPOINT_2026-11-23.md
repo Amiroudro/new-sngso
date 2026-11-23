@@ -150,3 +150,39 @@ principal. Production role provisioning, credential separation, ownership,
 default privileges, and the complete registry's privilege matrix still need
 a reviewed implementation. This is not the complete runtime-role model and
 does not complete the full schema-v36 port or staging transaction.
+
+
+## Follow-up: foundational source-permission-domain registry port
+
+PostgreSQL migration 0003, `0003_source_permission_domain_registry.sql`, ports
+the first dependency layer of the SQLite v36 registry:
+
+- sources and source endpoints;
+- permission evidence and grants;
+- grant-to-endpoint, grant-to-evidence, and operation-evidence links;
+- immutable permission-grant revision snapshots;
+- domain records and immutable domain-record revision snapshots.
+
+The migration retains source-scoped composite foreign keys, restrict-delete
+semantics, the initial registry's source/status indexes, non-empty identity
+fields, JSON object payload checks, and the domain record's last-revision
+metadata columns. PostgreSQL triggers reject UPDATE and DELETE on both
+revision-history tables. The migration runner registers the new migration
+with its normal SHA-256 checksum ledger.
+
+Real PostgreSQL tests exercise valid source-bound grant relationships,
+cross-source composite-FK rejection, and immutable grant/domain revision
+snapshots. An initial CI attempt found a test setup collision: the invalid
+cross-source relationship reused a composite primary key, so the PK constraint
+correctly fired before the FK under test. The test was corrected to use a
+distinct grant identity, isolating the intended FK behavior.
+
+GitHub Actions [run #1528](https://github.com/Amiroudro/new-sngso/actions/runs/45211009613)
+passed:
+- PostgreSQL 16 integration suite: **29 passed in 1.33 seconds**.
+- Contract validation: passed.
+- Live schema-v36 inspection and artifact upload: passed.
+
+This is a foundational slice, not the complete schema-v36 port. The remaining
+tables, triggers, cross-record invariants, role matrix, and staging/checkpoint
+transaction boundaries are still open.
