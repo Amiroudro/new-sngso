@@ -106,3 +106,12 @@ The staging SQL acceptance batch now includes:
 The current branch therefore has local SQLite evidence for staging transaction atomicity, rollback semantics, revision serialization, and the listed direct-SQL rejection cases. It still does not have a public application-level staging service, a complete rollback-operation API, PostgreSQL schema/repository implementation, PostgreSQL role/privilege tests, or production authorization freshness. The PostgreSQL migration design now records the staging lock, authorization, rollback-pointer, and conformance requirements in Section 13.
 
 The run above tests code commit `0268b5455ababb4f60585172bd5a84ed4c99f230`. Later documentation-only commits update this acceptance record and the PostgreSQL design; they do not change the tested code.
+
+
+## Schema-v36 staging authority identity correction
+
+Migration 36 closes a staging authorization attribution gap. The event trigger now binds the approver and release-authorizer identities declared in the event payload to the principals stored in the referenced immutable decision and release-authorization rows. The relational guard also binds both records to the event manifest and requires the authorization to reference the exact decision.
+
+Added direct-SQL adversarial tests for both identity-rebinding paths using alternate active human principals with the required roles, plus a v35-to-v36 migration test. The schema-inspection assertion now expects 47 tables, 25 explicit indexes, 139 triggers, and zero views. These changes are committed, but this acceptance entry is pending a fresh full CI run and live schema artifact. Do not treat the fix as CI-verified until that run succeeds.
+
+The change does not implement PostgreSQL equivalence, authenticated-session freshness, or a higher-level staging service. PR #8 remains draft and unmerged.
