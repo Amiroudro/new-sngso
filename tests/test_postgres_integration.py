@@ -4051,7 +4051,7 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
             for statement in denied:
                 with pytest.raises(psycopg.errors.InsufficientPrivilege):
                     restricted.execute(statement)
-            with pytest.raises(psycopg.errors.CheckViolation, match="immutable"):
+            with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="immutable"):
                 restricted.execute(
                     "UPDATE edition_artifacts SET manifest_id = 'tampered-manifest' "
                     "WHERE manifest_id = 'manifest:atomic'"
