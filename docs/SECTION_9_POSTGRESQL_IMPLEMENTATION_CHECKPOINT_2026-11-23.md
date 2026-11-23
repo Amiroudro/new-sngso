@@ -763,3 +763,35 @@ snapshot and fingerprint parity, port learning-object quality checks and
 bilingual variant verification, then compose these pieces into a single
 transaction-bound callback for `stage_edition_export()`. The current adapter
 is intentionally incomplete and is not a production staging verifier.
+
+
+## PostgreSQL edition read view and re-verifier composition
+
+Added `src/sngso_engine/postgres_edition_read.py`, a cursor-bound read-only
+facade for the existing edition verifier. It locks current pipeline runs,
+pipeline stage checkpoints, worker leases, domain records, learning objects,
+source records, endpoints, permission evidence/grants, and human principals
+with `FOR SHARE`; it also checks immutable revision heads and verifies
+indexed fields against stored payloads. The pipeline checkpoint and worker
+lease methods return their full append-only revision histories.
+
+Added `src/sngso_engine/postgres_edition_verifier.py` to compose that view
+with `verify_registry_backed_edition_artifact()`. It validates the full
+edition staging-export, approval, and release-authorization contracts and
+requires exact artifact/authority bindings before returning a package to the
+atomic staging service.
+
+[CI run #1636](https://github.com/Amiroudro/new-sngso/actions/runs/45224825334)
+passed **53 PostgreSQL integration tests in 6.58 seconds**. Contract
+validation and schema-v36 inspection generation/artifact upload also passed.
+The new read-view test checks current records and histories, detects an
+indexed source/payload mismatch, and verifies checkpoint and worker-lease
+revision histories.
+
+**Still deliberately fail-closed:** the adapter requires two exact-parity
+loaders that are not yet implemented: (1) PostgreSQL reconstruction of the
+SQLite story editorial snapshot and its canonical fingerprint, and (2) the
+full PostgreSQL learning-object quality report. The re-verifier factory
+refuses to build without both. Therefore the PostgreSQL read path is partly
+ported and composed, but end-to-end registry-backed staging remains blocked
+until those two editorial-verification ports are complete and tested.
