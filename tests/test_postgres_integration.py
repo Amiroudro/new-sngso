@@ -3243,7 +3243,7 @@ def test_postgres_benchmark_review_quality_report_rechecks_artifact_and_draft_st
         },
         "source_materials": [],
         "corrections": [],
-        "adjudication_note": None,
+        "adjudication_note": "",
     }
     with connect() as connection:
         connection.execute(
@@ -3323,7 +3323,7 @@ def test_postgres_story_snapshot_includes_benchmark_review_quality_and_history(p
             "checked_at": stamp,
         }],
         "corrections": [],
-        "adjudication_note": None,
+        "adjudication_note": "",
     }
     with connect() as connection:
         connection.execute(
