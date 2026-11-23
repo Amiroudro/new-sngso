@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql")]
 
 
 
@@ -856,6 +856,172 @@ def test_postgres_benchmark_assignments_identity_attestations_and_scores_are_dur
         connection.rollback()
         assert connection.execute(
             "SELECT count(*) FROM benchmark_scores WHERE assignment_id = 'assignment-1'"
+        ).fetchone() == (1,)
+
+
+def test_postgres_benchmark_study_protocol_execution_and_acceptance_evidence(postgres_schema):
+    connect = postgres_schema
+    timestamp = "2026-11-23T00:00:00Z"
+    benchmark_fingerprint = "sha256:" + "d" * 64
+    protocol_fingerprint_v1 = "sha256:" + "1" * 64
+    protocol_fingerprint_v2 = "sha256:" + "2" * 64
+    execution_fingerprint = "sha256:" + "3" * 64
+    acceptance_fingerprint = "sha256:" + "4" * 64
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO benchmark_artifacts "
+            "(artifact_id, language, canonicalization, content_fingerprint, content_json, "
+            "created_at, actor, reason) VALUES ('study-benchmark', 'en', "
+            "'canonical-json-v1', %s, '{}', %s, 'builder', 'study artifact')",
+            (benchmark_fingerprint, timestamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, "
+            "reason, languages_json, principal_kind) VALUES "
+            "('methodologist-1', 'Methodologist', %s, 1, %s, 'admin', 'methodologist', %s, 'human'), "
+            "('acceptance-reviewer-1', 'Acceptance reviewer', %s, 1, %s, 'admin', 'independent reviewer', %s, 'human')",
+            (
+                json.dumps(["benchmark_methodologist"]), timestamp, json.dumps(["en"]),
+                json.dumps(["independent_acceptance_reviewer"]), timestamp, json.dumps(["en"]),
+            ),
+        )
+
+        protocol_v1 = {
+            "study_id": "study-1", "study_version": 1,
+            "benchmark_id": "study-benchmark",
+            "benchmark_fingerprint": benchmark_fingerprint,
+            "rubric_version": "rubric-1", "status": "protocol_only",
+        }
+        connection.execute(
+            "INSERT INTO benchmark_study_protocols "
+            "(protocol_record_id, study_id, study_version, benchmark_id, benchmark_fingerprint, "
+            "rubric_version, protocol_fingerprint, status, payload_json, created_at, actor, reason) "
+            "VALUES ('protocol-1-v1', 'study-1', 1, 'study-benchmark', %s, 'rubric-1', "
+            "%s, 'protocol_only', %s, %s, 'curator', 'initial protocol')",
+            (benchmark_fingerprint, protocol_fingerprint_v1, json.dumps(protocol_v1), timestamp),
+        )
+        protocol_v2 = {**protocol_v1, "study_version": 2}
+        connection.execute(
+            "INSERT INTO benchmark_study_protocols "
+            "(protocol_record_id, study_id, study_version, benchmark_id, benchmark_fingerprint, "
+            "rubric_version, protocol_fingerprint, status, payload_json, created_at, actor, reason) "
+            "VALUES ('protocol-1-v2', 'study-1', 2, 'study-benchmark', %s, 'rubric-1', "
+            "%s, 'protocol_only', %s, '2026-11-23T00:01:00Z', 'curator', 'protocol revision')",
+            (benchmark_fingerprint, protocol_fingerprint_v2, json.dumps(protocol_v2)),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="versions must be sequential"):
+            with connection.transaction():
+                invalid_protocol = {**protocol_v1, "study_version": 4}
+                connection.execute(
+                    "INSERT INTO benchmark_study_protocols "
+                    "(protocol_record_id, study_id, study_version, benchmark_id, benchmark_fingerprint, "
+                    "rubric_version, protocol_fingerprint, status, payload_json, created_at, actor, reason) "
+                    "VALUES ('protocol-1-v4', 'study-1', 4, 'study-benchmark', %s, 'rubric-1', "
+                    "'sha256:" + "5" * 64 + "', 'protocol_only', %s, %s, 'curator', 'skip version')",
+                    (benchmark_fingerprint, json.dumps(invalid_protocol), timestamp),
+                )
+
+        execution_payload = {
+            "execution_id": "execution-1",
+            "study_id": "study-1",
+            "study_version": 2,
+            "protocol_fingerprint": protocol_fingerprint_v2,
+            "benchmark_id": "study-benchmark",
+            "benchmark_fingerprint": benchmark_fingerprint,
+            "rubric_version": "rubric-1",
+            "analysis": {"methodologist_id": "methodologist-1"},
+        }
+        connection.execute(
+            "INSERT INTO benchmark_study_executions "
+            "(execution_id, protocol_record_id, study_id, study_version, protocol_fingerprint, "
+            "benchmark_id, benchmark_fingerprint, rubric_version, execution_fingerprint, status, "
+            "methodologist_id, issuer, subject, provider_key_id, provider_adapter, authenticated_at, "
+            "payload_json, created_at, actor, reason) "
+            "VALUES ('execution-1', 'protocol-1-v2', 'study-1', 2, %s, 'study-benchmark', "
+            "%s, 'rubric-1', %s, 'analysis_reviewed', 'methodologist-1', "
+            "'https://identity.example', 'methodologist-subject', 'key-methodologist', 'oidc-test', "
+            "%s, %s, %s, 'methodologist-1', 'analysis reviewed')",
+            (
+                protocol_fingerprint_v2, benchmark_fingerprint, execution_fingerprint,
+                timestamp, json.dumps(execution_payload), timestamp,
+            ),
+        )
+
+        acceptance_payload = {
+            "review_id": "acceptance-1",
+            "execution_id": "execution-1",
+            "study_id": "study-1",
+            "study_version": 2,
+            "protocol_fingerprint": protocol_fingerprint_v2,
+            "execution_fingerprint": execution_fingerprint,
+            "benchmark_id": "study-benchmark",
+            "benchmark_fingerprint": benchmark_fingerprint,
+            "rubric_version": "rubric-1",
+            "reviewer_id": "acceptance-reviewer-1",
+            "reviewer_role": "independent_acceptance_reviewer",
+            "decision": "accepted_for_limited_use",
+        }
+        connection.execute(
+            "INSERT INTO benchmark_acceptance_reviews "
+            "(review_id, execution_id, protocol_record_id, study_id, study_version, "
+            "protocol_fingerprint, execution_fingerprint, acceptance_fingerprint, benchmark_id, "
+            "benchmark_fingerprint, rubric_version, reviewer_id, reviewer_role, decision, issuer, "
+            "subject, provider_key_id, provider_adapter, authenticated_at, payload_json, created_at, "
+            "actor, reason) VALUES ('acceptance-1', 'execution-1', 'protocol-1-v2', 'study-1', 2, "
+            "%s, %s, %s, 'study-benchmark', %s, 'rubric-1', 'acceptance-reviewer-1', "
+            "'independent_acceptance_reviewer', 'accepted_for_limited_use', "
+            "'https://identity.example', 'acceptance-subject', 'key-acceptance', 'oidc-test', "
+            "%s, %s, %s, 'acceptance-reviewer-1', 'limited-use decision')",
+            (
+                protocol_fingerprint_v2, execution_fingerprint, acceptance_fingerprint,
+                benchmark_fingerprint, timestamp, json.dumps(acceptance_payload), timestamp,
+            ),
+        )
+
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            with connection.transaction():
+                duplicate_acceptance = {**acceptance_payload, "review_id": "acceptance-duplicate"}
+                connection.execute(
+                    "INSERT INTO benchmark_acceptance_reviews "
+                    "(review_id, execution_id, protocol_record_id, study_id, study_version, "
+                    "protocol_fingerprint, execution_fingerprint, acceptance_fingerprint, benchmark_id, "
+                    "benchmark_fingerprint, rubric_version, reviewer_id, reviewer_role, decision, issuer, "
+                    "subject, provider_key_id, provider_adapter, authenticated_at, payload_json, created_at, "
+                    "actor, reason) VALUES ('acceptance-duplicate', 'execution-1', 'protocol-1-v2', "
+                    "'study-1', 2, %s, %s, 'sha256:" + "6" * 64 + "', 'study-benchmark', %s, "
+                    "'rubric-1', 'acceptance-reviewer-1', 'independent_acceptance_reviewer', "
+                    "'accepted_for_limited_use', 'https://identity.example', 'acceptance-subject', "
+                    "'key-acceptance', 'oidc-test', %s, %s, %s, 'acceptance-reviewer-1', 'duplicate')",
+                    (
+                        protocol_fingerprint_v2, execution_fingerprint, benchmark_fingerprint,
+                        timestamp, json.dumps(duplicate_acceptance), timestamp,
+                    ),
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE benchmark_study_protocols SET reason = 'rewritten' "
+                "WHERE protocol_record_id = 'protocol-1-v1'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM benchmark_study_executions WHERE execution_id = 'execution-1'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE benchmark_acceptance_reviews SET decision = 'rejected' "
+                "WHERE review_id = 'acceptance-1'"
+            )
+        connection.rollback()
+        assert connection.execute(
+            "SELECT count(*) FROM benchmark_study_protocols WHERE study_id = 'study-1'"
+        ).fetchone() == (2,)
+        assert connection.execute(
+            "SELECT count(*) FROM benchmark_acceptance_reviews"
         ).fetchone() == (1,)
 
 def test_postgres_audit_append_serializes_independent_connections(postgres_schema):
