@@ -97,3 +97,25 @@ def test_postgres_migration_runner_rejects_unknown_future_schema_version():
         apply_postgres_migrations(connection)
     assert connection.rollbacks == 1
     assert connection.commits == 0
+
+
+def test_postgres_migration_runner_rejects_noncontiguous_migration_ledger(monkeypatch):
+    import sngso_engine.postgres_migration_runner as migration_runner
+
+    monkeypatch.setattr(
+        migration_runner,
+        "_MIGRATIONS",
+        (
+            (1, "0001_audit_chain.sql"),
+            (2, "0002_registry_core.sql"),
+            (3, "0003_staging.sql"),
+        ),
+    )
+    connection = FakeConnection(rows=[
+        (1, "0001_audit_chain.sql", "sha256:" + "1" * 64),
+        (3, "0003_staging.sql", "sha256:" + "3" * 64),
+    ])
+    with pytest.raises(PostgresMigrationError, match="not a contiguous prefix"):
+        migration_runner.apply_postgres_migrations(connection)
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
