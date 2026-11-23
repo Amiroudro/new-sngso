@@ -1,6 +1,6 @@
 # Section 9 Live SQLite Schema Inspection
 
-Status: **inspector implementation previously CI verified; schema-v36 migration and artifact verification are pending the current run.**
+Status: **schema-v36 inspector and migration verified by full CI.**
 
 The schema inspector turns the P0 inventory step into a repeatable read-only operation against an actual registry database. It does not infer the live schema from migration source text.
 
@@ -93,3 +93,10 @@ The checker validates checkpoint shape before opening the database. Sequence zer
 Migration 36 adds `edition_staging_events_authority_binding_guard`. The guard requires the staging decision principal declared in an event to equal the principal on the referenced immutable approval decision, and requires the declared release authorizer to equal the principal on the referenced immutable release authorization. It also binds both records to the event's manifest and verifies that the release authorization references that exact decision.
 
 This is a database-level identity-binding correction. Existing role/activity checks remain in the staging insert guard. The new guard does not replace authenticated-session freshness, and it does not establish PostgreSQL equivalence. The current schema baseline is 47 tables, 25 explicit indexes, 139 triggers, and zero views, with contiguous migrations 1–36.
+
+
+## Verified schema-v36 CI result
+
+GitHub Actions [run #1480](https://github.com/Amiroudro/new-sngso/actions/runs/45174698086) passed **1,122 tests in 26.28 seconds** on tested code commit `d4924a1e1f0e2776923db1bfcc3907998ea85f0b`. The workflow generated a fresh database using migrations 1–36, ran the read-only inspector, and uploaded artifact `sqlite-schema-v36-inspection` (ID `14818506827`, expires 7 December 2026).
+
+The schema-v36 assertions verify 47 tables, 25 explicit indexes, 139 triggers, zero views, contiguous migration history 1–36, integrity `ok`, zero foreign-key violations, and a valid retained audit chain. The v35 baseline above remains historical evidence and is not presented as v36 evidence.
