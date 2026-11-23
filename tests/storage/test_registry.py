@@ -3078,3 +3078,48 @@ def test_assignment_direct_sql_head_update_cannot_skip_accepted_state():
         stored = registry.get_benchmark_review_assignment(payload["assignment_id"])
         assert stored["status"] == "assigned"
         assert stored["revision"] == 1
+
+
+@pytest.mark.parametrize(
+    ("column", "row_value"),
+    [
+        ("manifest_id", "manifest:forged"),
+        ("edition_id", "edition:forged"),
+        ("edition_revision", 2),
+        ("payload_sha256", "sha256:" + "b" * 64),
+    ],
+)
+def test_edition_artifact_direct_sql_rejects_manifest_identity_mismatch(column, row_value):
+    with SQLiteRegistry() as registry:
+        manifest = {
+            "manifest_id": "manifest:expected",
+            "edition_id": "edition:expected",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+        }
+        row = {
+            **manifest,
+            column: row_value,
+        }
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="stored edition artifact columns must match manifest",
+        ):
+            registry._connection.execute(
+                \"\"\"INSERT INTO edition_artifacts
+                   (manifest_id, edition_id, edition_revision, payload_sha256,
+                    payload_json, manifest_json, verification_json, created_at, actor, reason)
+                   VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer',
+                           'attempted artifact identity mismatch')\"\"\",
+                (
+                    row["manifest_id"],
+                    row["edition_id"],
+                    row["edition_revision"],
+                    row["payload_sha256"],
+                    json.dumps(manifest, sort_keys=True, separators=(",", ":")),
+                    "2026-11-23T00:00:00Z",
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_artifacts"
+        ).fetchone()[0] == 0
