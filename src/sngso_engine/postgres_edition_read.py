@@ -91,6 +91,120 @@ class PostgresEditionRegistryReadView:
             raise PostgresEditionReadAdapterError("pipeline run identity does not match its key")
         return {"revision": revision, "record": record}
 
+    def get_pipeline_stage_checkpoints(self, pipeline_run_id: str) -> list[dict[str, Any]]:
+        """Read and lock every checkpoint plus its append-only revision history."""
+        run = self.get_pipeline_run(pipeline_run_id)
+        if run is None:
+            raise PostgresEditionReadAdapterError("checkpoint lookup references an unknown pipeline run")
+        self._cursor.execute(
+            """SELECT stage_ordinal, stage_name, input_fingerprint, idempotency_key,
+                      status, provider_namespace, provider_operation_ref, output_fingerprint,
+                      revision, created_at, updated_at, actor, reason, metadata_json
+               FROM pipeline_stage_checkpoints
+               WHERE pipeline_run_id = %s
+               ORDER BY stage_ordinal
+               FOR SHARE""",
+            (pipeline_run_id,),
+        )
+        rows = self._cursor.fetchall()
+        checkpoints: list[dict[str, Any]] = []
+        for row in rows:
+            (
+                ordinal, name, input_fingerprint, idempotency_key, status,
+                provider_namespace, operation_ref, output_fingerprint, revision,
+                created_at, updated_at, actor, reason, metadata_raw,
+            ) = row
+            try:
+                metadata = json.loads(metadata_raw)
+            except (TypeError, ValueError) as exc:
+                raise PostgresEditionReadAdapterError("pipeline checkpoint metadata is corrupt") from exc
+            if not isinstance(metadata, dict):
+                raise PostgresEditionReadAdapterError("pipeline checkpoint metadata must be an object")
+            self._cursor.execute(
+                """SELECT revision, created_at, actor, reason, status,
+                          provider_operation_ref, output_fingerprint, metadata_json
+                   FROM pipeline_stage_checkpoint_revisions
+                   WHERE pipeline_run_id = %s AND stage_ordinal = %s
+                   ORDER BY revision
+                   FOR SHARE""",
+                (pipeline_run_id, ordinal),
+            )
+            history_rows = self._cursor.fetchall()
+            if not history_rows or history_rows[-1][0] != revision:
+                raise PostgresEditionReadAdapterError("pipeline checkpoint history does not end at its current revision")
+            history = []
+            for item in history_rows:
+                try:
+                    item_metadata = json.loads(item[7])
+                except (TypeError, ValueError) as exc:
+                    raise PostgresEditionReadAdapterError("pipeline checkpoint revision metadata is corrupt") from exc
+                history.append({
+                    "revision": item[0], "created_at": item[1], "actor": item[2],
+                    "reason": item[3], "status": item[4],
+                    "provider_operation_ref": item[5], "output_fingerprint": item[6],
+                    "metadata": item_metadata,
+                })
+            checkpoints.append({
+                "pipeline_run_id": pipeline_run_id, "stage_ordinal": ordinal,
+                "stage_name": name, "input_fingerprint": input_fingerprint,
+                "idempotency_key": idempotency_key, "status": status,
+                "provider_namespace": provider_namespace,
+                "provider_operation_ref": operation_ref,
+                "output_fingerprint": output_fingerprint, "revision": revision,
+                "created_at": created_at, "updated_at": updated_at,
+                "actor": actor, "reason": reason, "metadata": metadata,
+                "history": history,
+            })
+        return checkpoints
+
+    def get_pipeline_worker_lease(self, pipeline_run_id: str) -> dict[str, Any] | None:
+        """Read the current fenced lease and verify its immutable revision head."""
+        self._cursor.execute(
+            """SELECT worker_id, token_hash, fencing_token, status, acquired_at,
+                      heartbeat_at, expires_at, cancel_requested_at,
+                      cancel_requested_by, cancel_reason_code, revision, updated_at,
+                      actor, reason
+               FROM pipeline_worker_leases
+               WHERE pipeline_run_id = %s
+               FOR SHARE""",
+            (pipeline_run_id,),
+        )
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        self._cursor.execute(
+            """SELECT revision, created_at, worker_id, token_hash, fencing_token,
+                      status, acquired_at, heartbeat_at, expires_at,
+                      cancel_requested_at, cancel_requested_by, cancel_reason_code,
+                      actor, reason
+               FROM pipeline_worker_lease_revisions
+               WHERE pipeline_run_id = %s
+               ORDER BY revision
+               FOR SHARE""",
+            (pipeline_run_id,),
+        )
+        history = self._cursor.fetchall()
+        if not history or history[-1][0] != row[10]:
+            raise PostgresEditionReadAdapterError("pipeline worker lease history does not end at its current revision")
+        return {
+            "pipeline_run_id": pipeline_run_id, "worker_id": row[0],
+            "token_hash": row[1], "fencing_token": row[2], "status": row[3],
+            "acquired_at": row[4], "heartbeat_at": row[5], "expires_at": row[6],
+            "cancel_requested_at": row[7], "cancel_requested_by": row[8],
+            "cancel_reason_code": row[9], "revision": row[10],
+            "updated_at": row[11], "actor": row[12], "reason": row[13],
+            "history": [
+                {
+                    "revision": item[0], "created_at": item[1], "worker_id": item[2],
+                    "token_hash": item[3], "fencing_token": item[4], "status": item[5],
+                    "acquired_at": item[6], "heartbeat_at": item[7], "expires_at": item[8],
+                    "cancel_requested_at": item[9], "cancel_requested_by": item[10],
+                    "cancel_reason_code": item[11], "actor": item[12], "reason": item[13],
+                }
+                for item in history
+            ],
+        }
+
     def get_domain_record(self, record_type: str, record_id: str) -> Any | None:
         model = self._DOMAIN_MODELS.get(record_type)
         if model is None:
