@@ -92,8 +92,10 @@ def test_run_atomic_rejects_non_idle_connection_before_opening_transaction(statu
     assert connection.calls == []
 
 
-def test_run_atomic_rejects_non_psycopg_connection_shape():
-    with pytest.raises(PostgresTransactionError):
-        run_atomic(SimpleNamespace(info=SimpleNamespace(
-            transaction_status=SimpleNamespace(name="INTRANS")
-        )), lambda cursor: None)
+def test_run_atomic_rejects_connection_missing_psycopg_transaction_api():
+    connection = SimpleNamespace(
+        info=SimpleNamespace(transaction_status=SimpleNamespace(name="IDLE"))
+    )
+
+    with pytest.raises(TypeError, match="psycopg 3 connection"):
+        run_atomic(connection, lambda cursor: None)
