@@ -2170,7 +2170,7 @@ def _seed_atomic_staging_case(connection):
         }],
         "source_permissions": [{
             "source_id": "source:atomic",
-            "endpoint_id": "learning:endpoint:atomic",
+            "endpoint_id": "endpoint:atomic",
             "grant_id": "grant:atomic",
             "operation": "republication",
         }],
