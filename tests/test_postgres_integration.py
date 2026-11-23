@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -1393,3 +1393,84 @@ def test_postgres_specialized_learning_evidence_is_current_and_claim_linked(post
             "SELECT count(*) FROM learning_object_revisions "
             "WHERE learning_object_id IN ('vocabulary-evidence', 'question-evidence')"
         ).fetchone()[0] == 2
+
+
+
+def test_postgres_pipeline_run_revisions_preserve_identity_and_legal_transitions(postgres_schema):
+    connect = postgres_schema
+    initial = {
+        "schema_version": "1.0.0",
+        "id": "pipeline-run-1",
+        "status": "queued",
+        "started_at": "2026-11-23T00:00:00Z",
+        "software_version": "engine-2.0",
+        "config_hash": "sha256:" + "1" * 64,
+        "input_hashes": ["sha256:" + "2" * 64],
+        "initiated_by": "operator-1",
+        "attempt": 1
+    }
+    running = {**initial, "status": "running"}
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json) "
+            "VALUES (%s, %s, 1, %s, %s)",
+            (initial["id"], initial["status"], initial["started_at"], json.dumps(initial)),
+        )
+        connection.execute(
+            "INSERT INTO pipeline_run_revisions "
+            "(pipeline_run_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES (%s, 1, %s, 'operator-1', 'created run', %s)",
+            (initial["id"], initial["started_at"], json.dumps(initial)),
+        )
+        connection.execute(
+            "UPDATE pipeline_runs SET status = 'running', revision = 2, payload_json = %s "
+            "WHERE id = 'pipeline-run-1'",
+            (json.dumps(running),),
+        )
+        connection.execute(
+            "INSERT INTO pipeline_run_revisions "
+            "(pipeline_run_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES (%s, 2, '2026-11-23T00:01:00Z', 'worker-1', 'worker started', %s)",
+            (initial["id"], json.dumps(running)),
+        )
+        assert connection.execute(
+            "SELECT revision FROM pipeline_run_revisions "
+            "WHERE pipeline_run_id = 'pipeline-run-1' ORDER BY revision"
+        ).fetchall() == [(1,), (2,)]
+
+        changed_inputs = {
+            **running,
+            "input_hashes": ["sha256:" + "3" * 64]
+        }
+        with pytest.raises(psycopg.errors.CheckViolation, match="identity and inputs are immutable"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE pipeline_runs SET revision = 3, payload_json = %s "
+                    "WHERE id = 'pipeline-run-1'",
+                    (json.dumps(changed_inputs),),
+                )
+
+        invalid_transition = {**running, "status": "queued"}
+        with pytest.raises(psycopg.errors.CheckViolation, match="invalid pipeline run status transition"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE pipeline_runs SET status = 'queued', revision = 3, payload_json = %s "
+                    "WHERE id = 'pipeline-run-1'",
+                    (json.dumps(invalid_transition),),
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE pipeline_run_revisions SET reason = 'rewritten' "
+                "WHERE pipeline_run_id = 'pipeline-run-1' AND revision = 1"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM pipeline_runs WHERE id = 'pipeline-run-1'"
+            )
+        connection.rollback()
+        assert connection.execute(
+            "SELECT revision, status FROM pipeline_runs WHERE id = 'pipeline-run-1'"
+        ).fetchone() == (2, "running")
