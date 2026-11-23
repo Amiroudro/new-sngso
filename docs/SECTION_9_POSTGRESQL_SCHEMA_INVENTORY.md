@@ -210,7 +210,7 @@ All 35 migration definitions are present and numbered 1–35. Empty object lists
 
 | Object type | Count |
 |---|---:|
-| Migration definitions | 34 |
+| Migration definitions | 36 |
 | Distinct table definitions | 47 |
 | Distinct index definitions | 25 |
 | Distinct trigger definitions | 139 |
@@ -227,3 +227,12 @@ All 35 migration definitions are present and numbered 1–35. Empty object lists
 ## Scope warning
 
 This inventory does not prove that every SQL object is represented by a simple declaration regex in future source versions. Re-run extraction after every registry migration and compare it with SQLite `sqlite_master` on a real schema-v36 fixture. The live fixture, `PRAGMA integrity_check`, `PRAGMA foreign_key_check`, and audit-chain verification remain mandatory.
+
+
+## Migration 36: staging authority identity binding
+
+Migration 36 adds one trigger, `edition_staging_events_authority_binding_guard`, on `edition_staging_events`. It enforces that the approver identity embedded in the event payload equals the principal on the referenced `edition_decisions` row, and that the payload's release-authorizer identity equals the principal on the referenced `edition_release_authorizations` row. It additionally binds both rows to the event manifest and requires the authorization to reference the exact approval decision.
+
+The migration runner checks existing v35 staging events before applying the trigger. If any legacy event contains a missing or mismatched authority identity chain, the upgrade aborts transactionally and leaves the database at schema v35. This prevents a migration from silently legitimizing or rewriting a previously misattributed event.
+
+The live schema-v36 CI artifact `14818506827` confirms 36 contiguous migrations and 139 triggers. PostgreSQL must reproduce both the insertion-time relational guard and the pre-cutover legacy-data validation. Neither is implemented in PostgreSQL yet.
