@@ -1049,3 +1049,17 @@ passed **61 PostgreSQL integration tests in 14.72 seconds**, and contract
 validation passed. This establishes exact snapshot parity for the draft-review
 fixture; accepted reviews with live permission evidence and acceptance reviews
 with two attested source reviewers remain separate coverage cases.
+
+
+The acceptance quality fixture now exercises the full scoped-review success
+path as well. It seeds two distinct active human reviewers, current verified
+publisher permission evidence and operation/endpoint grant relations, exact
+artifact-bound approved reviews, and immutable identity attestations for each
+review's current revision. The acceptance report first fails closed with no
+source reviews, then becomes eligible for scoped reference only after both
+current source reviews pass. It continues to report
+`production_ready: false` and `authorization_granted: false`.
+[CI run #45236813759](https://github.com/Amiroudro/new-sngso/actions/runs/45236813759)
+passed **61 PostgreSQL integration tests in 12.26 seconds**, and contract
+validation passed. This closes the benchmark acceptance report's positive
+two-reviewer fixture gap for the repository test suite.
