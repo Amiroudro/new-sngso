@@ -2659,6 +2659,7 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
     connect = postgres_schema
     stamp = "2026-11-23T00:00:00Z"
     story_id = "story:read-view"
+    article_id = "article:read-view"
     learning_id = "learning:read-view"
     source_id = "source:read-view"
     endpoint_id = "endpoint:read-view"
@@ -2667,7 +2668,7 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
     with connect() as connection:
         story_payload = {
             "id": story_id, "canonical_title": "Read-view fixture", "status": "active",
-            "article_ids": [],
+            "article_ids": [article_id],
         }
         connection.execute(
             "INSERT INTO domain_records "
@@ -2681,6 +2682,24 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
             "VALUES ('story', %s, 1, %s, 'fixture', 'initial', %s)",
             (story_id, stamp, json.dumps(story_payload)),
+        )
+        article_payload = {
+            "id": article_id, "source_id": source_id,
+            "canonical_uri": "https://read-view.example/article",
+            "title": "Read-view article", "source_language": "en",
+        }
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('article', %s, 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (article_id, stamp, stamp, json.dumps(article_payload), stamp),
+        )
+        connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('article', %s, 1, %s, 'fixture', 'initial', %s)",
+            (article_id, stamp, json.dumps(article_payload)),
         )
         learning_payload = {
             "id": learning_id, "story_id": story_id, "kind": "headline_summary",
@@ -2812,6 +2831,19 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
             "VALUES ('story', ?, 1, ?, 'fixture', 'initial', ?)",
             (story_id, stamp, json.dumps(story_payload)),
+        )
+        sqlite_registry._connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('article', ?, 1, ?, ?, ?, 'fixture', 'initial', ?)",
+            (article_id, stamp, stamp, json.dumps(article_payload), stamp),
+        )
+        sqlite_registry._connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('article', ?, 1, ?, 'fixture', 'initial', ?)",
+            (article_id, stamp, json.dumps(article_payload)),
         )
         sqlite_registry._connection.execute(
             "INSERT INTO learning_objects "
