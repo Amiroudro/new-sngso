@@ -3382,6 +3382,7 @@ def test_edition_release_authorization_direct_sql_rejects_payload_binding_mismat
             roles=["edition_approver"],
             provisioned_by="test-bootstrap",
             reason="Provision release-authorization fixture approver",
+            principal_kind="human",
         )
         registry.register_benchmark_principal(
             "principal:authorizer",
@@ -3389,6 +3390,7 @@ def test_edition_release_authorization_direct_sql_rejects_payload_binding_mismat
             roles=["edition_release_authorizer"],
             provisioned_by="test-bootstrap",
             reason="Provision release-authorization fixture authorizer",
+            principal_kind="human",
         )
         manifest = {
             "manifest_id": "manifest:release-auth-test",
