@@ -279,3 +279,41 @@ This continues the registry port but does not yet cover learning objects,
 glossary, benchmark, pipeline/checkpoint/lease, or edition/staging records.
 Production privilege provisioning and the atomic staging transaction remain
 separate outstanding milestones.
+
+
+## Follow-up: learning object and glossary revision lifecycle
+
+PostgreSQL migration 0007, `0007_learning_glossary_revisions.sql`, ports the
+base learning-object and glossary-entry tables and their revision lifecycle
+from SQLite migrations 11-12.
+
+Learning objects retain the supported content-kind vocabulary, language,
+variant-group identity, review status, actor/reason metadata, and per-story
+kind/language indexes. Their writes require an active registered story and
+claim IDs belonging to that story. Initial records must begin in draft or
+review-required state without review metadata. Updates preserve identity,
+advance the revision exactly once, keep timestamps monotonic, and require
+reviewer/timestamp/note metadata for approved or rejected states. Variant
+groups cannot cross story or kind boundaries. Each insert/update atomically
+creates a matching revision snapshot; objects cannot be deleted and revision
+history is append-only.
+
+Glossary entries retain language/part-of-speech/lemma-key uniqueness, review
+state, immutable identity, monotonic timestamps, exact revision increments,
+and automatic append-only revision snapshots. The same initial and reviewed
+state rules apply.
+
+Integration tests verify both initial snapshots and subsequent approved
+revisions, reject skipped revision numbers, and reject mutation/deletion of
+revision history and learning objects.
+
+GitHub Actions [run #1545](https://github.com/Amiroudro/new-sngso/actions/runs/45212856556)
+passed:
+- PostgreSQL 16 integration suite: **33 passed in 2.79 seconds**.
+- Contract validation: passed.
+- Live schema-v36 inspection and artifact upload: passed.
+
+Specialized MCQ option/key checks, bilingual editorial rubrics, vocabulary-to-
+glossary matching, summary traceability, answer-evidence provenance, and the
+additional SQLite migrations 24-25 evidence rules remain separate follow-up
+work. This migration does not claim the complete learning subsystem port.
