@@ -3123,3 +3123,80 @@ def test_edition_artifact_direct_sql_rejects_manifest_identity_mismatch(column, 
         assert registry._connection.execute(
             "SELECT COUNT(*) FROM edition_artifacts"
         ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("decision_id", "decision:forged"),
+        ("manifest_id", "manifest:forged"),
+        ("edition_id", "edition:forged"),
+        ("edition_revision", 2),
+        ("payload_sha256", "sha256:" + "b" * 64),
+        ("decision", "reject"),
+        ("principal_id", "principal:forged"),
+        ("decided_at", "2026-11-24T00:00:00Z"),
+        ("role", "edition_release_authorizer"),
+        ("scope", "controlled_release_gate"),
+        ("publication_authorized", True),
+    ],
+)
+def test_edition_decision_direct_sql_rejects_payload_identity_or_scope_mismatch(
+    field, forged_value,
+):
+    with SQLiteRegistry() as registry:
+        manifest = {
+            "manifest_id": "manifest:decision-test",
+            "edition_id": "edition:decision-test",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+        }
+        registry._connection.execute(
+            \"\"\"INSERT INTO edition_artifacts
+               (manifest_id, edition_id, edition_revision, payload_sha256,
+                payload_json, manifest_json, verification_json, created_at, actor, reason)
+               VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer', 'decision guard fixture')\"\"\",
+            (
+                manifest["manifest_id"],
+                manifest["edition_id"],
+                manifest["edition_revision"],
+                manifest["payload_sha256"],
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")),
+                "2026-11-23T00:00:00Z",
+            ),
+        )
+        payload = {
+            "decision_id": "decision:expected",
+            **manifest,
+            "decision": "approve",
+            "principal_id": "principal:expected",
+            "decided_at": "2026-11-23T00:00:00Z",
+            "role": "edition_approver",
+            "scope": "staging_candidate_review",
+            "publication_authorized": False,
+        }
+        payload[field] = forged_value
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="edition decision must bind an exact artifact and active human approver",
+        ):
+            registry._connection.execute(
+                \"\"\"INSERT INTO edition_decisions
+                   (decision_id, manifest_id, edition_id, edition_revision, payload_sha256,
+                    decision, principal_id, decided_at, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)\"\"\",
+                (
+                    "decision:expected",
+                    manifest["manifest_id"],
+                    manifest["edition_id"],
+                    manifest["edition_revision"],
+                    manifest["payload_sha256"],
+                    "approve",
+                    "principal:expected",
+                    "2026-11-23T00:00:00Z",
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_decisions"
+        ).fetchone()[0] == 0
