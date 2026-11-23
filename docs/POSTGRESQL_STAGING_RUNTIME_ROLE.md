@@ -6,7 +6,11 @@ The staging service does not need broad registry write access. Its transaction-b
 re-verifier reads edition, story, learning, source-rights, benchmark, pipeline,
 approval, and release-authorization evidence. The staging service itself writes
 only an immutable staging event, an immutable global audit event, and the two
-guarded singleton state heads.
+guarded singleton state heads. PostgreSQL additionally requires UPDATE
+privilege on at least one column for each table read with `FOR SHARE` or
+`FOR UPDATE`. Migration 0023 installs primary-key immutability guards across
+the schema; the runtime role receives UPDATE on primary-key columns only as
+lock-enabling privilege, never on non-key editorial or evidence fields.
 
 ## Role split
 
@@ -56,14 +60,17 @@ The template grants:
 | Object | Staging runtime privilege | Reason |
 |---|---|---|
 | All current tables in the application schema | SELECT | Transaction-bound edition and provenance re-verification |
+| Primary-key columns across current tables | UPDATE on key columns only | Satisfy PostgreSQL row-lock privilege requirements; migration 0023 rejects key changes |
 | `edition_staging_events` | INSERT | Append the immutable promote/rollback event |
 | `audit_events` | INSERT | Append the matching global audit event |
 | `edition_staging_channel_state` | UPDATE | Advance the guarded channel state by compare-and-swap |
 | `audit_chain_head` | UPDATE | Advance the guarded global audit-chain head |
 
-The role receives no DELETE or TRUNCATE privilege, no UPDATE on event/revision
-history, no UPDATE on source/permission/editorial/benchmark/pipeline rows, and
-no CREATE privilege on the application schema. Trigger guards remain enabled
+The role receives no DELETE or TRUNCATE privilege, no UPDATE on non-key event/
+revision/history or source/permission/editorial/benchmark/pipeline fields, and
+no CREATE privilege on the application schema. Key-column UPDATE attempts are
+rejected by the primary-key immutability trigger; the audit/staging event tables
+also retain their append-only guards. Trigger guards remain enabled
 as defense in depth.
 
 Default privileges grant SELECT only on future tables created by
@@ -75,8 +82,9 @@ writer; other write services need their own narrowly scoped roles and APIs.
 
 The PostgreSQL integration test creates a non-owner role with this same
 privilege shape, stages an export through `stage_edition_export()`, and checks
-that UPDATE/DELETE/TRUNCATE attempts against event history and unrelated source
-records fail with `InsufficientPrivilege`. It also verifies that the permitted
+that UPDATE/DELETE/TRUNCATE attempts against non-key event fields and unrelated
+source fields fail with `InsufficientPrivilege`; attempts to change protected
+primary keys fail with an integrity error. It also verifies that the permitted
 staging and audit writes commit together.
 
 This is a privilege-shape test in an isolated CI schema, not proof that the
