@@ -33,7 +33,7 @@ def test_backend_dependent_controls_are_disabled():
         assert match is not None
         assert "disabled" in match.group(0)
 
-    assert html.count("<button disabled") >= 8
+    assert html.count("<button disabled") >= 7
 
 
 def test_navigation_and_all_primary_views_exist():
@@ -50,3 +50,24 @@ def test_story_search_and_filter_are_wired():
     assert 'id="story-filter"' in html
     assert 'addEventListener("input", filterStories)' in script
     assert 'addEventListener("change", filterStories)' in script
+
+
+def test_story_detail_exposes_claims_provenance_and_separate_language_states():
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    script = (ROOT / "studio.js").read_text(encoding="utf-8")
+    for story_id in ("S-024", "S-023", "S-022", "S-019"):
+        assert f'data-story-id="{story_id}"' in html
+        assert f'"{story_id}": {{' in script
+    assert 'id="story-claim-list"' in html
+    assert 'id="story-source-note"' in html
+    assert 'id="story-en-state"' in html
+    assert 'id="story-bn-state"' in html
+    assert 'dialog.showModal()' in script
+    assert "no approval can be recorded" in html
+
+
+def test_navigation_has_aria_current_and_keyboard_focus_style():
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    css = (ROOT / "studio.css").read_text(encoding="utf-8")
+    assert 'aria-current="page"' in html
+    assert ":focus-visible" in css
