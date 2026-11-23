@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql")]
 
 
 
@@ -675,6 +675,188 @@ def test_postgres_benchmark_artifact_review_and_adjudication_integrity(postgres_
             "SELECT count(*) FROM benchmark_adjudications"
         ).fetchone()[0] == 1
 
+
+
+def test_postgres_benchmark_assignments_identity_attestations_and_scores_are_durable(postgres_schema):
+    connect = postgres_schema
+    fingerprint = "sha256:" + "f" * 64
+    timestamp = "2026-11-23T00:00:00Z"
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO benchmark_artifacts "
+            "(artifact_id, language, canonicalization, content_fingerprint, content_json, "
+            "created_at, actor, reason) VALUES ('artifact-assign', 'en', "
+            "'canonical-json-v1', %s, '{}', %s, 'builder', 'frozen artifact')",
+            (fingerprint, timestamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, "
+            "reason, languages_json, principal_kind) "
+            "VALUES ('reviewer-assign', 'Reviewer', %s, 1, %s, 'admin', "
+            "'reviewer principal', %s, 'human'), "
+            "('curator-assign', 'Curator', %s, 1, %s, 'admin', "
+            "'curator principal', %s, 'human')",
+            (
+                json.dumps(["benchmark_reviewer"]), timestamp, json.dumps(["en"]),
+                json.dumps(["benchmark_curator"]), timestamp, json.dumps(["en"]),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_reviews "
+            "(review_id, benchmark_id, benchmark_fingerprint, language, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES ('review-identity', 'artifact-assign', %s, 'en', 'draft', 1, "
+            "%s, %s, 'reviewer-assign', 'initial review', %s)",
+            (fingerprint, timestamp, timestamp, json.dumps({"findings": []})),
+        )
+        assignment_payload = {
+            "assignment_id": "assignment-1",
+            "artifact_id": "artifact-assign",
+            "artifact_fingerprint": fingerprint,
+            "language": "en",
+            "reviewer_id": "reviewer-assign",
+            "assigned_by": "curator-assign",
+            "status": "assigned",
+        }
+        connection.execute(
+            "INSERT INTO benchmark_review_assignments "
+            "(assignment_id, artifact_id, artifact_fingerprint, language, reviewer_id, "
+            "assigned_by, assigned_at, due_at, status, revision, payload_json, updated_at, "
+            "last_actor, last_reason) "
+            "VALUES ('assignment-1', 'artifact-assign', %s, 'en', 'reviewer-assign', "
+            "'curator-assign', %s, '2026-11-24T00:00:00Z', 'assigned', 1, %s, %s, "
+            "'curator-assign', 'initial assignment')",
+            (fingerprint, timestamp, json.dumps(assignment_payload), timestamp),
+        )
+        assert connection.execute(
+            "SELECT revision, actor, reason FROM benchmark_review_assignment_revisions "
+            "WHERE assignment_id = 'assignment-1'"
+        ).fetchall() == [(1, "curator-assign", "initial assignment")]
+
+        accepted_payload = {**assignment_payload, "status": "accepted"}
+        connection.execute(
+            "UPDATE benchmark_review_assignments SET status = 'accepted', revision = 2, "
+            "payload_json = %s, updated_at = '2026-11-23T00:01:00Z', "
+            "last_actor = 'reviewer-assign', last_reason = 'accepted assignment' "
+            "WHERE assignment_id = 'assignment-1'",
+            (json.dumps(accepted_payload),),
+        )
+        assert connection.execute(
+            "SELECT revision FROM benchmark_review_assignment_revisions "
+            "WHERE assignment_id = 'assignment-1' ORDER BY revision"
+        ).fetchall() == [(1,), (2,)]
+
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            with connection.transaction():
+                duplicate_payload = {**assignment_payload, "assignment_id": "assignment-duplicate"}
+                connection.execute(
+                    "INSERT INTO benchmark_review_assignments "
+                    "(assignment_id, artifact_id, artifact_fingerprint, language, reviewer_id, "
+                    "assigned_by, assigned_at, due_at, status, revision, payload_json, updated_at, "
+                    "last_actor, last_reason) VALUES ('assignment-duplicate', 'artifact-assign', "
+                    "%s, 'en', 'reviewer-assign', 'curator-assign', %s, "
+                    "'2026-11-25T00:00:00Z', 'assigned', 1, %s, %s, "
+                    "'curator-assign', 'duplicate active assignment')",
+                    (fingerprint, timestamp, json.dumps(duplicate_payload), timestamp),
+                )
+
+        connection.execute(
+            "INSERT INTO benchmark_review_identity_attestations "
+            "(attestation_id, review_id, review_revision, principal_id, issuer, audience, "
+            "subject, authenticated_at, expires_at, authentication_methods_json, "
+            "authentication_context, provider_key_id, provider_adapter, session_fingerprint, "
+            "attested_at, payload_json, actor, reason) "
+            "VALUES ('identity-1', 'review-identity', 1, 'reviewer-assign', "
+            "'https://identity.example', 'benchmark-review', 'reviewer-subject', %s, "
+            "'2026-11-23T01:00:00Z', %s, 'mfa', 'key-1', 'oidc-test', %s, %s, %s, "
+            "'reviewer-assign', 'identity verified')",
+            (
+                timestamp, json.dumps(["webauthn"]), "sha256:" + "a" * 64,
+                timestamp, json.dumps({"verified": True}),
+            ),
+        )
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO benchmark_review_identity_attestations "
+                    "(attestation_id, review_id, review_revision, principal_id, issuer, audience, "
+                    "subject, authenticated_at, expires_at, authentication_methods_json, "
+                    "authentication_context, provider_key_id, provider_adapter, session_fingerprint, "
+                    "attested_at, payload_json, actor, reason) "
+                    "VALUES ('identity-duplicate', 'review-identity', 1, 'reviewer-assign', "
+                    "'https://identity.example', 'benchmark-review', 'reviewer-subject', %s, "
+                    "'2026-11-23T01:00:00Z', %s, 'mfa', 'key-1', 'oidc-test', %s, %s, %s, "
+                    "'reviewer-assign', 'duplicate identity proof')",
+                    (
+                        timestamp, json.dumps(["webauthn"]), "sha256:" + "a" * 64,
+                        timestamp, json.dumps({"verified": True}),
+                    ),
+                )
+
+        score_payload = {
+            "benchmark_id": "artifact-assign",
+            "benchmark_fingerprint": fingerprint,
+            "item_id": "item-1",
+            "task_type": "short_answer",
+            "language": "en",
+            "evaluator_id": "reviewer-assign",
+            "evaluated_at": timestamp,
+        }
+        connection.execute(
+            "INSERT INTO benchmark_scores "
+            "(score_id, assignment_id, artifact_id, artifact_fingerprint, item_id, task_type, "
+            "language, evaluator_id, evaluated_at, weighted_score, eligible_for_comparison, "
+            "score_fingerprint, payload_json, issuer, subject, provider_key_id, provider_adapter, "
+            "authenticated_at, created_at, reason) "
+            "VALUES ('score-1', 'assignment-1', 'artifact-assign', %s, 'item-1', "
+            "'short_answer', 'en', 'reviewer-assign', %s, '0.85', 1, %s, %s, "
+            "'https://identity.example', 'reviewer-subject', 'key-1', 'oidc-test', "
+            "%s, %s, 'accepted reviewer score')",
+            (
+                fingerprint, timestamp, "sha256:" + "b" * 64, json.dumps(score_payload),
+                timestamp, timestamp,
+            ),
+        )
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO benchmark_scores "
+                    "(score_id, assignment_id, artifact_id, artifact_fingerprint, item_id, task_type, "
+                    "language, evaluator_id, evaluated_at, weighted_score, eligible_for_comparison, "
+                    "score_fingerprint, payload_json, issuer, subject, provider_key_id, provider_adapter, "
+                    "authenticated_at, created_at, reason) "
+                    "VALUES ('score-duplicate', 'assignment-1', 'artifact-assign', %s, 'item-1', "
+                    "'short_answer', 'en', 'reviewer-assign', %s, '0.90', 1, %s, %s, "
+                    "'https://identity.example', 'reviewer-subject', 'key-1', 'oidc-test', "
+                    "%s, %s, 'duplicate item score')",
+                    (
+                        fingerprint, timestamp, "sha256:" + "c" * 64, json.dumps(score_payload),
+                        timestamp, timestamp,
+                    ),
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE benchmark_review_identity_attestations SET reason = 'rewritten' "
+                "WHERE attestation_id = 'identity-1'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM benchmark_scores WHERE score_id = 'score-1'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM benchmark_review_assignment_revisions "
+                "WHERE assignment_id = 'assignment-1' AND revision = 1"
+            )
+        connection.rollback()
+        assert connection.execute(
+            "SELECT count(*) FROM benchmark_scores WHERE assignment_id = 'assignment-1'"
+        ).fetchone() == (1,)
 
 def test_postgres_audit_append_serializes_independent_connections(postgres_schema):
     connect = postgres_schema
