@@ -90,7 +90,7 @@ def test_evidence_workspace_maps_observations_to_claims_and_history():
 def test_evidence_workspace_keeps_conflicts_visible_and_non_actionable():
     script = (ROOT / "studio.js").read_text(encoding="utf-8")
     html = (ROOT / "index.html").read_text(encoding="utf-8")
-    assert 'kind:"conflict"' in script
-    assert 'kind:"warning"' in script
+    assert '"kind": "conflict"' in script
+    assert '"kind": "warning"' in script
     assert "no approval can be recorded" in html
     assert "Illustrative event sequence, not a persisted audit log" in html
