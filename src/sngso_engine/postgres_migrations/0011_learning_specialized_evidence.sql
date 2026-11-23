@@ -3,28 +3,30 @@
 -- exact current evidence revision and the claim's source provenance.
 
 CREATE FUNCTION learning_claim_has_evidence_provenance(claim_payload jsonb, evidence_payload jsonb)
-RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
-    SELECT
-        jsonb_typeof(claim_payload -> 'evidence_ids') = 'array'
-        AND EXISTS (
-            SELECT 1
-            FROM jsonb_array_elements(claim_payload -> 'evidence_ids') AS item(value)
-            WHERE item.value = evidence_payload -> 'id'
-        )
-        AND jsonb_typeof(claim_payload -> 'provenance') = 'array'
-        AND EXISTS (
-            SELECT 1
-            FROM jsonb_array_elements(claim_payload -> 'provenance') AS provenance(value)
-            WHERE provenance.value ->> 'source_id' = evidence_payload ->> 'source_id'
-              AND (
-                  evidence_payload ->> 'article_id' IS NULL
-                  OR provenance.value ->> 'article_id' = evidence_payload ->> 'article_id'
-              )
-              AND (
-                  evidence_payload ->> 'observation_id' IS NULL
-                  OR provenance.value ->> 'observation_id' = evidence_payload ->> 'observation_id'
-              )
-        );
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    IF jsonb_typeof(claim_payload -> 'evidence_ids') IS DISTINCT FROM 'array'
+       OR jsonb_typeof(claim_payload -> 'provenance') IS DISTINCT FROM 'array' THEN
+        RETURN FALSE;
+    END IF;
+    RETURN EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(claim_payload -> 'evidence_ids') AS item(value)
+        WHERE item.value = evidence_payload -> 'id'
+    ) AND EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(claim_payload -> 'provenance') AS provenance(value)
+        WHERE provenance.value ->> 'source_id' = evidence_payload ->> 'source_id'
+          AND (
+              evidence_payload ->> 'article_id' IS NULL
+              OR provenance.value ->> 'article_id' = evidence_payload ->> 'article_id'
+          )
+          AND (
+              evidence_payload ->> 'observation_id' IS NULL
+              OR provenance.value ->> 'observation_id' = evidence_payload ->> 'observation_id'
+          )
+    );
+END;
 $$;
 
 CREATE FUNCTION validate_learning_object_specialized_evidence()
