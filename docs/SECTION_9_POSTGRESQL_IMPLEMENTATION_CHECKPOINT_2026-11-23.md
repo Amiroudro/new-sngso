@@ -967,3 +967,36 @@ This closes the validation-to-commit race for the specialized evidence
 trigger. It does not complete benchmark review/acceptance quality-report
 parity, production role provisioning, or the remaining Section 9 external
 acceptance gates. PR #8 remains draft and unmerged.
+
+
+## Follow-up: benchmark quality-report and story-snapshot parity
+
+The PostgreSQL read path now has cursor-bound benchmark quality reporting in
+`postgres_benchmark_quality.py`:
+
+- Benchmark review quality rechecks review metadata, exact registered artifact
+  fingerprint/canonicalization/language, current source article/publisher/
+  permission evidence, the current grant's operation and endpoint scope, and
+  final adjudication policy. All relevant rows are read under `FOR SHARE`.
+- Benchmark acceptance quality rechecks the immutable acceptance fingerprint,
+  exact protocol version/fingerprint, exact execution/fingerprint, registered
+  artifact, independent acceptance contract, all three review domains, and
+  coverage by at least two distinct active human reviewers whose exact review
+  revisions have identity-provider attestations and current source permissions.
+- Benchmark readiness and evaluator-agreement report ports are exposed on the
+  PostgreSQL read view. Agreement remains descriptive only and requires
+  matched human score sheets with provider-attested provenance.
+- Story snapshots now include linked benchmark review quality reports,
+  contiguous append-only review history, and linked acceptance quality
+  reports instead of rejecting every story with benchmark review evidence.
+  The snapshot fingerprint is computed over the completed report structure.
+
+[CI run #45234960762](https://github.com/Amiroudro/new-sngso/actions/runs/45234960762)
+passed **57 PostgreSQL integration tests in 12.44 seconds**, including
+benchmark review quality, linked story-snapshot inclusion, revision history,
+and fingerprint checks. Contract validation also passed.
+
+Additional tests for benchmark readiness and evaluator agreement are being
+run in the current CI cycle. The complete benchmark report port is not yet
+claimed as finished until those tests pass and the remaining Section 9
+runtime, staging, role-provisioning, and external acceptance gates are closed.
