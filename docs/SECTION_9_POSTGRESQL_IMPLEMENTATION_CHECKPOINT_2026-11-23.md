@@ -694,3 +694,39 @@ or connected. Therefore this commit establishes and tests the atomic write
 boundary, but it is not yet a production-ready end-to-end staging integration.
 Identity-provider wiring, database least-privilege provisioning, and
 additional rollback-path and adversarial failure tests remain open.
+
+
+## Staging rollback and PostgreSQL permission-read primitive
+
+The staging service now rejects a no-op rollback to the export already current.
+It also has an integration test for two successful promotions followed by a
+rollback to the exact previously promoted export. The test verifies the
+restored current export, the displaced export as last-known-good, the event
+sequence, and all three matching global audit entries.
+
+[CI run #1621](https://github.com/Amiroudro/new-sngso/actions/runs/45223343955)
+passed **50 PostgreSQL integration tests in 6.17 seconds**, with contract
+validation and schema-v36 inspection/artifact upload passing.
+
+Added `src/sngso_engine/postgres_permission_read.py` with
+`evaluate_postgres_grant_for_staging()`. This is a read-only, transaction-bound
+rights evaluator. It locks the grant, source, endpoint, grant-to-endpoint
+links, grant-to-evidence links, operation-evidence links, and evidence records
+using `FOR SHARE`. It validates the grant contract and indexed columns,
+requires relational scope tables to match the canonical payload, checks
+current source/endpoint status and evidence review status, then applies the
+existing fail-closed operation permission policy. It deliberately emits no
+separate audit event because it is called within the larger staging
+transaction, whose single global audit event records the decision context.
+
+[CI run #1623](https://github.com/Amiroudro/new-sngso/actions/runs/45223664443)
+passed **51 PostgreSQL integration tests in 8.67 seconds**, with contract
+validation and schema-v36 inspection/artifact upload passing. New rights tests
+cover an allowed republication grant, endpoint mismatch, unverified evidence,
+and inactive source rejection.
+
+This helper is now available to the trusted staging re-verifier. It does not
+yet complete the read adapter: exact PostgreSQL story editorial snapshot
+reconstruction/fingerprint parity, bilingual learning-object quality checks,
+and pipeline-run/artifact freshness verification still need to be ported and
+connected. No staging action is exposed to a live application.
