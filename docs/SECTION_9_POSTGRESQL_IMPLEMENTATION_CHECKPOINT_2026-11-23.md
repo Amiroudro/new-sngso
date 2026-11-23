@@ -1063,3 +1063,36 @@ current source reviews pass. It continues to report
 passed **61 PostgreSQL integration tests in 12.26 seconds**, and contract
 validation passed. This closes the benchmark acceptance report's positive
 two-reviewer fixture gap for the repository test suite.
+
+
+## Follow-up: least-privilege staging row-lock grants
+
+PostgreSQL migration 0023, `0023_primary_key_identity_guards.sql`, installs a
+generic trigger on every primary-key-bearing table in the application schema.
+It rejects changes to primary-key identity columns. This enables the staging
+runtime role to receive column-level UPDATE on primary keys only, which
+PostgreSQL requires for `SELECT ... FOR SHARE` / `FOR UPDATE` row locks,
+without granting UPDATE on non-key editorial, permission, benchmark, or
+pipeline data.
+
+Added `ops/postgresql/grant_staging_runtime.sql` and
+`docs/POSTGRESQL_STAGING_RUNTIME_ROLE.md`. The grant template gives SELECT
+across the registry, lock-only UPDATE on primary-key columns, INSERT only on
+staging/audit event tables, and full UPDATE only on the guarded staging-state
+and audit-chain heads. It grants no DELETE/TRUNCATE and requires the application
+connection to pin its search path.
+
+The restricted-role integration test now:
+- acquires `FOR SHARE` locks against every base table in an isolated PostgreSQL
+  schema using only the grant shape above;
+- performs an atomic staging promotion with matching audit append;
+- proves non-key event/source writes and DELETE/TRUNCATE are denied; and
+- proves protected edition-artifact and benchmark-principal identities cannot
+  be rewritten even though their primary-key columns carry lock-only UPDATE
+  privileges.
+
+[CI run #45238770368](https://github.com/Amiroudro/new-sngso/actions/runs/45238770368)
+passed **62 PostgreSQL integration tests in 12.03 seconds**, and contract
+validation passed. This verifies the repository role-grant model in an
+isolated schema; actual deployment role creation, LOGIN membership, secrets,
+and target-schema ownership remain external acceptance tasks.
