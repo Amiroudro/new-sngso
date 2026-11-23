@@ -1712,7 +1712,8 @@ def test_postgres_edition_artifacts_and_human_approval_decisions_are_bound_and_i
 
         inactive_decision = {
             **decision, "decision_id": "decision-inactive",
-            "manifest_id": "manifest-edition-2", "principal_id": "inactive-approver"
+            "manifest_id": "manifest-edition-2", "edition_revision": 2,
+            "principal_id": "inactive-approver"
         }
         manifest2 = {
             **manifest, "manifest_id": "manifest-edition-2", "edition_revision": 2
