@@ -2768,6 +2768,14 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
         assert view.get_source(source_id).to_payload() == source_payload
         assert view.get_endpoint(endpoint_id).to_payload() == endpoint_payload
         assert view.get_benchmark_principal("principal:read-view")["active"] is True
+        connection.execute(
+            "UPDATE sources SET status = 'inactive' WHERE id = %s", (source_id,)
+        )
+        with pytest.raises(
+            PostgresEditionReadAdapterError,
+            match="source indexed fields do not match payload",
+        ):
+            view.get_source(source_id)
         assert view.get_pipeline_run(pipeline_id)["record"] == pipeline_payload
         checkpoints = view.get_pipeline_stage_checkpoints(pipeline_id)
         assert len(checkpoints) == 1
@@ -2781,3 +2789,20 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             view.story_editorial_snapshot(story_id)
         with pytest.raises(PostgresEditionReadAdapterIncomplete, match="quality gates"):
             view.learning_object_quality_report(learning_id)
+
+
+def test_postgres_staging_reverifier_requires_exact_snapshot_and_quality_ports():
+    from sngso_engine.postgres_edition_verifier import (
+        build_postgres_staging_export_reverifier,
+    )
+
+    with pytest.raises(ValueError, match="story snapshot loader"):
+        build_postgres_staging_export_reverifier(
+            story_snapshot_loader=None,
+            learning_object_quality_loader=lambda cursor, object_id: {},
+        )
+    with pytest.raises(ValueError, match="learning-object quality loader"):
+        build_postgres_staging_export_reverifier(
+            story_snapshot_loader=lambda cursor, story_id: {},
+            learning_object_quality_loader=None,
+        )
