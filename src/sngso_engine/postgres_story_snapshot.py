@@ -462,21 +462,80 @@ def load_postgres_story_editorial_snapshot(cursor: Any, story_id: str) -> dict[s
 
     benchmark_reviews: list[dict[str, Any]] = []
     if article_ids:
+        from .postgres_benchmark_quality import (
+            PostgresBenchmarkQualityError,
+            _benchmark_review_quality_report,
+            benchmark_acceptance_review_quality_report,
+        )
         cursor.execute(
-            """SELECT review_id, payload_json FROM benchmark_reviews
+            """SELECT review_id, revision, payload_json FROM benchmark_reviews
                ORDER BY review_id FOR SHARE"""
         )
-        for review_id, raw in cursor.fetchall():
+        story_article_ids = set(article_ids)
+        for review_id, revision, raw in cursor.fetchall():
             review_payload = _object(raw, "benchmark review")
             linked_article_ids = {
                 item.get("article_id")
                 for item in review_payload.get("source_materials", [])
                 if isinstance(item, dict)
             }
-            if set(article_ids).intersection(linked_article_ids):
+            if not story_article_ids.intersection(linked_article_ids):
+                continue
+            cursor.execute(
+                """SELECT revision, created_at, actor, reason, payload_json
+                   FROM benchmark_review_revisions WHERE review_id = %s
+                   ORDER BY revision FOR SHARE""",
+                (review_id,),
+            )
+            history_rows = cursor.fetchall()
+            if (
+                len(history_rows) != revision
+                or [item[0] for item in history_rows] != list(range(1, revision + 1))
+                or history_rows[-1][4] != raw
+            ):
                 raise PostgresStorySnapshotIncomplete(
-                    "story snapshot includes benchmark reviews; PostgreSQL benchmark quality-report parity is not implemented"
+                    "benchmark review revision history is incomplete or does not match its current revision"
                 )
+            try:
+                quality_report = _benchmark_review_quality_report(cursor, review_payload, None)
+            except (PostgresBenchmarkQualityError, KeyError, TypeError, ValueError) as exc:
+                raise PostgresStorySnapshotIncomplete(
+                    f"benchmark review quality report could not be reproduced: {exc}"
+                ) from exc
+            benchmark_reviews.append({
+                "review_id": review_id, "revision": revision, "record": review_payload,
+                "quality_report": quality_report,
+                "history": [
+                    {
+                        "revision": item[0], "created_at": item[1], "actor": item[2],
+                        "reason": item[3], "record": _object(item[4], "benchmark review revision"),
+                    }
+                    for item in history_rows
+                ],
+            })
+    acceptance_reviews: list[dict[str, Any]] = []
+    benchmark_ids = sorted({
+        item["record"].get("benchmark_id") for item in benchmark_reviews
+        if item["record"].get("benchmark_id")
+    })
+    if benchmark_ids:
+        cursor.execute(
+            """SELECT review_id FROM benchmark_acceptance_reviews
+               WHERE benchmark_id = ANY(%s) ORDER BY created_at, review_id FOR SHARE""",
+            (benchmark_ids,),
+        )
+        for (acceptance_review_id,) in cursor.fetchall():
+            try:
+                quality_report = benchmark_acceptance_review_quality_report(
+                    cursor, acceptance_review_id
+                )
+            except (PostgresBenchmarkQualityError, KeyError, TypeError, ValueError) as exc:
+                raise PostgresStorySnapshotIncomplete(
+                    f"benchmark acceptance quality report could not be reproduced: {exc}"
+                ) from exc
+            acceptance_reviews.append({
+                "review_id": acceptance_review_id, "quality_report": quality_report,
+            })
 
     snapshot = {
         "story_id": story_id,
@@ -497,7 +556,7 @@ def load_postgres_story_editorial_snapshot(cursor: Any, story_id: str) -> dict[s
         "learning_objects": learning_objects,
         "glossary_entries": glossary_entries,
         "benchmark_reviews": benchmark_reviews,
-        "benchmark_acceptance_reviews": [],
+        "benchmark_acceptance_reviews": acceptance_reviews,
         "reporting_independence": reporting,
         "source_independence_evidence_report": source_independence,
     }
