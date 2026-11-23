@@ -112,17 +112,11 @@ def test_postgres_source_permission_registry_preserves_composite_source_boundari
             "VALUES ('grant-a', 'source-a', 'discovery', 'evidence-a')"
         )
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
-            connection.execute(
-                "INSERT INTO grant_endpoints (grant_id, source_id, endpoint_id) "
-                "VALUES ('grant-a', 'source-b', 'endpoint-a')"
-            )
-        connection.rollback()
-        connection.execute(
-            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
-            "VALUES ('source-a', 'Publisher A', 'active', '2026-11-23T00:00:00Z', "
-            "'2026-11-23T00:00:00Z', %s) ON CONFLICT (id) DO NOTHING",
-            (json.dumps({"id": "source-a"}),),
-        )
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO grant_endpoints (grant_id, source_id, endpoint_id) "
+                    "VALUES ('grant-a', 'source-b', 'endpoint-a')"
+                )
         assert connection.execute(
             "SELECT count(*) FROM grant_endpoints WHERE grant_id = 'grant-a'"
         ).fetchone()[0] == 1
