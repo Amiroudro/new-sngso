@@ -1,8 +1,8 @@
 # Section 9 Complete SQLite Trigger Inventory
 
-Status: **mechanically extracted from the repository's migration SQL; all 138 trigger definitions have source-level semantic review records in the companion review documents.**
+Status: **mechanically extracted from the repository's migration SQL; all 139 trigger definitions have source-level semantic review records in the companion review documents.**
 
-This inventory expands the live trigger ledger into one reviewable record per trigger. It is generated from migration definitions in `src/sngso_engine/registry.py`; the CI live schema-v35 artifact is authoritative for the migrated database.
+This inventory expands the live trigger ledger into one reviewable record per trigger. It is generated from migration definitions in `src/sngso_engine/registry.py`; the CI live schema-v36 artifact is authoritative for the migrated database.
 
 **Important:** table references below are lexical candidates extracted from SQL tokens, not a parser-proven dependency graph. They may include false positives (for example, column or CTE names) and omit dynamic references. This file does not claim PostgreSQL equivalence or complete direct-SQL negative test coverage.
 
@@ -13,11 +13,11 @@ This inventory expands the live trigger ledger into one reviewable record per tr
 | AFTER INSERT | 6 |
 | AFTER UPDATE | 6 |
 | BEFORE DELETE | 38 |
-| BEFORE INSERT | 37 |
+| BEFORE INSERT | 38 |
 | BEFORE UPDATE | 48 |
 | BEFORE UPDATE OF payload_json | 2 |
 | BEFORE UPDATE OF principal_kind | 1 |
-| **Total** | **138** |
+| **Total** | **139** |
 
 ## Trigger records
 
@@ -3295,3 +3295,34 @@ A reviewer must retain evidence for:
 - reviewer identity, review date, implementation commit, and CI evidence.
 
 A source SQL record is not proof of PostgreSQL implementation. The companion documents contain source-level review findings and open gaps.
+
+
+### `edition_staging_events_authority_binding_guard`
+
+- **Table:** `edition_staging_events`
+- **Timing/event:** BEFORE INSERT
+- **WHEN predicate:** Referenced immutable decision and release-authorization rows must bind to the exact approver and authorizer identities declared in the event payload and to the event manifest; the release authorization must reference the same decision
+- **Lexically referenced tables:** `edition_decisions`, `edition_release_authorizations`
+- **Semantic review:** See the schema-v36 corrective review in `SECTION_9_PUBLICATION_AUDIT_TRIGGER_REVIEW.md`
+- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **Direct-SQL negative test:** `test_staging_event_direct_sql_rejects_authority_identity_rebinding`; v35 upgrade validation also rejects legacy mismatches
+
+```sql
+CREATE TRIGGER edition_staging_events_authority_binding_guard
+BEFORE INSERT ON edition_staging_events
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM edition_decisions d
+  JOIN edition_release_authorizations r
+    ON r.approval_decision_id = d.decision_id
+  WHERE d.decision_id = json_extract(NEW.payload_json, '$.staging_decision.decision_id')
+    AND d.principal_id = json_extract(NEW.payload_json, '$.staging_decision.principal_id')
+    AND d.manifest_id = NEW.manifest_id
+    AND r.authorization_id = json_extract(NEW.payload_json, '$.release_authorization.authorization_id')
+    AND r.authorizer_principal_id = json_extract(NEW.payload_json, '$.release_authorization.authorizer_principal_id')
+    AND r.manifest_id = NEW.manifest_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'staging event authority identities must match recorded approval and release authorization');
+END
+```
