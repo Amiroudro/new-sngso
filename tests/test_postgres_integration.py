@@ -3567,7 +3567,6 @@ def test_postgres_acceptance_quality_rechecks_exact_protocol_execution_and_revie
     protocol_report = validate_benchmark_study_protocol(protocol)
     protocol_fp = protocol_report["protocol_fingerprint"]
     protocol_id = "protocol-record:acceptance-test"
-    protocol["protocol_fingerprint"] = protocol_fp
     execution = _execution()
     execution.update({
         "protocol_fingerprint": protocol_fp,
