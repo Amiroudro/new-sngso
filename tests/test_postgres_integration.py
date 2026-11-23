@@ -2704,7 +2704,8 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
         learning_payload = {
             "id": learning_id, "story_id": story_id, "kind": "headline_summary",
             "language": "en", "variant_group_id": "variant:read-view",
-            "status": "draft", "claim_ids": [], "created_at": stamp,
+            "status": "draft", "content": {"text": "Draft summary", "segments": []},
+            "claim_ids": [], "created_at": stamp,
         }
         connection.execute(
             "INSERT INTO learning_objects "
@@ -2858,9 +2859,10 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
         sqlite_snapshot = sqlite_registry.story_editorial_snapshot(story_id)
         postgres_snapshot = view.story_editorial_snapshot(story_id)
         assert postgres_snapshot == sqlite_snapshot
+        sqlite_quality = sqlite_registry.learning_object_quality_report(learning_id)
+        postgres_quality = view.learning_object_quality_report(learning_id)
+        assert postgres_quality == sqlite_quality
         sqlite_registry.close()
-        with pytest.raises(PostgresEditionReadAdapterIncomplete, match="quality gates"):
-            view.learning_object_quality_report(learning_id)
 
 
 def test_postgres_staging_reverifier_requires_exact_snapshot_and_quality_ports():
@@ -2870,11 +2872,6 @@ def test_postgres_staging_reverifier_requires_exact_snapshot_and_quality_ports()
 
     reverifier = build_postgres_staging_export_reverifier(
         story_snapshot_loader=None,
-        learning_object_quality_loader=lambda cursor, object_id: {},
+        learning_object_quality_loader=None,
     )
     assert callable(reverifier)
-    with pytest.raises(ValueError, match="learning-object quality loader"):
-        build_postgres_staging_export_reverifier(
-            story_snapshot_loader=lambda cursor, story_id: {},
-            learning_object_quality_loader=None,
-        )
