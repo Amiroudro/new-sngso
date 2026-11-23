@@ -1,8 +1,8 @@
 # Section 9 Trigger Porting Ledger
 
-Status: **live schema-v35 trigger inventory captured; all 138 triggers have source-level semantic review records. PostgreSQL port implementation and complete direct-SQL conformance remain open.**
+Status: **the schema-v35 ledger below is retained as historical evidence; schema v36 is now current with 139 triggers, all source-level reviewed. PostgreSQL port implementation and complete direct-SQL conformance remain open.**
 
-Evidence source: CI-generated schema-v35 inspection artifact from [GitHub Actions run #45057281125](https://github.com/Amiroudro/new-sngso/actions/runs/45057281125). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
+Historical evidence source: CI-generated schema-v35 inspection artifact from [GitHub Actions run #45057281125](https://github.com/Amiroudro/new-sngso/actions/runs/45057281125). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
 
 ## Live trigger event distribution
 
