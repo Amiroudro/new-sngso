@@ -2652,7 +2652,8 @@ def test_postgres_staging_permission_evaluator_locks_and_checks_relational_evide
 
 def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_heads(postgres_schema):
     from sngso_engine.postgres_edition_read import (
-        PostgresEditionReadAdapterIncomplete, PostgresEditionRegistryReadView,
+        PostgresEditionReadAdapterError, PostgresEditionReadAdapterIncomplete,
+        PostgresEditionRegistryReadView,
     )
 
     connect = postgres_schema
