@@ -902,3 +902,14 @@ the full story snapshot fingerprint and the full deterministic learning-object
 quality report. [CI run #1656](https://github.com/Amiroudro/new-sngso/actions/runs/45227511942)
 passed **53 PostgreSQL integration tests in 10.36 seconds**; contract
 validation and schema-v36 inspection generation/artifact upload passed.
+
+
+The learning-quality parity fixture now includes a comprehension question with
+an answer claim and an exact current evidence revision/locator. PostgreSQL and
+SQLite quality reports match, and the answer-evidence check passes. An
+attempted stale-revision fixture was rejected at insert time by the PostgreSQL
+database guard itself (`question answer evidence must be current and linked to
+its answer claim`); the invalid fixture was removed rather than weakening that
+guard. [CI run #1659](https://github.com/Amiroudro/new-sngso/actions/runs/45228007556)
+passed **53 PostgreSQL integration tests in 10.70 seconds**, with contract
+validation and schema-v36 inspection generation/artifact upload passing.
