@@ -1,6 +1,6 @@
 # Section 9 Trigger Porting Ledger
 
-Status: **the schema-v35 ledger below is retained as historical evidence; schema v36 is now current with 139 triggers, all source-level reviewed. PostgreSQL port implementation and complete direct-SQL conformance remain open.**
+Status: **the schema-v35 ledger below is retained as historical evidence; schema v36 is current with 139 source-level reviewed SQLite triggers. PostgreSQL migrations 0001–0022 now implement substantial coverage across the registry, operational pipeline, benchmark, and staging families. A complete one-to-one trigger mapping, adversarial direct-SQL conformance under a restricted runtime role, and full 139-trigger parity acceptance remain open.**
 
 Historical evidence source: CI-generated schema-v35 inspection artifact from [GitHub Actions run #45057281125](https://github.com/Amiroudro/new-sngso/actions/runs/45057281125). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
 
@@ -101,3 +101,32 @@ This ledger closes the **live inventory capture** portion of P0. It does not clo
 ## Schema-v36 delta
 
 Migration 36 adds one BEFORE INSERT trigger, `edition_staging_events_authority_binding_guard`, bringing the live schema to **139 triggers**. The new trigger binds payload-declared approver and authorizer identities to the immutable linked decision and release-authorization rows. The schema-v36 CI artifact `14818506827` from run #1480 is the current live-schema evidence. The 138-trigger tables above remain an explicitly historical schema-v35 snapshot; regenerate the complete lexical ledger from the v36 artifact before PostgreSQL DDL implementation.
+
+
+## PostgreSQL implementation checkpoint (2026-11-24)
+
+Draft PR #8 now contains PostgreSQL migrations 0001–0022. The migration
+families cover source permissions and collection/ingestion, story/editorial
+history, learning and glossary lifecycle/evidence, benchmark governance and
+study evidence, pipeline runs/checkpoints/worker leases, edition artifacts
+and decisions, release authorization, staging events/state, and late
+revision/assignment guards. Migration 0022 adds transaction-held shared locks
+for specialized learning evidence validation.
+
+The PostgreSQL implementation also has cursor-bound read and quality ports,
+including benchmark review/acceptance quality reports and linked story
+snapshot inclusion. Atomic staging and global audit append share one
+transaction, and the staging integration tests exercise rollback and
+competing operations.
+
+Verified evidence:
+- [CI #45235665664](https://github.com/Amiroudro/new-sngso/actions/runs/45235665664):
+  **59 PostgreSQL integration tests passed**; contract validation passed.
+- Earlier [CI #45235178227](https://github.com/Amiroudro/new-sngso/actions/runs/45235178227):
+  58 PostgreSQL integration tests passed, including benchmark readiness and
+  evaluator-agreement read-port tests.
+
+These tests execute against fresh isolated PostgreSQL schemas. They do not
+yet prove an imported schema-v36 dataset, a complete one-to-one semantic
+mapping of all 139 SQLite triggers, every negative direct-SQL case under the
+deployment runtime role, or production topology/restore/failover behavior.
