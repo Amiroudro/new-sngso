@@ -922,3 +922,19 @@ reports match; the deterministic rationale-coverage check passes and the
 human-distractor-review warning remains present. [CI run #1661](https://github.com/Amiroudro/new-sngso/actions/runs/45228290897)
 passed **53 PostgreSQL integration tests in 7.90 seconds**, with contract
 validation and schema-v36 inspection generation/artifact upload passing.
+
+
+Vocabulary quality parity is now covered too. The fixture includes a vocabulary
+learning object bound to a current source-evidence record and an approved
+glossary entry with a matching lemma, part of speech, language, and sense
+definition. PostgreSQL and SQLite quality reports match, and both the
+`vocabulary_source_evidence` and `controlled_glossary` checks pass.
+[CI run #1663](https://github.com/Amiroudro/new-sngso/actions/runs/45228607216)
+passed **53 PostgreSQL integration tests in 10.47 seconds**, with contract
+validation and schema-v36 inspection generation/artifact upload passing.
+
+At this point, the built-in PostgreSQL story snapshot and learning-object
+quality paths have parity coverage for a linked article, supported claim,
+supporting evidence, factual summary, comprehension answer evidence, draft
+MCQ rationale coverage, and vocabulary/glossary matching. Benchmark review and
+acceptance review data remain the main known unsupported story-snapshot case.
