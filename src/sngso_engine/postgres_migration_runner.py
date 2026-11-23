@@ -31,6 +31,7 @@ _MIGRATIONS = (
     (19, "0019_edition_staging_state.sql"),
     (20, "0020_final_revision_and_assignment_guards.sql"),
     (21, "0021_domain_record_revision_guards.sql"),
+    (22, "0022_learning_evidence_locking.sql"),
 )
 
 
