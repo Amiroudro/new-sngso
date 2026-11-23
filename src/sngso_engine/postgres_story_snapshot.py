@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .canonical import sha256_fingerprint
-from .registry import Registry
+from .registry import SQLiteRegistry
 
 
 class PostgresStorySnapshotIncomplete(RuntimeError):
@@ -501,6 +501,6 @@ def load_postgres_story_editorial_snapshot(cursor: Any, story_id: str) -> dict[s
         "reporting_independence": reporting,
         "source_independence_evidence_report": source_independence,
     }
-    snapshot["narrative_assembly_report"] = Registry._story_narrative_assembly_from_snapshot(snapshot)
+    snapshot["narrative_assembly_report"] = SQLiteRegistry._story_narrative_assembly_from_snapshot(snapshot)
     snapshot["fingerprint"] = sha256_fingerprint(snapshot)
     return snapshot
