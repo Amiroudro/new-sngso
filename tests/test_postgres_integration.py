@@ -3971,6 +3971,13 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
                     sql.Identifier(schema_name), sql.Identifier(role_name)
                 )
             )
+            table_names = [
+                row[0] for row in connection.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = %s AND table_type = 'BASE TABLE' ORDER BY table_name",
+                    (schema_name,),
+                ).fetchall()
+            ]
             primary_key_columns = connection.execute(
                 """SELECT kcu.table_name, kcu.column_name
                    FROM information_schema.table_constraints AS tc
@@ -3991,6 +3998,7 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
                         sql.Identifier(table_name), sql.Identifier(role_name),
                     )
                 )
+            assert {table_name for table_name, _ in primary_key_columns} == set(table_names)
             connection.execute(
                 sql.SQL("GRANT INSERT ON TABLE {}.edition_staging_events, {}.audit_events TO {}").format(
                     sql.Identifier(schema_name), sql.Identifier(schema_name), sql.Identifier(role_name)
@@ -4024,7 +4032,16 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
                 identity=identity,
                 reason="least-privilege staging role test",
                 expected_state_revision=0,
-                reverify_export=lambda cursor, artifact, evaluated_at: package,
+                reverify_export=lambda cursor, artifact, evaluated_at: (
+                    [
+                        cursor.execute(
+                            sql.SQL("SELECT * FROM {}.{} LIMIT 1 FOR SHARE").format(
+                                sql.Identifier(schema_name), sql.Identifier(table_name)
+                            )
+                        ).fetchall()
+                        for table_name in table_names
+                    ] and package
+                ),
                 event_id="least-privilege-stage-event",
                 now=now,
             )
