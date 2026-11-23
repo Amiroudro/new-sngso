@@ -21,6 +21,7 @@ _MIGRATIONS = (
     (9, "0009_benchmark_assignments_identity_scores.sql"),
     (10, "0010_benchmark_study_evidence.sql"),
     (11, "0011_learning_specialized_evidence.sql"),
+    (12, "0012_pipeline_runs.sql"),
 )
 
 
