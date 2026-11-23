@@ -3283,20 +3283,6 @@ CREATE TRIGGER domain_records_record_updateAFTER UPDATE ON domain_records
        END
 ```
 
-## Review completion criteria
-
-A reviewer must retain evidence for:
-- invariant and threat model;
-- exact read/write dependencies and lock order;
-- PostgreSQL constraint, trigger, stored procedure, or application transaction mapping;
-- exact SQLSTATE/error mapping;
-- positive and negative direct-SQL tests under the restricted application role;
-- concurrency tests with independent PostgreSQL connections;
-- reviewer identity, review date, implementation commit, and CI evidence.
-
-A source SQL record is not proof of PostgreSQL implementation. The companion documents contain source-level review findings and open gaps.
-
-
 ### `edition_staging_events_authority_binding_guard`
 
 - **Table:** `edition_staging_events`
@@ -3326,3 +3312,17 @@ BEGIN
   SELECT RAISE(ABORT, 'staging event authority identities must match recorded approval and release authorization');
 END
 ```
+
+## Review completion criteria
+
+A reviewer must retain evidence for:
+- invariant and threat model;
+- exact read/write dependencies and lock order;
+- PostgreSQL constraint, trigger, stored procedure, or application transaction mapping;
+- exact SQLSTATE/error mapping;
+- positive and negative direct-SQL tests under the restricted application role;
+- concurrency tests with independent PostgreSQL connections;
+- reviewer identity, review date, implementation commit, and CI evidence.
+
+A source SQL record is not proof of PostgreSQL implementation. The companion documents contain source-level review findings and open gaps.
+
