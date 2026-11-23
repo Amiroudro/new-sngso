@@ -39,7 +39,15 @@ GRANT SELECT ON ALL TABLES IN SCHEMA :"app_schema" TO :"runtime_role";
 -- state heads below.
 SET search_path TO :"app_schema";
 SET sngso.runtime_role TO :'runtime_role';
-DO $
+
+DO $preflight$
+BEGIN
+    IF to_regprocedure('reject_primary_key_mutation()') IS NULL THEN
+        RAISE EXCEPTION 'PostgreSQL migration 0023 primary-key identity guards must be applied before staging role grants';
+    END IF;
+END;
+$preflight$;
+DO $grant_pk$
 DECLARE
     item record;
     target_schema text := current_schema();
@@ -64,11 +72,12 @@ BEGIN
         );
     END LOOP;
 END;
-$;
+$grant_pk$;
 
 -- The staging service may append immutable staging/audit events and advance
--- the two guarded singleton heads. It cannot UPDATE/DELETE/TRUNCATE event
--- history or mutate any editorial, benchmark, permission, or pipeline row.
+-- the two guarded singleton heads. It has UPDATE on primary-key columns only
+-- to take row locks; migration 0023 rejects identity changes. It has no
+-- non-key UPDATE on editorial, benchmark, permission, or pipeline data.
 GRANT INSERT ON TABLE
     :"app_schema".edition_staging_events,
     :"app_schema".audit_events
