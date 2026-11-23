@@ -4476,3 +4476,77 @@ def test_postgres_mcq_quality_report_matches_sqlite_rationale_and_source_checks(
     assert next(item for item in sqlite_report["checks"] if item["name"] == "mcq_distractor_rationale_coverage")["passed"] is True
     assert next(item for item in sqlite_report["checks"] if item["name"] == "mcq_distractor_rationale_source_support")["passed"] is False
     assert postgres_report == sqlite_report
+
+
+def test_postgres_vocabulary_quality_report_matches_sqlite_glossary_and_evidence_checks(postgres_schema):
+    from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
+    from test_glossary_entries import _glossary, _prepared as prepared_glossary, _vocabulary
+
+    connect = postgres_schema
+    with prepared_glossary() as sqlite_registry:
+        sqlite_registry.add_glossary_entry(
+            _glossary(), actor="lexicon-editor", reason="Create bilingual glossary entry."
+        )
+        vocabulary = _vocabulary()
+        sqlite_registry.add_learning_object(
+            vocabulary, actor="vocabulary-editor", reason="Create source-grounded vocabulary item."
+        )
+        sqlite_report = sqlite_registry.learning_object_quality_report(vocabulary["id"])
+        sqlite_conn = sqlite_registry._connection
+        source_row = sqlite_conn.execute(
+            """SELECT id, publisher_name, status, created_at, updated_at, payload_json
+               FROM sources WHERE id = 'source:publisher'"""
+        ).fetchone()
+        domain_rows = sqlite_conn.execute(
+            """SELECT record_type, id, revision, created_at, updated_at, payload_json,
+                      last_actor, last_reason, last_revision_at
+               FROM domain_records
+               WHERE id IN ('article:one', 'story:one', 'claim:one', 'evidence:one')"""
+        ).fetchall()
+        glossary_row = sqlite_conn.execute(
+            """SELECT id, lemma, lemma_key, term_language, part_of_speech, status, revision,
+                      created_at, updated_at, last_actor, last_reason, payload_json
+               FROM glossary_entries WHERE id = 'glossary:accountability'"""
+        ).fetchone()
+        learning_row = sqlite_conn.execute(
+            """SELECT id, story_id, kind, language, status, revision, created_at,
+                      updated_at, last_actor, last_reason, payload_json
+               FROM learning_objects WHERE id = ?""",
+            (vocabulary["id"],),
+        ).fetchone()
+
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            tuple(source_row),
+        )
+        for row in sorted(domain_rows, key=lambda item: {"article": 0, "story": 1, "claim": 2, "evidence": 3}[item[0]]):
+            connection.execute(
+                "INSERT INTO domain_records "
+                "(record_type, id, revision, created_at, updated_at, payload_json, "
+                "last_actor, last_reason, last_revision_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                tuple(row),
+            )
+        connection.execute(
+            "INSERT INTO glossary_entries "
+            "(id, lemma, lemma_key, term_language, part_of_speech, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            tuple(glossary_row),
+        )
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            tuple(learning_row),
+        )
+        postgres_report = PostgresEditionRegistryReadView(
+            connection.cursor()
+        ).learning_object_quality_report(vocabulary["id"])
+
+    assert next(item for item in sqlite_report["checks"] if item["name"] == "controlled_glossary")["passed"] is False
+    assert next(item for item in sqlite_report["checks"] if item["name"] == "vocabulary_source_evidence")["passed"] is True
+    assert postgres_report == sqlite_report
