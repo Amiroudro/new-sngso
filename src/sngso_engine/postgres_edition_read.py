@@ -549,10 +549,16 @@ class PostgresEditionRegistryReadView:
 
     def story_editorial_snapshot(self, story_id: str) -> dict[str, Any]:
         if self._story_snapshot_loader is None:
-            raise PostgresEditionReadAdapterIncomplete(
-                "exact PostgreSQL story snapshot/fingerprint parity is not implemented"
+            from .postgres_story_snapshot import (
+                PostgresStorySnapshotIncomplete,
+                load_postgres_story_editorial_snapshot,
             )
-        snapshot = self._story_snapshot_loader(self._cursor, story_id)
+            try:
+                snapshot = load_postgres_story_editorial_snapshot(self._cursor, story_id)
+            except PostgresStorySnapshotIncomplete as exc:
+                raise PostgresEditionReadAdapterIncomplete(str(exc)) from exc
+        else:
+            snapshot = self._story_snapshot_loader(self._cursor, story_id)
         if not isinstance(snapshot, dict) or snapshot.get("story_id") != story_id:
             raise PostgresEditionReadAdapterError("story snapshot loader returned an invalid snapshot")
         return snapshot
