@@ -1107,3 +1107,14 @@ passed **63 PostgreSQL integration tests in 14.49 seconds**, and contract
 validation passed. This covers draft-summary quality parity; approved
 supported-summary, MCQ distractor, vocabulary/glossary, and bilingual variant
 positive/negative cases still need dedicated PostgreSQL parity fixtures.
+
+
+The learning-quality parity suite now also covers the positive path: an
+approved Bangla summary, a supported claim, current linked evidence, and a
+complete all-pass language rubric produce an identical passing report in
+SQLite and PostgreSQL. [CI run
+#45239927165](https://github.com/Amiroudro/new-sngso/actions/runs/45239927165)
+passed **64 PostgreSQL integration tests in 9.97 seconds**, and contract
+validation passed. This verifies draft and approved-summary report parity;
+MCQ distractor quality and vocabulary/glossary quality still need their own
+backend parity fixtures.
