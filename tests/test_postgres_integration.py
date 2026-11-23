@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql")]
 
 
 
@@ -499,6 +499,96 @@ def test_postgres_perspectives_and_claim_relations_preserve_story_provenance(pos
         assert connection.execute(
             "SELECT count(*) FROM claim_relations"
         ).fetchone()[0] == 1
+
+
+
+def test_postgres_learning_and_glossary_revision_snapshots_are_atomic_and_append_only(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json) "
+            "VALUES ('story', 'story-learning', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "story-learning", "status": "active"}),),
+        )
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES ('learning-1', 'story-learning', 'brief_summary', 'en', 'draft', 1, "
+            "'2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', 'editor', "
+            "'initial draft', %s)",
+            (json.dumps({"claim_ids": [], "content": {"text": "Initial"}}),),
+        )
+        connection.execute(
+            "UPDATE learning_objects SET status = 'approved', revision = 2, "
+            "updated_at = '2026-11-23T00:01:00Z', last_actor = 'reviewer', "
+            "last_reason = 'approved after review', "
+            "payload_json = %s WHERE id = 'learning-1'",
+            (json.dumps({
+                "claim_ids": [], "content": {"text": "Reviewed"},
+                "reviewed_at": "2026-11-23T00:01:00Z",
+                "reviewed_by": "reviewer", "review_note": "Checked"
+            }),),
+        )
+        connection.execute(
+            "INSERT INTO glossary_entries "
+            "(id, lemma, lemma_key, term_language, part_of_speech, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES ('glossary-1', 'resilience', 'resilience', 'en', 'noun', 'draft', 1, "
+            "'2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', 'editor', "
+            "'initial term', %s)",
+            (json.dumps({"lemma": "resilience", "senses": []}),),
+        )
+        connection.execute(
+            "UPDATE glossary_entries SET status = 'approved', revision = 2, "
+            "updated_at = '2026-11-23T00:02:00Z', last_actor = 'reviewer', "
+            "last_reason = 'approved term', payload_json = %s "
+            "WHERE id = 'glossary-1'",
+            (json.dumps({
+                "lemma": "resilience", "senses": [],
+                "reviewed_at": "2026-11-23T00:02:00Z",
+                "reviewed_by": "reviewer", "review_note": "Definition verified"
+            }),),
+        )
+        assert connection.execute(
+            "SELECT revision, count(*) OVER () FROM learning_object_revisions "
+            "WHERE learning_object_id = 'learning-1' ORDER BY revision"
+        ).fetchall() == [(1, 2), (2, 2)]
+        assert connection.execute(
+            "SELECT revision FROM glossary_entry_revisions "
+            "WHERE glossary_entry_id = 'glossary-1' ORDER BY revision"
+        ).fetchall() == [(1,), (2,)]
+        with pytest.raises(psycopg.errors.CheckViolation, match="revision must increment by one"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE learning_objects SET revision = 4, "
+                    "updated_at = '2026-11-23T00:03:00Z', last_actor = 'editor', "
+                    "last_reason = 'skip revision' WHERE id = 'learning-1'"
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE learning_object_revisions SET reason = 'rewritten' "
+                "WHERE learning_object_id = 'learning-1' AND revision = 1"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM glossary_entry_revisions "
+                "WHERE glossary_entry_id = 'glossary-1' AND revision = 1"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM learning_objects WHERE id = 'learning-1'"
+            )
+        connection.rollback()
+        assert connection.execute(
+            "SELECT count(*) FROM learning_object_revisions"
+        ).fetchone()[0] == 2
 
 
 def test_postgres_audit_append_serializes_independent_connections(postgres_schema):
