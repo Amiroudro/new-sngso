@@ -3397,10 +3397,10 @@ def test_edition_release_authorization_direct_sql_rejects_payload_binding_mismat
             "payload_sha256": "sha256:" + "a" * 64,
         }
         registry._connection.execute(
-            \"\"\"INSERT INTO edition_artifacts
+            """INSERT INTO edition_artifacts
                (manifest_id, edition_id, edition_revision, payload_sha256,
                 payload_json, manifest_json, verification_json, created_at, actor, reason)
-               VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer', 'release auth fixture')\"\"\",
+               VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer', 'release auth fixture')""",
             (
                 manifest["manifest_id"],
                 manifest["edition_id"],
@@ -3421,10 +3421,10 @@ def test_edition_release_authorization_direct_sql_rejects_payload_binding_mismat
             "publication_authorized": False,
         }
         registry._connection.execute(
-            \"\"\"INSERT INTO edition_decisions
+            """INSERT INTO edition_decisions
                (decision_id, manifest_id, edition_id, edition_revision, payload_sha256,
                 decision, principal_id, decided_at, payload_json)
-               VALUES (?, ?, ?, ?, ?, 'approve', ?, ?, ?)\"\"\",
+               VALUES (?, ?, ?, ?, ?, 'approve', ?, ?, ?)""",
             (
                 decision["decision_id"],
                 manifest["manifest_id"],
@@ -3453,11 +3453,11 @@ def test_edition_release_authorization_direct_sql_rejects_payload_binding_mismat
             match="release authorization must bind an approved artifact and independent active human authorizer",
         ):
             registry._connection.execute(
-                \"\"\"INSERT INTO edition_release_authorizations
+                """INSERT INTO edition_release_authorizations
                    (authorization_id, manifest_id, edition_id, edition_revision,
                     payload_sha256, approval_decision_id, approver_principal_id,
                     authorizer_principal_id, authorized_at, payload_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\"\"\",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     "authorization:expected",
                     manifest["manifest_id"],
