@@ -1159,3 +1159,12 @@ quality report including the draft-glossary blocker.
 [CI run #45241063559](https://github.com/Amiroudro/new-sngso/actions/runs/45241063559)
 passed **68 PostgreSQL integration tests in 17.23 seconds**, and contract
 validation passed.
+
+
+The vocabulary/glossary parity suite now covers the positive path too: a
+bilingual glossary entry is revised and approved, the linked Bangla vocabulary
+object is independently reviewed and approved against the current source
+evidence, and both backends return the same passing quality report.
+[CI run #45241428950](https://github.com/Amiroudro/new-sngso/actions/runs/45241428950)
+passed **69 PostgreSQL integration tests in 17.63 seconds**, and contract
+validation passed.
