@@ -4093,3 +4093,60 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
                     )
                 )
                 admin.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role_name)))
+
+
+def test_postgres_learning_object_quality_report_matches_sqlite_for_draft_summary(postgres_schema):
+    from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
+    from test_learning_objects import _prepared, _summary
+
+    connect = postgres_schema
+    with _prepared() as sqlite_registry:
+        draft = sqlite_registry.add_learning_object(
+            _summary(), actor="editor:parity", reason="Create draft for PostgreSQL quality parity."
+        )
+        sqlite_report = sqlite_registry.learning_object_quality_report(draft.id)
+        sqlite_conn = sqlite_registry._connection
+        source_row = sqlite_conn.execute(
+            """SELECT id, publisher_name, status, created_at, updated_at, payload_json
+               FROM sources WHERE id = 'source:publisher'"""
+        ).fetchone()
+        domain_rows = sqlite_conn.execute(
+            """SELECT record_type, id, revision, created_at, updated_at, payload_json,
+                      last_actor, last_reason, last_revision_at
+               FROM domain_records
+               WHERE id IN ('article:one', 'story:one', 'claim:one')
+               ORDER BY record_type, id"""
+        ).fetchall()
+        learning_row = sqlite_conn.execute(
+            """SELECT id, story_id, kind, language, status, revision, created_at,
+                      updated_at, last_actor, last_reason, payload_json
+               FROM learning_objects WHERE id = ?""",
+            (draft.id,),
+        ).fetchone()
+
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            tuple(source_row),
+        )
+        for row in domain_rows:
+            connection.execute(
+                "INSERT INTO domain_records "
+                "(record_type, id, revision, created_at, updated_at, payload_json, "
+                "last_actor, last_reason, last_revision_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                tuple(row),
+            )
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            tuple(learning_row),
+        )
+        postgres_report = PostgresEditionRegistryReadView(
+            connection.cursor()
+        ).learning_object_quality_report(draft.id)
+
+    assert postgres_report == sqlite_report
