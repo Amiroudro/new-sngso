@@ -48,7 +48,14 @@ def apply_postgres_migrations(connection: Any) -> tuple[int, ...]:
                 f"database contains unsupported PostgreSQL migration versions: {unknown}"
             )
 
-        applied: list[int] = []
+        recorded_versions = sorted(existing)
+        expected_prefix = [version for version, _ in _MIGRATIONS[:len(recorded_versions)]]
+        if recorded_versions != expected_prefix:
+            raise PostgresMigrationError(
+                "PostgreSQL migration ledger is not a contiguous prefix of packaged migrations"
+            )
+
+        applied: list[int] =
         for version, name in _MIGRATIONS:
             raw = _migration_bytes(name)
             checksum = "sha256:" + hashlib.sha256(raw).hexdigest()
