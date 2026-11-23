@@ -2372,3 +2372,62 @@ def test_postgres_atomic_staging_rejects_stale_state_before_reverification(postg
                 now=now,
             )
     assert callback_calls == []
+
+
+def _attempt_atomic_stage(connect, identity, now, package, event_id):
+    from sngso_engine.postgres_edition_staging import (
+        PostgresStagingError, stage_edition_export,
+    )
+    with connect() as connection:
+        try:
+            stage_edition_export(
+                connection,
+                manifest_id="manifest:atomic",
+                operation="promote",
+                identity=identity,
+                reason="concurrent promotion attempt",
+                expected_state_revision=0,
+                reverify_export=lambda cursor, artifact, evaluated_at: package,
+                event_id=event_id,
+                now=now,
+            )
+            return "committed"
+        except PostgresStagingError as exc:
+            if "state revision conflict" in str(exc):
+                return "stale"
+            raise
+
+
+def test_postgres_atomic_staging_serializes_competing_promotions(postgres_schema):
+    from concurrent.futures import ThreadPoolExecutor
+
+    connect = postgres_schema
+    with connect() as connection:
+        identity, now, package = _seed_atomic_staging_case(connection)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                _attempt_atomic_stage,
+                connect,
+                identity,
+                now,
+                package,
+                f"atomic-concurrent-event-{index}",
+            )
+            for index in range(2)
+        ]
+        outcomes = sorted(future.result() for future in futures)
+
+    assert outcomes == ["committed", "stale"]
+    with connect() as connection:
+        assert connection.execute(
+            "SELECT state_revision, current_export_id "
+            "FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone() == (1, "export:atomic-1")
+        assert connection.execute(
+            "SELECT count(*) FROM edition_staging_events"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT sequence FROM audit_chain_head WHERE singleton_id = 1"
+        ).fetchone()[0] == 1
