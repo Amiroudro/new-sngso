@@ -2133,34 +2133,34 @@ def _seed_atomic_staging_case(connection):
         )
 
     edition_payload = {
-        "edition_id": "atomic-edition",
+        "edition_id": "edition:atomic",
         "edition_revision": 1,
         "edition_key": "2026-11-23",
     }
     payload_sha = sha256_fingerprint(edition_payload)
     manifest = {
         "schema_version": "1.0.0",
-        "manifest_id": "atomic-manifest",
-        "edition_id": "atomic-edition",
+        "manifest_id": "manifest:atomic",
+        "edition_id": "edition:atomic",
         "edition_revision": 1,
         "edition_key": "2026-11-23",
         "created_at": now.isoformat(),
-        "pipeline_run_id": "atomic-pipeline",
+        "pipeline_run_id": "pipeline:atomic",
         "payload_sha256": payload_sha,
         "story_bindings": [{
-            "story_id": "atomic-story",
+            "story_id": "story:atomic",
             "story_revision": 1,
             "story_snapshot_sha256": "sha256:" + "a" * 64,
             "learning_objects": [
                 {
-                    "learning_object_id": "atomic-bn",
+                    "learning_object_id": "learning:atomic-bn",
                     "learning_object_revision": 1,
                     "learning_object_sha256": "sha256:" + "b" * 64,
                     "kind": "headline_summary",
                     "language": "bn",
                 },
                 {
-                    "learning_object_id": "atomic-en",
+                    "learning_object_id": "learning:atomic-en",
                     "learning_object_revision": 1,
                     "learning_object_sha256": "sha256:" + "c" * 64,
                     "kind": "headline_summary",
@@ -2169,9 +2169,9 @@ def _seed_atomic_staging_case(connection):
             ],
         }],
         "source_permissions": [{
-            "source_id": "atomic-source",
-            "endpoint_id": "atomic-endpoint",
-            "grant_id": "atomic-grant",
+            "source_id": "source:atomic",
+            "endpoint_id": "learning:endpoint:atomic",
+            "grant_id": "grant:atomic",
             "operation": "republication",
         }],
     }
@@ -2181,7 +2181,7 @@ def _seed_atomic_staging_case(connection):
         "manifest_json, verification_json, created_at, actor, reason) "
         "VALUES (%s, %s, 1, %s, %s, %s, %s, %s, 'test-verifier', 'verified fixture')",
         (
-            "atomic-manifest", "atomic-edition", payload_sha,
+            "manifest:atomic", "edition:atomic", payload_sha,
             json.dumps(edition_payload), json.dumps(manifest),
             json.dumps({"publication_authorized": False}),
             now.isoformat(),
@@ -2201,9 +2201,9 @@ def _seed_atomic_staging_case(connection):
     }
     approval = {
         "schema_version": "1.0.0",
-        "decision_id": "atomic-decision",
-        "manifest_id": "atomic-manifest",
-        "edition_id": "atomic-edition",
+        "decision_id": "decision:atomic",
+        "manifest_id": "manifest:atomic",
+        "edition_id": "edition:atomic",
         "edition_revision": 1,
         "payload_sha256": payload_sha,
         "decision": "approve",
@@ -2221,18 +2221,18 @@ def _seed_atomic_staging_case(connection):
         "decision, principal_id, decided_at, payload_json) "
         "VALUES (%s, %s, %s, 1, %s, 'approve', %s, %s, %s)",
         (
-            "atomic-decision", "atomic-manifest", "atomic-edition", payload_sha,
+            "decision:atomic", "manifest:atomic", "edition:atomic", payload_sha,
             "atomic-approver", now.isoformat(), json.dumps(approval),
         ),
     )
     authorization = {
         "schema_version": "1.0.0",
-        "authorization_id": "atomic-authorization",
-        "manifest_id": "atomic-manifest",
-        "edition_id": "atomic-edition",
+        "authorization_id": "authorization:atomic",
+        "manifest_id": "manifest:atomic",
+        "edition_id": "edition:atomic",
         "edition_revision": 1,
         "payload_sha256": payload_sha,
-        "approval_decision_id": "atomic-decision",
+        "approval_decision_id": "decision:atomic",
         "approver_principal_id": "atomic-approver",
         "authorizer_principal_id": "atomic-authorizer",
         "authorized_at": now.isoformat(),
@@ -2252,18 +2252,18 @@ def _seed_atomic_staging_case(connection):
         "authorized_at, payload_json) "
         "VALUES (%s, %s, %s, 1, %s, %s, %s, %s, %s, %s)",
         (
-            "atomic-authorization", "atomic-manifest", "atomic-edition", payload_sha,
-            "atomic-decision", "atomic-approver", "atomic-authorizer",
+            "authorization:atomic", "manifest:atomic", "edition:atomic", payload_sha,
+            "decision:atomic", "atomic-approver", "atomic-authorizer",
             now.isoformat(), json.dumps(authorization),
         ),
     )
     package = {
         "schema_version": "1.0.0",
-        "export_id": "atomic-export-1",
+        "export_id": "export:atomic-1",
         "target": "staging",
         "created_at": now.isoformat(),
-        "manifest_id": "atomic-manifest",
-        "edition_id": "atomic-edition",
+        "manifest_id": "manifest:atomic",
+        "edition_id": "edition:atomic",
         "edition_revision": 1,
         "payload_sha256": payload_sha,
         "edition_payload": edition_payload,
@@ -2284,7 +2284,7 @@ def test_postgres_atomic_staging_commits_event_state_and_global_audit_together(p
     with connect() as connection:
         result = stage_edition_export(
             connection,
-            manifest_id="atomic-manifest",
+            manifest_id="manifest:atomic",
             operation="promote",
             identity=identity,
             reason="integration staging promotion",
@@ -2294,12 +2294,12 @@ def test_postgres_atomic_staging_commits_event_state_and_global_audit_together(p
             now=now,
         )
         assert result["state"]["state_revision"] == 1
-        assert result["state"]["current_export_id"] == "atomic-export-1"
+        assert result["state"]["current_export_id"] == "export:atomic-1"
         assert result["audit"]["sequence"] == 1
         assert connection.execute(
             "SELECT state_revision, current_event_id, current_export_id "
             "FROM edition_staging_channel_state WHERE channel = 'staging'"
-        ).fetchone() == (1, "atomic-stage-event", "atomic-export-1")
+        ).fetchone() == (1, "atomic-stage-event", "export:atomic-1")
         assert connection.execute(
             "SELECT count(*) FROM edition_staging_events"
         ).fetchone()[0] == 1
@@ -2328,7 +2328,7 @@ def test_postgres_atomic_staging_rolls_back_event_and_state_if_audit_append_fail
         with pytest.raises(RuntimeError, match="injected audit append failure"):
             staging.stage_edition_export(
                 connection,
-                manifest_id="atomic-manifest",
+                manifest_id="manifest:atomic",
                 operation="promote",
                 identity=identity,
                 reason="failure-injection promotion",
@@ -2362,7 +2362,7 @@ def test_postgres_atomic_staging_rejects_stale_state_before_reverification(postg
         with pytest.raises(PostgresStagingError, match="state revision conflict"):
             stage_edition_export(
                 connection,
-                manifest_id="atomic-manifest",
+                manifest_id="manifest:atomic",
                 operation="promote",
                 identity=identity,
                 reason="stale request",
