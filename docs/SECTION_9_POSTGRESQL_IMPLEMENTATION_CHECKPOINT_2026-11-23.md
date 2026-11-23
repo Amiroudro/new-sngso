@@ -475,3 +475,35 @@ This verifies the pipeline-run and stage-checkpoint storage layer. Worker
 leases (SQLite migration 33) are the next pipeline persistence migration;
 edition artifacts, approvals, release authorizations, staging state/events,
 production role provisioning, and the atomic staging transaction remain open.
+
+
+## Follow-up: fenced worker lease lifecycle
+
+PostgreSQL migration 0014, `0014_pipeline_worker_leases.sql`, ports SQLite
+migration 33.
+
+It adds one lease head per pipeline run and append-only lease revisions.
+Database guards enforce sequential revision increments, stable run identity,
+legal active/heartbeat/release/expiry/cancellation transitions, and
+fencing-token advancement with a fresh token on reacquisition. An active lease
+cannot be taken over directly; a released or expired lease can be reacquired
+only with the next fencing token. Cancellation request metadata cannot be
+rewritten once recorded. Lease heads and revision history cannot be deleted
+or mutated.
+
+Integration tests exercise acquisition, heartbeat, release, reacquisition
+with a higher fencing token, rejection of an attempted takeover while active,
+and append-only revision protection.
+
+GitHub Actions
+[run #1587](https://github.com/Amiroudro/new-sngso/actions/runs/45218836982)
+passed:
+- PostgreSQL 16 integration suite: **40 passed in 6.00 seconds**.
+- Contract validation: passed.
+- Schema-v36 inspection generation and artifact upload: passed.
+
+This verifies the PostgreSQL pipeline run/checkpoint/lease storage slice.
+It does not implement a production worker scheduler, lease acquisition API,
+heartbeat/reconciliation service, or complete retry orchestration. Edition
+artifacts, approval decisions, release authorizations, staging events/state,
+runtime-role provisioning, and the atomic staging transaction remain open.
