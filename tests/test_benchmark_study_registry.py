@@ -82,7 +82,7 @@ def test_study_protocol_registry_persists_and_verifies_exact_protocol():
         assert registry.get_benchmark_study_protocol(protocol["study_id"]) == stored
         assert registry.benchmark_study_protocol_history(protocol["study_id"]) == [stored]
         assert registry.list_benchmark_study_protocols(benchmark_id=artifact["artifact_id"]) == [stored]
-        assert registry.schema_version() == 35
+        assert registry.schema_version() == 36
 
 
 def test_study_protocol_versions_are_sequential_immutable_and_audited():
