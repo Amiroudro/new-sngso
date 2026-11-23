@@ -577,3 +577,36 @@ reverifies the export, validates authorization and current state, inserts the
 staging event, advances state, and appends the global audit event together.
 That atomic staging service, concurrency/failure-injection coverage, and
 production privilege model remain outstanding.
+
+
+## Follow-up: final revision, permission, and assignment guards
+
+PostgreSQL migration 0020, `0020_final_revision_and_assignment_guards.sql`,
+ports SQLite migration 34. It validates domain-record revision inserts against
+the current head, validates permission-grant revision inserts against either
+the current head or a legal next status, and guards grant updates so scope and
+evidence remain immutable while only legal status transitions advance the
+revision. It also validates benchmark assignment revision inserts and enforces
+transition receipts, legal status changes, reviewer/curator roles and language,
+acceptance deadlines, submitted-review binding, and closure/expiry timing.
+
+PostgreSQL migration 0021, `0021_domain_record_revision_guards.sql`, ports
+SQLite migration 35. The actor/reason/timestamp columns were already present
+in the PostgreSQL domain table from migration 0003, so no destructive table
+rewrite or backfill was needed. Migration 0021 adds identity and provenance
+immutability, exact revision increments, monotonic revision timestamps,
+article/evidence identity protection, and automatic append-only domain
+revision snapshots after updates.
+
+GitHub Actions
+[run #1609](https://github.com/Amiroudro/new-sngso/actions/runs/45220799313)
+passed:
+- PostgreSQL 16 integration suite: **45 passed in 7.93 seconds**.
+- Contract validation: passed.
+- Schema-v36 inspection generation and artifact upload: passed.
+
+The staging event authority-binding rule from SQLite migration 36 is included
+in PostgreSQL migration 0019: nested approval and authorizer identities must
+match the immutable decision and release-authorization records. The
+application-level atomic staging transaction and production role model remain
+open.
