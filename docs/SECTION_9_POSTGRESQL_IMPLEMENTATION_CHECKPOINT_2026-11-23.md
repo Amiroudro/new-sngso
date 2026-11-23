@@ -1000,3 +1000,15 @@ Additional tests for benchmark readiness and evaluator agreement are being
 run in the current CI cycle. The complete benchmark report port is not yet
 claimed as finished until those tests pass and the remaining Section 9
 runtime, staging, role-provisioning, and external acceptance gates are closed.
+
+
+The follow-up benchmark readiness and evaluator-agreement read ports are now
+covered by PostgreSQL integration tests. The readiness report preserves the
+SQLite status/blocker semantics for an artifact with no reviews, and the
+agreement report fails closed when no score sheets exist. [CI run
+#45235178227](https://github.com/Amiroudro/new-sngso/actions/runs/45235178227)
+passed **58 PostgreSQL integration tests in 12.04 seconds** and contract
+validation. This verifies the baseline read-port behavior; it does not yet
+replace full adversarial fixtures for accepted source reviews, identity
+attestation expiry, accepted study decisions, and multi-evaluator score
+agreement.
