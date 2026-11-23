@@ -559,6 +559,16 @@ class PostgresEditionRegistryReadView:
         from .postgres_benchmark_quality import benchmark_acceptance_review_quality_report
         return benchmark_acceptance_review_quality_report(self._cursor, review_id, now=now)
 
+    def benchmark_readiness_report(self, artifact_id: str, *, now: Any = None) -> dict[str, Any]:
+        """Recheck current reviewer, attestation, and adjudication readiness."""
+        from .postgres_benchmark_quality import benchmark_readiness_report
+        return benchmark_readiness_report(self._cursor, artifact_id, now=now)
+
+    def benchmark_evaluator_agreement_report(self, artifact_id: str, item_id: str) -> dict[str, Any]:
+        """Return descriptive-only agreement for matched, human score sheets."""
+        from .postgres_benchmark_quality import benchmark_evaluator_agreement_report
+        return benchmark_evaluator_agreement_report(self._cursor, artifact_id, item_id)
+
     def story_editorial_snapshot(self, story_id: str) -> dict[str, Any]:
         if self._story_snapshot_loader is None:
             from .postgres_story_snapshot import (
