@@ -3106,11 +3106,11 @@ def test_edition_artifact_direct_sql_rejects_manifest_identity_mismatch(column, 
             match="stored edition artifact columns must match manifest",
         ):
             registry._connection.execute(
-                \"\"\"INSERT INTO edition_artifacts
+                """INSERT INTO edition_artifacts
                    (manifest_id, edition_id, edition_revision, payload_sha256,
                     payload_json, manifest_json, verification_json, created_at, actor, reason)
                    VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer',
-                           'attempted artifact identity mismatch')\"\"\",
+                           'attempted artifact identity mismatch')""",
                 (
                     row["manifest_id"],
                     row["edition_id"],
@@ -3152,10 +3152,10 @@ def test_edition_decision_direct_sql_rejects_payload_identity_or_scope_mismatch(
             "payload_sha256": "sha256:" + "a" * 64,
         }
         registry._connection.execute(
-            \"\"\"INSERT INTO edition_artifacts
+            """INSERT INTO edition_artifacts
                (manifest_id, edition_id, edition_revision, payload_sha256,
                 payload_json, manifest_json, verification_json, created_at, actor, reason)
-               VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer', 'decision guard fixture')\"\"\",
+               VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer', 'decision guard fixture')""",
             (
                 manifest["manifest_id"],
                 manifest["edition_id"],
@@ -3181,10 +3181,10 @@ def test_edition_decision_direct_sql_rejects_payload_identity_or_scope_mismatch(
             match="edition decision must bind an exact artifact and active human approver",
         ):
             registry._connection.execute(
-                \"\"\"INSERT INTO edition_decisions
+                """INSERT INTO edition_decisions
                    (decision_id, manifest_id, edition_id, edition_revision, payload_sha256,
                     decision, principal_id, decided_at, payload_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)\"\"\",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     "decision:expected",
                     manifest["manifest_id"],
