@@ -3987,3 +3987,71 @@ def test_staging_channel_state_direct_sql_rejects_nonmatching_event_pointers(
         assert unchanged["state_revision"] == 0
         assert unchanged["current_event_id"] is None
         assert unchanged["current_export_id"] is None
+
+
+@pytest.mark.parametrize(
+    ("payload_path", "forged_principal_id", "role"),
+    [
+        (
+            "staging_decision.principal_id",
+            "principal:forged-staging-approver",
+            "edition_approver",
+        ),
+        (
+            "release_authorization.authorizer_principal_id",
+            "principal:forged-staging-authorizer",
+            "edition_release_authorizer",
+        ),
+    ],
+)
+def test_staging_event_direct_sql_rejects_authority_identity_rebinding(
+    payload_path, forged_principal_id, role,
+):
+    with SQLiteRegistry() as registry:
+        event, package = _valid_staging_sql_fixture(registry)
+        registry.register_benchmark_principal(
+            forged_principal_id,
+            display_name=forged_principal_id,
+            roles=[role],
+            provisioned_by="test-bootstrap",
+            reason="Create alternate active human for authority-rebinding attack test",
+            principal_kind="human",
+        )
+        forged_event = json.loads(json.dumps(event))
+        parent, key = payload_path.rsplit(".", 1)
+        forged_event[parent][key] = forged_principal_id
+
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="authority identities must match recorded approval and release authorization",
+        ):
+            _insert_valid_staging_event(registry, forged_event, package)
+
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+
+
+def test_schema_35_migrates_to_36_staging_authority_binding(tmp_path, monkeypatch):
+    database = tmp_path / "staging-authority-v35.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 35)
+    with SQLiteRegistry(database) as old:
+        assert old.schema_version() == 35
+        assert old._connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' "
+            "AND name='edition_staging_events_authority_binding_guard'"
+        ).fetchone() is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 36)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 36
+        assert migrated._connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' "
+            "AND name='edition_staging_events_authority_binding_guard'"
+        ).fetchone() is not None
+        versions = [
+            row[0] for row in migrated._connection.execute(
+                "SELECT version FROM schema_migrations ORDER BY version"
+            )
+        ]
+        assert versions == list(range(1, 37))
