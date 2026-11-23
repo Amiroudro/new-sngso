@@ -112,6 +112,15 @@ The run above tests code commit `0268b5455ababb4f60585172bd5a84ed4c99f230`. Late
 
 Migration 36 closes a staging authorization attribution gap. The event trigger now binds the approver and release-authorizer identities declared in the event payload to the principals stored in the referenced immutable decision and release-authorization rows. The relational guard also binds both records to the event manifest and requires the authorization to reference the exact decision.
 
-Added direct-SQL adversarial tests for both identity-rebinding paths using alternate active human principals with the required roles, plus a v35-to-v36 migration test. The schema-inspection assertion now expects 47 tables, 25 explicit indexes, 139 triggers, and zero views. These changes are committed, but this acceptance entry is pending successful full CI run #1480 and its live schema artifact. Do not treat the fix as CI-verified until that run succeeds.
+Added direct-SQL adversarial tests for both identity-rebinding paths using alternate active human principals with the required roles, plus a v35-to-v36 migration test. The schema-inspection assertion now expects 47 tables, 25 explicit indexes, 139 triggers, and zero views. These changes are committed, but this acceptance entry is verified by GitHub Actions run #1480 and live schema artifact 14818506827. Do not treat the fix as CI-verified until that run succeeds.
 
 The change does not implement PostgreSQL equivalence, authenticated-session freshness, or a higher-level staging service. PR #8 remains draft and unmerged.
+
+
+### Verified schema-v36 authority-binding batch
+
+GitHub Actions [run #1480](https://github.com/Amiroudro/new-sngso/actions/runs/45174698086) passed the full Python 3.12 suite: **1,122 passed in 26.28 seconds**. Tested code commit: `d4924a1e1f0e2776923db1bfcc3907998ea85f0b`. The workflow generated and uploaded `sqlite-schema-v36-inspection`, artifact ID `14818506827`, expiring 7 December 2026. The inspector and schema-v36 structural tests passed, including 47 tables, 25 explicit indexes, 139 triggers, zero views, contiguous migrations 1–36, integrity `ok`, and zero foreign-key violations.
+
+The new adversarial tests reject both approver and release-authorizer identity rebinding when the forged identities belong to different active humans with the same roles. The migration test verifies clean v35→v36 upgrade. The fail-closed migration test seeds a v35 event with a forged approver identity and verifies the upgrade aborts without advancing `user_version` or installing the new trigger.
+
+This confirms the local SQLite migration and test suite only. It does not close PostgreSQL parity, authenticated-session freshness, production staging service, or other Section 9 release gates. Later documentation-only commits do not change the tested code commit.
