@@ -61,7 +61,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     connection = FakeConnection()
     applied = apply_postgres_migrations(connection)
 
-    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
     assert connection.commits == 1
     assert connection.rollbacks == 0
     sql = [statement[0] for statement in connection.db_cursor.statements]
@@ -78,6 +78,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     study_sql = next(statement for statement in sql if "CREATE TABLE benchmark_study_protocols" in statement)
     specialized_learning_sql = next(statement for statement in sql if "learning_claim_has_evidence_provenance" in statement)
     pipeline_run_sql = next(statement for statement in sql if "CREATE TABLE pipeline_runs" in statement)
+    checkpoint_sql = next(statement for statement in sql if "CREATE TABLE pipeline_stage_checkpoints" in statement)
     assert "CREATE TABLE audit_chain_head" in migration_sql
     assert "audit_events_no_update" in migration_sql
     assert "audit_events_no_delete" in migration_sql
@@ -121,6 +122,9 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert "pipeline_runs_validate_write" in pipeline_run_sql
     assert "pipeline_run_revisions_no_update" in pipeline_run_sql
     assert "pipeline_run_revision must match current record" in pipeline_run_sql
+    assert "pipeline_stage_checkpoint_revision_snapshot" in checkpoint_sql
+    assert "pipeline_stage_checkpoint_revisions_no_update" in checkpoint_sql
+    assert "provider operation reference is immutable once recorded" in checkpoint_sql
     assert connection.db_cursor.rows[0][0:2] == (1, "0001_audit_chain.sql")
     assert connection.db_cursor.rows[1][0:2] == (2, "0002_audit_head_guards.sql")
     assert connection.db_cursor.rows[2][0:2] == (3, "0003_source_permission_domain_registry.sql")
@@ -133,12 +137,13 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert connection.db_cursor.rows[9][0:2] == (10, "0010_benchmark_study_evidence.sql")
     assert connection.db_cursor.rows[10][0:2] == (11, "0011_learning_specialized_evidence.sql")
     assert connection.db_cursor.rows[11][0:2] == (12, "0012_pipeline_runs.sql")
+    assert connection.db_cursor.rows[12][0:2] == (13, "0013_pipeline_stage_checkpoints.sql")
     assert all(row[2].startswith("sha256:") for row in connection.db_cursor.rows)
 
     applied_again = apply_postgres_migrations(connection)
     assert applied_again == ()
     assert connection.commits == 2
-    assert len(connection.db_cursor.rows) == 12
+    assert len(connection.db_cursor.rows) == 13
 
 
 def test_postgres_migration_runner_rejects_modified_applied_migration():
