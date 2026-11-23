@@ -2648,3 +2648,110 @@ def test_postgres_staging_permission_evaluator_locks_and_checks_relational_evide
         )
         assert denied_source.allowed is False
         assert denied_source.reason == "source_not_active"
+
+
+def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_heads(postgres_schema):
+    from sngso_engine.postgres_edition_read import (
+        PostgresEditionReadAdapterIncomplete, PostgresEditionRegistryReadView,
+    )
+
+    connect = postgres_schema
+    stamp = "2026-11-23T00:00:00Z"
+    story_id = "story:read-view"
+    learning_id = "learning:read-view"
+    source_id = "source:read-view"
+    endpoint_id = "endpoint:read-view"
+    pipeline_id = "pipeline:read-view"
+
+    with connect() as connection:
+        story_payload = {
+            "id": story_id, "canonical_title": "Read-view fixture", "status": "active",
+            "article_ids": [],
+        }
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('story', %s, 1, %s, %s, %s, 'fixture', 'initial', %s)",
+            (story_id, stamp, stamp, json.dumps(story_payload), stamp),
+        )
+        connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('story', %s, 1, %s, 'fixture', 'initial', %s)",
+            (story_id, stamp, json.dumps(story_payload)),
+        )
+        learning_payload = {
+            "id": learning_id, "story_id": story_id, "kind": "headline_summary",
+            "language": "en", "variant_group_id": "variant:read-view",
+            "status": "draft", "claim_ids": [], "created_at": stamp,
+        }
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, variant_group_id, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, 'headline_summary', 'en', 'variant:read-view', "
+            "'draft', 1, %s, %s, 'fixture', 'initial', %s)",
+            (learning_id, story_id, stamp, stamp, json.dumps(learning_payload)),
+        )
+        source_payload = {
+            "id": source_id, "publisher_name": "Read View Publisher",
+            "status": "active", "created_at": stamp, "updated_at": stamp,
+        }
+        connection.execute(
+            "INSERT INTO sources "
+            "(id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, 'active', %s, %s, %s)",
+            (source_id, source_payload["publisher_name"], stamp, stamp, json.dumps(source_payload)),
+        )
+        endpoint_payload = {
+            "id": endpoint_id, "source_id": source_id,
+            "endpoint_uri": "https://read-view.example/feed", "status": "active",
+            "created_at": stamp, "updated_at": stamp,
+        }
+        connection.execute(
+            "INSERT INTO source_endpoints "
+            "(id, source_id, endpoint_uri, status, created_at, updated_at, payload_json) "
+            "VALUES (%s, %s, %s, 'active', %s, %s, %s)",
+            (
+                endpoint_id, source_id, endpoint_payload["endpoint_uri"],
+                stamp, stamp, json.dumps(endpoint_payload),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, reason, "
+            "languages_json, principal_kind) "
+            "VALUES ('principal:read-view', 'Read View', %s, 1, %s, 'fixture', "
+            "'initial', '[]', 'human')",
+            (json.dumps(["edition_approver"]), stamp),
+        )
+        pipeline_payload = {
+            "schema_version": "1.0.0", "id": pipeline_id, "status": "queued",
+            "started_at": stamp, "software_version": "test-1",
+            "config_hash": "sha256:" + "f" * 64,
+            "input_hashes": [], "initiated_by": "integration-test",
+        }
+        connection.execute(
+            "INSERT INTO pipeline_runs "
+            "(id, status, revision, started_at, payload_json) "
+            "VALUES (%s, 'queued', 1, %s, %s)",
+            (pipeline_id, stamp, json.dumps(pipeline_payload)),
+        )
+
+    with connect() as connection:
+        view = PostgresEditionRegistryReadView(connection.cursor())
+        assert view.get_domain_record("story", story_id).to_payload() == story_payload
+        assert view.domain_record_history("story", story_id)[0]["revision"] == 1
+        learning = view.get_learning_object(learning_id)
+        assert learning is not None and learning.revision == 1
+        assert learning.to_payload() == learning_payload
+        assert view.learning_object_history(learning_id)[0]["revision"] == 1
+        assert view.get_source(source_id).to_payload() == source_payload
+        assert view.get_endpoint(endpoint_id).to_payload() == endpoint_payload
+        assert view.get_benchmark_principal("principal:read-view")["active"] is True
+        assert view.get_pipeline_run(pipeline_id)["record"] == pipeline_payload
+        with pytest.raises(PostgresEditionReadAdapterIncomplete, match="story snapshot"):
+            view.story_editorial_snapshot(story_id)
+        with pytest.raises(PostgresEditionReadAdapterIncomplete, match="quality gates"):
+            view.learning_object_quality_report(learning_id)
