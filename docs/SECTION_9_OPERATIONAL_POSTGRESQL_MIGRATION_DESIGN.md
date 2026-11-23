@@ -288,3 +288,52 @@ The following names were extracted from the current migration definitions. They 
 
 
 The migration-by-migration source inventory is maintained in the [PostgreSQL schema inventory](SECTION_9_POSTGRESQL_SCHEMA_INVENTORY.md). It enumerates all 35 migration definitions and the source-declared tables, indexes, and triggers. All 138 trigger bodies now have source-level semantic review records; PostgreSQL implementation mappings and conformance tests remain outstanding.
+
+
+## 13. Edition staging transaction boundary
+
+The edition staging tables are part of the same registry and audit-chain consistency boundary. They must not be left in SQLite while other audit-producing registry writes move to PostgreSQL.
+
+### 13.1 State serialization
+
+`edition_staging_channel_state` is a singleton head for channel `staging`. A PostgreSQL staging operation must:
+
+1. Begin a transaction and lock the singleton state row with `SELECT ... FOR UPDATE`.
+2. Read the current revision and pointers only after acquiring that lock.
+3. Validate the requested transition against that locked state. The next event revision is exactly current revision plus one.
+4. Insert one immutable `edition_staging_events` row whose canonical payload and export-package projection agree with every indexed column.
+5. Advance the singleton state with a compare-and-swap predicate on the prior revision. Require exactly one updated row.
+6. Append the matching global audit event and advance the audit-chain head in the same transaction.
+7. Commit once. A failed insert, state update, audit append, connection error before commit, or failed deferred constraint must leave no partial event/state/audit transition.
+
+The state row lock serializes concurrent promotion and rollback requests. The revision predicate remains mandatory even while the lock is held: it is a durable stale-write guard and makes the expected transition explicit. A process-local mutex or advisory lock is not a substitute.
+
+### 13.2 Authorization and artifact validation
+
+Within the same transaction, validate and lock the referenced immutable artifact, approved staging decision, release authorization, and active human principals. The approver and release authorizer must be distinct; the staging operator must be distinct from both. The authorization must bind the exact manifest, edition revision, and payload digest. The staging path must remain explicitly non-publication-authorized and target only the staging channel.
+
+Principal activity and role membership must be checked at the point of use, not inferred solely from historical decision payloads. The transaction must prevent a concurrent principal deactivation or role rewrite from invalidating the authorization between validation and commit. Use an agreed deterministic row-lock order for these records, and document it alongside the lock order for every other registry mutation before enabling concurrent production traffic.
+
+### 13.3 Promotion and rollback semantics
+
+A promotion introduces an export identity that has not previously been promoted. Its event records the prior current export (if any), and the state transition records the prior current event/export as the last-known-good pointer.
+
+A rollback selects an export identity that already exists in a prior successful promotion event. The rollback event's `export_id` identifies the restored export; `previous_current_export_id` and `lkg_export_id` identify the export that was current immediately before rollback. The new state points to the rollback event and restored export, while its last-known-good pointer records the event/export displaced by the rollback. A rollback to an export with no prior promotion event must fail.
+
+Do not reinterpret the last-known-good pointer as the rollback target. The target is the rollback event's export identity; the last-known-good pointer is the displaced current version. Preserve this distinction in the PostgreSQL model and tests.
+
+### 13.4 Required PostgreSQL conformance cases
+
+The real PostgreSQL suite must use separate connections and include:
+
+- two simultaneous promotions against the same revision: exactly one commits;
+- promotion followed by a second promotion and rollback to the first export;
+- rollback to an export with no prior promotion: rejected without writes;
+- event insert succeeds but state CAS fails: event and audit append roll back;
+- state update succeeds but audit append fails: state and event roll back;
+- concurrent principal deactivation or role change: staging authorization is serialized and cannot pass on stale role state;
+- exact JSON type, missing-key, null, and indexed-column binding cases for both event payload and export package;
+- direct UPDATE/DELETE attempts under the restricted runtime role;
+- audit-chain order and hash verification after concurrent staging and non-staging registry writes.
+
+The current SQLite tests provide local evidence for the promotion/rollback pointer semantics, atomic event/state commit, injected rollback, independent-connection revision contention, and malformed JSON binding rejection. They do not implement a PostgreSQL repository, prove PostgreSQL isolation behavior, or establish production authorization freshness. Those are separate implementation and acceptance gates.
