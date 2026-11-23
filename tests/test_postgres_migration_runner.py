@@ -121,7 +121,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert "question answer evidence must cover every answer claim" in specialized_learning_sql
     assert "pipeline_runs_validate_write" in pipeline_run_sql
     assert "pipeline_run_revisions_no_update" in pipeline_run_sql
-    assert "pipeline_run_revision must match current record" in pipeline_run_sql
+    assert "pipeline run revision must match current record" in pipeline_run_sql
     assert "pipeline_stage_checkpoint_revision_snapshot" in checkpoint_sql
     assert "pipeline_stage_checkpoint_revisions_no_update" in checkpoint_sql
     assert "provider operation reference is immutable once recorded" in checkpoint_sql
