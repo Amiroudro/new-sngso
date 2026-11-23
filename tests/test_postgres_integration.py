@@ -2107,22 +2107,22 @@ def _seed_atomic_staging_case(connection):
 
     now = datetime(2026, 11, 23, 0, 4, tzinfo=timezone.utc)
     operator_identity = AuthenticatedIdentity(
-        principal_id="atomic-operator",
+        principal_id="principal:atomic-operator",
         issuer="https://identity.example",
         audience="sarangsho-editorial",
         authenticated_at=now - timedelta(minutes=1),
         expires_at=now + timedelta(minutes=30),
-        session_id="atomic-operator-session",
-        subject="oidc|atomic-operator",
+        session_id="principal:atomic-operator-session",
+        subject="oidc|principal:atomic-operator",
         authentication_methods=("pwd", "mfa"),
         authentication_context="urn:example:loa:2",
         provider_key_id="key-1",
         provider_adapter="test-oidc",
     )
     principals = (
-        ("atomic-approver", ["edition_approver"]),
-        ("atomic-authorizer", ["edition_release_authorizer"]),
-        ("atomic-operator", ["edition_staging_operator"]),
+        ("principal:atomic-approver", ["edition_approver"]),
+        ("principal:atomic-authorizer", ["edition_release_authorizer"]),
+        ("principal:atomic-operator", ["edition_staging_operator"]),
     )
     for principal_id, roles in principals:
         connection.execute(
@@ -2190,7 +2190,7 @@ def _seed_atomic_staging_case(connection):
     identity_attestation = {
         "issuer": "https://identity.example",
         "audience": "sarangsho-editorial",
-        "subject": "oidc|atomic-approver",
+        "subject": "oidc|principal:atomic-approver",
         "authenticated_at": (now - timedelta(minutes=1)).isoformat(),
         "expires_at": (now + timedelta(minutes=30)).isoformat(),
         "authentication_methods": ["pwd", "mfa"],
@@ -2208,7 +2208,7 @@ def _seed_atomic_staging_case(connection):
         "payload_sha256": payload_sha,
         "decision": "approve",
         "scope": "staging_candidate_review",
-        "principal_id": "atomic-approver",
+        "principal_id": "principal:atomic-approver",
         "role": "edition_approver",
         "decided_at": now.isoformat(),
         "reason": "approved for staging",
@@ -2222,7 +2222,7 @@ def _seed_atomic_staging_case(connection):
         "VALUES (%s, %s, %s, 1, %s, 'approve', %s, %s, %s)",
         (
             "decision:atomic", "manifest:atomic", "edition:atomic", payload_sha,
-            "atomic-approver", now.isoformat(), json.dumps(approval),
+            "principal:atomic-approver", now.isoformat(), json.dumps(approval),
         ),
     )
     authorization = {
@@ -2233,14 +2233,14 @@ def _seed_atomic_staging_case(connection):
         "edition_revision": 1,
         "payload_sha256": payload_sha,
         "approval_decision_id": "decision:atomic",
-        "approver_principal_id": "atomic-approver",
-        "authorizer_principal_id": "atomic-authorizer",
+        "approver_principal_id": "principal:atomic-approver",
+        "authorizer_principal_id": "principal:atomic-authorizer",
         "authorized_at": now.isoformat(),
         "scope": "controlled_release_gate",
         "reason": "independent release authorization",
         "identity_attestation": {
             **identity_attestation,
-            "subject": "oidc|atomic-authorizer",
+            "subject": "oidc|principal:atomic-authorizer",
         },
         "release_authorized": True,
         "publication_authorized": False,
@@ -2253,7 +2253,7 @@ def _seed_atomic_staging_case(connection):
         "VALUES (%s, %s, %s, 1, %s, %s, %s, %s, %s, %s)",
         (
             "authorization:atomic", "manifest:atomic", "edition:atomic", payload_sha,
-            "decision:atomic", "atomic-approver", "atomic-authorizer",
+            "decision:atomic", "principal:atomic-approver", "principal:atomic-authorizer",
             now.isoformat(), json.dumps(authorization),
         ),
     )
