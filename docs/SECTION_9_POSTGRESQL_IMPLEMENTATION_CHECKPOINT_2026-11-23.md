@@ -1118,3 +1118,13 @@ passed **64 PostgreSQL integration tests in 9.97 seconds**, and contract
 validation passed. This verifies draft and approved-summary report parity;
 MCQ distractor quality and vocabulary/glossary quality still need their own
 backend parity fixtures.
+
+
+PostgreSQL now also has a bilingual variant lifecycle test. It creates Bangla
+and English summary variants in one group, rejects a duplicate language
+variant, approves the Bangla revision, and confirms the English variant remains
+draft. [CI run
+#45240196386](https://github.com/Amiroudro/new-sngso/actions/runs/45240196386)
+passed **65 PostgreSQL integration tests in 10.34 seconds**, and contract
+validation passed. This verifies independent review-state behavior and the
+variant uniqueness boundary in PostgreSQL.
