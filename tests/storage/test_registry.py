@@ -3200,3 +3200,156 @@ def test_edition_decision_direct_sql_rejects_payload_identity_or_scope_mismatch(
         assert registry._connection.execute(
             "SELECT COUNT(*) FROM edition_decisions"
         ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("event_id", "event:forged"),
+        ("state_revision", 2),
+        ("channel", "live"),
+        ("operation", "rollback"),
+        ("manifest_id", "manifest:forged"),
+        ("edition_id", "edition:forged"),
+        ("edition_revision", 2),
+        ("payload_sha256", "sha256:" + "c" * 64),
+        ("export_id", "export:forged"),
+        ("export_sha256", "sha256:" + "d" * 64),
+        ("previous_current_export_id", "export:previous"),
+        ("lkg_export_id", "export:lkg"),
+        ("operator_principal_id", "operator:forged"),
+        ("occurred_at", "2026-11-24T00:00:00Z"),
+        ("reason", "forged reason"),
+        ("publication_authorized", True),
+        ("target", "production"),
+    ],
+)
+def test_staging_event_direct_sql_rejects_each_payload_column_mismatch(
+    field, forged_value,
+):
+    with SQLiteRegistry() as registry:
+        payload = {
+            "event_id": "event:expected",
+            "state_revision": 1,
+            "channel": "staging",
+            "operation": "promote",
+            "manifest_id": "manifest:expected",
+            "edition_id": "edition:expected",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+            "export_id": "export:expected",
+            "export_sha256": "sha256:" + "b" * 64,
+            "previous_current_export_id": None,
+            "lkg_export_id": None,
+            "operator_principal_id": "operator:expected",
+            "occurred_at": "2026-11-23T00:00:00Z",
+            "reason": "Staging payload binding test",
+            "publication_authorized": False,
+            "target": "staging",
+        }
+        payload[field] = forged_value
+        export_package = {
+            "export_id": "export:expected",
+            "manifest_id": "manifest:expected",
+            "payload_sha256": "sha256:" + "a" * 64,
+            "target": "staging",
+            "publication_authorized": False,
+        }
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="staging event failed",
+        ):
+            registry._connection.execute(
+                \"\"\"INSERT INTO edition_staging_events
+                   (event_id, state_revision, channel, operation, manifest_id, edition_id,
+                    edition_revision, payload_sha256, export_id, export_sha256,
+                    previous_current_export_id, lkg_export_id, operator_principal_id,
+                    occurred_at, reason, export_package_json, payload_json)
+                   VALUES ('event:expected', 1, 'staging', 'promote',
+                           'manifest:expected', 'edition:expected', 1, ?, 'export:expected',
+                           ?, NULL, NULL, 'operator:expected', '2026-11-23T00:00:00Z',
+                           'Staging payload binding test', ?, ?)\"\"\",
+                (
+                    "sha256:" + "a" * 64,
+                    "sha256:" + "b" * 64,
+                    json.dumps(export_package, sort_keys=True, separators=(",", ":")),
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        state = registry._connection.execute(
+            "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert state["state_revision"] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("export_id", "export:forged"),
+        ("manifest_id", "manifest:forged"),
+        ("payload_sha256", "sha256:" + "c" * 64),
+        ("target", "production"),
+        ("publication_authorized", True),
+    ],
+)
+def test_staging_event_direct_sql_rejects_export_package_binding_mismatch(
+    field, forged_value,
+):
+    with SQLiteRegistry() as registry:
+        payload = {
+            "event_id": "event:expected",
+            "state_revision": 1,
+            "channel": "staging",
+            "operation": "promote",
+            "manifest_id": "manifest:expected",
+            "edition_id": "edition:expected",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+            "export_id": "export:expected",
+            "export_sha256": "sha256:" + "b" * 64,
+            "previous_current_export_id": None,
+            "lkg_export_id": None,
+            "operator_principal_id": "operator:expected",
+            "occurred_at": "2026-11-23T00:00:00Z",
+            "reason": "Export package binding test",
+            "publication_authorized": False,
+            "target": "staging",
+        }
+        export_package = {
+            "export_id": "export:expected",
+            "manifest_id": "manifest:expected",
+            "payload_sha256": "sha256:" + "a" * 64,
+            "target": "staging",
+            "publication_authorized": False,
+        }
+        export_package[field] = forged_value
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="staging event failed",
+        ):
+            registry._connection.execute(
+                \"\"\"INSERT INTO edition_staging_events
+                   (event_id, state_revision, channel, operation, manifest_id, edition_id,
+                    edition_revision, payload_sha256, export_id, export_sha256,
+                    previous_current_export_id, lkg_export_id, operator_principal_id,
+                    occurred_at, reason, export_package_json, payload_json)
+                   VALUES ('event:expected', 1, 'staging', 'promote',
+                           'manifest:expected', 'edition:expected', 1, ?, 'export:expected',
+                           ?, NULL, NULL, 'operator:expected', '2026-11-23T00:00:00Z',
+                           'Export package binding test', ?, ?)\"\"\",
+                (
+                    "sha256:" + "a" * 64,
+                    "sha256:" + "b" * 64,
+                    json.dumps(export_package, sort_keys=True, separators=(",", ":")),
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        assert registry._connection.execute(
+            "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()[0] == 0
