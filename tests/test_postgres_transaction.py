@@ -97,5 +97,5 @@ def test_run_atomic_rejects_connection_missing_psycopg_transaction_api():
         info=SimpleNamespace(transaction_status=SimpleNamespace(name="IDLE"))
     )
 
-    with pytest.raises(TypeError, match="psycopg 3 connection"):
+    with pytest.raises(TypeError, match="psycopg transaction"):
         run_atomic(connection, lambda cursor: None)
