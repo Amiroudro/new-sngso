@@ -120,8 +120,8 @@ transaction, and the staging integration tests exercise rollback and
 competing operations.
 
 Verified evidence:
-- [CI #45240196386](https://github.com/Amiroudro/new-sngso/actions/runs/45240196386):
-  **65 PostgreSQL integration tests passed**; contract validation passed.
+- [CI #45240658878](https://github.com/Amiroudro/new-sngso/actions/runs/45240658878):
+  **66 PostgreSQL integration tests passed**; contract validation passed.
 - Earlier [CI #45235178227](https://github.com/Amiroudro/new-sngso/actions/runs/45235178227):
   58 PostgreSQL integration tests passed, including benchmark readiness and
   evaluator-agreement read-port tests.
