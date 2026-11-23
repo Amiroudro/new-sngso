@@ -913,3 +913,12 @@ its answer claim`); the invalid fixture was removed rather than weakening that
 guard. [CI run #1659](https://github.com/Amiroudro/new-sngso/actions/runs/45228007556)
 passed **53 PostgreSQL integration tests in 10.70 seconds**, with contract
 validation and schema-v36 inspection generation/artifact upload passing.
+
+
+MCQ quality parity is now covered as well. The fixture includes a draft
+multiple-choice question with a current answer claim/evidence pair, two
+options, one correct key, and one distractor rationale. PostgreSQL and SQLite
+reports match; the deterministic rationale-coverage check passes and the
+human-distractor-review warning remains present. [CI run #1661](https://github.com/Amiroudro/new-sngso/actions/runs/45228290897)
+passed **53 PostgreSQL integration tests in 7.90 seconds**, with contract
+validation and schema-v36 inspection generation/artifact upload passing.
