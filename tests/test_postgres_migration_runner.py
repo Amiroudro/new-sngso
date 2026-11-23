@@ -61,7 +61,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     connection = FakeConnection()
     applied = apply_postgres_migrations(connection)
 
-    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
     assert connection.commits == 1
     assert connection.rollbacks == 0
     sql = [statement[0] for statement in connection.db_cursor.statements]
@@ -82,6 +82,8 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     lease_sql = next(statement for statement in sql if "CREATE TABLE pipeline_worker_leases" in statement)
     edition_artifact_sql = next(statement for statement in sql if "CREATE TABLE edition_artifacts" in statement)
     edition_decision_sql = next(statement for statement in sql if "CREATE TABLE edition_decisions" in statement)
+    edition_snapshot_guard_sql = next(statement for statement in sql if "edition_domain_records_no_published_insert" in statement)
+    release_authorization_sql = next(statement for statement in sql if "CREATE TABLE edition_release_authorizations" in statement)
     assert "CREATE TABLE audit_chain_head" in migration_sql
     assert "audit_events_no_update" in migration_sql
     assert "audit_events_no_delete" in migration_sql
@@ -135,6 +137,9 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert "stored edition artifact columns must match manifest" in edition_artifact_sql
     assert "edition_decisions_no_update" in edition_decision_sql
     assert "active human approver" in edition_decision_sql
+    assert "published editions require the controlled release workflow" in edition_snapshot_guard_sql
+    assert "edition_release_authorizations_no_update" in release_authorization_sql
+    assert "independent active human authorizer" in release_authorization_sql
     assert connection.db_cursor.rows[0][0:2] == (1, "0001_audit_chain.sql")
     assert connection.db_cursor.rows[1][0:2] == (2, "0002_audit_head_guards.sql")
     assert connection.db_cursor.rows[2][0:2] == (3, "0003_source_permission_domain_registry.sql")
@@ -151,12 +156,14 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert connection.db_cursor.rows[13][0:2] == (14, "0014_pipeline_worker_leases.sql")
     assert connection.db_cursor.rows[14][0:2] == (15, "0015_edition_artifacts.sql")
     assert connection.db_cursor.rows[15][0:2] == (16, "0016_edition_decisions.sql")
+    assert connection.db_cursor.rows[16][0:2] == (17, "0017_edition_snapshot_guards.sql")
+    assert connection.db_cursor.rows[17][0:2] == (18, "0018_edition_release_authorizations.sql")
     assert all(row[2].startswith("sha256:") for row in connection.db_cursor.rows)
 
     applied_again = apply_postgres_migrations(connection)
     assert applied_again == ()
     assert connection.commits == 2
-    assert len(connection.db_cursor.rows) == 16
+    assert len(connection.db_cursor.rows) == 18
 
 
 def test_postgres_migration_runner_rejects_modified_applied_migration():
