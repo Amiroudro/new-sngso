@@ -4051,6 +4051,17 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
             for statement in denied:
                 with pytest.raises(psycopg.errors.InsufficientPrivilege):
                     restricted.execute(statement)
+            with pytest.raises(psycopg.errors.CheckViolation, match="immutable"):
+                restricted.execute(
+                    "UPDATE edition_artifacts SET manifest_id = 'tampered-manifest' "
+                    "WHERE manifest_id = 'manifest:atomic'"
+                )
+            with pytest.raises(psycopg.errors.CheckViolation, match="primary-key identity"):
+                restricted.execute(
+                    "UPDATE benchmark_principals SET principal_id = 'tampered-principal' "
+                    "WHERE principal_id = %s",
+                    (identity["principal_id"],),
+                )
     finally:
         if schema_name is not None:
             with psycopg.connect(os.environ["TEST_POSTGRES_DSN"], autocommit=True) as admin:
