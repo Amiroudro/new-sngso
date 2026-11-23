@@ -2801,7 +2801,7 @@ def test_domain_record_direct_sql_update_appends_revision_automatically():
                    last_reason = 'Verified database trigger snapshot',
                    last_revision_at = ?
                WHERE record_type = 'story' AND id = 'story:sample-event' AND revision = 1""",
-            ("2026-11-21T00:00:00Z", encoded, "2026-11-23T00:00:00Z"),
+            ("2026-11-21T00:00:00Z", encoded, "9999-12-31T23:59:59Z"),
         )
 
         history = registry.domain_record_history("story", "story:sample-event")
@@ -2856,7 +2856,7 @@ def test_domain_record_sql_guard_rejects_revision_jump_and_article_rebinding():
                        last_reason = 'attempted rebind', last_revision_at = ?
                    WHERE record_type = 'article' AND id = 'article:publisher-a-001'""",
                 (json.dumps(article_payload, sort_keys=True, separators=(",", ":")),
-                 "2026-11-23T00:00:00Z"),
+                 "9999-12-31T23:59:59Z"),
             )
 
 
