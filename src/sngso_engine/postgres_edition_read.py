@@ -290,8 +290,8 @@ class PostgresEditionRegistryReadView:
         )
         current_row = self._cursor.fetchone()
         if (
-            not history
-            or history[-1]["revision"] != current_row[0]
+            len(history) != current_row[0]
+            or [item["revision"] for item in history] != list(range(1, current_row[0] + 1))
             or any(
                 item["record"].get("id") != record_id
                 or ("revision" in item["record"] and item["record"].get("revision") != item["revision"])
@@ -350,8 +350,8 @@ class PostgresEditionRegistryReadView:
         ]
         current = self.get_learning_object(learning_object_id)
         if (
-            not history
-            or history[-1]["revision"] != current.revision
+            len(history) != current.revision
+            or [item["revision"] for item in history] != list(range(1, current.revision + 1))
             or any(
                 item["record"].get("id") != learning_object_id
                 or item["record"].get("story_id") != current.story_id
