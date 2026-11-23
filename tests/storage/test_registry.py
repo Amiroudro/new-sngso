@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 
 import pytest
 
@@ -3677,3 +3678,158 @@ def test_staging_event_insert_rolls_back_when_state_advance_fails():
         assert state["state_revision"] == 0
         assert state["current_event_id"] is None
         assert state["current_export_id"] is None
+
+
+def _staging_variant(event, *, event_id, revision, operation, export_id,
+                     export_sha256, previous_export_id, lkg_export_id):
+    value = json.loads(json.dumps(event))
+    value.update({
+        "event_id": event_id,
+        "state_revision": revision,
+        "operation": operation,
+        "export_id": export_id,
+        "export_sha256": export_sha256,
+        "previous_current_export_id": previous_export_id,
+        "lkg_export_id": lkg_export_id,
+    })
+    package = {
+        "export_id": export_id,
+        "manifest_id": value["manifest_id"],
+        "payload_sha256": value["payload_sha256"],
+        "target": "staging",
+        "publication_authorized": False,
+    }
+    return value, package
+
+
+def _commit_staging_event_and_state(registry, event, export_package):
+    with registry._transaction():
+        _insert_valid_staging_event(registry, event, export_package)
+        cursor = registry._connection.execute(
+            """UPDATE edition_staging_channel_state
+               SET state_revision = ?,
+                   current_event_id = ?,
+                   current_export_id = ?,
+                   lkg_event_id = (
+                       SELECT current_event_id FROM edition_staging_channel_state
+                       WHERE channel = 'staging'
+                   ),
+                   lkg_export_id = ?
+               WHERE channel = 'staging' AND state_revision = ?""",
+            (
+                event["state_revision"], event["event_id"], event["export_id"],
+                event["lkg_export_id"], event["state_revision"] - 1,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("staging state compare-and-swap lost")
+
+
+def test_staging_rollback_requires_and_restores_a_prior_promoted_export():
+    with SQLiteRegistry() as registry:
+        base, _ = _valid_staging_sql_fixture(registry)
+        first, first_package = _staging_variant(
+            base, event_id="event:staging-first", revision=1,
+            operation="promote", export_id="export:staging-first",
+            export_sha256="sha256:" + "1" * 64,
+            previous_export_id=None, lkg_export_id=None,
+        )
+        _commit_staging_event_and_state(registry, first, first_package)
+
+        second, second_package = _staging_variant(
+            base, event_id="event:staging-second", revision=2,
+            operation="promote", export_id="export:staging-second",
+            export_sha256="sha256:" + "2" * 64,
+            previous_export_id="export:staging-first",
+            lkg_export_id="export:staging-first",
+        )
+        _commit_staging_event_and_state(registry, second, second_package)
+
+        rollback, rollback_package = _staging_variant(
+            base, event_id="event:staging-rollback", revision=3,
+            operation="rollback", export_id="export:staging-first",
+            export_sha256=first["export_sha256"],
+            previous_export_id="export:staging-second",
+            lkg_export_id="export:staging-second",
+        )
+        _commit_staging_event_and_state(registry, rollback, rollback_package)
+
+        state = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        history = registry._connection.execute(
+            """SELECT state_revision, operation, export_id, previous_current_export_id
+               FROM edition_staging_events ORDER BY state_revision"""
+        ).fetchall()
+        assert [(row["state_revision"], row["operation"], row["export_id"])
+                for row in history] == [
+                    (1, "promote", "export:staging-first"),
+                    (2, "promote", "export:staging-second"),
+                    (3, "rollback", "export:staging-first"),
+                ]
+        assert state["state_revision"] == 3
+        assert state["current_event_id"] == "event:staging-rollback"
+        assert state["current_export_id"] == "export:staging-first"
+        assert state["lkg_event_id"] == "event:staging-second"
+        assert state["lkg_export_id"] == "export:staging-second"
+
+
+def test_staging_revision_compare_and_swap_serializes_independent_connections(tmp_path):
+    database = tmp_path / "staging-concurrency.sqlite"
+    first_registry = SQLiteRegistry(database)
+    second_registry = None
+    barrier = threading.Barrier(2)
+    outcomes = []
+
+    try:
+        base, _ = _valid_staging_sql_fixture(first_registry)
+        second_registry = SQLiteRegistry(database)
+        candidates = []
+        for index, registry in enumerate((first_registry, second_registry), start=1):
+            event, package = _staging_variant(
+                base,
+                event_id=f"event:staging-race-{index}",
+                revision=1,
+                operation="promote",
+                export_id=f"export:staging-race-{index}",
+                export_sha256="sha256:" + str(index) * 64,
+                previous_export_id=None,
+                lkg_export_id=None,
+            )
+            candidates.append((registry, event, package))
+
+        def attempt(registry, event, package):
+            barrier.wait(timeout=5)
+            try:
+                _commit_staging_event_and_state(registry, event, package)
+            except sqlite3.IntegrityError:
+                outcomes.append("rejected-stale-revision")
+            except RuntimeError as exc:
+                outcomes.append(str(exc))
+            else:
+                outcomes.append("committed")
+
+        workers = [
+            threading.Thread(target=attempt, args=candidate)
+            for candidate in candidates
+        ]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=10)
+        assert all(not worker.is_alive() for worker in workers)
+        assert sorted(outcomes) == ["committed", "rejected-stale-revision"]
+
+        state = first_registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        persisted = first_registry._connection.execute(
+            "SELECT event_id, state_revision FROM edition_staging_events"
+        ).fetchall()
+        assert state["state_revision"] == 1
+        assert len(persisted) == 1
+        assert persisted[0]["event_id"] == state["current_event_id"]
+    finally:
+        if second_registry is not None:
+            second_registry.close()
+        first_registry.close()
