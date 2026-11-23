@@ -1128,3 +1128,16 @@ draft. [CI run
 passed **65 PostgreSQL integration tests in 10.34 seconds**, and contract
 validation passed. This verifies independent review-state behavior and the
 variant uniqueness boundary in PostgreSQL.
+
+
+The PostgreSQL read adapter now exposes
+`verify_independent_bilingual_variants()`, delegating to the canonical
+language-variant verifier while its object, quality-report, and reviewer
+principal reads remain cursor-bound and row-locked. A full SQLite/PostgreSQL
+equivalence test seeds approved Bangla and English variants, distinct
+qualified reviewers, identity attestations, supported claim evidence, and
+language-specific review metadata, then compares the complete verification
+result. [CI run
+#45240658878](https://github.com/Amiroudro/new-sngso/actions/runs/45240658878)
+passed **66 PostgreSQL integration tests in 10.55 seconds**, and contract
+validation passed.
