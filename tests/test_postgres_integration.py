@@ -3219,3 +3219,73 @@ def test_postgres_specialized_learning_evidence_validation_locks_current_claim_a
             "SELECT revision FROM domain_records "
             "WHERE record_type = 'evidence' AND id = 'evidence-lock'"
         ).fetchone() == (1,)
+
+
+def test_postgres_benchmark_review_quality_report_rechecks_artifact_and_draft_state(postgres_schema):
+    from sngso_engine.postgres_edition_read import PostgresEditionRegistryReadView
+
+    connect = postgres_schema
+    artifact = {"artifact_id": "benchmark-quality", "items": [{"id": "item-1"}]}
+    fingerprint = sha256_fingerprint(artifact)
+    stamp = "2026-11-23T00:00:00Z"
+    review = {
+        "review_id": "review-quality",
+        "benchmark_id": "benchmark-quality",
+        "benchmark_fingerprint": fingerprint,
+        "language": "en",
+        "status": "draft",
+        "reviewed_at": stamp,
+        "reviewer": {
+            "reviewer_id": "reviewer-quality",
+            "role": "benchmark_reviewer",
+            "language": "en",
+            "qualification_basis": "Documented editorial and subject-matter experience.",
+        },
+        "source_materials": [],
+        "corrections": [],
+        "adjudication_note": None,
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO benchmark_artifacts "
+            "(artifact_id, language, canonicalization, content_fingerprint, content_json, "
+            "created_at, actor, reason) VALUES (%s, 'en', 'canonical-json-v1', %s, %s, %s, "
+            "'fixture', 'quality report test')",
+            ("benchmark-quality", fingerprint, json.dumps(artifact), stamp),
+        )
+        connection.execute(
+            "INSERT INTO benchmark_reviews "
+            "(review_id, benchmark_id, benchmark_fingerprint, language, status, revision, "
+            "created_at, updated_at, last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, %s, 'en', 'draft', 1, %s, %s, 'fixture', "
+            "'quality report test', %s)",
+            ("review-quality", "benchmark-quality", fingerprint, stamp, stamp, json.dumps(review)),
+        )
+        view = PostgresEditionRegistryReadView(connection.cursor())
+        report = view.benchmark_review_quality_report("review-quality")
+        assert report["revision"] == 1
+        assert report["status"] == "draft"
+        assert report["eligible_for_current_use"] is False
+        checks = {item["name"]: item["passed"] for item in report["checks"]}
+        assert checks == {
+            "approved_review": False,
+            "review_metadata": True,
+            "benchmark_artifact": True,
+            "current_source_permission": True,
+            "adjudication_policy": True,
+        }
+
+
+def test_postgres_benchmark_quality_reports_fail_closed_for_unknown_records(postgres_schema):
+    from sngso_engine.postgres_benchmark_quality import (
+        PostgresBenchmarkQualityError,
+        benchmark_acceptance_review_quality_report,
+        benchmark_review_quality_report,
+    )
+
+    connect = postgres_schema
+    with connect() as connection:
+        with pytest.raises(PostgresBenchmarkQualityError, match="unknown benchmark review"):
+            benchmark_review_quality_report(connection.cursor(), "missing-review")
+        with pytest.raises(PostgresBenchmarkQualityError, match="unknown benchmark acceptance review"):
+            benchmark_acceptance_review_quality_report(connection.cursor(), "missing-acceptance")
