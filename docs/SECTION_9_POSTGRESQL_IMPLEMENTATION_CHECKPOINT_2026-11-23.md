@@ -414,3 +414,35 @@ execution, and acceptance-review records only. Specialized learning evidence
 rules, pipeline runs/checkpoints/leases, edition/release records, production
 runtime-role provisioning, and the atomic staging transaction remain
 outstanding. No live operations were performed.
+
+
+## Follow-up: specialized learning evidence provenance
+
+PostgreSQL migration 0011, `0011_learning_specialized_evidence.sql`, ports
+SQLite migrations 24-25.
+
+Vocabulary learning objects now require a source-evidence ID and exact
+evidence revision that resolve to an evidence domain record linked to one of
+the object's claims. The claim must itself reference that evidence and its
+source/article/observation provenance must match. Comprehension, analysis,
+and MCQ question objects require non-empty, unique answer-evidence references;
+every answer claim must be covered, and each reference must resolve to the
+current supporting evidence revision, include a source locator, belong to
+the object's claims, and retain the claim's source provenance.
+
+The PostgreSQL integration test creates source-backed claim/evidence records,
+accepts valid vocabulary and question objects, rejects a stale vocabulary
+evidence revision, and rejects incomplete answer-claim evidence coverage.
+
+GitHub Actions
+[run #1576](https://github.com/Amiroudro/new-sngso/actions/runs/45217934166)
+passed:
+- PostgreSQL 16 integration suite: **37 passed in 3.36 seconds**.
+- Contract validation: passed.
+- Schema-v36 inspection generation and artifact upload: passed.
+
+This completes the specialized evidence-trigger port for SQLite migrations
+24-25. It does not complete the remaining learning rules (including the
+bilingual editorial rubrics and summary traceability if/where separately
+defined), pipeline runs/checkpoints/leases, edition/release records,
+production runtime-role provisioning, or atomic staging.
