@@ -565,10 +565,12 @@ class PostgresEditionRegistryReadView:
 
     def learning_object_quality_report(self, learning_object_id: str) -> dict[str, Any]:
         if self._learning_object_quality_loader is None:
-            raise PostgresEditionReadAdapterIncomplete(
-                "PostgreSQL learning-object quality gates are not implemented"
+            from .postgres_learning_quality import load_postgres_learning_object_quality_report
+            report = load_postgres_learning_object_quality_report(
+                self._cursor, learning_object_id
             )
-        report = self._learning_object_quality_loader(self._cursor, learning_object_id)
+        else:
+            report = self._learning_object_quality_loader(self._cursor, learning_object_id)
         if not isinstance(report, dict) or not isinstance(
             report.get("meets_registry_quality_gates"), bool
         ):
