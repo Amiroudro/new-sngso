@@ -17,6 +17,7 @@ from typing import Any
 
 from .canonical import canonical_json_bytes, sha256_fingerprint
 from .edition_artifacts import verify_edition_artifact
+from .contracts import validate_payload
 from .postgres_audit import append_audit_event
 from .postgres_transaction import run_atomic
 
@@ -186,7 +187,7 @@ def stage_edition_export(
 
         cursor.execute(
             """SELECT decision_id, decision, principal_id, edition_id,
-                      edition_revision, payload_sha256
+                      edition_revision, payload_sha256, payload_json
                FROM edition_decisions
                WHERE manifest_id = %s
                FOR SHARE""",
@@ -195,7 +196,11 @@ def stage_edition_export(
         approval = cursor.fetchone()
         if approval is None:
             raise PostgresStagingError("staging requires an immutable approval decision")
-        decision_id, decision, approver_id, approved_edition_id, approved_revision, approved_hash = approval
+        (
+            decision_id, decision, approver_id, approved_edition_id,
+            approved_revision, approved_hash, approval_payload_raw,
+        ) = approval
+        approval_payload = _json_object(approval_payload_raw, "approval decision payload")
         if (
             decision != "approve" or approved_edition_id != edition_id
             or approved_revision != edition_revision or approved_hash != payload_sha256
@@ -204,7 +209,8 @@ def stage_edition_export(
 
         cursor.execute(
             """SELECT authorization_id, approval_decision_id, approver_principal_id,
-                      authorizer_principal_id, edition_id, edition_revision, payload_sha256
+                      authorizer_principal_id, edition_id, edition_revision, payload_sha256,
+                      payload_json
                FROM edition_release_authorizations
                WHERE manifest_id = %s
                FOR SHARE""",
@@ -216,7 +222,11 @@ def stage_edition_export(
         (
             authorization_id, authorization_decision_id, authorization_approver_id,
             authorizer_id, authorized_edition_id, authorized_revision, authorized_hash,
+            authorization_payload_raw,
         ) = authorization
+        authorization_payload = _json_object(
+            authorization_payload_raw, "release authorization payload"
+        )
         if (
             authorization_decision_id != decision_id
             or authorization_approver_id != approver_id
@@ -243,10 +253,20 @@ def stage_edition_export(
             or package.get("payload_sha256") != payload_sha256
             or package.get("target") != "staging"
             or package.get("publication_authorized") is not False
+            or package.get("edition_id") != edition_id
+            or package.get("edition_revision") != edition_revision
+            or package.get("edition_payload") != payload
+            or package.get("provenance_manifest") != manifest
+            or package.get("staging_decision") != approval_payload
+            or package.get("release_authorization") != authorization_payload
             or not isinstance(package.get("export_id"), str)
             or not package["export_id"].strip()
         ):
             raise PostgresStagingError("fresh export package is not bound to the exact staging artifact")
+        try:
+            validate_payload("edition-staging-export", package)
+        except (ValueError, FileNotFoundError) as exc:
+            raise PostgresStagingError(f"fresh staging export contract failed: {exc}") from exc
         export_id = package["export_id"]
         export_sha256 = sha256_fingerprint(package)
         package_json = canonical_json_bytes(package).decode("utf-8")
@@ -282,6 +302,7 @@ def stage_edition_export(
         next_lkg_event_id = current_event_id
         next_lkg_export_id = current_export_id
         event_payload = {
+            "schema_version": "1.0.0",
             "event_id": event_id,
             "state_revision": next_revision,
             "channel": "staging",
@@ -299,16 +320,14 @@ def stage_edition_export(
             "reason": reason.strip(),
             "publication_authorized": False,
             "target": "staging",
-            "staging_decision": {
-                "decision_id": decision_id,
-                "principal_id": approver_id,
-            },
-            "release_authorization": {
-                "authorization_id": authorization_id,
-                "authorizer_principal_id": authorizer_id,
-            },
+            "staging_decision": approval_payload,
+            "release_authorization": authorization_payload,
             "operator_identity_attestation": operator_attestation,
         }
+        try:
+            validate_payload("edition-staging-event", event_payload)
+        except (ValueError, FileNotFoundError) as exc:
+            raise PostgresStagingError(f"staging event contract failed: {exc}") from exc
         cursor.execute(
             """INSERT INTO edition_staging_events (
                    event_id, state_revision, channel, operation, manifest_id,
