@@ -3971,6 +3971,26 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
                     sql.Identifier(schema_name), sql.Identifier(role_name)
                 )
             )
+            primary_key_columns = connection.execute(
+                """SELECT kcu.table_name, kcu.column_name
+                   FROM information_schema.table_constraints AS tc
+                   JOIN information_schema.key_column_usage AS kcu
+                     ON kcu.constraint_catalog = tc.constraint_catalog
+                    AND kcu.constraint_schema = tc.constraint_schema
+                    AND kcu.constraint_name = tc.constraint_name
+                    AND kcu.table_schema = tc.table_schema
+                    AND kcu.table_name = tc.table_name
+                   WHERE tc.table_schema = %s AND tc.constraint_type = 'PRIMARY KEY'
+                   ORDER BY kcu.table_name, kcu.ordinal_position""",
+                (schema_name,),
+            ).fetchall()
+            for table_name, column_name in primary_key_columns:
+                connection.execute(
+                    sql.SQL("GRANT UPDATE ({}) ON TABLE {}.{} TO {}").format(
+                        sql.Identifier(column_name), sql.Identifier(schema_name),
+                        sql.Identifier(table_name), sql.Identifier(role_name),
+                    )
+                )
             connection.execute(
                 sql.SQL("GRANT INSERT ON TABLE {}.edition_staging_events, {}.audit_events TO {}").format(
                     sql.Identifier(schema_name), sql.Identifier(schema_name), sql.Identifier(role_name)
