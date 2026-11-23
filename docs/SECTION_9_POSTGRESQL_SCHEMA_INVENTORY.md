@@ -213,7 +213,7 @@ All 35 migration definitions are present and numbered 1–35. Empty object lists
 | Migration definitions | 34 |
 | Distinct table definitions | 47 |
 | Distinct index definitions | 25 |
-| Distinct trigger definitions | 138 |
+| Distinct trigger definitions | 139 |
 
 ## Porting rules
 
@@ -226,4 +226,4 @@ All 35 migration definitions are present and numbered 1–35. Empty object lists
 
 ## Scope warning
 
-This inventory does not prove that every SQL object is represented by a simple declaration regex in future source versions. Re-run extraction after every registry migration and compare it with SQLite `sqlite_master` on a real schema-v35 fixture. The live fixture, `PRAGMA integrity_check`, `PRAGMA foreign_key_check`, and audit-chain verification remain mandatory.
+This inventory does not prove that every SQL object is represented by a simple declaration regex in future source versions. Re-run extraction after every registry migration and compare it with SQLite `sqlite_master` on a real schema-v36 fixture. The live fixture, `PRAGMA integrity_check`, `PRAGMA foreign_key_check`, and audit-chain verification remain mandatory.
