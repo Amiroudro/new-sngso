@@ -2791,6 +2791,43 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
                 "'fixture', 'initial', %s)",
                 (question["id"], story_id, stamp, stamp, json.dumps(question)),
             )
+        mcq_payload = {
+            "schema_version": "1.0.0",
+            "id": "learning:mcq-valid",
+            "story_id": story_id,
+            "kind": "mcq_question",
+            "language": "en",
+            "status": "draft",
+            "content": {
+                "question": "Which action did the central bank announce?",
+                "explanation": "The article reports a policy decision.",
+                "answer_claim_ids": [claim_id],
+                "answer_evidence": [{
+                    "claim_id": claim_id, "evidence_id": evidence_id,
+                    "evidence_revision": 1,
+                }],
+                "options": [
+                    {"id": "a", "text": "A policy decision"},
+                    {"id": "b", "text": "A weather warning"},
+                ],
+                "correct_option_id": "a",
+                "distractor_rationales": [{
+                    "option_id": "b",
+                    "rationale": "The source does not report a weather warning.",
+                    "basis_claim_ids": [claim_id],
+                }],
+            },
+            "claim_ids": [claim_id],
+            "created_at": stamp,
+        }
+        connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES (%s, %s, 'mcq_question', 'en', 'draft', 1, %s, %s, "
+            "'fixture', 'initial', %s)",
+            (mcq_payload["id"], story_id, stamp, stamp, json.dumps(mcq_payload)),
+        )
         source_payload = {
             "id": source_id, "publisher_name": "Read View Publisher",
             "status": "active", "created_at": stamp, "updated_at": stamp,
@@ -2967,6 +3004,13 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
                 "'fixture', 'initial', ?)",
                 (question["id"], story_id, stamp, stamp, json.dumps(question)),
             )
+        sqlite_registry._connection.execute(
+            "INSERT INTO learning_objects "
+            "(id, story_id, kind, language, status, revision, created_at, updated_at, "
+            "last_actor, last_reason, payload_json) "
+            "VALUES (?, ?, 'mcq_question', 'en', 'draft', 1, ?, ?, 'fixture', 'initial', ?)",
+            (mcq_payload["id"], story_id, stamp, stamp, json.dumps(mcq_payload)),
+        )
         sqlite_snapshot = sqlite_registry.story_editorial_snapshot(story_id)
         postgres_snapshot = view.story_editorial_snapshot(story_id)
         assert postgres_snapshot == sqlite_snapshot
@@ -2980,6 +3024,14 @@ def test_postgres_edition_read_view_uses_transaction_cursor_and_checks_revision_
             item for item in postgres_question_quality["checks"]
             if item["name"] == "answer_evidence"
         )["passed"] is True
+        sqlite_mcq_quality = sqlite_registry.learning_object_quality_report(mcq_payload["id"])
+        postgres_mcq_quality = view.learning_object_quality_report(mcq_payload["id"])
+        assert postgres_mcq_quality == sqlite_mcq_quality
+        assert next(
+            item for item in postgres_mcq_quality["checks"]
+            if item["name"] == "mcq_distractor_rationale_coverage"
+        )["passed"] is True
+        assert any(item["check"] == "mcq_human_distractor_review" for item in postgres_mcq_quality["warnings"])
         sqlite_registry.close()
 
 
