@@ -867,3 +867,29 @@ review reporting, and source-independence output (with no ingestion duplicate
 decisions). [CI run #1650](https://github.com/Amiroudro/new-sngso/actions/runs/45226483268)
 passed **53 PostgreSQL integration tests in 17.77 seconds**; contract
 validation and schema-v36 inspection generation/artifact upload passed.
+
+
+## PostgreSQL learning-object quality report port
+
+Added `src/sngso_engine/postgres_learning_quality.py`, a read-only port of
+`SQLiteRegistry.learning_object_quality_report()`. It evaluates editorial
+approval, language-specific review rubrics, MCQ pedagogical review, claim
+existence/provenance, claim evidence, factual-segment support, answer claim
+support, exact answer-evidence locators/revisions, vocabulary source evidence,
+and approved glossary matching. All current learning-object, claim, evidence,
+and glossary rows are locked with `FOR SHARE` inside the caller's transaction.
+
+The PostgreSQL read view now uses both the built-in story snapshot builder and
+the built-in learning-object quality report by default. The staging re-verifier
+factory no longer requires external loader callbacks. Custom loaders remain
+available for parity tests. Benchmark-linked stories still fail closed because
+the benchmark-review and acceptance-review quality reports have not yet been
+ported.
+
+[CI run #1654](https://github.com/Amiroudro/new-sngso/actions/runs/45227156556)
+passed **53 PostgreSQL integration tests in 10.14 seconds**, with contract
+validation and schema-v36 inspection generation/artifact upload passing. The
+new quality parity assertion compares the PostgreSQL report with
+`SQLiteRegistry.learning_object_quality_report()` for a draft headline
+summary with no claims. This verifies deterministic blocker/check ordering for
+that baseline case, not yet the full MCQ, answer-evidence, or vocabulary paths.
