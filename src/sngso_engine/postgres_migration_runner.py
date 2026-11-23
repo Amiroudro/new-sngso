@@ -18,6 +18,7 @@ _MIGRATIONS = (
     (6, "0006_perspectives_claim_relations.sql"),
     (7, "0007_learning_glossary_revisions.sql"),
     (8, "0008_benchmark_review_core.sql"),
+    (9, "0009_benchmark_assignments_identity_scores.sql"),
 )
 
 
