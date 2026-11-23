@@ -61,7 +61,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     connection = FakeConnection()
     applied = apply_postgres_migrations(connection)
 
-    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
     assert connection.commits == 1
     assert connection.rollbacks == 0
     sql = [statement[0] for statement in connection.db_cursor.statements]
@@ -76,6 +76,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     benchmark_sql = next(statement for statement in sql if "CREATE TABLE benchmark_artifacts" in statement)
     assignment_sql = next(statement for statement in sql if "CREATE TABLE benchmark_review_assignments" in statement)
     study_sql = next(statement for statement in sql if "CREATE TABLE benchmark_study_protocols" in statement)
+    specialized_learning_sql = next(statement for statement in sql if "learning_claim_has_evidence_provenance" in statement)
     assert "CREATE TABLE audit_chain_head" in migration_sql
     assert "audit_events_no_update" in migration_sql
     assert "audit_events_no_delete" in migration_sql
@@ -113,6 +114,9 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert "benchmark_study_protocols_no_update" in study_sql
     assert "benchmark_study_executions_no_update" in study_sql
     assert "benchmark_acceptance_reviews_no_update" in study_sql
+    assert "learning_objects_specialized_evidence_insert" in specialized_learning_sql
+    assert "learning_objects_specialized_evidence_update" in specialized_learning_sql
+    assert "question answer evidence must cover every answer claim" in specialized_learning_sql
     assert connection.db_cursor.rows[0][0:2] == (1, "0001_audit_chain.sql")
     assert connection.db_cursor.rows[1][0:2] == (2, "0002_audit_head_guards.sql")
     assert connection.db_cursor.rows[2][0:2] == (3, "0003_source_permission_domain_registry.sql")
@@ -123,12 +127,13 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert connection.db_cursor.rows[7][0:2] == (8, "0008_benchmark_review_core.sql")
     assert connection.db_cursor.rows[8][0:2] == (9, "0009_benchmark_assignments_identity_scores.sql")
     assert connection.db_cursor.rows[9][0:2] == (10, "0010_benchmark_study_evidence.sql")
+    assert connection.db_cursor.rows[10][0:2] == (11, "0011_learning_specialized_evidence.sql")
     assert all(row[2].startswith("sha256:") for row in connection.db_cursor.rows)
 
     applied_again = apply_postgres_migrations(connection)
     assert applied_again == ()
     assert connection.commits == 2
-    assert len(connection.db_cursor.rows) == 10
+    assert len(connection.db_cursor.rows) == 11
 
 
 def test_postgres_migration_runner_rejects_modified_applied_migration():
