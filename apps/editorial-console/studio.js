@@ -12,7 +12,11 @@
   function show(view) {
     if (!labels[view]) return;
     views.forEach(node => node.classList.toggle("active", node.id === "view-" + view));
-    nav.querySelectorAll("[data-view]").forEach(node => node.classList.toggle("active", node.dataset.view === view));
+    nav.querySelectorAll("[data-view]").forEach(node => {
+      const selected = node.dataset.view === view;
+      node.classList.toggle("active", selected);
+      node.setAttribute("aria-current", selected ? "page" : "false");
+    });
     document.getElementById("crumb-current").textContent = labels[view][0];
     document.getElementById("page-title").textContent = labels[view][0];
     document.getElementById("page-subtitle").textContent = labels[view][1];
@@ -74,6 +78,37 @@
     URL.revokeObjectURL(url);
     toast("Demo snapshot exported. It contains prototype metadata only.");
   });
+
+  const storyDetails = {
+    "S-024": {title:"Central bank policy decision", topic:"Economy · Evidence review", summary:"Sample story concerning a central bank policy decision. Conflicting reported figures remain unresolved, so the story must stay in evidence review.", en:"Draft · fact check blocked", bn:"Not approved · translation pending", source:"Four illustrative observations are attached. The reported values conflict; an editor must compare publication time, attribution, scope and the original statement before a claim can be cleared.", claims:["C-204 · Policy rate: verify against the official decision notice.","C-205 · Effective date: confirm the date and time zone.","C-206 · Conflicting figure: unresolved; do not publish as a settled fact."]},
+    "S-023": {title:"Coastal resilience programme", topic:"Climate · Editorial draft", summary:"Sample story about a coastal resilience programme. The evidence links are represented as fixture data and have not been independently verified.", en:"Draft · editorial review", bn:"Not started · independent review required", source:"Three illustrative observations are recorded. Check programme name, funding period and geographic scope against primary documentation.", claims:["C-193 · Programme scope: source comparison required.","C-194 · Funding period: confirm fiscal-year boundaries."]},
+    "S-022": {title:"Public health budget allocation", topic:"Health · Ready for approval", summary:"Sample story about a public health budget allocation. The prototype status is not a real editorial approval.", en:"Ready for human approval", bn:"Language review marked complete · separate approval required", source:"Five illustrative observations are represented. Verify the budget document, allocation category and whether amounts are proposed or approved.", claims:["C-181 · Allocation amount: check the approved budget document.","C-182 · Status: distinguish proposal from final appropriation."]},
+    "S-019": {title:"Regional transport corridor", topic:"Infrastructure · Evidence review", summary:"Sample story about a regional transport corridor. Attribution is not sufficiently clear to support publication.", en:"Draft · attribution blocked", bn:"Not started · do not inherit English status", source:"Two illustrative observations are attached. The cited locator does not identify the responsible speaker or document clearly enough.", claims:["C-118 · Attribution: identify the original speaker or issuing body.","C-119 · Route description: confirm endpoints against the primary source."]}
+  };
+  const dialog = document.getElementById("story-detail-dialog");
+  function openStory(storyId) {
+    const story = storyDetails[storyId];
+    if (!story) return;
+    document.getElementById("story-dialog-title").textContent = story.title;
+    document.getElementById("story-dialog-subtitle").textContent = storyId + " · " + story.topic;
+    document.getElementById("story-dialog-summary").textContent = story.summary;
+    document.getElementById("story-en-state").textContent = story.en;
+    document.getElementById("story-bn-state").textContent = story.bn;
+    document.getElementById("story-source-note").textContent = story.source;
+    const list = document.getElementById("story-claim-list");
+    list.replaceChildren(...story.claims.map(claim => {
+      const item = document.createElement("li");
+      item.textContent = claim;
+      return item;
+    }));
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else toast("Your browser does not support the story detail dialog.");
+  }
+  document.querySelectorAll(".story-open").forEach(button => button.addEventListener("click", () => openStory(button.dataset.storyId)));
+  document.getElementById("story-dialog-close").addEventListener("click", () => dialog.close());
+  document.getElementById("story-dialog-done").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", event => { if (event.target === dialog) dialog.close(); });
+
   const initial = location.hash.replace("#", "");
   show(labels[initial] ? initial : "overview");
 })();
