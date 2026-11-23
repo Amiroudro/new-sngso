@@ -7,6 +7,7 @@ locked until the surrounding transaction commits or rolls back.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .canonical import sha256_fingerprint
@@ -71,7 +72,8 @@ def append_audit_event(
     if previous_sequence == 0 and previous_hash is not None:
         raise PostgresAuditError("empty audit chain head must have a NULL hash")
     if previous_sequence > 0 and (
-        not isinstance(previous_hash, str) or not previous_hash.startswith("sha256:")
+        not isinstance(previous_hash, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", previous_hash) is None
     ):
         raise PostgresAuditError("non-empty audit chain head has an invalid hash")
     if previous_sequence > 0:
