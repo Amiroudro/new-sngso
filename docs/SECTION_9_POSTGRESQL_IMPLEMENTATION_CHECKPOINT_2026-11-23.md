@@ -221,3 +221,32 @@ passed:
 This still does not port the remaining story, timeline, learning, benchmark,
 pipeline, checkpoint, lease, or edition/staging registry domains. Nor does it
 complete the production role matrix or atomic staging workflow.
+
+
+## Follow-up: story decisions and timeline event registry
+
+PostgreSQL migration 0005, `0005_story_timeline.sql`, ports SQLite
+registry migrations 5-7 and the timeline review invariants from migration 10.
+
+It adds append-only story merge/split decisions and their application records,
+including decision and impact SHA-256 fingerprints. It also adds append-only
+timeline events with same-story supersession constraints and a database
+validation trigger. The trigger requires an active registered story, requires
+a non-empty claim list whose claim records all belong to that story, enforces
+reviewer/timestamp/note metadata for approved or rejected events, rejects
+review metadata on unreviewed events, and prevents review timestamps from
+predating event creation.
+
+Integration tests cover a valid decision/application pair, a valid timeline
+event, cross-story claim rejection, incomplete review metadata rejection,
+and mutation attempts against all three append-only record families.
+
+GitHub Actions [run #1535](https://github.com/Amiroudro/new-sngso/actions/runs/45212140902)
+passed:
+- PostgreSQL 16 integration suite: **31 passed in 2.49 seconds**.
+- Contract validation: passed.
+- Live schema-v36 inspection and artifact upload: passed.
+
+The full story/perspective/claim-relations and learning/benchmark/pipeline/
+edition registry families remain outstanding; this migration is not a complete
+schema-v36 port and does not complete production privileges or atomic staging.
