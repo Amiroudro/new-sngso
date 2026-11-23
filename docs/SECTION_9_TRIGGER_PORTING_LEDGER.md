@@ -1,6 +1,6 @@
 # Section 9 Trigger Porting Ledger
 
-Status: **the schema-v35 ledger below is retained as historical evidence; schema v36 is current with 139 source-level reviewed SQLite triggers. PostgreSQL migrations 0001–0022 now implement substantial coverage across the registry, operational pipeline, benchmark, and staging families. A complete one-to-one trigger mapping, adversarial direct-SQL conformance under a restricted runtime role, and full 139-trigger parity acceptance remain open.**
+Status: **the schema-v35 ledger below is retained as historical evidence; schema v36 is current with 139 source-level reviewed SQLite triggers. PostgreSQL migrations 0001–0023 now implement substantial coverage across the registry, operational pipeline, benchmark, and staging families. A complete one-to-one trigger mapping, adversarial direct-SQL conformance under a restricted runtime role, and full 139-trigger parity acceptance remain open.**
 
 Historical evidence source: CI-generated schema-v35 inspection artifact from [GitHub Actions run #45057281125](https://github.com/Amiroudro/new-sngso/actions/runs/45057281125). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
 
@@ -120,8 +120,8 @@ transaction, and the staging integration tests exercise rollback and
 competing operations.
 
 Verified evidence:
-- [CI #45235665664](https://github.com/Amiroudro/new-sngso/actions/runs/45235665664):
-  **59 PostgreSQL integration tests passed**; contract validation passed.
+- [CI #45238770368](https://github.com/Amiroudro/new-sngso/actions/runs/45238770368):
+  **62 PostgreSQL integration tests passed**; contract validation passed.
 - Earlier [CI #45235178227](https://github.com/Amiroudro/new-sngso/actions/runs/45235178227):
   58 PostgreSQL integration tests passed, including benchmark readiness and
   evaluator-agreement read-port tests.
