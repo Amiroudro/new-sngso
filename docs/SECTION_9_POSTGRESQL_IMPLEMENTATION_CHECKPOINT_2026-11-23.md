@@ -730,3 +730,36 @@ yet complete the read adapter: exact PostgreSQL story editorial snapshot
 reconstruction/fingerprint parity, bilingual learning-object quality checks,
 and pipeline-run/artifact freshness verification still need to be ported and
 connected. No staging action is exposed to a live application.
+
+
+## PostgreSQL edition read adapter: pipeline freshness evidence
+
+Added `src/sngso_engine/postgres_edition_read.py` with a cursor-bound
+`PostgresEditionRegistryReadView`. It provides locked, read-only access to
+domain records and their revision history, learning objects and revisions,
+sources, endpoints, permission grants/evidence, benchmark principals, and
+pipeline runs. Exact story-snapshot reconstruction and learning-object quality
+reports remain explicit incomplete ports: the adapter raises
+`PostgresEditionReadAdapterIncomplete` rather than returning a partial or
+misleading result when those exact-parity loaders are absent.
+
+The adapter now also reads every stage checkpoint and its append-only revision
+history, and reads the current worker lease with its complete fencing-token
+history. It uses the caller's transaction cursor and `FOR SHARE` row locks,
+and rejects a checkpoint or lease whose revision history does not terminate
+at the current record revision. This supplies the read-side evidence needed
+for later pipeline freshness checks; it does not itself declare a pipeline
+fresh or authorize staging.
+
+[CI run #1626](https://github.com/Amiroudro/new-sngso/actions/runs/45224233262)
+passed **52 PostgreSQL integration tests in 11.00 seconds**.
+The pull-request merge-validation run
+[#1627](https://github.com/Amiroudro/new-sngso/actions/runs/45224257177)
+also passed **52 PostgreSQL integration tests in 6.25 seconds**.
+Contract validation passed in both runs.
+
+Remaining read-side work is substantial: implement exact story editorial
+snapshot and fingerprint parity, port learning-object quality checks and
+bilingual variant verification, then compose these pieces into a single
+transaction-bound callback for `stage_edition_export()`. The current adapter
+is intentionally incomplete and is not a production staging verifier.
