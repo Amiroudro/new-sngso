@@ -1,6 +1,6 @@
 # Section 9 Content, Provenance, Ingestion, and Learning Trigger Semantic Review
 
-Status: **source-level semantic review completed for all 49 content/provenance/ingestion triggers, including schema-v34 and v35 revision guards. Together with the companion review documents, this completes source-level semantic review of all 138 SQLite triggers. It does not complete direct-SQL conformance, PostgreSQL implementation, or Section 9 production acceptance.**
+Status: **source-level semantic review completed for all 49 content/provenance/ingestion triggers, including schema-v34 and v35 revision guards. Together with the companion review documents, this completes source-level semantic review of all 139 SQLite triggers. It does not complete direct-SQL conformance, PostgreSQL implementation, or Section 9 production acceptance.**
 
 This review covers permission-grant and domain revision history, collection observations, ingestion decisions/current pointers, story perspectives and claim relations, learning objects and their evidence, and bilingual glossary entries.
 
@@ -138,6 +138,6 @@ The glossary revision table also has three separate triggers: `glossary_entry_re
 
 ## 9. Review boundary
 
-This document covers 49 content/provenance/ingestion triggers, including three schema-v34 guards and two schema-v35 domain revision guards. Migration 35 now records the last actor, reason and revision timestamp on each domain-record head and appends matching revision snapshots automatically on every update. Together with the 23 operational triggers, 27 publication/audit/story/timeline triggers, and 39 benchmark-governance triggers in the companion documents, **all 138 of 138 SQLite triggers now have source-level semantic review records**.
+This document covers 49 content/provenance/ingestion triggers, including three schema-v34 guards and two schema-v35 domain revision guards. Migration 35 now records the last actor, reason and revision timestamp on each domain-record head and appends matching revision snapshots automatically on every update. Together with the 23 operational triggers, 28 publication/audit/story/timeline triggers, and 39 benchmark-governance triggers in the companion documents, **all 139 of 139 SQLite triggers now have source-level semantic review records**.
 
 This is a major review milestone, not production completion. Several database-boundary gaps are explicitly identified above and in the companion benchmark/operational reviews. No PostgreSQL migration or PostgreSQL conformance suite has been implemented yet. P0 direct-SQL acceptance and Section 9 production acceptance remain open.
