@@ -85,7 +85,9 @@ BEGIN
               AND artifact.payload_sha256 = NEW.payload_sha256
               AND decision.decision = 'approve'
               AND decision.decision_id = payload #>> '{staging_decision,decision_id}'
+              AND decision.principal_id = payload #>> '{staging_decision,principal_id}'
               AND release_auth.authorization_id = payload #>> '{release_authorization,authorization_id}'
+              AND release_auth.authorizer_principal_id = payload #>> '{release_authorization,authorizer_principal_id}'
               AND release_auth.approval_decision_id = decision.decision_id
               AND release_auth.approver_principal_id = decision.principal_id
               AND release_auth.authorizer_principal_id <> decision.principal_id
