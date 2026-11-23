@@ -88,3 +88,21 @@ These are not implemented or accepted:
 GitHub Actions run [#1463](https://github.com/Amiroudro/new-sngso/actions/runs/45166055307) passed **1,099 tests in 21.51 seconds** on code commit `d49373872c7d22c1ec49758d38edec315f6603c0`. The run generated the schema-v35 inspection artifact (ID `14814905301`).
 
 Two fixture-backed direct-SQL tests now cover the valid staging event/state lifecycle: one commits a fully authorized promotion event and its matching channel-state pointer in a single transaction; the other injects an invalid state revision after the event insert and verifies that both writes roll back. This closes the narrow SQLite database-transaction test gap for the first staging promotion. It does not provide a staging application service, rollback-operation lifecycle coverage, concurrent independent-connection race coverage, or PostgreSQL equivalence. Those remain open acceptance items.
+
+
+## Latest Section 9 verification: staging lifecycle and SQL boundary
+
+GitHub Actions [run #1467](https://github.com/Amiroudro/new-sngso/actions/runs/45172898812) passed the complete Python 3.12 suite: **1,118 passed in 20.58 seconds** on code commit `0268b5455ababb4f60585172bd5a84ed4c99f230`. The live schema-v35 inspection completed and uploaded artifact `14817407520`.
+
+The staging SQL acceptance batch now includes:
+
+- valid promotion event and matching channel-state pointer committed in one transaction;
+- injected invalid state advancement proving the preceding event insert rolls back;
+- two promotions followed by rollback to the earlier promoted export, with current and last-known-good event/export pointers checked;
+- independent SQLite connections racing the same state revision, with exactly one accepted writer;
+- missing required JSON keys and wrong scalar types in event payload and export package;
+- forged channel-state revision and current/last-known-good pointers rejected by the state guard.
+
+The current branch therefore has local SQLite evidence for staging transaction atomicity, rollback semantics, revision serialization, and the listed direct-SQL rejection cases. It still does not have a public application-level staging service, a complete rollback-operation API, PostgreSQL schema/repository implementation, PostgreSQL role/privilege tests, or production authorization freshness. The PostgreSQL migration design now records the staging lock, authorization, rollback-pointer, and conformance requirements in Section 13.
+
+The run above tests code commit `0268b5455ababb4f60585172bd5a84ed4c99f230`. Later documentation-only commits update this acceptance record and the PostgreSQL design; they do not change the tested code.
