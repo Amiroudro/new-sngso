@@ -3,34 +3,7 @@
 -- and evidence heads. This closes the concurrent-update window without
 -- rewriting an already-checksummed migration.
 
-CREATE FUNCTION learning_claim_has_evidence_provenance(claim_payload jsonb, evidence_payload jsonb)
-RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
-BEGIN
-    IF jsonb_typeof(claim_payload -> 'evidence_ids') IS DISTINCT FROM 'array'
-       OR jsonb_typeof(claim_payload -> 'provenance') IS DISTINCT FROM 'array' THEN
-        RETURN FALSE;
-    END IF;
-    RETURN EXISTS (
-        SELECT 1
-        FROM jsonb_array_elements(claim_payload -> 'evidence_ids') AS item(value)
-        WHERE item.value = evidence_payload -> 'id'
-    ) AND EXISTS (
-        SELECT 1
-        FROM jsonb_array_elements(claim_payload -> 'provenance') AS provenance(value)
-        WHERE provenance.value ->> 'source_id' = evidence_payload ->> 'source_id'
-          AND (
-              evidence_payload ->> 'article_id' IS NULL
-              OR provenance.value ->> 'article_id' = evidence_payload ->> 'article_id'
-          )
-          AND (
-              evidence_payload ->> 'observation_id' IS NULL
-              OR provenance.value ->> 'observation_id' = evidence_payload ->> 'observation_id'
-          )
-    );
-END;
-$$;
-
-CREATE FUNCTION validate_learning_object_specialized_evidence()
+CREATE OR REPLACE FUNCTION validate_learning_object_specialized_evidence()
 RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     payload jsonb;
