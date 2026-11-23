@@ -179,3 +179,28 @@ def test_timeline_event_rows_reject_direct_sql_update_and_delete():
         assert registry.verify_audit_chain() is True
     finally:
         registry.close()
+
+
+@pytest.mark.parametrize("claim_ids", [[], ["claim:unknown"]])
+def test_sqlite_boundary_rejects_empty_or_unregistered_timeline_claims(claim_ids):
+    registry = _prepared()
+    try:
+        payload = _event("event:invalid-claims")
+        payload["claim_ids"] = claim_ids
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="timeline event claims must belong to its story",
+        ):
+            registry._connection.execute(
+                """INSERT INTO timeline_events
+                (id, story_id, occurred_sort_key, precision, supersedes_event_id, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    payload["id"], payload["story_id"], "2026-11-19", "date",
+                    None, STAMP, json.dumps(payload),
+                ),
+            )
+        assert registry.story_timeline("story:one") == []
+        assert registry.verify_audit_chain() is True
+    finally:
+        registry.close()
