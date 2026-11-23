@@ -2499,3 +2499,152 @@ def test_postgres_atomic_staging_rollback_restores_prior_export_and_tracks_lkg(p
         assert connection.execute(
             "SELECT sequence FROM audit_chain_head WHERE singleton_id = 1"
         ).fetchone()[0] == 3
+
+
+def _seed_postgres_permission_case(connection):
+    source_id = "source:rights-fixture"
+    endpoint_id = "endpoint:rights-fixture"
+    grant_id = "grant:rights-fixture"
+    evidence_id = "evidence:rights-fixture"
+    stamp = "2026-11-23T00:00:00Z"
+    connection.execute(
+        "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+        "VALUES (%s, 'Rights Publisher', 'active', %s, %s, %s)",
+        (source_id, stamp, stamp, json.dumps({
+            "id": source_id, "publisher_name": "Rights Publisher", "status": "active",
+            "created_at": stamp, "updated_at": stamp,
+        })),
+    )
+    connection.execute(
+        "INSERT INTO source_endpoints "
+        "(id, source_id, endpoint_uri, status, created_at, updated_at, payload_json) "
+        "VALUES (%s, %s, 'https://rights.example/feed', 'active', %s, %s, %s)",
+        (endpoint_id, source_id, stamp, stamp, json.dumps({
+            "id": endpoint_id, "source_id": source_id,
+            "endpoint_uri": "https://rights.example/feed", "status": "active",
+            "created_at": stamp, "updated_at": stamp,
+        })),
+    )
+    connection.execute(
+        "INSERT INTO permission_evidence "
+        "(id, source_id, review_status, content_fingerprint, captured_at, payload_json) "
+        "VALUES (%s, %s, 'verified', %s, %s, %s)",
+        (
+            evidence_id, source_id, "sha256:" + "e" * 64, stamp,
+            json.dumps({
+                "id": evidence_id, "source_id": source_id,
+                "review_status": "verified",
+                "content_fingerprint": "sha256:" + "e" * 64,
+                "captured_at": stamp,
+            }),
+        ),
+    )
+    operations = {}
+    for name in (
+        "discovery", "metadata", "excerpt_storage", "full_text_storage",
+        "translation", "image_storage", "republication",
+    ):
+        if name == "republication":
+            operations[name] = {
+                "allowed": True, "status": "approved", "conditions": [],
+                "evidence_ids": [evidence_id],
+            }
+        else:
+            operations[name] = {
+                "allowed": False, "status": "denied", "conditions": [],
+            }
+    grant = {
+        "schema_version": "1.0.0",
+        "id": grant_id,
+        "source_id": source_id,
+        "endpoint_ids": [endpoint_id],
+        "status": "approved",
+        "operations": operations,
+        "evidence_ids": [evidence_id],
+        "basis": "Publisher permission record for staging republication",
+        "effective_from": "2026-01-01T00:00:00Z",
+        "effective_until": "2027-01-01T00:00:00Z",
+        "created_at": stamp,
+        "reviewed_at": stamp,
+        "reviewed_by": "human:rights-reviewer",
+    }
+    connection.execute(
+        "INSERT INTO permission_grants "
+        "(id, source_id, status, effective_from, effective_until, revision, payload_json) "
+        "VALUES (%s, %s, 'approved', %s, %s, 1, %s)",
+        (
+            grant_id, source_id, grant["effective_from"],
+            grant["effective_until"], json.dumps(grant),
+        ),
+    )
+    connection.execute(
+        "INSERT INTO grant_endpoints (grant_id, source_id, endpoint_id) VALUES (%s, %s, %s)",
+        (grant_id, source_id, endpoint_id),
+    )
+    connection.execute(
+        "INSERT INTO grant_evidence (grant_id, source_id, evidence_id) VALUES (%s, %s, %s)",
+        (grant_id, source_id, evidence_id),
+    )
+    connection.execute(
+        "INSERT INTO grant_operation_evidence (grant_id, source_id, operation, evidence_id) "
+        "VALUES (%s, %s, 'republication', %s)",
+        (grant_id, source_id, evidence_id),
+    )
+    return source_id, endpoint_id, grant_id, evidence_id
+
+
+def test_postgres_staging_permission_evaluator_locks_and_checks_relational_evidence(postgres_schema):
+    from datetime import datetime, timezone
+    from sngso_engine.postgres_permission_read import evaluate_postgres_grant_for_staging
+
+    connect = postgres_schema
+    evaluation_time = datetime(2026, 11, 23, 0, 4, tzinfo=timezone.utc)
+    with connect() as connection:
+        source_id, endpoint_id, grant_id, evidence_id = _seed_postgres_permission_case(connection)
+
+    with connect() as connection:
+        decision = evaluate_postgres_grant_for_staging(
+            connection.cursor(), grant_id, "republication",
+            endpoint_id=endpoint_id, now=evaluation_time,
+        )
+        assert decision.allowed is True
+        assert decision.reason == "approved"
+        assert decision.permission_id == grant_id
+        assert decision.grant_revision == 1
+
+        wrong_endpoint = evaluate_postgres_grant_for_staging(
+            connection.cursor(), grant_id, "republication",
+            endpoint_id="endpoint:other", now=evaluation_time,
+        )
+        assert wrong_endpoint.allowed is False
+        assert wrong_endpoint.reason == "endpoint_scope_mismatch"
+
+    with connect() as connection:
+        connection.execute(
+            "UPDATE permission_evidence SET review_status = 'pending' WHERE id = %s",
+            (evidence_id,),
+        )
+    with connect() as connection:
+        denied = evaluate_postgres_grant_for_staging(
+            connection.cursor(), grant_id, "republication",
+            endpoint_id=endpoint_id, now=evaluation_time,
+        )
+        assert denied.allowed is False
+        assert denied.reason == "permission_evidence_not_verified"
+
+    with connect() as connection:
+        connection.execute(
+            "UPDATE permission_evidence SET review_status = 'verified' WHERE id = %s",
+            (evidence_id,),
+        )
+        connection.execute(
+            "UPDATE sources SET status = 'inactive' WHERE id = %s",
+            (source_id,),
+        )
+    with connect() as connection:
+        denied_source = evaluate_postgres_grant_for_staging(
+            connection.cursor(), grant_id, "republication",
+            endpoint_id=endpoint_id, now=evaluation_time,
+        )
+        assert denied_source.allowed is False
+        assert denied_source.reason == "source_not_active"
