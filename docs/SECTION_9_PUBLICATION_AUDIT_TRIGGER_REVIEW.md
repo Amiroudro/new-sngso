@@ -1,6 +1,6 @@
 # Section 9 Publication, Staging, and Audit Trigger Semantic Review
 
-Status: **source-level semantic review completed for the 17 edition/publication/staging triggers, 2 audit-event immutability triggers, and 8 story-decision/timeline-event triggers. PostgreSQL implementation remains outstanding.**
+Status: **source-level semantic review completed for the 18 edition/publication/staging triggers, 2 audit-event immutability triggers, and 8 story-decision/timeline-event triggers. PostgreSQL implementation remains outstanding.**
 
 This review is based on the migration SQL in `src/sngso_engine/registry.py`, the edition storage/decision tests, and the staging transaction tests. It is an engineering review of current SQLite enforcement, not proof that the same controls already exist in PostgreSQL.
 
@@ -109,7 +109,7 @@ Story decisions are append-only, but their application ledger also has a uniquen
 
 ## 11. Review boundary
 
-The 27-trigger source-level review in this document and the 23-trigger operational review together cover 50 of the 138 SQLite triggers in schema v35. This is not a claim that all 50 have dedicated direct-SQL negative tests, nor that PostgreSQL equivalence has been implemented. The other 88 triggers remain to be reviewed. Section 9 P0 and production acceptance remain open.
+The 28-trigger source-level review in this document and the 23-trigger operational review together cover 51 of the 139 SQLite triggers in schema v36. This is not a claim that all 50 have dedicated direct-SQL negative tests, nor that PostgreSQL equivalence has been implemented. The other 88 triggers remain outside these two review documents; they are reviewed in the benchmark and content/provenance family documents. Section 9 P0 and production acceptance remain open.
 
 ## Additional direct-SQL acceptance tests committed on the Section 9 branch
 
