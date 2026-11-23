@@ -2431,3 +2431,71 @@ def test_postgres_atomic_staging_serializes_competing_promotions(postgres_schema
         assert connection.execute(
             "SELECT sequence FROM audit_chain_head WHERE singleton_id = 1"
         ).fetchone()[0] == 1
+
+
+def test_postgres_atomic_staging_rollback_restores_prior_export_and_tracks_lkg(postgres_schema):
+    from sngso_engine.postgres_edition_staging import stage_edition_export
+
+    connect = postgres_schema
+    with connect() as connection:
+        identity, now, first_package = _seed_atomic_staging_case(connection)
+    second_package = {**first_package, "export_id": "export:atomic-2"}
+
+    with connect() as connection:
+        first = stage_edition_export(
+            connection,
+            manifest_id="manifest:atomic",
+            operation="promote",
+            identity=identity,
+            reason="first promotion",
+            expected_state_revision=0,
+            reverify_export=lambda cursor, artifact, evaluated_at: first_package,
+            event_id="atomic-first-promotion",
+            now=now,
+        )
+        second = stage_edition_export(
+            connection,
+            manifest_id="manifest:atomic",
+            operation="promote",
+            identity=identity,
+            reason="second promotion",
+            expected_state_revision=1,
+            reverify_export=lambda cursor, artifact, evaluated_at: second_package,
+            event_id="atomic-second-promotion",
+            now=now,
+        )
+        rolled_back = stage_edition_export(
+            connection,
+            manifest_id="manifest:atomic",
+            operation="rollback",
+            identity=identity,
+            reason="restore last known good export",
+            expected_state_revision=2,
+            reverify_export=lambda cursor, artifact, evaluated_at: first_package,
+            event_id="atomic-rollback-event",
+            now=now,
+        )
+
+        assert first["state"]["current_export_id"] == "export:atomic-1"
+        assert second["state"]["lkg_export_id"] == "export:atomic-1"
+        assert rolled_back["state"] == {
+            "channel": "staging",
+            "state_revision": 3,
+            "current_event_id": "atomic-rollback-event",
+            "current_export_id": "export:atomic-1",
+            "lkg_event_id": "atomic-second-promotion",
+            "lkg_export_id": "export:atomic-2",
+        }
+        assert connection.execute(
+            "SELECT operation FROM edition_staging_events ORDER BY state_revision"
+        ).fetchall() == [("promote",), ("promote",), ("rollback",)]
+        assert connection.execute(
+            "SELECT sequence, event_type FROM audit_events ORDER BY sequence"
+        ).fetchall() == [
+            (1, "edition_staging.promoted"),
+            (2, "edition_staging.promoted"),
+            (3, "edition_staging.rolled_back"),
+        ]
+        assert connection.execute(
+            "SELECT sequence FROM audit_chain_head WHERE singleton_id = 1"
+        ).fetchone()[0] == 3
