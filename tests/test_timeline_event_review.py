@@ -165,7 +165,7 @@ def test_timeline_event_rows_reject_direct_sql_update_and_delete():
     registry = _prepared()
     try:
         registry.add_timeline_event(_event("event:immutable"))
-        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        with pytest.raises(sqlite3.IntegrityError, match="append-only")
             registry._connection.execute(
                 "UPDATE timeline_events SET created_at = ? WHERE id = ?",
                 ("2026-11-21T00:00:00Z", "event:immutable"),
