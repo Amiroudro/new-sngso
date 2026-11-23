@@ -547,6 +547,18 @@ class PostgresEditionRegistryReadView:
             "reason": reason,
         }
 
+    def benchmark_review_quality_report(self, review_id: str, *, now: Any = None) -> dict[str, Any]:
+        """Recheck benchmark review eligibility under this transaction's shared locks."""
+        from .postgres_benchmark_quality import benchmark_review_quality_report
+        return benchmark_review_quality_report(self._cursor, review_id, now=now)
+
+    def benchmark_acceptance_review_quality_report(
+        self, review_id: str, *, now: Any = None
+    ) -> dict[str, Any]:
+        """Recheck study acceptance evidence and source-review coverage under locks."""
+        from .postgres_benchmark_quality import benchmark_acceptance_review_quality_report
+        return benchmark_acceptance_review_quality_report(self._cursor, review_id, now=now)
+
     def story_editorial_snapshot(self, story_id: str) -> dict[str, Any]:
         if self._story_snapshot_loader is None:
             from .postgres_story_snapshot import (
