@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql")]
 
 
 
@@ -1761,3 +1761,135 @@ def test_postgres_edition_artifacts_and_human_approval_decisions_are_bound_and_i
                 "DELETE FROM edition_decisions WHERE decision_id = 'decision-edition-1'"
             )
         connection.rollback()
+
+
+
+def test_postgres_edition_release_authorization_requires_independent_human_authority(postgres_schema):
+    connect = postgres_schema
+    fingerprint = "sha256:" + "b" * 64
+    manifest = {
+        "manifest_id": "manifest-release-1", "edition_id": "edition-release",
+        "edition_revision": 1, "payload_sha256": fingerprint
+    }
+    approval = {
+        "schema_version": "1.0.0", "decision_id": "decision-release-1",
+        "manifest_id": "manifest-release-1", "edition_id": "edition-release",
+        "edition_revision": 1, "payload_sha256": fingerprint,
+        "decision": "approve", "scope": "staging_candidate_review",
+        "principal_id": "release-approver", "role": "edition_approver",
+        "decided_at": "2026-11-23T00:01:00Z", "reason": "approved",
+        "identity_attestation": {"issuer": "https://identity.example"},
+        "publication_authorized": False
+    }
+    authorization = {
+        "schema_version": "1.0.0", "authorization_id": "release-auth-1",
+        "manifest_id": "manifest-release-1", "edition_id": "edition-release",
+        "edition_revision": 1, "payload_sha256": fingerprint,
+        "approval_decision_id": "decision-release-1",
+        "approver_principal_id": "release-approver",
+        "authorizer_principal_id": "release-authorizer",
+        "authorized_at": "2026-11-23T00:02:00Z",
+        "scope": "controlled_release_gate", "release_authorized": True,
+        "publication_authorized": False
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, reason, principal_kind) "
+            "VALUES ('release-approver', 'Approver', %s, 1, '2026-11-23T00:00:00Z', "
+            "'admin', 'approver', 'human'), "
+            "('release-authorizer', 'Authorizer', %s, 1, '2026-11-23T00:00:00Z', "
+            "'admin', 'authorizer', 'human')",
+            (json.dumps(["edition_approver"]), json.dumps(["edition_release_authorizer"])),
+        )
+        connection.execute(
+            "INSERT INTO edition_artifacts "
+            "(manifest_id, edition_id, edition_revision, payload_sha256, payload_json, "
+            "manifest_json, verification_json, created_at, actor, reason) "
+            "VALUES ('manifest-release-1', 'edition-release', 1, %s, %s, %s, %s, "
+            "'2026-11-23T00:00:00Z', 'verifier', 'verified for release gate')",
+            (
+                fingerprint, json.dumps({"edition_id": "edition-release"}),
+                json.dumps(manifest), json.dumps({"verified": True})
+            ),
+        )
+        connection.execute(
+            "INSERT INTO edition_decisions "
+            "(decision_id, manifest_id, edition_id, edition_revision, payload_sha256, "
+            "decision, principal_id, decided_at, payload_json) "
+            "VALUES ('decision-release-1', 'manifest-release-1', 'edition-release', 1, %s, "
+            "'approve', 'release-approver', '2026-11-23T00:01:00Z', %s)",
+            (fingerprint, json.dumps(approval)),
+        )
+        connection.execute(
+            "INSERT INTO edition_release_authorizations "
+            "(authorization_id, manifest_id, edition_id, edition_revision, payload_sha256, "
+            "approval_decision_id, approver_principal_id, authorizer_principal_id, "
+            "authorized_at, payload_json) "
+            "VALUES ('release-auth-1', 'manifest-release-1', 'edition-release', 1, %s, "
+            "'decision-release-1', 'release-approver', 'release-authorizer', "
+            "'2026-11-23T00:02:00Z', %s)",
+            (fingerprint, json.dumps(authorization)),
+        )
+        assert connection.execute(
+            "SELECT approver_principal_id, authorizer_principal_id "
+            "FROM edition_release_authorizations WHERE authorization_id = 'release-auth-1'"
+        ).fetchone() == ("release-approver", "release-authorizer")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO edition_release_authorizations "
+                    "(authorization_id, manifest_id, edition_id, edition_revision, payload_sha256, "
+                    "approval_decision_id, approver_principal_id, authorizer_principal_id, "
+                    "authorized_at, payload_json) "
+                    "VALUES ('release-auth-same-person', 'manifest-release-1', 'edition-release', 1, %s, "
+                    "'decision-release-1', 'release-approver', 'release-approver', "
+                    "'2026-11-23T00:03:00Z', %s)",
+                    (fingerprint, json.dumps({
+                        **authorization,
+                        "authorization_id": "release-auth-same-person",
+                        "authorizer_principal_id": "release-approver",
+                        "authorized_at": "2026-11-23T00:03:00Z"
+                    })),
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM edition_release_authorizations "
+                "WHERE authorization_id = 'release-auth-1'"
+            )
+        connection.rollback()
+
+
+def test_postgres_edition_domain_snapshots_cannot_bypass_controlled_publication(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.CheckViolation, match="controlled release workflow"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO domain_records "
+                    "(record_type, id, revision, created_at, updated_at, payload_json) "
+                    "VALUES ('edition', 'edition-published', 1, '2026-11-23T00:00:00Z', "
+                    "'2026-11-23T00:00:00Z', %s)",
+                    (json.dumps({"id": "edition-published", "status": "published"}),),
+                )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json) "
+            "VALUES ('edition', 'edition-draft', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "edition-draft", "status": "draft"}),),
+        )
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE domain_records SET revision = 2 "
+                    "WHERE record_type = 'edition' AND id = 'edition-draft'"
+                )
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            with connection.transaction():
+                connection.execute(
+                    "DELETE FROM domain_records "
+                    "WHERE record_type = 'edition' AND id = 'edition-draft'"
+                )
