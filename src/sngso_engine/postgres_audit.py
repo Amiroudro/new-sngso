@@ -74,6 +74,16 @@ def append_audit_event(
         not isinstance(previous_hash, str) or not previous_hash.startswith("sha256:")
     ):
         raise PostgresAuditError("non-empty audit chain head has an invalid hash")
+    if previous_sequence > 0:
+        cursor.execute(
+            """SELECT event_hash FROM audit_events WHERE sequence = %s""",
+            (previous_sequence,),
+        )
+        anchor = cursor.fetchone()
+        if anchor is None or anchor[0] != previous_hash:
+            raise PostgresAuditError(
+                "audit chain head does not match its durable event anchor"
+            )
 
     event_hash = sha256_fingerprint({
         "event_id": event_id,
