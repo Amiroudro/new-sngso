@@ -569,6 +569,15 @@ class PostgresEditionRegistryReadView:
         from .postgres_benchmark_quality import benchmark_evaluator_agreement_report
         return benchmark_evaluator_agreement_report(self._cursor, artifact_id, item_id)
 
+    def verify_independent_bilingual_variants(
+        self, bangla_learning_object_id: str, english_learning_object_id: str
+    ) -> dict[str, Any]:
+        """Verify independently reviewed Bangla/English variants under shared locks."""
+        from .language_variants import verify_independent_bilingual_variants
+        return verify_independent_bilingual_variants(
+            self, bangla_learning_object_id, english_learning_object_id
+        )
+
     def story_editorial_snapshot(self, story_id: str) -> dict[str, Any]:
         if self._story_snapshot_loader is None:
             from .postgres_story_snapshot import (
