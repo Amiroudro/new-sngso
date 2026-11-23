@@ -375,3 +375,192 @@ def benchmark_acceptance_review_quality_report(cursor: Any, review_id: str,
             "It is not production authorization and does not establish factual correctness."
         ),
     }
+
+
+def benchmark_evaluator_agreement_report(cursor: Any, artifact_id: str, item_id: str) -> dict[str, Any]:
+    """Return descriptive agreement for human score sheets on one exact item."""
+    cursor.execute(
+        """SELECT language, content_fingerprint, content_json FROM benchmark_artifacts
+           WHERE artifact_id = %s FOR SHARE""",
+        (artifact_id,),
+    )
+    artifact_row = cursor.fetchone()
+    if artifact_row is None:
+        raise PostgresBenchmarkQualityError(f"unknown benchmark artifact: {artifact_id}")
+    artifact = _object(artifact_row[2], "benchmark artifact")
+    if sha256_fingerprint(artifact) != artifact_row[1]:
+        raise PostgresBenchmarkQualityError("registered benchmark artifact fingerprint verification failed")
+    cursor.execute(
+        """SELECT score_id, artifact_fingerprint, evaluator_id, issuer, subject,
+                  provider_key_id, payload_json
+           FROM benchmark_scores WHERE artifact_id = %s AND item_id = %s
+           ORDER BY created_at, score_id FOR SHARE""",
+        (artifact_id, item_id),
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        raise PostgresBenchmarkQualityError("no persisted score sheets exist for this benchmark item")
+    scores: list[dict[str, Any]] = []
+    for score_id, artifact_fp, evaluator_id, issuer, subject, key_id, raw in rows:
+        if artifact_fp != artifact_row[1]:
+            raise PostgresBenchmarkQualityError("stored score does not match the registered artifact fingerprint")
+        cursor.execute(
+            """SELECT principal_kind FROM benchmark_principals
+               WHERE principal_id = %s FOR SHARE""",
+            (evaluator_id,),
+        )
+        principal = cursor.fetchone()
+        if principal is None or principal[0] != "human":
+            raise PostgresBenchmarkQualityError("agreement reports require human-classified evaluator principals")
+        if not issuer or not subject or not key_id:
+            raise PostgresBenchmarkQualityError("agreement report requires provider-attested evaluator provenance")
+        score = _object(raw, "benchmark score")
+        if sha256_fingerprint(score) != _score_fingerprint(cursor, score_id):
+            raise PostgresBenchmarkQualityError("stored score fingerprint verification failed")
+        scores.append(score)
+    from .benchmark_agreement import BenchmarkAgreementError, benchmark_evaluator_agreement
+    try:
+        return benchmark_evaluator_agreement(scores)
+    except BenchmarkAgreementError as exc:
+        raise PostgresBenchmarkQualityError(str(exc)) from exc
+
+
+def _score_fingerprint(cursor: Any, score_id: str) -> str:
+    cursor.execute(
+        "SELECT score_fingerprint FROM benchmark_scores WHERE score_id = %s FOR SHARE",
+        (score_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise PostgresBenchmarkQualityError("benchmark score disappeared during agreement evaluation")
+    return row[0]
+
+
+def benchmark_readiness_report(cursor: Any, artifact_id: str,
+                               *, now: datetime | None = None) -> dict[str, Any]:
+    """Recheck review, reviewer, identity-attestation, and adjudication readiness."""
+    cursor.execute(
+        """SELECT language, content_fingerprint, content_json FROM benchmark_artifacts
+           WHERE artifact_id = %s FOR SHARE""",
+        (artifact_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise PostgresBenchmarkQualityError(f"unknown benchmark artifact: {artifact_id}")
+    artifact = {
+        "artifact_id": artifact_id, "language": row[0], "content_fingerprint": row[1],
+        "fingerprint_verified": sha256_fingerprint(_object(row[2], "benchmark artifact")) == row[1],
+    }
+    cursor.execute(
+        """SELECT review_id, revision, payload_json FROM benchmark_reviews
+           WHERE benchmark_id = %s ORDER BY review_id FOR SHARE""",
+        (artifact_id,),
+    )
+    review_rows = cursor.fetchall()
+    reviews = [(_object(item[2], "benchmark review"), item[1]) for item in review_rows]
+    principals: dict[str, dict[str, Any] | None] = {}
+    for review, _ in reviews:
+        reviewer_id = review.get("reviewer", {}).get("reviewer_id")
+        if reviewer_id and reviewer_id not in principals:
+            cursor.execute(
+                """SELECT active, roles_json, languages_json, principal_kind
+                   FROM benchmark_principals WHERE principal_id = %s FOR SHARE""",
+                (reviewer_id,),
+            )
+            principal_row = cursor.fetchone()
+            principals[reviewer_id] = None if principal_row is None else {
+                "active": bool(principal_row[0]), "roles": json.loads(principal_row[1]),
+                "languages": json.loads(principal_row[2]), "principal_kind": principal_row[3],
+            }
+    eligible = []
+    review_checks = []
+    for review, revision in reviews:
+        reviewer_id = review.get("reviewer", {}).get("reviewer_id")
+        principal = principals.get(reviewer_id)
+        quality = _benchmark_review_quality_report(cursor, review, now)
+        principal_ok = bool(
+            principal and principal["active"] and "benchmark_reviewer" in principal["roles"]
+            and artifact["language"] in principal["languages"]
+        )
+        binding_ok = (
+            review.get("benchmark_fingerprint") == artifact["content_fingerprint"]
+            and review.get("language") == artifact["language"]
+        )
+        cursor.execute(
+            """SELECT principal_id, issuer, audience, subject, provider_key_id,
+                      provider_adapter, expires_at, attested_at
+               FROM benchmark_review_identity_attestations
+               WHERE review_id = %s AND review_revision = %s FOR SHARE""",
+            (review.get("review_id"), revision),
+        )
+        attestation = cursor.fetchone()
+        identity_attested = bool(
+            attestation and attestation[0] == reviewer_id and all(attestation[i] for i in (1, 2, 3, 4, 5))
+        )
+        if identity_attested:
+            try:
+                expires = datetime.fromisoformat(attestation[6].replace("Z", "+00:00"))
+                attested_at = datetime.fromisoformat(attestation[7].replace("Z", "+00:00"))
+                identity_attested = expires.tzinfo is not None and attested_at.tzinfo is not None and attested_at < expires
+            except (TypeError, ValueError):
+                identity_attested = False
+        current = bool(
+            review.get("status") == "approved" and quality["eligible_for_current_use"]
+            and principal_ok and binding_ok
+        )
+        if current:
+            eligible.append((review, principal, identity_attested))
+        review_checks.append({
+            "review_id": review.get("review_id"), "reviewer_id": reviewer_id,
+            "status": review.get("status"),
+            "principal_kind": principal["principal_kind"] if principal else "missing",
+            "active_qualified_principal": principal_ok, "exact_artifact_binding": binding_ok,
+            "current_review_policy_eligible": quality["eligible_for_current_use"],
+            "identity_provider_attested": identity_attested,
+            "eligible_approved_review": current,
+        })
+    distinct_reviewers = {review["reviewer"]["reviewer_id"] for review, _, _ in eligible}
+    kinds = {principal["principal_kind"] for _, principal, _ in eligible}
+    attested_reviewers = {
+        review["reviewer"]["reviewer_id"] for review, principal, attested in eligible
+        if principal["principal_kind"] == "human" and attested
+    }
+    cursor.execute(
+        "SELECT adjudication_id FROM benchmark_adjudications WHERE benchmark_id = %s FOR SHARE",
+        (artifact_id,),
+    )
+    adjudication_rows = cursor.fetchall()
+    blockers = []
+    if not artifact["fingerprint_verified"]:
+        blockers.append("Artifact fingerprint verification failed.")
+    if len(distinct_reviewers) < 2:
+        blockers.append("At least two distinct active, language-qualified reviewers with currently eligible approved reviews are required.")
+    if any(kind != "human" for kind in kinds):
+        blockers.append("Eligible reviews include synthetic, automated, or unverified principals.")
+    if len(attested_reviewers) < 2:
+        blockers.append("At least two eligible human reviews require immutable identity-provider attestations bound to their exact review revisions.")
+    if len(adjudication_rows) == 0:
+        blockers.append("No independent final adjudication is recorded.")
+    if len(adjudication_rows) > 1:
+        blockers.append("Conflicting final adjudications exist.")
+    if not reviews and not eligible:
+        status = "human_review_pending"
+    elif eligible and kinds <= {"synthetic", "automation"}:
+        status = "synthetic_only"
+    elif len(distinct_reviewers) >= 2 and len(attested_reviewers) >= 2 and kinds == {"human"} and not adjudication_rows:
+        status = "ready_for_adjudication"
+    else:
+        status = "human_review_pending"
+    return {
+        "artifact": artifact, "status": status,
+        "eligible_approved_review_count": len(eligible),
+        "distinct_eligible_reviewer_count": len(distinct_reviewers),
+        "reviewer_classifications": sorted(kinds), "reviews": review_checks,
+        "adjudication_count": len(adjudication_rows), "blockers": blockers,
+        "production_ready": False,
+        "warnings": [
+            "principal_kind is an administrative classification; identity attestation depends on the configured provider adapter verifying issuer, audience, signature/key, session revocation, and subject-to-principal mapping.",
+            "This report does not compare review content to determine whether reviewers disagree.",
+            "Only the existing review, permission, and adjudication policy gates can authorize current use; this report grants no approval.",
+        ],
+    }
