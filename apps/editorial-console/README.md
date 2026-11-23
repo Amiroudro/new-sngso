@@ -13,6 +13,7 @@ or external API is required. The prototype uses system font fallbacks and does n
 
 - Editorial overview and pipeline workload
 - Edition list and language/status labels
+- Local-only edition composition with reorder controls and derived pre-publication blockers
 - Story desk with local search, stage filtering, and a read-only story detail file
 - Claim-linked evidence comparison, conflict flags, and illustrative decision history
 - Human review queue for evidence, translation, rights, and attribution
@@ -24,7 +25,7 @@ or external API is required. The prototype uses system font fallbacks and does n
 Every record is illustrative. No publishers are contacted, no source content is
 collected, and no approvals, publication, worker operations, or database writes
 are possible. Backend-dependent controls are disabled. The only export is a
-small JSON file identifying the demo itself.
+small JSON file identifying the demo itself. Edition ordering is temporary browser state and is not persisted.
 
 Do not treat the sample percentages, stories, dates, permissions, or counts as
 real project state.
