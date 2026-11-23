@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql")]
 
 
 
@@ -394,6 +394,110 @@ def test_postgres_story_decisions_and_timeline_event_invariants(postgres_schema)
         connection.rollback()
         assert connection.execute(
             "SELECT count(*) FROM timeline_events"
+        ).fetchone()[0] == 1
+
+
+
+def test_postgres_perspectives_and_claim_relations_preserve_story_provenance(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES ('source-perspective', 'Publisher', 'active', '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "source-perspective"}),),
+        )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json) "
+            "VALUES ('story', 'story-perspective', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({
+                "id": "story-perspective", "status": "active",
+                "article_ids": ["article-perspective"]
+            }),),
+        )
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json) "
+            "VALUES ('article', 'article-perspective', 1, '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({
+                "id": "article-perspective", "source_id": "source-perspective"
+            }),),
+        )
+        for claim_id in ("claim-perspective-a", "claim-perspective-b"):
+            connection.execute(
+                "INSERT INTO domain_records "
+                "(record_type, id, revision, created_at, updated_at, payload_json) "
+                "VALUES ('claim', %s, 1, '2026-11-23T00:00:00Z', "
+                "'2026-11-23T00:00:00Z', %s)",
+                (claim_id, json.dumps({
+                    "id": claim_id, "story_id": "story-perspective"
+                })),
+            )
+        connection.execute(
+            "INSERT INTO perspectives "
+            "(id, story_id, source_id, article_id, created_at, payload_json) "
+            "VALUES ('perspective-1', 'story-perspective', 'source-perspective', "
+            "'article-perspective', '2026-11-23T00:00:00Z', %s)",
+            (json.dumps({
+                "kind": "publisher_framing",
+                "claim_ids": ["claim-perspective-a"],
+                "review_status": "approved",
+                "reviewed_at": "2026-11-23T00:00:00Z",
+                "reviewed_by": "reviewer",
+                "review_note": "Publisher attribution verified"
+            }),),
+        )
+        connection.execute(
+            "INSERT INTO claim_relations "
+            "(id, story_id, claim_id, related_claim_id, relationship, created_at, payload_json) "
+            "VALUES ('claim-relation-1', 'story-perspective', 'claim-perspective-a', "
+            "'claim-perspective-b', 'qualifies', '2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"review_status": "unreviewed"}),),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="publisher framing requires"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO perspectives "
+                    "(id, story_id, source_id, created_at, payload_json) "
+                    "VALUES ('perspective-invalid', 'story-perspective', "
+                    "'source-perspective', '2026-11-23T00:00:00Z', %s)",
+                    (json.dumps({
+                        "kind": "publisher_framing",
+                        "claim_ids": []
+                    }),),
+                )
+        with pytest.raises(psycopg.errors.CheckViolation, match="two different claims"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO claim_relations "
+                    "(id, story_id, claim_id, related_claim_id, relationship, "
+                    "created_at, payload_json) "
+                    "VALUES ('claim-relation-invalid', 'story-perspective', "
+                    "'claim-perspective-a', 'claim-perspective-a', 'contradicts', "
+                    "'2026-11-23T00:00:00Z', %s)",
+                    (json.dumps({}),),
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE perspectives SET created_at = '2026-11-24T00:00:00Z' "
+                "WHERE id = 'perspective-1'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM claim_relations WHERE id = 'claim-relation-1'"
+            )
+        connection.rollback()
+        assert connection.execute(
+            "SELECT count(*) FROM perspectives"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM claim_relations"
         ).fetchone()[0] == 1
 
 
