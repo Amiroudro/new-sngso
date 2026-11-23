@@ -28,6 +28,7 @@ _MIGRATIONS = (
     (16, "0016_edition_decisions.sql"),
     (17, "0017_edition_snapshot_guards.sql"),
     (18, "0018_edition_release_authorizations.sql"),
+    (19, "0019_edition_staging_state.sql"),
 )
 
 
