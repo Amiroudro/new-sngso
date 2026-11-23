@@ -31,7 +31,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -63,7 +63,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql")]
 
 
 
@@ -1560,5 +1560,90 @@ def test_postgres_stage_checkpoints_are_idempotent_revisioned_and_immutable(post
             connection.execute(
                 "UPDATE pipeline_stage_checkpoint_revisions SET reason = 'rewritten' "
                 "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0 AND revision = 1"
+            )
+        connection.rollback()
+
+
+
+def test_postgres_worker_leases_fence_reacquisition_and_preserve_history(postgres_schema):
+    connect = postgres_schema
+    run = {
+        "schema_version": "1.0.0", "id": "lease-run",
+        "status": "queued", "started_at": "2026-11-23T00:00:00Z",
+        "software_version": "engine-2.0",
+        "config_hash": "sha256:" + "1" * 64,
+        "input_hashes": ["sha256:" + "2" * 64], "initiated_by": "operator-1"
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json) "
+            "VALUES (%s, 'queued', 1, %s, %s)",
+            (run["id"], run["started_at"], json.dumps(run)),
+        )
+        connection.execute(
+            "INSERT INTO pipeline_worker_leases "
+            "(pipeline_run_id, worker_id, token_hash, fencing_token, status, acquired_at, "
+            "heartbeat_at, expires_at, revision, updated_at, actor, reason) "
+            "VALUES ('lease-run', 'worker-1', %s, 1, 'active', "
+            "'2026-11-23T00:00:00Z', '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:10:00Z', 1, '2026-11-23T00:00:00Z', "
+            "'worker-1', 'lease acquired')",
+            ("sha256:" + "3" * 64,),
+        )
+        connection.execute(
+            "UPDATE pipeline_worker_leases SET revision = 2, "
+            "heartbeat_at = '2026-11-23T00:01:00Z', expires_at = '2026-11-23T00:11:00Z', "
+            "updated_at = '2026-11-23T00:01:00Z', actor = 'worker-1', reason = 'heartbeat' "
+            "WHERE pipeline_run_id = 'lease-run'",
+        )
+        connection.execute(
+            "UPDATE pipeline_worker_leases SET revision = 3, status = 'released', "
+            "updated_at = '2026-11-23T00:02:00Z', actor = 'worker-1', reason = 'release' "
+            "WHERE pipeline_run_id = 'lease-run'",
+        )
+        connection.execute(
+            "UPDATE pipeline_worker_leases SET revision = 4, worker_id = 'worker-2', "
+            "token_hash = %s, fencing_token = 2, status = 'active', "
+            "acquired_at = '2026-11-23T00:03:00Z', heartbeat_at = '2026-11-23T00:03:00Z', "
+            "expires_at = '2026-11-23T00:13:00Z', updated_at = '2026-11-23T00:03:00Z', "
+            "actor = 'worker-2', reason = 'reacquire after release' "
+            "WHERE pipeline_run_id = 'lease-run'",
+            ("sha256:" + "4" * 64,),
+        )
+        assert connection.execute(
+            "SELECT worker_id, fencing_token, status, revision "
+            "FROM pipeline_worker_leases WHERE pipeline_run_id = 'lease-run'"
+        ).fetchone() == ("worker-2", 2, "active", 4)
+        assert connection.execute(
+            "SELECT revision, worker_id, fencing_token, status "
+            "FROM pipeline_worker_lease_revisions "
+            "WHERE pipeline_run_id = 'lease-run' ORDER BY revision"
+        ).fetchall() == [
+            (1, "worker-1", 1, "active"),
+            (2, "worker-1", 1, "active"),
+            (3, "worker-1", 1, "released"),
+            (4, "worker-2", 2, "active"),
+        ]
+        with pytest.raises(psycopg.errors.CheckViolation, match="invalid worker lease ownership"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE pipeline_worker_leases SET revision = 5, worker_id = 'worker-3', "
+                    "token_hash = %s, fencing_token = 3, heartbeat_at = '2026-11-23T00:04:00Z', "
+                    "expires_at = '2026-11-23T00:14:00Z', updated_at = '2026-11-23T00:04:00Z', "
+                    "actor = 'worker-3', reason = 'invalid takeover of active lease' "
+                    "WHERE pipeline_run_id = 'lease-run'",
+                    ("sha256:" + "5" * 64,),
+                )
+
+    with connect() as connection:
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM pipeline_worker_leases WHERE pipeline_run_id = 'lease-run'"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM pipeline_worker_lease_revisions "
+                "WHERE pipeline_run_id = 'lease-run' AND revision = 1"
             )
         connection.rollback()
