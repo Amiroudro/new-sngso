@@ -16,12 +16,12 @@
       </a>
       <div class="workspace-label">WORKSPACE</div>
       <nav id="primary-nav">
-        <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span>Overview</button>
-        <button class="nav-item" data-view="editions"><span class="nav-icon">▤</span>Editions</button>
-        <button class="nav-item" data-view="stories"><span class="nav-icon">◉</span>Stories</button>
-        <button class="nav-item" data-view="review"><span class="nav-icon">☷</span>Review queue <span class="nav-count">4</span></button>
-        <button class="nav-item" data-view="sources"><span class="nav-icon">◎</span>Sources & rights</button>
-        <button class="nav-item" data-view="operations"><span class="nav-icon">⌁</span>Operations</button>
+        <button class="nav-item active" data-view="overview" aria-current="page"><span class="nav-icon">◫</span>Overview</button>
+        <button class="nav-item" data-view="editions" aria-current="false"><span class="nav-icon">▤</span>Editions</button>
+        <button class="nav-item" data-view="stories" aria-current="false"><span class="nav-icon">◉</span>Stories</button>
+        <button class="nav-item" data-view="review" aria-current="false"><span class="nav-icon">☷</span>Review queue <span class="nav-count">4</span></button>
+        <button class="nav-item" data-view="sources" aria-current="false"><span class="nav-icon">◎</span>Sources & rights</button>
+        <button class="nav-item" data-view="operations" aria-current="false"><span class="nav-icon">⌁</span>Operations</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="demo-note"><span class="pulse"></span><div><b>Prototype workspace</b><small>Local sample data only</small></div></div>
@@ -96,12 +96,19 @@
         <section class="view" id="view-stories">
           <div class="list-toolbar"><label class="search-box"><span>⌕</span><input id="story-search" type="search" placeholder="Search stories, topics or IDs…" aria-label="Search stories"></label><select id="story-filter" aria-label="Filter by status"><option value="all">All statuses</option><option value="Evidence review">Evidence review</option><option value="Editorial draft">Editorial draft</option><option value="Ready for approval">Ready for approval</option></select></div>
           <section class="panel table-panel"><div class="table-wrap"><table id="stories-table"><thead><tr><th>STORY</th><th>TOPIC</th><th>SOURCES</th><th>UPDATED</th><th>STAGE</th></tr></thead><tbody>
-            <tr data-status="Evidence review"><td><b>Central bank policy decision</b><small class="cell-sub">S-024 · Conflicting figures under review</small></td><td>Economy</td><td>4</td><td>23 Nov, 09:10</td><td><span class="status status-review">Evidence review</span></td></tr>
-            <tr data-status="Editorial draft"><td><b>Coastal resilience programme</b><small class="cell-sub">S-023 · Evidence linked</small></td><td>Climate</td><td>3</td><td>23 Nov, 08:45</td><td><span class="status status-draft">Editorial draft</span></td></tr>
-            <tr data-status="Ready for approval"><td><b>Public health budget allocation</b><small class="cell-sub">S-022 · Language review complete</small></td><td>Health</td><td>5</td><td>22 Nov, 18:20</td><td><span class="status status-ready">Ready for approval</span></td></tr>
-            <tr data-status="Evidence review"><td><b>Regional transport corridor</b><small class="cell-sub">S-019 · Attribution clarification needed</small></td><td>Infrastructure</td><td>2</td><td>22 Nov, 16:05</td><td><span class="status status-review">Evidence review</span></td></tr>
+            <tr data-status="Evidence review"><td><button class="story-open" type="button" data-story-id="S-024">Central bank policy decision</button><small class="cell-sub">S-024 · Conflicting figures under review</small></td><td>Economy</td><td>4</td><td>23 Nov, 09:10</td><td><span class="status status-review">Evidence review</span></td></tr>
+            <tr data-status="Editorial draft"><td><button class="story-open" type="button" data-story-id="S-023">Coastal resilience programme</button><small class="cell-sub">S-023 · Evidence linked</small></td><td>Climate</td><td>3</td><td>23 Nov, 08:45</td><td><span class="status status-draft">Editorial draft</span></td></tr>
+            <tr data-status="Ready for approval"><td><button class="story-open" type="button" data-story-id="S-022">Public health budget allocation</button><small class="cell-sub">S-022 · Language review complete</small></td><td>Health</td><td>5</td><td>22 Nov, 18:20</td><td><span class="status status-ready">Ready for approval</span></td></tr>
+            <tr data-status="Evidence review"><td><button class="story-open" type="button" data-story-id="S-019">Regional transport corridor</button><small class="cell-sub">S-019 · Attribution clarification needed</small></td><td>Infrastructure</td><td>2</td><td>22 Nov, 16:05</td><td><span class="status status-review">Evidence review</span></td></tr>
           </tbody></table></div><div class="empty-state" id="stories-empty" hidden>No sample stories match this search.</div></section>
         </section>
+
+        <dialog class="story-dialog" id="story-detail-dialog" aria-labelledby="story-dialog-title">
+          <div class="dialog-head"><div><p class="eyebrow">STORY EVIDENCE FILE · SAMPLE RECORD</p><h2 id="story-dialog-title">Story detail</h2><p id="story-dialog-subtitle"></p></div><button class="dialog-close" id="story-dialog-close" type="button" aria-label="Close story detail">×</button></div>
+          <div class="dialog-grid"><section class="dialog-section"><h3>Editorial summary</h3><p id="story-dialog-summary"></p><div class="variant-grid"><div><span>English variant</span><b id="story-en-state"></b></div><div><span>Bangla variant</span><b id="story-bn-state"></b></div></div></section><section class="dialog-section"><h3>Claim and evidence checks</h3><ul id="story-claim-list"></ul></section></div>
+          <section class="dialog-section provenance"><h3>Source provenance</h3><p id="story-source-note"></p><span class="prototype-inline-note">Illustrative source observations only. No publisher pages are fetched or linked.</span></section>
+          <div class="dialog-foot"><span>Read-only prototype · no approval can be recorded</span><button class="button button-quiet" type="button" id="story-dialog-done">Close file</button></div>
+        </dialog>
 
         <section class="view" id="view-review">
           <div class="review-intro"><div><h2>Human review is a release gate</h2><p>These sample issues require an explicit editorial decision. The prototype does not record approvals.</p></div><span class="status status-review">4 pending</span></div>
