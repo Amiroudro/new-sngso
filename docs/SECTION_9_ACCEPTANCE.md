@@ -63,13 +63,13 @@ revision history and acceptance quality reports rather than failing solely
 because linked benchmark evidence exists.
 
 The latest verified backend test checkpoint is [CI run
-#45240658878](https://github.com/Amiroudro/new-sngso/actions/runs/45240658878):
-**66 PostgreSQL integration tests passed in 10.55 seconds**, and contract
+#45241012257](https://github.com/Amiroudro/new-sngso/actions/runs/45241012257):
+**67 PostgreSQL integration tests passed in 17.60 seconds**, and contract
 validation passed. This includes exact SQLite/PostgreSQL benchmark-linked
 story snapshot comparison, live source-permission rechecking and locking,
 exact study protocol/execution acceptance evidence, the full two-distinct-
 attested-human-review positive path, and draft plus approved-supported-summary learning-object quality report
-parity against SQLite, plus independent Bangla/English variant review states, duplicate-language rejection, and exact SQLite/PostgreSQL independent bilingual-verification parity. The verifier documentation update also
+parity against SQLite, plus independent Bangla/English variant review states, duplicate-language rejection, exact SQLite/PostgreSQL independent bilingual-verification parity, and MCQ distractor-rationale quality report parity. The verifier documentation update also
 passed [CI run #45235298683](https://github.com/Amiroudro/new-sngso/actions/runs/45235298683).
 PR #8 remains draft and unmerged.
 
