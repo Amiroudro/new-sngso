@@ -8,13 +8,13 @@ Scope: 23 triggers in the `pipeline_runs`, `pipeline_run_revisions`, `pipeline_s
 
 | Trigger | Enforced invariant | PostgreSQL enforcement design | Existing/new test evidence |
 |---|---|---|---|
-| `pipeline_run_payload_guard_insert` | Indexed id/status/started_at must equal JSON payload fields | Typed columns plus INSERT trigger or generated/validated JSONB projection | Pipeline-run creation and round-trip tests; direct mismatch test still needed |
-| `pipeline_run_payload_guard_update` | Same projection invariant on every update | UPDATE trigger; reject mismatched JSONB projection | New identity/lifecycle SQL test covers related identity guard, not every projection field |
-| `pipeline_run_identity_guard` | Run ID, start time, software version, config hash, input hashes, and initiator immutable; revision increments exactly one; only queued→running/cancelled/rejected and running→succeeded/failed/cancelled transitions | Row-lock/CAS update plus BEFORE UPDATE trigger using `IS DISTINCT FROM` semantics; explicit transition table | New direct-SQL identity and invalid-transition test; checkpointed pipeline lifecycle tests |
-| `pipeline_runs_no_delete` | Pipeline run rows cannot be deleted | BEFORE DELETE trigger and restricted application role | Direct-SQL negative test still needed |
-| `pipeline_run_revision_no_update` | Run revision history is append-only | BEFORE UPDATE trigger plus restricted application role | Direct-SQL negative test still needed |
-| `pipeline_run_revision_no_delete` | Run revision history is append-only | BEFORE DELETE trigger plus restricted application role | Direct-SQL negative test still needed |
-| `pipeline_run_revision_matches_current` | Inserted revision must match current run head revision and payload | BEFORE INSERT trigger reading locked current head | Transaction/revision tests exist; direct mismatched-revision insert test still needed |
+| `pipeline_run_payload_guard_insert` | Indexed id/status/started_at must equal JSON payload fields | Implemented by `validate_pipeline_run_write` in migrations 0012/0026 using null-safe JSONB comparisons | PostgreSQL direct-SQL mismatched-ID INSERT rejected by `test_postgres_pipeline_run_payload_projection_guards_insert_and_update` (pending exact-head CI) |
+| `pipeline_run_payload_guard_update` | Same projection invariant on every update | Implemented by the same BEFORE UPDATE trigger and JSONB projection checks | PostgreSQL direct-SQL mismatched-status UPDATE rejected by `test_postgres_pipeline_run_payload_projection_guards_insert_and_update` (pending exact-head CI) |
+| `pipeline_run_identity_guard` | Run ID, start time, software version, config hash, input hashes, and initiator immutable; revision increments exactly one; only queued→running/cancelled/rejected and running→succeeded/failed/cancelled transitions | Implemented by BEFORE UPDATE trigger in migrations 0012/0026. Migration 0026 removes extra immutability for `attempt` and `retry_of` that SQLite does not impose | PostgreSQL tests cover immutable input hashes, invalid transition, and mutable attempt/retry_of during queued→running (pending exact-head CI) |
+| `pipeline_runs_no_delete` | Pipeline run rows cannot be deleted | Implemented by BEFORE DELETE trigger in migration 0012 | Direct-SQL DELETE rejection in pipeline-run integration test, verified through run #1972 |
+| `pipeline_run_revision_no_update` | Run revision history is append-only | Implemented by BEFORE UPDATE trigger in migration 0012 | Direct-SQL UPDATE rejection in pipeline-run integration test, verified through run #1972 |
+| `pipeline_run_revision_no_delete` | Run revision history is append-only | Implemented by BEFORE DELETE trigger in migration 0012 | Direct-SQL DELETE rejection in pipeline-run integration test, verified through run #1972 |
+| `pipeline_run_revision_matches_current` | Inserted revision must match current run head revision and payload | Implemented by BEFORE INSERT trigger in migration 0012 | Direct-SQL forged future revision and mismatched current-head payload rejected; future-revision case verified in run #1972, mismatch case pending exact-head CI |
 
 ## 2. Stage checkpoint state and history (9 triggers)
 
@@ -56,14 +56,14 @@ The combined reviewed scope is 23 triggers: 7 pipeline-run, 9 checkpoint, and 7 
 
 ## 5. Outstanding tests before accepting this trigger family
 
-- Direct-SQL payload/index mismatch tests for pipeline-run INSERT and UPDATE.
-- Direct-SQL run-revision UPDATE denial; run-revision DELETE denial and forged future-revision rejection now pass in run #1972.
+- Exact-head CI for pipeline-run payload/index mismatch INSERT and UPDATE, mismatched revision payload, and mutable attempt/retry_of parity tests.
+- Restricted application-role testing for pipeline-run, checkpoint, and lease direct-SQL guards.
 - Checkpoint-head DELETE and worker-lease revision UPDATE denial now pass in run #1970.
 - Direct-SQL checkpoint and lease mutation tests must also run under the eventual restricted production application role.
 - Concurrency tests proving no duplicate revision number, no stale fencing acceptance, and no head/history divergence after process or database failure.
 - Failure-injection tests for transaction rollback across head, snapshot, and audit writes.
 
-The latest exact-head CI, [run #1972](https://github.com/Amiroudro/new-sngso/actions/runs/45413983961), passed both jobs on commit `1245cd8652bf79ebc1fbfd001aff1cfa45d079e5`: **84 PostgreSQL integration tests passed**. It includes forged pipeline-run revision rejection and revision-delete denial. [Run #1970](https://github.com/Amiroudro/new-sngso/actions/runs/45413841397) also passed both jobs and 84 PostgreSQL tests for checkpoint-head DELETE and worker-lease revision UPDATE denial. Runs #1967–#1969 verified the earlier checkpoint and lease cases.
+The latest completed baseline before the pipeline identity parity change is [run #1972](https://github.com/Amiroudro/new-sngso/actions/runs/45413983961), which passed both jobs and all 84 PostgreSQL integration tests. It includes forged pipeline-run revision rejection and revision-history mutation denial. [Run #1970](https://github.com/Amiroudro/new-sngso/actions/runs/45413841397) also passed both jobs and 84 PostgreSQL tests for checkpoint-head DELETE and worker-lease revision UPDATE denial. The new migration 0026 and additional payload-parity cases are awaiting exact-head CI.
 
 ## 6. Review boundary
 
