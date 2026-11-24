@@ -52,7 +52,7 @@ The following properties must remain true through every implementation and migra
 | 4.4 Process supervision | POSIX child lifecycle, bounded output/deadline, process-group cleanup, secret isolation, cancellation IPC | Local primitive implemented; deployment integration remains |
 | 4.5 Recovery authorization | Verified identity bound to worker and run, fail-closed policy | Adapter implemented; trusted request context and real RBAC wiring remain |
 | 4.6 Observability | Bounded labels, privacy constraints, concurrency tests | In-process recorder implemented; remote export and alerting remain |
-| 4.7 Storage portability | Full-registry backend implementation and real-backend conformance suite | PostgreSQL-native migrations 0001–0023, transaction/audit primitives, edition staging, cursor-bound read/quality ports, and 59-test PostgreSQL integration evidence are implemented in draft PR #8. Still not accepted: schema-v36 data import/reconciliation, full trigger-by-trigger adversarial coverage under the deployed runtime role, role provisioning, independent process/topology conformance, backup/restore/cutover rehearsal, and HA/failover evidence. |
+| 4.7 Storage portability | Full-registry backend implementation and real-backend conformance suite | PostgreSQL-native migrations 0001–0024, transaction/audit primitives, edition staging, cursor-bound read/quality ports, and 78-test PostgreSQL integration evidence are implemented in draft PR #8. Migration 0024 installs DELETE guards for 27 append-only tables previously missing PostgreSQL trigger equivalents. Still not accepted: schema-v36 data import/reconciliation, full trigger-by-trigger adversarial coverage under the deployed runtime role, role provisioning, independent process/topology conformance, backup/restore/cutover rehearsal, and HA/failover evidence. |
 | 4.8 Operational runbooks | Reviewed startup, readiness, drain, shutdown, recovery, restore and incident procedures | Runbook guidance exists; target deployment validation remains |
 
 A gate may be marked complete only when its evidence is linked to a commit, CI run, test report, or deployment record. A prose assertion is not sufficient.
@@ -73,7 +73,7 @@ The safe implementation sequence is:
 
 **Exit:** every schema object and invariant is accounted for against a real schema-v36 database, not only regex-derived source text.
 
-**Current repository status (2026-11-24):** PostgreSQL migrations 0001–0022 and the initial cursor-bound repository/read/staging layer now exist on draft PR #8. This supersedes the earlier design-only status, but does not satisfy the P1 exit criteria below. In particular, the current CI creates isolated empty PostgreSQL schemas; it does not import a verified schema-v36 dataset or prove all 139 SQLite trigger semantics under a deployment runtime role.
+**Current repository status (2026-11-24):** PostgreSQL migrations 0001–0024 and the initial cursor-bound repository/read/staging layer now exist on draft PR #8, including the missing append-only DELETE guard slice. This supersedes the earlier design-only status, but does not satisfy the P1 exit criteria below. In particular, the current CI creates isolated empty PostgreSQL schemas; it does not import a verified schema-v36 dataset or prove all 139 SQLite trigger semantics under a deployment runtime role.
 
 ### P1. Define the complete PostgreSQL schema and repository boundary
 
