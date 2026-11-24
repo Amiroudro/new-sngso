@@ -37,12 +37,27 @@
     if (button) show(button.dataset.view);
   });
   document.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click", () => show(button.dataset.go)));
-  document.querySelectorAll(".filter-tab").forEach(button => {
-    button.addEventListener("click", () => {
-      button.parentElement.querySelectorAll(".filter-tab").forEach(tab => tab.classList.remove("selected"));
-      button.classList.add("selected");
-      toast("This filter is a visual prototype. Live edition filtering needs the backend API.");
+  function filterEditions(filterKey) {
+    const cards = [...document.querySelectorAll("#view-editions .edition-card")];
+    let visible = 0;
+    cards.forEach(card => {
+      const matches = filterKey === "all" || card.dataset.editionStatus === filterKey;
+      card.hidden = !matches;
+      if (matches) visible++;
     });
+    document.getElementById("editions-empty").hidden = visible > 0;
+    document.getElementById("edition-results-status").textContent =
+      visible === 0 ? "No sample editions match this filter." :
+      visible === 1 ? "Showing 1 sample edition." :
+      "Showing " + visible + " sample editions.";
+    document.querySelectorAll("[data-edition-filter]").forEach(button => {
+      const selected = button.dataset.editionFilter === filterKey;
+      button.classList.toggle("selected", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+  }
+  document.querySelectorAll("[data-edition-filter]").forEach(button => {
+    button.addEventListener("click", () => filterEditions(button.dataset.editionFilter));
   });
   const search = document.getElementById("story-search");
   const filter = document.getElementById("story-filter");
