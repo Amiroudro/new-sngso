@@ -4990,24 +4990,38 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     from sngso_engine.sqlite_export import _stream_table, _table_metadata
 
     connect = postgres_schema
-    values = (
+    migration_values = [
+        (version, "2026-11-24T00:00:00Z") for version in range(1, 37)
+    ]
+    source_values = (
         "source-row-proof", "Publisher", "active",
         "2026-11-24T00:00:00Z", "2026-11-24T00:00:00Z",
         json.dumps({"id": "source-row-proof"}, separators=(",", ":")),
     )
     with connect() as connection:
         connection.execute(
+            "CREATE TABLE source_migrations_target "
+            "(version bigint PRIMARY KEY, applied_at text NOT NULL)"
+        )
+        connection.executemany(
+            "INSERT INTO source_migrations_target (version, applied_at) VALUES (%s, %s)",
+            migration_values,
+        )
+        connection.execute(
             "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
-            values,
+            source_values,
         )
 
     source_db = tmp_path / "mapped-source.sqlite"
     with sqlite3.connect(source_db) as source:
-        source.execute("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY)")
+        source.execute(
+            "CREATE TABLE schema_migrations "
+            "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
         source.executemany(
-            "INSERT INTO schema_migrations (version) VALUES (?)",
-            [(version,) for version in range(1, 37)],
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            migration_values,
         )
         source.execute("PRAGMA user_version = 36")
         source.execute(
@@ -5020,9 +5034,21 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
                 payload_json TEXT NOT NULL
             )"""
         )
-        source.execute("INSERT INTO sample_sources VALUES (?, ?, ?, ?, ?, ?)", values)
-        metadata = _table_metadata(source, "sample_sources")
-        checksums = _stream_table(source, metadata, batch_size=1)
+        source.execute(
+            "INSERT INTO sample_sources VALUES (?, ?, ?, ?, ?, ?)",
+            source_values,
+        )
+        source_table_entries = []
+        for table_name in ("schema_migrations", "sample_sources"):
+            metadata = _table_metadata(source, table_name)
+            checksums = _stream_table(source, metadata, batch_size=1)
+            source_table_entries.append({
+                **metadata,
+                **checksums,
+                "schema_sha256": hashlib.sha256(
+                    canonical_json_bytes(metadata)
+                ).hexdigest(),
+            })
         objects = source.execute(
             """SELECT type, name, tbl_name, sql FROM sqlite_master
                WHERE type IN ('table', 'index', 'trigger', 'view')
@@ -5049,11 +5075,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
             "schema_sha256": schema_digest,
             "object_counts": object_counts,
         },
-        "tables": [{
-            **metadata,
-            **checksums,
-            "schema_sha256": hashlib.sha256(canonical_json_bytes(metadata)).hexdigest(),
-        }],
+        "tables": source_table_entries,
     }
     manifest["manifest_sha256"] = hashlib.sha256(
         canonical_json_bytes(manifest)
@@ -5061,7 +5083,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
 
     with connect() as connection:
         inventory = inspect_postgres_import_target(connection)
-    columns = [
+    source_columns = [
         "id", "publisher_name", "status", "created_at", "updated_at", "payload_json"
     ]
     mapping = {
@@ -5074,18 +5096,36 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
             "reviewed_at": "2026-11-24T00:00:00Z",
             "reference": "test-row-proof",
         },
-        "tables": [{
-            "source_table": "sample_sources",
-            "target_table": "sources",
-            "columns": [
-                {
-                    "source_column": name,
-                    "target_column": name,
-                    "conversion": "text_identity",
-                }
-                for name in columns
-            ],
-        }],
+        "tables": [
+            {
+                "source_table": "schema_migrations",
+                "target_table": "source_migrations_target",
+                "columns": [
+                    {
+                        "source_column": "version",
+                        "target_column": "version",
+                        "conversion": "integer_to_bigint",
+                    },
+                    {
+                        "source_column": "applied_at",
+                        "target_column": "applied_at",
+                        "conversion": "text_identity",
+                    },
+                ],
+            },
+            {
+                "source_table": "sample_sources",
+                "target_table": "sources",
+                "columns": [
+                    {
+                        "source_column": name,
+                        "target_column": name,
+                        "conversion": "text_identity",
+                    }
+                    for name in source_columns
+                ],
+            },
+        ],
     }
     mapping["mapping_sha256"] = hashlib.sha256(
         canonical_json_bytes(mapping)
@@ -5105,3 +5145,6 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     assert comparison["outcome"] == "INCOMPLETE"
     assert comparison["non_json_values_match"] is True
     assert comparison["issues"] == []
+    assert {
+        item["source_table"] for item in comparison["comparisons"]
+    } == {"schema_migrations", "sample_sources"}
