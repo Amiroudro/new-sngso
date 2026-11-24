@@ -160,3 +160,16 @@ A PostgreSQL 16 service in CI must run the real importer and reconciliation test
 The current branch has PostgreSQL-native migrations through 0023 and real PostgreSQL integration coverage for the implemented registry slices. That does not establish import parity. SQLite schema v36 remains authoritative. The existing PostgreSQL integration fixtures are newly constructed test data, not an imported production-like v36 registry.
 
 No import, restore rehearsal, cutover, production role provisioning, multi-host worker admission, or deployment is claimed by this contract.
+
+## 13. Implemented reconciliation-planner slice (24 November 2026)
+
+The read-only schema-v36 planner now derives a deterministic target import order from the inspected PostgreSQL foreign-key inventory:
+
+- Parent tables are ordered before dependent child tables, regardless of the mapping file order.
+- A cyclic dependency is accepted for planning only when every constraint participating in that cycle is explicitly deferrable; the exact constraints are returned for deferred validation.
+- A non-deferrable cycle, external-schema dependency, unmapped parent, malformed/duplicate constraint record, or missing foreign-key inventory blocks the plan and returns no import order.
+- The planner does not connect to either database, execute SQL, import rows, defer constraints, mutate schema, or authorize cutover.
+
+Regression cases cover reversed parent/child mapping order, a deferrable self-cycle, and rejection of a non-deferrable self-cycle. GitHub Actions [run #45363671654](https://github.com/Amiroudro/new-sngso/actions/runs/45363671654) passed on code head `273434f6362461b8166bf0499142af013fcebf4c`: **1,202 passed, 1 skipped** in the contract job and **73 PostgreSQL integration tests passed**. The run also completed live schema-v36 inspection.
+
+The next import milestone remains separate: isolated bulk load with phase ledger, trigger/constraint restoration, independent per-table row checksum reconciliation, and exact audit-chain import/verification. No data was imported and SQLite remains authoritative.
