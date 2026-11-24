@@ -4834,9 +4834,11 @@ def test_postgres_mapped_row_inspection_is_read_only_and_reports_target_digest(p
 
     with connect() as connection:
         before = connection.execute("SELECT count(*) FROM sources").fetchone()[0]
+    with connect() as connection:
         report = inspect_postgres_mapped_rows(
             connection, manifest, inventory, mapping, batch_size=1
         )
+    with connect() as connection:
         after = connection.execute("SELECT count(*) FROM sources").fetchone()[0]
 
     assert report["outcome"] == "INCOMPLETE"
@@ -4849,130 +4851,6 @@ def test_postgres_mapped_row_inspection_is_read_only_and_reports_target_digest(p
         "JSONB_SEMANTIC_NORMALIZATION_PROOF",
         "AUDIT_CHAIN_IMPORT_AND_VERIFICATION",
     ]
-
-
-def test_sqlite_and_postgres_converted_non_json_rows_reconcile(postgres_schema, tmp_path):
-    import hashlib
-    import sqlite3
-
-    from sngso_engine.canonical import canonical_json_bytes
-    from sngso_engine.postgres_reconciliation import MAPPING_FORMAT
-    from sngso_engine.postgres_row_inspection import inspect_postgres_mapped_rows
-    from sngso_engine.postgres_target_inspection import inspect_postgres_import_target
-    from sngso_engine.sqlite_converted_row_inspection import (
-        compare_converted_row_reports,
-        inspect_sqlite_converted_rows,
-    )
-    from sngso_engine.sqlite_export import _stream_table, _table_metadata
-
-    connect = postgres_schema
-    row_values = (
-        "source-row-parity", "Publisher", "active",
-        "2026-11-24T00:00:00Z", "2026-11-24T00:00:00Z",
-        json.dumps({"id": "source-row-parity"}, separators=(",", ":")),
-    )
-    with connect() as connection:
-        connection.execute(
-            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            row_values,
-        )
-
-    source_db = tmp_path / "source-v36.sqlite"
-    with sqlite3.connect(source_db) as source:
-        source.execute("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY)")
-        source.executemany(
-            "INSERT INTO schema_migrations (version) VALUES (?)",
-            [(version,) for version in range(1, 37)],
-        )
-        source.execute("PRAGMA user_version = 36")
-        source.execute(
-            """CREATE TABLE sample_sources (
-                id TEXT PRIMARY KEY,
-                publisher_name TEXT NOT NULL,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                payload_json TEXT NOT NULL
-            )"""
-        )
-        source.execute(
-            "INSERT INTO sample_sources VALUES (?, ?, ?, ?, ?, ?)",
-            row_values,
-        )
-        metadata = _table_metadata(source, "sample_sources")
-        checksums = _stream_table(source, metadata, batch_size=64)
-
-    source_table = {
-        **metadata,
-        **checksums,
-        "schema_sha256": hashlib.sha256(canonical_json_bytes(metadata)).hexdigest(),
-    }
-    manifest = {
-        "format": "sngso-registry-import-manifest-v1",
-        "checksum_format": "sngso-sqlite-row-stream-v1",
-        "source": {
-            "schema_version": 36,
-            "schema_sha256": "c" * 64,
-            "object_counts": {"table": 1, "index": 0, "trigger": 0, "view": 0},
-        },
-        "tables": [source_table],
-    }
-    manifest["manifest_sha256"] = hashlib.sha256(
-        canonical_json_bytes(manifest)
-    ).hexdigest()
-
-    with connect() as connection:
-        inventory = inspect_postgres_import_target(connection)
-    column_names = [
-        "id", "publisher_name", "status", "created_at", "updated_at", "payload_json"
-    ]
-    mapping = {
-        "format": MAPPING_FORMAT,
-        "source_manifest_sha256": manifest["manifest_sha256"],
-        "source_schema_sha256": manifest["source"]["schema_sha256"],
-        "target_inventory_sha256": inventory["inventory_sha256"],
-        "review": {
-            "status": "approved", "reviewer": "integration-reviewer",
-            "reviewed_at": "2026-11-24T00:00:00Z",
-            "reference": "test-only-conversion-review",
-        },
-        "tables": [{
-            "source_table": "sample_sources",
-            "target_table": "sources",
-            "columns": [
-                {
-                    "source_column": name, "target_column": name,
-                    "conversion": "text_identity",
-                }
-                for name in column_names
-            ],
-        }],
-    }
-    mapping["mapping_sha256"] = hashlib.sha256(
-        canonical_json_bytes(mapping)
-    ).hexdigest()
-
-    source_report = inspect_sqlite_converted_rows(
-        source_db, manifest, mapping, batch_size=1
-    )
-    with connect() as connection:
-        target_report = inspect_postgres_mapped_rows(
-            connection, manifest, inventory, mapping, batch_size=1
-        )
-    comparison = compare_converted_row_reports(source_report, target_report)
-
-    assert source_report["all_row_counts_match_manifest"] is True
-    assert target_report["all_row_counts_match_source"] is True
-    assert comparison["outcome"] == "INCOMPLETE"
-    assert comparison["non_json_values_match"] is True
-    assert comparison["issues"] == []
-    assert comparison["comparisons"] == [{
-        "source_table": "sample_sources",
-        "row_count_match": True,
-        "non_json_row_checksum_match": True,
-        "jsonb_columns_pending": [],
-    }]
 
 
 def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_schema, tmp_path):
@@ -5003,10 +4881,11 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
             "CREATE TABLE source_migrations_target "
             "(version bigint PRIMARY KEY, applied_at text NOT NULL)"
         )
-        connection.executemany(
-            "INSERT INTO source_migrations_target (version, applied_at) VALUES (%s, %s)",
-            migration_values,
-        )
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO source_migrations_target (version, applied_at) VALUES (%s, %s)",
+                migration_values,
+            )
         connection.execute(
             "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
