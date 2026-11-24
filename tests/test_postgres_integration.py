@@ -4869,7 +4869,8 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
 
     connect = postgres_schema
     migration_values = [
-        (version, "2026-11-24T00:00:00Z") for version in range(1, 37)
+        (version, f"2026-11-24T00:00:{version:02d}Z")
+        for version in range(1, 37)
     ]
     source_values = (
         "source-row-proof", "Publisher", "active",
@@ -5009,6 +5010,16 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     mapping["mapping_sha256"] = hashlib.sha256(
         canonical_json_bytes(mapping)
     ).hexdigest()
+
+    with sqlite3.connect(source_db) as source:
+        source_versions = source.execute(
+            "SELECT version, applied_at FROM schema_migrations ORDER BY version"
+        ).fetchall()
+    with connect() as connection:
+        target_versions = connection.execute(
+            "SELECT version, applied_at FROM source_migrations_target ORDER BY version"
+        ).fetchall()
+    assert source_versions == target_versions
 
     source_report = inspect_sqlite_converted_rows(
         source_db, manifest, mapping, batch_size=1
