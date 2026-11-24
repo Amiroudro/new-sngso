@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
