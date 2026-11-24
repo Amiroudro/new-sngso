@@ -12,8 +12,10 @@
     operations: ["Operations", "A preview of worker supervision, durable checkpoints and audit visibility."],
     release: ["Release control", "Inspect preflight blockers and the boundaries between approval, authorization and publication."]
   };
-  function show(view) {
+  function show(view, options = {}) {
     if (!labels[view]) return;
+    const focusHeading = options.focusHeading !== false;
+    const historyMode = options.historyMode || "push";
     views.forEach(node => node.classList.toggle("active", node.id === "view-" + view));
     nav.querySelectorAll("[data-view]").forEach(node => {
       const selected = node.dataset.view === view;
@@ -23,9 +25,12 @@
     document.getElementById("crumb-current").textContent = labels[view][0];
     pageTitle.textContent = labels[view][0];
     document.getElementById("page-subtitle").textContent = labels[view][1];
-    pageTitle.focus({preventScroll:true});
+    if (focusHeading) pageTitle.focus({preventScroll:true});
     document.querySelector(".content").scrollIntoView({behavior:motionPreference.matches ? "auto" : "smooth",block:"start"});
-    history.replaceState(null, "", "#" + view);
+    if (historyMode !== "none" && location.hash !== "#" + view) {
+      if (historyMode === "replace") history.replaceState(null, "", "#" + view);
+      else history.pushState(null, "", "#" + view);
+    }
   }
   nav.addEventListener("click", event => {
     const button = event.target.closest("[data-view]");
@@ -390,6 +395,13 @@
   }
   renderReleasePreflight();
 
-  const initial = location.hash.replace("#", "");
-  show(labels[initial] ? initial : "overview");
+  window.addEventListener("popstate", () => {
+    const destination = location.hash.slice(1);
+    show(labels[destination] ? destination : "overview", {historyMode:"none"});
+  });
+  const initial = location.hash.slice(1);
+  show(labels[initial] ? initial : "overview", {
+    focusHeading:false,
+    historyMode: initial ? "none" : "replace"
+  });
 })();
