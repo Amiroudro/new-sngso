@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .canonical import canonical_json_bytes
-from .postgres_reconciliation import MAPPING_FORMAT
+from .postgres_reconciliation import MAPPING_FORMAT, CONVERSION_SOURCE_CLASSES
 from .postgres_row_inspection import REPORT_FORMAT, _frame
 from .sqlite_export import (
     EXPECTED_SCHEMA_VERSION,
@@ -127,7 +127,27 @@ def inspect_sqlite_converted_rows(
         if connection.execute("PRAGMA foreign_key_check").fetchall():
             raise SQLiteConvertedRowInspectionError("SQLite source has foreign-key violations")
 
-        source_tables = {item["table"]: item for item in source_manifest.get("tables", [])}
+        source_table_list = source_manifest.get("tables", [])
+        source_tables = {item["table"]: item for item in source_table_list}
+        if len(source_tables) != len(source_table_list):
+            raise SQLiteConvertedRowInspectionError("source manifest contains duplicate tables")
+        mapped_source_names = [
+            item.get("source_table") for item in mapping_spec["tables"]
+            if isinstance(item, dict)
+        ]
+        mapped_target_names = [
+            item.get("target_table") for item in mapping_spec["tables"]
+            if isinstance(item, dict)
+        ]
+        if (
+            len(mapped_source_names) != len(mapping_spec["tables"])
+            or len(set(mapped_source_names)) != len(mapped_source_names)
+            or len(set(mapped_target_names)) != len(mapped_target_names)
+            or set(mapped_source_names) != set(source_tables)
+        ):
+            raise SQLiteConvertedRowInspectionError(
+                "mapping must cover each source table exactly once"
+            )
         for table_spec in mapping_spec["tables"]:
             source_name = table_spec.get("source_table")
             manifest_table = source_tables.get(source_name)
@@ -145,9 +165,38 @@ def inspect_sqlite_converted_rows(
             column_specs = table_spec.get("columns")
             if not isinstance(column_specs, list) or not column_specs:
                 raise SQLiteConvertedRowInspectionError("mapped source columns are invalid")
-            source_columns = [item["source_column"] for item in column_specs]
-            if any(name not in {item["name"] for item in metadata["columns"]} for name in source_columns):
-                raise SQLiteConvertedRowInspectionError("mapped source column is absent")
+            source_columns = [item.get("source_column") for item in column_specs]
+            target_columns = [item.get("target_column") for item in column_specs]
+            known_source_columns = {item["name"] for item in metadata["columns"]}
+            if (
+                len(set(source_columns)) != len(source_columns)
+                or len(set(target_columns)) != len(target_columns)
+                or set(source_columns) != known_source_columns
+            ):
+                raise SQLiteConvertedRowInspectionError(
+                    "mapping must cover each source column exactly once"
+                )
+            storage_counts = manifest_table.get("storage_class_counts", {})
+            for item in column_specs:
+                conversion = item.get("conversion")
+                source_column = item.get("source_column")
+                allowed = CONVERSION_SOURCE_CLASSES.get(conversion)
+                counts = storage_counts.get(source_column)
+                if allowed is None or not isinstance(counts, dict):
+                    raise SQLiteConvertedRowInspectionError(
+                        "source conversion or storage-class inventory is unsupported"
+                    )
+                if any(count for kind, count in counts.items() if kind not in allowed):
+                    raise SQLiteConvertedRowInspectionError(
+                        "source storage class is incompatible with reviewed conversion"
+                    )
+            mapped_primary_key = [
+                next(
+                    item["target_column"] for item in column_specs
+                    if item["source_column"] == source_pk
+                )
+                for source_pk in metadata["primary_key"]
+            ]
             order_by = ", ".join(_quote_identifier(name) for name in metadata["primary_key"])
             selected = ", ".join(_quote_identifier(name) for name in source_columns)
             cursor = connection.execute(
