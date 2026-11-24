@@ -89,6 +89,12 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     domain_revision_sql = next(statement for statement in sql if "CREATE FUNCTION validate_domain_record_revision_update" in statement)
     evidence_locking_sql = next(statement for statement in sql if "CREATE OR REPLACE FUNCTION validate_learning_object_specialized_evidence" in statement)
     primary_key_guard_sql = next(statement for statement in sql if "CREATE FUNCTION reject_primary_key_mutation" in statement)
+    grant_revision_head_sql = next(statement for statement in sql if "CREATE FUNCTION ensure_permission_grant_revision_not_ahead_of_head" in statement)
+    assignment_revision_head_sql = next(statement for statement in sql if "CREATE FUNCTION ensure_benchmark_assignment_revision_not_ahead_of_head" in statement)
+    assert "permission_grant_revision_head_consistency" in grant_revision_head_sql
+    assert "DEFERRABLE INITIALLY DEFERRED" in grant_revision_head_sql
+    assert "benchmark_assignment_revision_head_consistency" in assignment_revision_head_sql
+    assert "DEFERRABLE INITIALLY DEFERRED" in assignment_revision_head_sql
     assert "CREATE TABLE audit_chain_head" in migration_sql
     assert "audit_events_no_update" in migration_sql
     assert "audit_events_no_delete" in migration_sql
