@@ -154,6 +154,8 @@ from .ports import (
 )
 from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegistry
 from .schema_inspection import SchemaInspectionError, inspect_sqlite_schema
+from .postgres_target_inspection import PostgresInspectionError, inspect_postgres_import_target
+from .postgres_reconciliation import ReconciliationPlanError, plan_schema_v36_reconciliation
 from .sqlite_export import (
     SQLiteExportError,
     build_sqlite_export_manifest,
@@ -301,6 +303,10 @@ __all__ = [
     "validate_payload",
     "SchemaInspectionError",
     "inspect_sqlite_schema",
+    "PostgresInspectionError",
+    "inspect_postgres_import_target",
+    "ReconciliationPlanError",
+    "plan_schema_v36_reconciliation",
     "SQLiteExportError",
     "build_sqlite_export_manifest",
     "encode_sqlite_value",
