@@ -5023,14 +5023,31 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
         source.execute("INSERT INTO sample_sources VALUES (?, ?, ?, ?, ?, ?)", values)
         metadata = _table_metadata(source, "sample_sources")
         checksums = _stream_table(source, metadata, batch_size=1)
+        objects = source.execute(
+            """SELECT type, name, tbl_name, sql FROM sqlite_master
+               WHERE type IN ('table', 'index', 'trigger', 'view')
+                 AND name NOT LIKE 'sqlite_%'
+               ORDER BY type, name"""
+        ).fetchall()
+        object_inventory = [
+            {"type": row[0], "name": row[1], "table_name": row[2], "sql": row[3]}
+            for row in objects
+        ]
+        schema_digest = hashlib.sha256(
+            canonical_json_bytes(object_inventory)
+        ).hexdigest()
+        object_counts = {
+            kind: sum(item["type"] == kind for item in object_inventory)
+            for kind in ("table", "index", "trigger", "view")
+        }
 
     manifest = {
         "format": "sngso-registry-import-manifest-v1",
         "checksum_format": "sngso-sqlite-row-stream-v1",
         "source": {
             "schema_version": 36,
-            "schema_sha256": "d" * 64,
-            "object_counts": {"table": 1, "index": 0, "trigger": 0, "view": 0},
+            "schema_sha256": schema_digest,
+            "object_counts": object_counts,
         },
         "tables": [{
             **metadata,
