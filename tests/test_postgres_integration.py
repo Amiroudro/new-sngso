@@ -5029,6 +5029,21 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
             connection, manifest, inventory, mapping, batch_size=1
         )
     comparison = compare_converted_row_reports(source_report, target_report)
+    source_migration_report = next(
+        item for item in source_report["table_reports"]
+        if item["source_table"] == "schema_migrations"
+    )
+    target_migration_report = next(
+        item for item in target_report["table_reports"]
+        if item["source_table"] == "schema_migrations"
+    )
+    assert (
+        source_migration_report["column_sha256"]["version"]
+        == target_migration_report["column_sha256"]["version"]
+    ), (
+        source_migration_report["column_sha256"]["version"],
+        target_migration_report["column_sha256"]["version"],
+    )
 
     assert source_report["all_row_counts_match_manifest"] is True
     assert target_report["all_row_counts_match"] is True
