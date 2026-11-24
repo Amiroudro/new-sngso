@@ -56,6 +56,7 @@ def _inputs():
              "generated_kind": ""},
         ],
         "primary_keys": [{"table_name": "sample_pg", "columns": ["id"]}],
+        "foreign_keys": [],
         "migration_ledger_matches_packaged": True,
         "outcome": "INCOMPLETE",
     }
@@ -98,6 +99,8 @@ def test_reconciliation_planner_validates_complete_structure_but_never_declares_
     assert result["source_table_count"] == 1
     assert result["mapped_source_table_count"] == 1
     assert result["issues"] == []
+    assert result["target_import_order"] == ["sample_pg"]
+    assert result["deferred_foreign_keys"] == []
     assert result["remaining_gates"] == [
         "JSON_CONTENT_AND_VALUE_CONVERSION_PROOF",
         "TARGET_ROW_COUNT_AND_CHECKSUM_RECONCILIATION",
@@ -191,3 +194,128 @@ def test_reconciliation_planner_rejects_nulls_for_non_nullable_target_columns():
         and issue["source_column"] == "id"
         for issue in result["issues"]
     )
+
+def _rehash(manifest, inventory, mapping):
+    manifest["manifest_sha256"] = _fingerprint({
+        key: value for key, value in manifest.items() if key != "manifest_sha256"
+    })
+    inventory["inventory_sha256"] = _fingerprint({
+        key: value for key, value in inventory.items()
+        if key not in {"inventory_sha256", "outcome", "reason_codes"}
+    })
+    mapping["source_manifest_sha256"] = manifest["manifest_sha256"]
+    mapping["source_schema_sha256"] = manifest["source"]["schema_sha256"]
+    mapping["target_inventory_sha256"] = inventory["inventory_sha256"]
+    mapping["mapping_sha256"] = _fingerprint({
+        key: value for key, value in mapping.items() if key != "mapping_sha256"
+    })
+
+
+def test_reconciliation_planner_orders_parent_tables_before_children():
+    manifest, inventory, mapping = _inputs()
+    manifest["tables"].append({
+        "table": "child",
+        "columns": [
+            {"name": "id", "declared_type": "INTEGER", "not_null": True,
+             "default": None, "primary_key_ordinal": 1},
+            {"name": "parent_id", "declared_type": "INTEGER", "not_null": True,
+             "default": None, "primary_key_ordinal": 0},
+        ],
+        "primary_key": ["id"],
+        "row_count": 1,
+        "row_sha256": "d" * 64,
+        "schema_sha256": "e" * 64,
+        "storage_class_counts": {
+            "id": {"null": 0, "integer": 1, "real": 0, "text": 0, "blob": 0},
+            "parent_id": {"null": 0, "integer": 1, "real": 0, "text": 0, "blob": 0},
+        },
+    })
+    inventory["tables"].append({"table_name": "child_pg"})
+    inventory["columns"].extend([
+        {"table_name": "child_pg", "column_name": "id", "data_type": "bigint",
+         "nullable": False, "default_expression": None, "identity_kind": "",
+         "generated_kind": ""},
+        {"table_name": "child_pg", "column_name": "parent_id", "data_type": "bigint",
+         "nullable": False, "default_expression": None, "identity_kind": "",
+         "generated_kind": ""},
+    ])
+    inventory["primary_keys"].append({"table_name": "child_pg", "columns": ["id"]})
+    inventory["foreign_keys"].append({
+        "table_name": "child_pg",
+        "constraint_name": "child_parent_fk",
+        "referenced_schema": "public",
+        "referenced_table": "sample_pg",
+        "columns": ["parent_id"],
+        "referenced_columns": ["id"],
+        "deferrable": False,
+        "initially_deferred": False,
+        "validated": True,
+    })
+    mapping["tables"].insert(0, {
+        "source_table": "child",
+        "target_table": "child_pg",
+        "columns": [
+            {"source_column": "id", "target_column": "id",
+             "conversion": "integer_to_bigint"},
+            {"source_column": "parent_id", "target_column": "parent_id",
+             "conversion": "integer_to_bigint"},
+        ],
+    })
+    _rehash(manifest, inventory, mapping)
+
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+    assert result["structure_valid"] is True
+    assert result["target_import_order"] == ["sample_pg", "child_pg"]
+    assert result["deferred_foreign_keys"] == []
+
+
+def test_reconciliation_planner_allows_only_deferrable_foreign_key_cycles():
+    manifest, inventory, mapping = _inputs()
+    inventory["foreign_keys"] = [{
+        "table_name": "sample_pg",
+        "constraint_name": "sample_self_fk",
+        "referenced_schema": "public",
+        "referenced_table": "sample_pg",
+        "columns": ["id"],
+        "referenced_columns": ["id"],
+        "deferrable": True,
+        "initially_deferred": False,
+        "validated": True,
+    }]
+    _rehash(manifest, inventory, mapping)
+
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+    assert result["structure_valid"] is True
+    assert result["target_import_order"] == ["sample_pg"]
+    assert result["deferred_foreign_keys"] == [{
+        "table_name": "sample_pg",
+        "constraint_name": "sample_self_fk",
+    }]
+
+
+def test_reconciliation_planner_rejects_non_deferrable_foreign_key_cycles():
+    manifest, inventory, mapping = _inputs()
+    inventory["foreign_keys"] = [{
+        "table_name": "sample_pg",
+        "constraint_name": "sample_self_fk",
+        "referenced_schema": "public",
+        "referenced_table": "sample_pg",
+        "columns": ["id"],
+        "referenced_columns": ["id"],
+        "deferrable": False,
+        "initially_deferred": False,
+        "validated": True,
+    }]
+    _rehash(manifest, inventory, mapping)
+
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+    assert result["structure_valid"] is False
+    assert result["target_import_order"] == []
+    assert {
+        "code": "NON_DEFERRABLE_FOREIGN_KEY_CYCLE",
+        "constraints": [("sample_pg", "sample_self_fk")],
+    } in result["issues"]
+
