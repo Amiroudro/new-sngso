@@ -2041,6 +2041,47 @@ def test_postgres_worker_leases_fence_reacquisition_and_preserve_history(postgre
                     "WHERE pipeline_run_id = 'lease-run'",
                     ("sha256:" + "5" * 64,),
                 )
+        connection.execute(
+            "UPDATE pipeline_worker_leases SET revision = 5, "
+            "heartbeat_at = '2026-11-23T00:04:00Z', expires_at = '2026-11-23T00:14:00Z', "
+            "cancel_requested_at = '2026-11-23T00:04:00Z', "
+            "cancel_requested_by = 'operator-1', cancel_reason_code = 'operator_stop', "
+            "updated_at = '2026-11-23T00:04:00Z', actor = 'operator-1', "
+            "reason = 'request cancellation' WHERE pipeline_run_id = 'lease-run'"
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="cancellation request is immutable"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE pipeline_worker_leases SET revision = 6, "
+                    "heartbeat_at = '2026-11-23T00:05:00Z', expires_at = '2026-11-23T00:15:00Z', "
+                    "cancel_requested_at = NULL, cancel_requested_by = NULL, "
+                    "cancel_reason_code = NULL, updated_at = '2026-11-23T00:05:00Z', "
+                    "actor = 'worker-2', reason = 'attempt to clear cancellation' "
+                    "WHERE pipeline_run_id = 'lease-run'"
+                )
+        connection.execute(
+            "UPDATE pipeline_worker_leases SET revision = 6, status = 'expired', "
+            "updated_at = '2026-11-23T00:06:00Z', actor = 'lease-reaper', "
+            "reason = 'lease expired with cancellation pending' "
+            "WHERE pipeline_run_id = 'lease-run'"
+        )
+        connection.execute(
+            "UPDATE pipeline_worker_leases SET revision = 7, worker_id = 'worker-3', "
+            "token_hash = %s, fencing_token = 3, status = 'active', "
+            "acquired_at = '2026-11-23T00:07:00Z', heartbeat_at = '2026-11-23T00:07:00Z', "
+            "expires_at = '2026-11-23T00:17:00Z', updated_at = '2026-11-23T00:07:00Z', "
+            "actor = 'worker-3', reason = 'takeover preserves pending cancellation' "
+            "WHERE pipeline_run_id = 'lease-run'",
+            ("sha256:" + "6" * 64,),
+        )
+        assert connection.execute(
+            "SELECT worker_id, fencing_token, status, revision, cancel_requested_at, "
+            "cancel_requested_by, cancel_reason_code FROM pipeline_worker_leases "
+            "WHERE pipeline_run_id = 'lease-run'"
+        ).fetchone() == (
+            "worker-3", 3, "active", 7, "2026-11-23T00:04:00Z",
+            "operator-1", "operator_stop",
+        )
 
     with connect() as connection:
         with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
