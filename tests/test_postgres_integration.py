@@ -4876,7 +4876,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     source_values = (
         "source-row-proof", "Publisher", "active",
         "2026-11-24T00:00:00Z", "2026-11-24T00:00:00Z",
-        json.dumps({"id": "source-row-proof"}, separators=(",", ":")),
+        json.dumps({"z": 1, "a": [True, None]}, separators=(", ", ": ")),
     )
     with connect() as connection:
         connection.execute(
@@ -4888,10 +4888,11 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
                 "INSERT INTO source_migrations_target (version, applied_at) VALUES (%s, %s)",
                 migration_values,
             )
+        target_values = (*source_values[:-1], '{"a":[true,null],"z":1}')
         connection.execute(
             "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
-            source_values,
+            target_values,
         )
 
     source_db = tmp_path / "mapped-source.sqlite"
