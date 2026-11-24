@@ -33,6 +33,7 @@ _MIGRATIONS = (
     (21, "0021_domain_record_revision_guards.sql"),
     (22, "0022_learning_evidence_locking.sql"),
     (23, "0023_primary_key_identity_guards.sql"),
+    (24, "0024_append_only_delete_guards.sql"),
 )
 
 
