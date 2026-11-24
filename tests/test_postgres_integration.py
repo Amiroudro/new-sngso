@@ -36,7 +36,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -4982,7 +4982,7 @@ def test_postgres_target_inspection_is_read_only_repeatable_and_fail_closed(post
     assert first["outcome"] == "INCOMPLETE"
     assert first["reason_codes"] == ["SOURCE_TARGET_MAPPING_NOT_REVIEWED"]
     assert first["migration_ledger_matches_packaged"] is True
-    assert len(first["migration_ledger"]) == 24
+    assert len(first["migration_ledger"]) == 25
     assert first["identity"]["server_version_num"] >= 160000
     assert first["audit_chain_head"] == [
         {
