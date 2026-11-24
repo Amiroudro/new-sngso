@@ -4728,6 +4728,11 @@ def test_postgres_target_inspection_is_read_only_repeatable_and_fail_closed(post
         for item in first["constraints"]
     )
     assert first["object_counts"]["foreign_keys"] > 0
+    assert first["object_counts"]["primary_keys"] > 0
+    assert any(
+        item["table_name"] == "sources" and item["columns"] == ["id"]
+        for item in first["primary_keys"]
+    )
     assert first["object_counts"]["sequences"] >= 0
     assert len(first["inventory_sha256"]) == 64
 
