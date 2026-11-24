@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ def _reject_constant(value: str) -> None:
 def _validate_jsonb_value(value: Any) -> None:
     """Reject values PostgreSQL jsonb cannot represent losslessly."""
     if isinstance(value, str):
-        if "\\x00" in value:
+        if "\x00" in value:
             raise ValueError("PostgreSQL jsonb does not support U+0000")
         if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
             raise ValueError("PostgreSQL jsonb does not support unpaired surrogates")
