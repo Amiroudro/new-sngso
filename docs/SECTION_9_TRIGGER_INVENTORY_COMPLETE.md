@@ -800,7 +800,7 @@ CREATE TRIGGER learning_object_question_answer_evidence_updateBEFORE UPDATE OF p
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.id') IS NOT NEW.id OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status OR json_extract(NEW.payload_json, '$.started_at') IS NOT NEW.started_at`
 - **Lexically referenced tables:** None detected
 - **Semantic review:** See the linked review document for its trigger family
-- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **PostgreSQL mapping:** Implemented by PostgreSQL migration 0012 and parity correction 0026; direct-SQL mismatch test added, pending exact-head CI
 - **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
@@ -818,7 +818,7 @@ CREATE TRIGGER pipeline_run_payload_guard_insertBEFORE INSERT ON pipeline_runs
 - **WHEN predicate:** `json_extract(NEW.payload_json, '$.id') IS NOT NEW.id OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status OR json_extract(NEW.payload_json, '$.started_at') IS NOT NEW.started_at`
 - **Lexically referenced tables:** `ON`
 - **Semantic review:** See the linked review document for its trigger family
-- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **PostgreSQL mapping:** Implemented by PostgreSQL migration 0012 and parity correction 0026; direct-SQL mismatch test added, pending exact-head CI
 - **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
@@ -836,7 +836,7 @@ CREATE TRIGGER pipeline_run_payload_guard_updateBEFORE UPDATE ON pipeline_runs
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
 - **Semantic review:** See the linked review document for its trigger family
-- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **PostgreSQL mapping:** Implemented by PostgreSQL migrations 0012/0026; parity correction removes unsupported attempt/retry_of immutability
 - **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
@@ -865,7 +865,7 @@ CREATE TRIGGER pipeline_run_identity_guardBEFORE UPDATE ON pipeline_runs
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
 - **Semantic review:** See the linked review document for its trigger family
-- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **PostgreSQL mapping:** Implemented by PostgreSQL migration 0012; direct-SQL rejection verified in CI run #1972
 - **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
@@ -880,7 +880,7 @@ CREATE TRIGGER pipeline_runs_no_deleteBEFORE DELETE ON pipeline_runs
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `ON`
 - **Semantic review:** See the linked review document for its trigger family
-- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **PostgreSQL mapping:** Implemented by PostgreSQL migration 0012; direct-SQL rejection verified in CI run #1972
 - **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
@@ -895,7 +895,7 @@ CREATE TRIGGER pipeline_run_revision_no_updateBEFORE UPDATE ON pipeline_run_revi
 - **WHEN predicate:** None
 - **Lexically referenced tables:** None detected
 - **Semantic review:** See the linked review document for its trigger family
-- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **PostgreSQL mapping:** Implemented by PostgreSQL migration 0012; direct-SQL rejection verified in CI run #1972
 - **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
@@ -910,7 +910,7 @@ CREATE TRIGGER pipeline_run_revision_no_deleteBEFORE DELETE ON pipeline_run_revi
 - **WHEN predicate:** None
 - **Lexically referenced tables:** `pipeline_runs`
 - **Semantic review:** See the linked review document for its trigger family
-- **PostgreSQL mapping:** Pending implementation and conformance testing
+- **PostgreSQL mapping:** Implemented by PostgreSQL migration 0012; forged future revision and mismatched payload tests added, latter pending exact-head CI
 - **Direct-SQL negative test:** Tracked in the relevant review document; not all cases are closed
 
 ```sql
