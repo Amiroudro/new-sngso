@@ -5205,6 +5205,7 @@ def test_postgres_audit_chain_reconciliation_is_read_only_and_exact(
 
     with connect() as connection:
         schema_name = connection.execute("SELECT current_schema()").fetchone()[0]
+        connection.commit()
         inventory = {"identity": {"schema_name": schema_name}}
         report = compare_sqlite_postgres_audit_chains(
             source_path,
