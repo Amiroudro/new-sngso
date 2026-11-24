@@ -74,3 +74,23 @@ def test_checkpoint_record_rejects_invalid_tips(tip):
         build_audit_checkpoint_record(
             manifest, generated_at="2026-11-24T00:00:00Z"
         )
+
+
+def test_row_dry_run_requires_checkpoint_for_matching_source_schema(tmp_path):
+    import json
+
+    from sngso_engine.postgres_row_dry_run import _load_external_checkpoint
+
+    record = build_audit_checkpoint_record(
+        _manifest(), generated_at="2026-11-24T00:00:00Z"
+    )
+    path = tmp_path / "audit-checkpoint.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+    assert _load_external_checkpoint(
+        path, expected_schema_sha256="a" * 64
+    ) == record["audit_checkpoint"]
+    with pytest.raises(ValueError, match="different source schema"):
+        _load_external_checkpoint(
+            path, expected_schema_sha256="c" * 64
+        )
