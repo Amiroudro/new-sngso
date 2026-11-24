@@ -123,6 +123,23 @@ def inspect_postgres_import_target(connection: Any) -> dict[str, Any]:
 
                 cursor.execute(
                     """SELECT c.relname AS table_name, con.conname AS constraint_name,
+                              array_agg(a.attname ORDER BY k.ord) AS columns
+                       FROM pg_constraint con
+                       JOIN pg_class c ON c.oid = con.conrelid
+                       JOIN pg_namespace n ON n.oid = c.relnamespace
+                       JOIN LATERAL unnest(con.conkey) WITH ORDINALITY
+                            AS k(attnum, ord) ON true
+                       JOIN pg_attribute a
+                         ON a.attrelid = c.oid AND a.attnum = k.attnum
+                       WHERE n.nspname = %s AND con.contype = 'p'
+                       GROUP BY c.relname, con.conname
+                       ORDER BY c.relname, con.conname""",
+                    (schema_name,),
+                )
+                primary_keys = _rows(cursor)
+
+                cursor.execute(
+                    """SELECT c.relname AS table_name, con.conname AS constraint_name,
                               rn.nspname AS referenced_schema,
                               rc.relname AS referenced_table,
                               array_agg(a.attname ORDER BY k.ord) AS columns,
@@ -226,6 +243,7 @@ def inspect_postgres_import_target(connection: Any) -> dict[str, Any]:
                     "columns": columns,
                     "constraints": constraints,
                     "indexes": indexes,
+                    "primary_keys": primary_keys,
                     "foreign_keys": foreign_keys,
                     "sequences": sequences,
                     "triggers": triggers,
@@ -235,6 +253,7 @@ def inspect_postgres_import_target(connection: Any) -> dict[str, Any]:
                         "constraints": len(constraints),
                         "foreign_keys": len(foreign_keys),
                         "indexes": len(indexes),
+                        "primary_keys": len(primary_keys),
                         "sequences": len(sequences),
                         "triggers": len(triggers),
                     },
