@@ -62,7 +62,7 @@ def test_jsonb_content_proof_validates_every_non_null_value(tmp_path):
     assert len(proof["proof_sha256"]) == 64
 
 
-@pytest.mark.parametrize("value", ['{"broken":', "NaN", '"\\ud800"', '[Infinity]'])
+@pytest.mark.parametrize("value", ['{"broken":', "NaN", '"\\ud800"', '"\\u0000"', '[Infinity]', "1e1000000", "1e-20000"])
 def test_jsonb_content_proof_fails_closed_on_invalid_json(tmp_path, value):
     database, manifest, mapping = _fixture(tmp_path, value)
     proof = validate_sqlite_jsonb_content(database, manifest, mapping)
