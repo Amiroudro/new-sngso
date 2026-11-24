@@ -306,6 +306,9 @@ def test_postgres_permission_grant_revision_cannot_be_committed_ahead_of_head(po
                     "'reviewer', 'approval snapshot', %s)",
                     (json.dumps(future_payload),),
                 )
+                connection.execute(
+                    "SET CONSTRAINTS permission_grant_revision_head_consistency IMMEDIATE"
+                )
         assert connection.execute(
             "SELECT revision, status FROM permission_grants WHERE id = 'grant-orphan'"
         ).fetchone() == (1, "pending")
