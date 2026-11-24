@@ -319,3 +319,39 @@ def test_reconciliation_planner_rejects_non_deferrable_foreign_key_cycles():
         "constraints": [("sample_pg", "sample_self_fk")],
     } in result["issues"]
 
+
+
+
+def test_dry_run_report_never_authorizes_import_or_cutover():
+    from sngso_engine.postgres_reconciliation_cli import (
+        build_schema_v36_dry_run_report,
+    )
+
+    manifest, inventory, mapping = _inputs()
+    report = build_schema_v36_dry_run_report(
+        manifest, inventory, mapping, generated_at="2026-11-24T00:00:00Z"
+    )
+
+    assert report["outcome"] == "INCOMPLETE"
+    assert report["database_mutated"] is False
+    assert report["import_performed"] is False
+    assert report["import_authorized"] is False
+    assert report["plan"]["target_import_order"] == ["sample_pg"]
+    assert len(report["report_sha256"]) == 64
+
+
+def test_dry_run_report_blocks_missing_mapping_without_authorizing_import():
+    from sngso_engine.postgres_reconciliation_cli import (
+        build_schema_v36_dry_run_report,
+    )
+
+    manifest, inventory, _mapping = _inputs()
+    report = build_schema_v36_dry_run_report(
+        manifest, inventory, None, generated_at="2026-11-24T00:00:00Z"
+    )
+
+    assert report["outcome"] == "BLOCKED"
+    assert report["plan"]["issues"] == [{"code": "MAPPING_SPEC_MISSING"}]
+    assert report["database_mutated"] is False
+    assert report["import_performed"] is False
+    assert report["import_authorized"] is False
