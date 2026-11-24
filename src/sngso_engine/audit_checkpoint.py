@@ -5,6 +5,7 @@ import hashlib
 from typing import Any
 
 from .canonical import canonical_json_bytes
+from .sqlite_export import EXPECTED_SCHEMA_VERSION, MANIFEST_FORMAT
 
 
 CHECKPOINT_FORMAT = "sngso-audit-checkpoint-v1"
@@ -48,11 +49,17 @@ def build_audit_checkpoint_record(
     generated_at: str,
 ) -> dict[str, Any]:
     """Bind a verified manifest's audit tip to its schema and fingerprint."""
-    if not isinstance(source_manifest, dict):
-        raise AuditCheckpointError("source manifest is required")
+    if (
+        not isinstance(source_manifest, dict)
+        or source_manifest.get("format") != MANIFEST_FORMAT
+    ):
+        raise AuditCheckpointError("supported SQLite export manifest is required")
     manifest_sha = _manifest_fingerprint(source_manifest)
     source = source_manifest.get("source")
-    if not isinstance(source, dict) or source.get("schema_version") != 36:
+    if (
+        not isinstance(source, dict)
+        or source.get("schema_version") != EXPECTED_SCHEMA_VERSION
+    ):
         raise AuditCheckpointError("source manifest must describe schema version 36")
     tip = _validate_tip(source.get("audit_checkpoint"))
     schema_sha = source.get("schema_sha256")
