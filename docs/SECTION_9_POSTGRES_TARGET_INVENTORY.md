@@ -63,6 +63,8 @@ reconciliation itself.
 It accepts a source manifest, target inventory, and explicit mapping document.
 The mapping is pinned to the exact source manifest, source schema fingerprint,
 and target inventory fingerprint, and must include reviewer approval metadata.
+The mapping document also carries a canonical SHA-256 fingerprint, so changing
+the mapping after review invalidates the supplied mapping digest.
 
 The planner rejects missing/duplicate source table mappings, missing/duplicate
 column mappings, unknown target relations or columns, unmapped source columns,
