@@ -154,6 +154,12 @@ from .ports import (
 )
 from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegistry
 from .schema_inspection import SchemaInspectionError, inspect_sqlite_schema
+from .sqlite_export import (
+    SQLiteExportError,
+    build_sqlite_export_manifest,
+    encode_sqlite_value,
+    write_manifest_new,
+)
 
 __all__ = [
     "ArticleRecord",
@@ -295,4 +301,8 @@ __all__ = [
     "validate_payload",
     "SchemaInspectionError",
     "inspect_sqlite_schema",
+    "SQLiteExportError",
+    "build_sqlite_export_manifest",
+    "encode_sqlite_value",
+    "write_manifest_new",
 ]
