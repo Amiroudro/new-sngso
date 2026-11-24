@@ -37,6 +37,10 @@ def _inputs():
             "row_count": 2,
             "row_sha256": "b" * 64,
             "schema_sha256": "c" * 64,
+            "storage_class_counts": {
+                "id": {"null": 0, "integer": 2, "real": 0, "text": 0, "blob": 0},
+                "title": {"null": 0, "integer": 0, "real": 0, "text": 2, "blob": 0},
+            },
         }],
     }
     manifest["manifest_sha256"] = _fingerprint(manifest)
@@ -133,6 +137,7 @@ def test_reconciliation_planner_rejects_conversion_type_and_primary_key_mismatch
     assert "CONVERSION_TARGET_TYPE_MISMATCH" in codes
     assert "PRIMARY_KEY_MAPPING_MISMATCH" in codes
     assert "TARGET_COLUMN_MAPPED_MORE_THAN_ONCE" in codes
+    assert "SOURCE_STORAGE_CLASS_CONVERSION_UNSAFE" in codes
 
 
 def test_reconciliation_planner_rejects_tampered_source_or_target_fingerprint():
@@ -166,3 +171,23 @@ def test_reconciliation_planner_rejects_mapping_tampering():
     mapping["review"]["reviewer"] = "different-reviewer"
     with pytest.raises(ReconciliationPlanError, match="mapping fingerprint"):
         plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+
+def test_reconciliation_planner_rejects_nulls_for_non_nullable_target_columns():
+    manifest, inventory, mapping = _inputs()
+    manifest["tables"][0]["storage_class_counts"]["id"]["null"] = 1
+    manifest["tables"][0]["storage_class_counts"]["id"]["integer"] = 1
+    manifest["manifest_sha256"] = _fingerprint({
+        key: value for key, value in manifest.items() if key != "manifest_sha256"
+    })
+    mapping["source_manifest_sha256"] = manifest["manifest_sha256"]
+    mapping["mapping_sha256"] = _fingerprint({
+        key: value for key, value in mapping.items() if key != "mapping_sha256"
+    })
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+    assert any(
+        issue["code"] == "SOURCE_NULLS_TARGET_NOT_NULL"
+        and issue["source_column"] == "id"
+        for issue in result["issues"]
+    )
