@@ -39,6 +39,18 @@ def _candidate_conversion(declared_type: Any, target_type: Any) -> str | None:
     return None
 
 
+def refresh_mapping_fingerprint(mapping_spec: dict[str, Any]) -> dict[str, Any]:
+    """Recompute a mapping digest without changing or approving reviewer fields."""
+    if not isinstance(mapping_spec, dict) or mapping_spec.get("format") != MAPPING_FORMAT:
+        raise ReconciliationPlanError("supported reconciliation mapping is required")
+    refreshed = dict(mapping_spec)
+    refreshed.pop("mapping_sha256", None)
+    refreshed["mapping_sha256"] = hashlib.sha256(
+        canonical_json_bytes(refreshed)
+    ).hexdigest()
+    return refreshed
+
+
 def build_schema_v36_mapping_skeleton(
     source_manifest: dict[str, Any],
     target_inventory: dict[str, Any],
