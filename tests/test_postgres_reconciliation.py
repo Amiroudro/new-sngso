@@ -78,6 +78,7 @@ def _inputs():
             ],
         }],
     }
+    mapping["mapping_sha256"] = _fingerprint(mapping)
     return manifest, inventory, mapping
 
 
@@ -149,3 +150,10 @@ def test_reconciliation_planner_requires_mapping_and_current_migration_ledger():
     })
     with pytest.raises(ReconciliationPlanError, match="migration ledger"):
         plan_schema_v36_reconciliation(manifest, inventory, None)
+
+
+def test_reconciliation_planner_rejects_mapping_tampering():
+    manifest, inventory, mapping = _inputs()
+    mapping["review"]["reviewer"] = "different-reviewer"
+    with pytest.raises(ReconciliationPlanError, match="mapping fingerprint"):
+        plan_schema_v36_reconciliation(manifest, inventory, mapping)
