@@ -89,6 +89,12 @@ def prove_sqlite_jsonb_semantic_equivalence(
         plan = plan_schema_v36_reconciliation(source_manifest, target_inventory, mapping_spec)
         if not plan.get("structure_valid"):
             raise PostgresJSONBSemanticError("mapping failed structural validation")
+        if not any(
+            column.get("conversion") == "json_text_to_jsonb"
+            for table in mapping_spec.get("tables", [])
+            for column in table.get("columns", [])
+        ):
+            raise PostgresJSONBSemanticError("mapping contains no JSONB columns to reconcile")
     except (ReconciliationPlanError, KeyError, TypeError) as exc:
         raise PostgresJSONBSemanticError("source, target or mapping fingerprints are invalid") from exc
 
