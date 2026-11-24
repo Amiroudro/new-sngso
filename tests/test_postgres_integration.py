@@ -5048,6 +5048,9 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     source_report = inspect_sqlite_converted_rows(
         source_db, manifest, mapping, batch_size=1
     )
+    from sngso_engine.postgres_reconciliation import plan_schema_v36_reconciliation
+    plan = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+    assert plan["structure_valid"], plan["issues"]
     with connect() as connection:
         target_report = inspect_postgres_mapped_rows(
             connection, manifest, inventory, mapping, batch_size=1
