@@ -40,6 +40,8 @@ def _encode_source_value(value: Any, conversion: str) -> bytes:
     if conversion == "text_identity":
         if not isinstance(value, str):
             raise SQLiteConvertedRowInspectionError("source value is not SQLite TEXT")
+        if "\\x00" in value:
+            raise SQLiteConvertedRowInspectionError("PostgreSQL text cannot represent U+0000")
         return _frame(b"T", value.encode("utf-8", errors="strict"))
     if conversion == "integer_to_bigint":
         if not isinstance(value, int) or isinstance(value, bool):
@@ -177,12 +179,21 @@ def inspect_sqlite_converted_rows(
                     "mapping must cover each source column exactly once"
                 )
             storage_counts = manifest_table.get("storage_class_counts", {})
+            expected_storage_classes = {"null", "integer", "real", "text", "blob"}
             for item in column_specs:
                 conversion = item.get("conversion")
                 source_column = item.get("source_column")
                 allowed = CONVERSION_SOURCE_CLASSES.get(conversion)
                 counts = storage_counts.get(source_column)
-                if allowed is None or not isinstance(counts, dict):
+                if (
+                    allowed is None or not isinstance(counts, dict)
+                    or set(counts) != expected_storage_classes
+                    or any(
+                        not isinstance(count, int) or isinstance(count, bool) or count < 0
+                        for count in counts.values()
+                    )
+                    or sum(counts.values()) != manifest_table["row_count"]
+                ):
                     raise SQLiteConvertedRowInspectionError(
                         "source conversion or storage-class inventory is unsupported"
                     )
@@ -190,13 +201,37 @@ def inspect_sqlite_converted_rows(
                     raise SQLiteConvertedRowInspectionError(
                         "source storage class is incompatible with reviewed conversion"
                     )
-            mapped_primary_key = [
-                next(
-                    item["target_column"] for item in column_specs
-                    if item["source_column"] == source_pk
-                )
-                for source_pk in metadata["primary_key"]
+
+            # PostgreSQL text primary keys are ordered with the C collation to
+            # match SQLite's default BINARY byte ordering. Refuse a source PK
+            # that declares a different collation until it is explicitly mapped.
+            pk_conversion = {
+                item["source_column"]: item["conversion"] for item in column_specs
+            }
+            text_pk_columns = [
+                name for name in metadata["primary_key"]
+                if pk_conversion[name] == "text_identity"
             ]
+            if text_pk_columns:
+                index_rows = connection.execute(
+                    f"PRAGMA index_list({_quote_identifier(source_name)})"
+                ).fetchall()
+                pk_index = next((row[1] for row in index_rows if row[3] == "pk"), None)
+                if pk_index is None:
+                    raise SQLiteConvertedRowInspectionError(
+                        "text primary-key collation cannot be verified"
+                    )
+                index_columns = connection.execute(
+                    f"PRAGMA index_xinfo({_quote_identifier(pk_index)})"
+                ).fetchall()
+                collations = {
+                    row[2]: row[4] for row in index_columns
+                    if row[5] and row[2] is not None
+                }
+                if any(collations.get(name, "BINARY").upper() != "BINARY" for name in text_pk_columns):
+                    raise SQLiteConvertedRowInspectionError(
+                        "non-BINARY SQLite text primary-key collation is unsupported"
+                    )
             order_by = ", ".join(_quote_identifier(name) for name in metadata["primary_key"])
             selected = ", ".join(_quote_identifier(name) for name in source_columns)
             cursor = connection.execute(
@@ -311,6 +346,15 @@ def compare_converted_row_reports(
         raise SQLiteConvertedRowInspectionError("unsupported source converted-row report")
     if target_report.get("format") != REPORT_FORMAT:
         raise SQLiteConvertedRowInspectionError("unsupported PostgreSQL target-row report")
+    for report, field in (
+        (source_report, "source_report_sha256"),
+        (target_report, "target_report_sha256"),
+    ):
+        body = dict(report)
+        supplied = body.pop("report_sha256", None)
+        actual = hashlib.sha256(canonical_json_bytes(body)).hexdigest()
+        if supplied != actual:
+            raise SQLiteConvertedRowInspectionError("row evidence report fingerprint mismatch")
     for field in ("source_manifest_sha256", "mapping_sha256"):
         if source_report.get(field) != target_report.get(field):
             raise SQLiteConvertedRowInspectionError(f"{field} mismatch between row reports")
@@ -360,6 +404,8 @@ def compare_converted_row_reports(
         "outcome": "INCOMPLETE",
         "source_manifest_sha256": source_report["source_manifest_sha256"],
         "mapping_sha256": source_report["mapping_sha256"],
+        "source_report_sha256": source_report["report_sha256"],
+        "target_report_sha256": target_report["report_sha256"],
         "non_json_values_match": not issues,
         "comparisons": comparisons,
         "issues": issues,
