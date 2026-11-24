@@ -5,6 +5,7 @@ import hashlib
 import pytest
 
 from sngso_engine.canonical import canonical_json_bytes
+from sngso_engine.postgres_row_inspection import _encode_target_value
 from sngso_engine.sqlite_converted_row_inspection import (
     SQLiteConvertedRowInspectionError,
     _encode_source_value,
@@ -60,3 +61,10 @@ def test_comparison_requires_matching_source_and_mapping_pins():
 def test_source_text_encoder_rejects_postgres_unrepresentable_nul():
     with pytest.raises(SQLiteConvertedRowInspectionError, match=r"U\+0000"):
         _encode_source_value("bad\x00text", "text_identity")
+
+
+@pytest.mark.parametrize("value", [0, 1, -42, 2**63 - 1, -(2**63)])
+def test_integer_to_bigint_source_and_target_encodings_are_identical(value):
+    assert _encode_source_value(value, "integer_to_bigint") == _encode_target_value(
+        str(value), "integer_to_bigint"
+    )
