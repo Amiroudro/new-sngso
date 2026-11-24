@@ -185,3 +185,14 @@ Added `sngso-sqlite-audit-checkpoint`. It verifies the schema-v36 manifest and w
 ## Isolated import-target preflight
 
 Added `sngso-schema-v36-import-preflight`. It requires a schema named with the `sngso_import_` prefix, checks the exact expected database identity and packaged migration ledger, verifies the audit head is at sequence zero, and confirms application tables are empty in a read-only repeatable-read snapshot. The schema's one canonical staging-channel state row (revision zero, no event or export references) is accepted as required bootstrap metadata; altered or additional rows block the check. It also requires each PostgreSQL sequence to remain at its catalog start value and uncalled, so a row-empty schema with an advanced sequence is rejected. It never imports or authorizes cutover. One-transaction bulk import, sequence reconciliation, post-commit verification, and restore/rollback rehearsal remain open.
+
+
+## PostgreSQL staging authority-binding regression (24 November 2026)
+
+Added direct-SQL PostgreSQL integration coverage for the schema-v36 staging authority-binding invariant. The regression uses a valid staged artifact, valid immutable approval and release-authorization rows, and two additional active human principals with the same eligible roles. It then attempts to substitute the approver identity and the release-authorizer identity independently in the event payload while leaving the referenced immutable records unchanged. PostgreSQL rejects both inserts, and the event table remains unchanged.
+
+Exact-head GitHub Actions [run #45399214519](https://github.com/Amiroudro/new-sngso/actions/runs/45399214519), commit `fff30f7b3fe7be167367df304039749e1fa65ba4`, passed:
+- Contract suite: **1,218 passed, 1 skipped**.
+- PostgreSQL 16 integration suite: **79 passed**.
+
+This closes those two specific direct-SQL substitution cases for the PostgreSQL staging-event guard. It does not establish complete parity for all 139 SQLite triggers, full restricted application-role conformance, production data import, or cutover acceptance. PR #8 remains draft and unmerged.
