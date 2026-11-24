@@ -173,3 +173,10 @@ The read-only schema-v36 planner now derives a deterministic target import order
 Regression cases cover reversed parent/child mapping order, a deferrable self-cycle, and rejection of a non-deferrable self-cycle. GitHub Actions [run #45363671654](https://github.com/Amiroudro/new-sngso/actions/runs/45363671654) passed on code head `273434f6362461b8166bf0499142af013fcebf4c`: **1,202 passed, 1 skipped** in the contract job and **73 PostgreSQL integration tests passed**. The run also completed live schema-v36 inspection.
 
 The next import milestone remains separate: isolated bulk load with phase ledger, trigger/constraint restoration, independent per-table row checksum reconciliation, and exact audit-chain import/verification. No data was imported and SQLite remains authoritative.
+
+
+## 14. Read-only dry-run command (24 November 2026)
+
+The repository now exposes `sngso-schema-v36-dry-run`, which composes the verified SQLite export manifest, a PostgreSQL target catalog inspection, and a reviewer-pinned mapping into a canonical local report. The DSN is accepted only from `SNGSO_POSTGRES_DSN`; it is never a command-line option or included in the report. PostgreSQL connection failures are reported without echoing connection details. The report writer refuses to overwrite an existing output path.
+
+This command is a structural preflight, not a row-level dry run: `row_data_inspected`, `target_audit_chain_compared`, and `cutover_ready` are explicitly false. A structurally valid result is still `INCOMPLETE`; a missing mapping is `BLOCKED`. It performs no import and authorizes no cutover. Full target row comparison, audit-chain import/reconciliation, isolated bulk loading, restore rehearsal, and operational acceptance remain unimplemented.
