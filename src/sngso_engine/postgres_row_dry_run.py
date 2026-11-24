@@ -166,14 +166,12 @@ def _load_external_checkpoint(
     expected_schema_sha256: str,
 ) -> dict[str, Any]:
     value = _load_mapping(path)
-    if value.get("format") == CHECKPOINT_FORMAT:
-        checkpoint = load_audit_checkpoint_record(value)
-        if value.get("source_schema_sha256") != expected_schema_sha256:
-            raise ValueError("external checkpoint belongs to a different source schema")
-        return checkpoint
-    if set(value) != {"sequence", "event_hash"}:
+    if value.get("format") != CHECKPOINT_FORMAT:
         raise ValueError("external checkpoint file has an unsupported format")
-    return value
+    checkpoint = load_audit_checkpoint_record(value)
+    if value.get("source_schema_sha256") != expected_schema_sha256:
+        raise ValueError("external checkpoint belongs to a different source schema")
+    return checkpoint
 
 
 def main(argv: list[str] | None = None) -> int:
