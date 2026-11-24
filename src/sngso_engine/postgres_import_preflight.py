@@ -62,6 +62,8 @@ def inspect_empty_import_target(
     migration_ledger_matches = False
     audit_head_initial = False
     staging_state_initial = False
+    sequences_initial = True
+    sequence_states: list[dict[str, Any]] = []
 
     try:
         with connection.transaction():
@@ -93,6 +95,46 @@ def inspect_empty_import_target(
                     issues.append({"code": "TARGET_TABLE_SET_CHANGED"})
 
                 expected_migrations = target_inventory.get("expected_migrations", [])
+                cursor.execute(
+                    """SELECT c.relname, s.seqstart
+                       FROM pg_sequence s
+                       JOIN pg_class c ON c.oid = s.seqrelid
+                       JOIN pg_namespace n ON n.oid = c.relnamespace
+                       WHERE n.nspname = %s
+                       ORDER BY c.relname""",
+                    (schema,),
+                )
+                sequence_catalog = cursor.fetchall()
+                current_sequence_names = {row[0] for row in sequence_catalog}
+                inspected_sequence_names = {
+                    item.get("sequence_name")
+                    for item in target_inventory.get("sequences", [])
+                    if isinstance(item, dict)
+                }
+                if current_sequence_names != inspected_sequence_names:
+                    issues.append({"code": "TARGET_SEQUENCE_SET_CHANGED"})
+                for sequence_name, start_value in sequence_catalog:
+                    quoted_sequence = _quote_identifier(sequence_name)
+                    cursor.execute(
+                        f"SELECT last_value, is_called FROM "
+                        f"{quoted_schema}.{quoted_sequence}"
+                    )
+                    last_value, is_called = cursor.fetchone()
+                    initial_state = int(last_value) == int(start_value) and not is_called
+                    sequence_states.append({
+                        "sequence_name": sequence_name,
+                        "start_value": int(start_value),
+                        "last_value": int(last_value),
+                        "is_called": bool(is_called),
+                        "initial_state": initial_state,
+                    })
+                    if not initial_state:
+                        sequences_initial = False
+                        issues.append({
+                            "code": "TARGET_SEQUENCE_NOT_INITIAL",
+                            "sequence_name": sequence_name,
+                        })
+
                 if "postgres_schema_migrations" not in current_tables:
                     issues.append({"code": "TARGET_MIGRATION_LEDGER_MISSING"})
                 else:
@@ -192,6 +234,8 @@ def inspect_empty_import_target(
         "migration_ledger_matches_packaged": migration_ledger_matches,
         "audit_head_initial": audit_head_initial,
         "staging_state_initial": staging_state_initial,
+        "sequences_initial": sequences_initial,
+        "sequence_states": sequence_states,
         "target_empty": not issues,
         "table_counts": table_counts,
         "issue_codes": issues,
