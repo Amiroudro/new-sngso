@@ -54,16 +54,18 @@ def build_schema_v36_mapping_skeleton(
         not isinstance(source_manifest, dict)
         or source_manifest.get("format") != MANIFEST_FORMAT
         or source_manifest.get("source", {}).get("schema_version") != EXPECTED_SCHEMA_VERSION
-        or source_manifest.get("manifest_sha256") != _digest(source_manifest, "manifest_sha256")
     ):
         raise ReconciliationPlanError("verified schema-v36 source manifest is required")
+    if source_manifest.get("manifest_sha256") != _digest(source_manifest, "manifest_sha256"):
+        raise ReconciliationPlanError("source manifest fingerprint mismatch")
     if (
         not isinstance(target_inventory, dict)
-        or target_inventory.get("inventory_sha256") != _target_inventory_digest(target_inventory)
         or not isinstance(target_inventory.get("tables"), list)
         or not isinstance(target_inventory.get("columns"), list)
     ):
-        raise ReconciliationPlanError("fingerprinted PostgreSQL target inventory is required")
+        raise ReconciliationPlanError("PostgreSQL target inventory is required")
+    if target_inventory.get("inventory_sha256") != _target_inventory_digest(target_inventory):
+        raise ReconciliationPlanError("target inventory fingerprint mismatch")
 
     target_names = {
         item.get("table_name")
