@@ -218,6 +218,60 @@ def test_postgres_registry_revision_snapshots_are_append_only(postgres_schema):
 
 
 
+def test_postgres_permission_grant_head_requires_matching_revision_and_fixed_scope(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES ('source-grant-guard', 'Publisher', 'active', "
+            "'2026-11-24T00:00:00Z', '2026-11-24T00:00:00Z', %s)",
+            (json.dumps({"id": "source-grant-guard"}),),
+        )
+        initial_payload = {
+            "id": "grant-guard", "source_id": "source-grant-guard",
+            "status": "pending", "effective_from": "2026-11-24T00:00:00Z",
+            "effective_until": "2027-11-24T00:00:00Z", "revision": 1,
+        }
+        connection.execute(
+            "INSERT INTO permission_grants "
+            "(id, source_id, status, effective_from, effective_until, revision, payload_json) "
+            "VALUES ('grant-guard', 'source-grant-guard', 'pending', "
+            "'2026-11-24T00:00:00Z', '2027-11-24T00:00:00Z', 1, %s)",
+            (json.dumps(initial_payload),),
+        )
+
+        next_payload = {
+            **initial_payload, "status": "approved", "revision": 2,
+            "reviewed_at": "2026-11-24T00:01:00Z", "reviewed_by": "reviewer",
+        }
+        with pytest.raises(psycopg.errors.CheckViolation, match="requires matching revision"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE permission_grants SET status = 'approved', revision = 2, "
+                    "payload_json = %s WHERE id = 'grant-guard'",
+                    (json.dumps(next_payload),),
+                )
+
+        # Even a correctly incremented revision cannot rewrite the original
+        # permission window: scope identity is immutable after grant creation.
+        widened_payload = {
+            **next_payload, "effective_until": "2028-11-24T00:00:00Z",
+        }
+        with pytest.raises(psycopg.errors.CheckViolation, match="identity is immutable"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE permission_grants SET status = 'approved', revision = 2, "
+                    "effective_until = '2028-11-24T00:00:00Z', payload_json = %s "
+                    "WHERE id = 'grant-guard'",
+                    (json.dumps(widened_payload),),
+                )
+
+        assert connection.execute(
+            "SELECT status, revision, effective_until FROM permission_grants "
+            "WHERE id = 'grant-guard'"
+        ).fetchone() == ("pending", 1, "2027-11-24T00:00:00Z")
+
+
 def test_postgres_collection_ingestion_provenance_and_current_pointer(postgres_schema):
     connect = postgres_schema
     with connect() as connection:
