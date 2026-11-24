@@ -20,6 +20,13 @@ CONVERSION_TARGET_TYPES = {
     "blob_to_bytea": {"bytea"},
     "json_text_to_jsonb": {"jsonb"},
 }
+CONVERSION_SOURCE_CLASSES = {
+    "text_identity": {"text", "null"},
+    "integer_to_bigint": {"integer", "null"},
+    "real_to_double_precision": {"real", "null"},
+    "blob_to_bytea": {"blob", "null"},
+    "json_text_to_jsonb": {"text", "null"},
+}
 
 
 class ReconciliationPlanError(ValueError):
@@ -80,7 +87,7 @@ def plan_schema_v36_reconciliation(
             "issues": [_issue("MAPPING_SPEC_MISSING")],
             "remaining_gates": [
                 "REVIEWED_TABLE_COLUMN_MAPPING",
-                "ROW_VALUE_CONVERSION_PROOF",
+                "JSON_CONTENT_AND_VALUE_CONVERSION_PROOF",
                 "TARGET_ROW_COUNT_AND_CHECKSUM_RECONCILIATION",
                 "AUDIT_CHAIN_IMPORT_AND_VERIFICATION",
             ],
@@ -186,11 +193,46 @@ def plan_schema_v36_reconciliation(
                     conversion=conversion,
                     actual_type=actual_type,
                 ))
+            storage_counts = source_tables[source_name].get(
+                "storage_class_counts", {}
+            ).get(source_column)
+            if not isinstance(storage_counts, dict):
+                issues.append(_issue(
+                    "SOURCE_STORAGE_CLASS_INVENTORY_MISSING",
+                    source_table=source_name,
+                    source_column=source_column,
+                ))
+                storage_counts = {}
+            else:
+                allowed_classes = CONVERSION_SOURCE_CLASSES.get(conversion)
+                observed_classes = sorted(
+                    key for key, count in storage_counts.items()
+                    if count and key not in (allowed_classes or set())
+                )
+                if allowed_classes is None or observed_classes:
+                    issues.append(_issue(
+                        "SOURCE_STORAGE_CLASS_CONVERSION_UNSAFE",
+                        source_table=source_name,
+                        source_column=source_column,
+                        conversion=conversion,
+                        observed_incompatible_classes=observed_classes,
+                        storage_class_counts=storage_counts,
+                    ))
+            if storage_counts.get("null", 0) and not target_column_meta.get("nullable", True):
+                issues.append(_issue(
+                    "SOURCE_NULLS_TARGET_NOT_NULL",
+                    source_table=source_name,
+                    source_column=source_column,
+                    target_table=target_name,
+                    target_column=target_column,
+                    null_count=storage_counts["null"],
+                ))
             column_results.append({
                 "source_column": source_column,
                 "target_column": target_column,
                 "conversion": conversion,
                 "target_type": actual_type,
+                "source_storage_class_counts": storage_counts,
             })
 
         missing_source_columns = sorted(source_columns - mapped_source_columns)
