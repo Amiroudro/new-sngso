@@ -234,7 +234,7 @@ def inspect_postgres_mapped_rows(
                 if actual_ledger != expected_ledger:
                     raise PostgresRowInspectionError("target migration ledger changed or diverged")
 
-                for table_spec in mapping_spec["tables"]:
+                for table_index, table_spec in enumerate(mapping_spec["tables"]):
                     target_table = table_spec["target_table"]
                     if target_table not in inventory_tables:
                         raise PostgresRowInspectionError("mapped target relation is absent from inventory")
@@ -294,7 +294,10 @@ def inspect_postgres_mapped_rows(
                         f"FROM {_quote_identifier(schema_name)}.{_quote_identifier(target_table)} "
                         f"ORDER BY {order_parts}"
                     )
-                    cursor.execute(query)
+                    row_cursor = cursor_factory(
+                        name=f"sngso_mapped_row_scan_{table_index}"
+                    )
+                    row_cursor.execute(query)
                     digest = hashlib.sha256()
                     digest.update(REPORT_FORMAT.encode("ascii") + b"\x00")
                     digest.update(canonical_json_bytes({
@@ -330,7 +333,7 @@ def inspect_postgres_mapped_rows(
                     non_json_digest.update(b"\\x00")
                     row_count = 0
                     while True:
-                        batch = cursor.fetchmany(batch_size)
+                        batch = row_cursor.fetchmany(batch_size)
                         if not batch:
                             break
                         for row in batch:
@@ -343,6 +346,7 @@ def inspect_postgres_mapped_rows(
                                 if item["conversion"] != "json_text_to_jsonb":
                                     non_json_digest.update(encoded)
                             row_count += 1
+                    row_cursor.close()
                     table_reports.append({
                         "source_table": table_spec["source_table"],
                         "target_table": target_table,
