@@ -44,6 +44,9 @@ def build_schema_v36_dry_run_report(
         "database_mutated": False,
         "import_performed": False,
         "import_authorized": False,
+        "row_data_inspected": False,
+        "target_audit_chain_compared": False,
+        "cutover_ready": False,
         "source": {
             "filename": source_manifest.get("source", {}).get("filename"),
             "schema_version": source_manifest.get("source", {}).get("schema_version"),
@@ -126,11 +129,18 @@ def main(argv: list[str] | None = None) -> int:
             print("Install the optional postgres dependency to inspect the target.", file=sys.stderr)
             return 2
 
-        connection = psycopg.connect(dsn)
         try:
-            target_inventory = inspect_postgres_import_target(connection)
-        finally:
-            connection.close()
+            connection = psycopg.connect(dsn)
+            try:
+                target_inventory = inspect_postgres_import_target(connection)
+            finally:
+                connection.close()
+        except psycopg.Error:
+            print(
+                "PostgreSQL inspection failed; verify read-only target connectivity.",
+                file=sys.stderr,
+            )
+            return 2
 
         report = build_schema_v36_dry_run_report(
             source_manifest,
