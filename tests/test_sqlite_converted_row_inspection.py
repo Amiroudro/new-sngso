@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
+from sngso_engine.canonical import canonical_json_bytes
 from sngso_engine.sqlite_converted_row_inspection import (
     SQLiteConvertedRowInspectionError,
     _encode_source_value,
@@ -48,5 +51,12 @@ def test_comparison_requires_matching_source_and_mapping_pins():
         "mapping_sha256": "b",
         "table_reports": [],
     }
+    source["report_sha256"] = hashlib.sha256(canonical_json_bytes(source)).hexdigest()
+    target["report_sha256"] = hashlib.sha256(canonical_json_bytes(target)).hexdigest()
     with pytest.raises(SQLiteConvertedRowInspectionError, match="source_manifest_sha256"):
         compare_converted_row_reports(source, target)
+
+
+def test_source_text_encoder_rejects_postgres_unrepresentable_nul():
+    with pytest.raises(SQLiteConvertedRowInspectionError, match="U\+0000"):
+        _encode_source_value("bad\\x00text", "text_identity")
