@@ -4695,3 +4695,47 @@ def test_postgres_approved_vocabulary_quality_report_matches_sqlite(postgres_sch
 
     assert sqlite_report["meets_registry_quality_gates"] is True
     assert postgres_report == sqlite_report
+
+
+def test_postgres_target_inspection_is_read_only_repeatable_and_fail_closed(postgres_schema):
+    from sngso_engine.postgres_target_inspection import inspect_postgres_import_target
+
+    connect = postgres_schema
+    with connect() as connection:
+        first = inspect_postgres_import_target(connection)
+        second = inspect_postgres_import_target(connection)
+
+    assert first == second
+    assert first["outcome"] == "INCOMPLETE"
+    assert first["reason_codes"] == ["SOURCE_TARGET_MAPPING_NOT_REVIEWED"]
+    assert first["migration_ledger_matches_packaged"] is True
+    assert len(first["migration_ledger"]) == 23
+    assert first["identity"]["server_version_num"] >= 160000
+    assert first["audit_chain_head"] == [
+        {"singleton_id": 1, "sequence": 0, "event_hash": None}
+    ]
+    assert "sources" in {item["table_name"] for item in first["tables"]}
+    assert any(
+        item["table_name"] == "audit_events" and item["column_name"] == "event_hash"
+        for item in first["columns"]
+    )
+    assert any(
+        item["table_name"] == "sources" and item["constraint_type"] == "p"
+        for item in first["constraints"]
+    )
+    assert first["inventory_sha256"].startswith("sha256:") is False
+    assert len(first["inventory_sha256"]) == 64
+
+
+def test_postgres_target_inspection_rejects_active_transaction(postgres_schema):
+    from sngso_engine.postgres_target_inspection import (
+        PostgresInspectionError,
+        inspect_postgres_import_target,
+    )
+
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute("SELECT 1")
+        with pytest.raises(PostgresInspectionError, match="idle connection"):
+            inspect_postgres_import_target(connection)
+        connection.rollback()
