@@ -1891,6 +1891,15 @@ def test_postgres_stage_checkpoints_are_idempotent_revisioned_and_immutable(post
             "SELECT revision, status, provider_operation_ref FROM pipeline_stage_checkpoints "
             "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0"
         ).fetchone() == (3, "succeeded", "provider-op-1")
+        with pytest.raises(psycopg.errors.CheckViolation, match="invalid stage checkpoint status transition"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE pipeline_stage_checkpoints SET status = 'executing', revision = 4, "
+                    "output_fingerprint = NULL, updated_at = '2026-11-23T00:04:00Z', "
+                    "actor = 'worker-1', reason = 'attempt to replay completed stage', metadata_json = %s "
+                    "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0",
+                    (json.dumps({"attempt": 3}),),
+                )
         assert connection.execute(
             "SELECT revision, status FROM pipeline_stage_checkpoint_revisions "
             "WHERE pipeline_run_id = 'checkpoint-run' ORDER BY revision"
