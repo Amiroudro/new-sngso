@@ -296,7 +296,7 @@ def test_postgres_permission_grant_head_requires_matching_revision_and_fixed_sco
         initial_payload = {
             "id": "grant-guard", "source_id": "source-grant-guard",
             "status": "pending", "effective_from": "2026-11-24T00:00:00Z",
-            "effective_until": "2027-11-24T00:00:00Z", "revision": 1,
+            "effective_until": "2027-11-24T00:00:00Z",
         }
         connection.execute(
             "INSERT INTO permission_grants "
@@ -340,7 +340,7 @@ def test_postgres_permission_grant_head_requires_matching_revision_and_fixed_sco
         # A matching snapshot followed by its head update is the valid atomic
         # sequence permitted by the deferred consistency constraint.
         approved_payload = {
-            **initial_payload, "status": "approved", "revision": 2,
+            **initial_payload, "status": "approved",
             "reviewed_at": "2026-11-24T00:04:00Z", "reviewed_by": "reviewer",
         }
         with connection.transaction():
