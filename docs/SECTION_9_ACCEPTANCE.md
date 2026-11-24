@@ -163,3 +163,10 @@ The schema-v36 source-to-PostgreSQL mapping planner now validates the foreign-ke
 Exact-head GitHub Actions [run #45363671654](https://github.com/Amiroudro/new-sngso/actions/runs/45363671654) passed on code head `273434f6362461b8166bf0499142af013fcebf4c`: **1,202 passed, 1 skipped** in the contract job; the separate PostgreSQL job passed **73 tests**. The schema-v36 inspection and artifact upload also succeeded.
 
 Still open: an isolated bulk importer, exact row and audit-chain reconciliation, restricted import-role proof, restore rehearsal, and production cutover/HA acceptance. SQLite remains authoritative.
+
+
+## Read-only schema-v36 dry-run command
+
+Added the `sngso-schema-v36-dry-run` CLI. It combines the verified SQLite schema-v36 manifest, PostgreSQL target catalog inventory, and fingerprint-pinned reviewed mapping into a local no-overwrite report. Credentials are environment-only and connection failures do not print connection details. The report explicitly states that it has not inspected target row data, compared the target audit chain, or established cutover readiness. Outcomes remain `INCOMPLETE` for structurally valid plans and `BLOCKED` for missing/invalid mapping. Regression tests assert these safety fields. Exact-head CI is pending for this acceptance update.
+
+This closes only the structural preflight CLI slice. The isolated importer, row-by-row post-import reconciliation, audit-chain import/verification, restricted import role, restore rehearsal, and production/HA gates remain open.
