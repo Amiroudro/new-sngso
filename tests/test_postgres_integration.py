@@ -5020,7 +5020,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     comparison = compare_converted_row_reports(source_report, target_report)
 
     assert source_report["all_row_counts_match_manifest"] is True
-    assert target_report["all_row_counts_match_source"] is True
+    assert target_report["all_row_counts_match"] is True
     assert comparison["outcome"] == "INCOMPLETE"
     assert comparison["non_json_values_match"] is True
     assert comparison["issues"] == []
