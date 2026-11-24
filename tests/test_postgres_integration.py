@@ -5241,6 +5241,13 @@ def test_import_target_preflight_is_read_only_and_detects_existing_rows(postgres
     assert empty["read_only"] is True
     assert empty["migration_ledger_matches_packaged"] is True
     assert empty["audit_head_initial"] is True
+    assert empty["staging_state_initial"] is True
+    staging_count = next(
+        item["row_count"]
+        for item in empty["table_counts"]
+        if item["table_name"] == "edition_staging_channel_state"
+    )
+    assert staging_count == 1
 
     with connect() as connection:
         run_atomic(
