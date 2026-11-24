@@ -157,7 +157,7 @@ A PostgreSQL 16 service in CI must run the real importer and reconciliation test
 
 ## 12. Current evidence boundary
 
-The current branch has PostgreSQL-native migrations through 0023 and real PostgreSQL integration coverage for the implemented registry slices. That does not establish import parity. SQLite schema v36 remains authoritative. The existing PostgreSQL integration fixtures are newly constructed test data, not an imported production-like v36 registry.
+The current branch has PostgreSQL-native migrations through 0025 and real PostgreSQL integration coverage for the implemented registry slices. Migrations 0024 and 0025 add deferred commit-time checks that prevent permission-grant and benchmark-assignment revision snapshots from being committed ahead of, or with payloads inconsistent with, their current heads. Direct-SQL tests cover orphan-snapshot rejection and valid atomic transitions. This targeted coverage does not establish full SQLite-to-PostgreSQL trigger parity or import readiness. That does not establish import parity. SQLite schema v36 remains authoritative. The existing PostgreSQL integration fixtures are newly constructed test data, not an imported production-like v36 registry.
 
 No import, restore rehearsal, cutover, production role provisioning, multi-host worker admission, or deployment is claimed by this contract.
 
