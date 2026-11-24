@@ -61,6 +61,7 @@ def inspect_empty_import_target(
     table_counts: list[dict[str, Any]] = []
     migration_ledger_matches = False
     audit_head_initial = False
+    staging_state_initial = False
 
     try:
         with connection.transaction():
@@ -133,9 +134,34 @@ def inspect_empty_import_target(
                         "initial_state": audit_head_initial,
                     })
 
-                for table_name in sorted(current_tables - {
+                excluded_tables = {
                     "postgres_schema_migrations", "audit_chain_head"
-                }):
+                }
+                if "edition_staging_channel_state" in current_tables:
+                    cursor.execute(
+                        f"SELECT channel, state_revision, current_event_id, "
+                        f"current_export_id, lkg_event_id, lkg_export_id "
+                        f"FROM {quoted_schema}.\"edition_staging_channel_state\" "
+                        "ORDER BY channel"
+                    )
+                    staging_rows = cursor.fetchall()
+                    staging_state_initial = staging_rows == [
+                        ("staging", 0, None, None, None, None)
+                    ]
+                    table_counts.append({
+                        "table_name": "edition_staging_channel_state",
+                        "row_count": len(staging_rows),
+                        "initial_state": staging_state_initial,
+                        "excluded_as_schema_metadata": staging_state_initial,
+                    })
+                    excluded_tables.add("edition_staging_channel_state")
+                    if not staging_state_initial:
+                        issues.append({
+                            "code": "TARGET_STAGING_STATE_NOT_INITIAL",
+                            "row_count": len(staging_rows),
+                        })
+
+                for table_name in sorted(current_tables - excluded_tables):
                     quoted_table = _quote_identifier(table_name)
                     cursor.execute(
                         f"SELECT count(*) FROM {quoted_schema}.{quoted_table}"
@@ -165,6 +191,7 @@ def inspect_empty_import_target(
         "target_inventory_sha256": target_inventory.get("inventory_sha256"),
         "migration_ledger_matches_packaged": migration_ledger_matches,
         "audit_head_initial": audit_head_initial,
+        "staging_state_initial": staging_state_initial,
         "target_empty": not issues,
         "table_counts": table_counts,
         "issue_codes": issues,
