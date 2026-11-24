@@ -285,7 +285,7 @@ def inspect_postgres_mapped_rows(
                     for name in target_pk:
                         quoted = _quote_identifier(name)
                         if pk_conversion[name] == "text_identity":
-                            pk_order_parts.append(f"{quoted} COLLATE \\"C\\"")
+                            pk_order_parts.append(f'{quoted} COLLATE "C"')
                         else:
                             pk_order_parts.append(quoted)
                     order_parts = ", ".join(pk_order_parts)
