@@ -138,3 +138,27 @@ for evidence, but it is not compared to PostgreSQL's normalized `jsonb::text`.
 The comparison always returns `INCOMPLETE`; JSONB semantic equivalence and
 audit-chain import/verification are still required. The test fixture is
 synthetic and does not constitute a reviewed production mapping or an import.
+
+
+## PostgreSQL-native JSONB semantic reconciliation
+
+`src/sngso_engine/postgres_jsonb_semantic.py` adds
+`prove_sqlite_jsonb_semantic_equivalence(database, connection,
+source_manifest, target_inventory, mapping_spec, batch_size=512)`.
+
+Unlike a Python-side JSON canonicalizer, this proof asks PostgreSQL to cast
+each source JSON text value to `jsonb` and compares PostgreSQL's normalized
+text with the actual target `jsonb::text`. It pairs source and target rows by
+their converted primary-key values, checks row-count parity, and scans target
+values in one `REPEATABLE READ READ ONLY` transaction. The SQLite source is
+read-only and each schema-v36 table checksum and schema fingerprint is
+revalidated in the same source transaction. The report contains counts and
+fingerprints, never source JSON or primary-key values.
+
+The integration fixture deliberately stores semantically equivalent JSON
+with different whitespace and object-key order on the two sides. The proof
+must report the value as matched after PostgreSQL normalization. This proves
+the normalization path for the tested fixture, not every possible production
+JSON value or the actual 47-table registry. A production mapping, full source
+database run, audit-chain proof, and independent review remain required.
+No import or cutover is performed.
