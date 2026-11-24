@@ -20,7 +20,6 @@ from .postgres_row_inspection import REPORT_FORMAT, _frame
 from .sqlite_export import (
     EXPECTED_SCHEMA_VERSION,
     MANIFEST_FORMAT,
-    SQLiteExportError,
     _quote_identifier,
     _stream_table,
     _table_metadata,
@@ -40,7 +39,7 @@ def _encode_source_value(value: Any, conversion: str) -> bytes:
     if conversion == "text_identity":
         if not isinstance(value, str):
             raise SQLiteConvertedRowInspectionError("source value is not SQLite TEXT")
-        if "\\x00" in value:
+        if "\x00" in value:
             raise SQLiteConvertedRowInspectionError("PostgreSQL text cannot represent U+0000")
         return _frame(b"T", value.encode("utf-8", errors="strict"))
     if conversion == "integer_to_bigint":
@@ -85,7 +84,7 @@ def inspect_sqlite_converted_rows(
         raise SQLiteConvertedRowInspectionError("source manifest or mapping fingerprint mismatch") from exc
     if source_manifest.get("source", {}).get("schema_version") != EXPECTED_SCHEMA_VERSION:
         raise SQLiteConvertedRowInspectionError("source manifest is not schema version 36")
-    if mapping_spec.get("format") != MAPPING_FORMAT:
+    if not isinstance(mapping_spec, dict) or mapping_spec.get("format") != MAPPING_FORMAT:
         raise SQLiteConvertedRowInspectionError("unsupported mapping format")
     if mapping_spec.get("source_manifest_sha256") != manifest_digest:
         raise SQLiteConvertedRowInspectionError("mapping does not pin this source manifest")
@@ -151,6 +150,8 @@ def inspect_sqlite_converted_rows(
                 "mapping must cover each source table exactly once"
             )
         for table_spec in mapping_spec["tables"]:
+            if not isinstance(table_spec, dict):
+                raise SQLiteConvertedRowInspectionError("table mapping entry is invalid")
             source_name = table_spec.get("source_table")
             manifest_table = source_tables.get(source_name)
             if manifest_table is None:
@@ -167,6 +168,8 @@ def inspect_sqlite_converted_rows(
             column_specs = table_spec.get("columns")
             if not isinstance(column_specs, list) or not column_specs:
                 raise SQLiteConvertedRowInspectionError("mapped source columns are invalid")
+            if any(not isinstance(item, dict) for item in column_specs):
+                raise SQLiteConvertedRowInspectionError("column mapping entry is invalid")
             source_columns = [item.get("source_column") for item in column_specs]
             target_columns = [item.get("target_column") for item in column_specs]
             known_source_columns = {item["name"] for item in metadata["columns"]}
@@ -179,6 +182,8 @@ def inspect_sqlite_converted_rows(
                     "mapping must cover each source column exactly once"
                 )
             storage_counts = manifest_table.get("storage_class_counts", {})
+            if not isinstance(storage_counts, dict):
+                raise SQLiteConvertedRowInspectionError("source storage-class inventory is invalid")
             expected_storage_classes = {"null", "integer", "real", "text", "blob"}
             for item in column_specs:
                 conversion = item.get("conversion")
@@ -286,10 +291,13 @@ def inspect_sqlite_converted_rows(
                         encoded = _encode_source_value(value, item["conversion"])
                         column_digests[item["target_column"]].update(b"VALUE\x00" + encoded)
                         if item["conversion"] == "json_text_to_jsonb":
-                            raw = value.encode("utf-8")
-                            source_text_digests[item["target_column"]].update(
-                                len(raw).to_bytes(8, "big") + raw
-                            )
+                            if value is None:
+                                source_text_digests[item["target_column"]].update(b"N")
+                            else:
+                                raw = value.encode("utf-8")
+                                source_text_digests[item["target_column"]].update(
+                                    len(raw).to_bytes(8, "big") + raw
+                                )
                         else:
                             non_json_digest.update(encoded)
                     row_count += 1
@@ -384,6 +392,10 @@ def compare_converted_row_reports(
         target_jsonb = set(target.get("jsonb_columns", []))
         if source_jsonb != target_jsonb:
             issues.append({"code": "JSONB_COLUMN_SET_MISMATCH", "source_table": table_name})
+        source_comparable_columns = set(source["column_sha256"]) - source_jsonb
+        target_comparable_columns = set(target["column_sha256"]) - target_jsonb
+        if source_comparable_columns != target_comparable_columns:
+            issues.append({"code": "MAPPED_COLUMN_SET_MISMATCH", "source_table": table_name})
         for column_name, source_digest in source["column_sha256"].items():
             if column_name in source_jsonb:
                 continue
