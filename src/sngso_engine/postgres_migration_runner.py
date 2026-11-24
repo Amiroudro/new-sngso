@@ -34,6 +34,7 @@ _MIGRATIONS = (
     (22, "0022_learning_evidence_locking.sql"),
     (23, "0023_primary_key_identity_guards.sql"),
     (24, "0024_permission_grant_revision_head_consistency.sql"),
+    (25, "0025_benchmark_assignment_revision_head_consistency.sql"),
 )
 
 
