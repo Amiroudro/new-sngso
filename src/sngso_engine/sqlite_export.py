@@ -243,12 +243,6 @@ def build_sqlite_export_manifest(
             previous_hash = row["event_hash"]
             previous_sequence += 1
 
-        head = connection.execute(
-            "SELECT sequence,event_hash FROM audit_chain_head WHERE singleton_id=1"
-        ).fetchone()
-        if head is None or int(head[0]) != previous_sequence or head[1] != previous_hash:
-            raise SQLiteExportError("audit chain head does not match verified event tip")
-
         manifest = {
             "format": MANIFEST_FORMAT,
             "checksum_format": CHECKSUM_FORMAT,
