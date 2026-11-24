@@ -204,6 +204,21 @@ def plan_schema_v36_reconciliation(
                 ))
                 storage_counts = {}
             else:
+                expected_storage_classes = {"null", "integer", "real", "text", "blob"}
+                valid_counts = (
+                    set(storage_counts) == expected_storage_classes
+                    and all(
+                        isinstance(count, int) and not isinstance(count, bool) and count >= 0
+                        for count in storage_counts.values()
+                    )
+                    and sum(storage_counts.values()) == source_tables[source_name].get("row_count")
+                )
+                if not valid_counts:
+                    issues.append(_issue(
+                        "SOURCE_STORAGE_CLASS_COUNTS_INCOMPLETE",
+                        source_table=source_name,
+                        source_column=source_column,
+                    ))
                 allowed_classes = CONVERSION_SOURCE_CLASSES.get(conversion)
                 observed_classes = sorted(
                     key for key, count in storage_counts.items()
