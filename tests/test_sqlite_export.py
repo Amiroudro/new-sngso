@@ -139,11 +139,15 @@ def test_export_detects_audit_event_tampering(tmp_path):
                 entity_id="tampered",
                 payload={"value": "original"},
             )
+        trigger_sql = registry._connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='audit_events_no_update'"
+        ).fetchone()[0]
         registry._connection.execute("DROP TRIGGER audit_events_no_update")
         registry._connection.execute(
             "UPDATE audit_events SET event_hash = ?",
             ("sha256:" + "f" * 64,),
         )
+        registry._connection.execute(trigger_sql)
 
     with pytest.raises(SQLiteExportError, match="audit chain verification failed"):
         build_sqlite_export_manifest(database)
