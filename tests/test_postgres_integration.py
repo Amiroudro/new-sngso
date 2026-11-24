@@ -1756,6 +1756,47 @@ def test_postgres_specialized_learning_evidence_is_current_and_claim_linked(post
 
 
 
+def test_postgres_pipeline_run_payload_projection_guards_insert_and_update(postgres_schema):
+    connect = postgres_schema
+    initial = {
+        "schema_version": "1.0.0",
+        "id": "pipeline-run-payload-guard",
+        "status": "queued",
+        "started_at": "2026-11-23T00:00:00Z",
+        "software_version": "engine-2.0",
+        "config_hash": "sha256:" + "1" * 64,
+        "input_hashes": ["sha256:" + "2" * 64],
+        "initiated_by": "operator-1",
+    }
+    with connect() as connection:
+        mismatched_insert = {**initial, "id": "different-payload-id"}
+        with pytest.raises(psycopg.errors.CheckViolation, match="pipeline run indexed fields must match payload"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json) "
+                    "VALUES ('pipeline-run-payload-guard', 'queued', 1, %s, %s)",
+                    (initial["started_at"], json.dumps(mismatched_insert)),
+                )
+
+        connection.execute(
+            "INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json) "
+            "VALUES (%s, 'queued', 1, %s, %s)",
+            (initial["id"], initial["started_at"], json.dumps(initial)),
+        )
+        mismatched_update = {**initial, "status": "queued"}
+        with pytest.raises(psycopg.errors.CheckViolation, match="pipeline run indexed fields must match payload"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE pipeline_runs SET status = 'running', revision = 2, payload_json = %s "
+                    "WHERE id = 'pipeline-run-payload-guard'",
+                    (json.dumps(mismatched_update),),
+                )
+        assert connection.execute(
+            "SELECT revision, status, payload_json FROM pipeline_runs "
+            "WHERE id = 'pipeline-run-payload-guard'"
+        ).fetchone() == (1, "queued", json.dumps(initial))
+
+
 def test_postgres_pipeline_run_revisions_preserve_identity_and_legal_transitions(postgres_schema):
     connect = postgres_schema
     initial = {
@@ -1769,7 +1810,7 @@ def test_postgres_pipeline_run_revisions_preserve_identity_and_legal_transitions
         "initiated_by": "operator-1",
         "attempt": 1
     }
-    running = {**initial, "status": "running"}
+    running = {**initial, "status": "running", "attempt": 2, "retry_of": "pipeline-run-parent"}
     with connect() as connection:
         connection.execute(
             "INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json) "
@@ -1805,6 +1846,17 @@ def test_postgres_pipeline_run_revisions_preserve_identity_and_legal_transitions
                     "VALUES ('pipeline-run-1', 99, '2026-11-23T00:02:00Z', "
                     "'attacker', 'orphan future revision', %s)",
                     (json.dumps(running),),
+                )
+
+        mismatched_snapshot = {**running, "status": "failed"}
+        with pytest.raises(psycopg.errors.CheckViolation, match="pipeline run revision must match current record"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO pipeline_run_revisions "
+                    "(pipeline_run_id, revision, created_at, actor, reason, payload_json) "
+                    "VALUES ('pipeline-run-1', 2, '2026-11-23T00:02:00Z', "
+                    "'attacker', 'mismatched snapshot', %s)",
+                    (json.dumps(mismatched_snapshot),),
                 )
 
         changed_inputs = {
