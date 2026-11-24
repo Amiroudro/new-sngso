@@ -5307,3 +5307,31 @@ def test_import_target_preflight_is_read_only_and_detects_existing_rows(postgres
         "table_name": "audit_events",
         "row_count": 1,
     } in nonempty["issue_codes"]
+
+def test_import_target_preflight_blocks_noninitial_staging_state(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "ALTER TABLE edition_staging_channel_state "
+            "DISABLE TRIGGER edition_staging_state_update_guard"
+        )
+        connection.execute(
+            "UPDATE edition_staging_channel_state SET state_revision = 1 "
+            "WHERE channel = 'staging'"
+        )
+        connection.execute(
+            "ALTER TABLE edition_staging_channel_state "
+            "ENABLE TRIGGER edition_staging_state_update_guard"
+        )
+
+    with connect() as connection:
+        inventory = inspect_postgres_import_target(connection)
+    with connect() as connection:
+        report = inspect_empty_import_target(connection, inventory)
+
+    assert report["outcome"] == "NOT_EMPTY_OR_UNVERIFIED"
+    assert report["staging_state_initial"] is False
+    assert {
+        "code": "TARGET_STAGING_STATE_NOT_INITIAL",
+        "row_count": 1,
+    } in report["issue_codes"]
