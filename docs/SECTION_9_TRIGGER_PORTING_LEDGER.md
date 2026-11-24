@@ -1,6 +1,6 @@
 # Section 9 Trigger Porting Ledger
 
-Status: **the schema-v35 ledger below is retained as historical evidence; schema v36 is current with 139 source-level reviewed SQLite triggers. PostgreSQL migrations 0001–0023 implement substantial coverage across the registry, operational pipeline, benchmark, and staging families. A complete one-to-one trigger mapping, adversarial direct-SQL conformance under a restricted runtime role, and full 139-trigger parity acceptance remain open.**
+Status: **the schema-v35 ledger below is retained as historical evidence; schema v36 is current with 139 source-level reviewed SQLite triggers. PostgreSQL migrations 0001–0024 implement substantial coverage across the registry, operational pipeline, benchmark, and staging families. A complete one-to-one trigger mapping, adversarial direct-SQL conformance under a restricted runtime role, and full 139-trigger parity acceptance remain open.**
 
 Historical evidence source: CI-generated schema-v35 inspection artifact from [GitHub Actions run #45057281125](https://github.com/Amiroudro/new-sngso/actions/runs/45057281125). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
 
@@ -105,7 +105,7 @@ Migration 36 adds one BEFORE INSERT trigger, `edition_staging_events_authority_b
 
 ## PostgreSQL implementation checkpoint (2026-11-24)
 
-Draft PR #8 now contains PostgreSQL migrations 0001–0023. The migration
+Draft PR #8 now contains PostgreSQL migrations 0001–0024. The migration
 families cover source permissions and collection/ingestion, story/editorial
 history, learning and glossary lifecycle/evidence, benchmark governance and
 study evidence, pipeline runs/checkpoints/worker leases, edition artifacts
@@ -149,3 +149,12 @@ and PostgreSQL integration jobs. The new test proves guard presence and
 catalog wiring, while existing restricted-role tests exercise denied identity
 rewrites. A complete per-trigger v36 mapping and direct-SQL conformance suite
 remain open.
+
+Migration 0024 adds a deferred constraint trigger for permission-grant revision
+snapshots. It permits the required insert-snapshot-then-update-head sequence
+within one transaction, but rejects a future revision snapshot if the
+transaction attempts to commit while the grant head remains behind. Direct-SQL
+integration coverage exercises the rejected orphan-snapshot transaction and
+verifies that neither the head nor revision history is changed. This closes
+that specific transaction-boundary gap only; it does not establish complete
+revision-family parity with SQLite.
