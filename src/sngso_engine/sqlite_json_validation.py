@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,33 @@ class SQLiteJSONValidationError(RuntimeError):
 
 def _reject_constant(value: str) -> None:
     raise ValueError(f"non-standard JSON constant: {value}")
+
+
+def _validate_jsonb_value(value: Any) -> None:
+    """Reject values PostgreSQL jsonb cannot represent losslessly."""
+    if isinstance(value, str):
+        if "\\x00" in value:
+            raise ValueError("PostgreSQL jsonb does not support U+0000")
+        if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+            raise ValueError("PostgreSQL jsonb does not support unpaired surrogates")
+        return
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError("non-finite JSON number")
+        if value != 0:
+            if value.adjusted() >= 131072:
+                raise ValueError("JSON number exceeds PostgreSQL numeric integer range")
+            if max(0, -value.as_tuple().exponent) > 16383:
+                raise ValueError("JSON number exceeds PostgreSQL numeric scale")
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_jsonb_value(item)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            _validate_jsonb_value(key)
+            _validate_jsonb_value(item)
 
 
 def _manifest_digest(manifest: dict[str, Any]) -> str:
@@ -139,7 +167,7 @@ def validate_sqlite_jsonb_content(
                 f"SELECT {select_sql} FROM {_quote_identifier(table_name)} ORDER BY {order_sql}"
             )
             stats = {
-                column: {"validated": 0, "null": 0, "invalid": 0, "content_sha256": hashlib.sha256()}
+                column: {"validated": 0, "null": 0, "invalid": 0, "source_text_sha256": hashlib.sha256()}
                 for column in columns
             }
             invalid_key_digests = {column: hashlib.sha256() for column in columns}
@@ -154,22 +182,27 @@ def validate_sqlite_jsonb_content(
                         state = stats[column]
                         if value is None:
                             state["null"] += 1
-                            state["content_sha256"].update(b"NULL\\x00")
+                            state["source_text_sha256"].update(b"NULL\\x00")
                             continue
                         if not isinstance(value, str):
                             state["invalid"] += 1
                             invalid_key_digests[column].update(key_payload + b"\\x00")
                             continue
                         try:
-                            parsed = json.loads(value, parse_constant=_reject_constant)
-                            canonical = canonical_json_bytes(parsed)
-                            canonical.decode("utf-8", errors="strict")
+                            raw = value.encode("utf-8", errors="strict")
+                            parsed = json.loads(
+                                value,
+                                parse_int=Decimal,
+                                parse_float=Decimal,
+                                parse_constant=_reject_constant,
+                            )
+                            _validate_jsonb_value(parsed)
                         except (ValueError, TypeError, UnicodeError, RecursionError):
                             state["invalid"] += 1
                             invalid_key_digests[column].update(key_payload + b"\\x00")
                             continue
                         state["validated"] += 1
-                        state["content_sha256"].update(len(canonical).to_bytes(8, "big") + canonical)
+                        state["source_text_sha256"].update(len(raw).to_bytes(8, "big") + raw)
             rendered_columns = []
             for column in columns:
                 state = stats[column]
@@ -178,7 +211,7 @@ def validate_sqlite_jsonb_content(
                     "validated_non_null": state["validated"],
                     "null": state["null"],
                     "invalid": state["invalid"],
-                    "canonical_content_sha256": state["content_sha256"].hexdigest(),
+                    "source_text_sha256": state["source_text_sha256"].hexdigest(),
                     "invalid_primary_key_set_sha256": invalid_key_digests[column].hexdigest(),
                 })
             table_proofs.append({"source_table": table_name, "columns": rendered_columns})
