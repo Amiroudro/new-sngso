@@ -24,18 +24,12 @@ def _fixture(tmp_path, json_value):
     database = tmp_path / "json-source.sqlite"
     with SQLiteRegistry(database) as registry:
         with registry._transaction() as connection:
-            registry._append_audit(
-                connection,
-                event_type="fixture.created",
-                entity_type="fixture",
-                entity_id="one",
-                payload={"fixture": json_value},
+            connection.execute(
+                """INSERT INTO sources
+                   (id, publisher_name, status, created_at, updated_at, payload_json)
+                   VALUES ('fixture', 'Fixture', 'active', '2026-11-24', '2026-11-24', ?)""",
+                (json_value,),
             )
-            if json_value is not None:
-                connection.execute(
-                    "UPDATE audit_events SET payload_json = ? WHERE sequence = 1",
-                    (json_value,),
-                )
     manifest = build_sqlite_export_manifest(database)
     mapping = {
         "format": "sngso-sqlite-to-postgres-mapping-v1",
@@ -44,11 +38,11 @@ def _fixture(tmp_path, json_value):
         "target_inventory_sha256": "0" * 64,
         "review": {"status": "approved", "reviewer": "test", "reviewed_at": "2026-11-24", "reference": "fixture"},
         "tables": [{
-            "source_table": "audit_events",
-            "target_table": "audit_events",
+            "source_table": "sources",
+            "target_table": "sources",
             "columns": [
-                {"source_column": "sequence", "target_column": "sequence", "conversion": "integer_to_bigint"},
-                {"source_column": "payload_json", "target_column": "payload", "conversion": "json_text_to_jsonb"},
+                {"source_column": "id", "target_column": "id", "conversion": "text_identity"},
+                {"source_column": "payload_json", "target_column": "payload_json", "conversion": "json_text_to_jsonb"},
             ],
         }],
     }
@@ -80,7 +74,7 @@ def test_jsonb_content_proof_rejects_source_drift_and_unapproved_mapping(tmp_pat
     with SQLiteRegistry(database) as registry:
         with registry._transaction() as connection:
             connection.execute(
-                "UPDATE audit_events SET payload_json=? WHERE sequence=1",
+                "UPDATE sources SET payload_json=? WHERE id='fixture'",
                 ('{"changed":true}',),
             )
     with pytest.raises(SQLiteJSONValidationError, match="differs from pinned manifest"):
