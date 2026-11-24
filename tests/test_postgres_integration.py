@@ -1895,6 +1895,26 @@ def test_postgres_stage_checkpoints_are_idempotent_revisioned_and_immutable(post
             "SELECT revision, status FROM pipeline_stage_checkpoint_revisions "
             "WHERE pipeline_run_id = 'checkpoint-run' ORDER BY revision"
         ).fetchall() == [(1, "executing"), (2, "indeterminate"), (3, "succeeded")]
+        assert connection.execute(
+            "SELECT created_at, actor, reason, provider_operation_ref, output_fingerprint, metadata_json "
+            "FROM pipeline_stage_checkpoint_revisions "
+            "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0 AND revision = 3"
+        ).fetchone() == (
+            "2026-11-23T00:03:00Z", "worker-1", "provider result reconciled",
+            "provider-op-1", "sha256:" + "5" * 64,
+            json.dumps({"reconciliation": "confirmed", "attempt": 2}),
+        )
+
+        with pytest.raises(psycopg.errors.CheckViolation, match="checkpoint revision must match its current head"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO pipeline_stage_checkpoint_revisions "
+                    "(pipeline_run_id, stage_ordinal, revision, created_at, actor, reason, "
+                    "status, provider_operation_ref, output_fingerprint, metadata_json) "
+                    "VALUES ('checkpoint-run', 0, 99, '2026-11-23T00:04:00Z', "
+                    "'attacker', 'orphan future revision', 'succeeded', 'provider-op-1', %s, %s)",
+                    ("sha256:" + "8" * 64, json.dumps({"attempt": 99})),
+                )
 
         with pytest.raises(psycopg.errors.CheckViolation, match="unsupported fields or types"):
             with connection.transaction():
@@ -1919,6 +1939,12 @@ def test_postgres_stage_checkpoints_are_idempotent_revisioned_and_immutable(post
         with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
             connection.execute(
                 "UPDATE pipeline_stage_checkpoint_revisions SET reason = 'rewritten' "
+                "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0 AND revision = 1"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM pipeline_stage_checkpoint_revisions "
                 "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0 AND revision = 1"
             )
         connection.rollback()
@@ -1984,6 +2010,18 @@ def test_postgres_worker_leases_fence_reacquisition_and_preserve_history(postgre
             (3, "worker-1", 1, "released"),
             (4, "worker-2", 2, "active"),
         ]
+        with pytest.raises(psycopg.errors.CheckViolation, match="worker lease revision must match current head"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO pipeline_worker_lease_revisions "
+                    "(pipeline_run_id, revision, created_at, worker_id, token_hash, fencing_token, "
+                    "status, acquired_at, heartbeat_at, expires_at, cancel_requested_at, "
+                    "cancel_requested_by, cancel_reason_code, actor, reason) "
+                    "VALUES ('lease-run', 99, '2026-11-23T00:04:00Z', 'worker-2', %s, 2, "
+                    "'active', '2026-11-23T00:03:00Z', '2026-11-23T00:03:00Z', "
+                    "'2026-11-23T00:13:00Z', NULL, NULL, NULL, 'attacker', 'orphan future revision')",
+                    ("sha256:" + "4" * 64,),
+                )
         with pytest.raises(psycopg.errors.CheckViolation, match="invalid worker lease ownership"):
             with connection.transaction():
                 connection.execute(
