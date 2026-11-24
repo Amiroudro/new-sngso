@@ -44,3 +44,14 @@ sngso-sqlite-export-manifest /path/to/registry.sqlite --output /path/to/manifest
 ```
 
 The command refuses an existing output path. Keep the manifest outside the source database directory when practical, and protect it as operational metadata.
+
+
+## JSONB content validation checkpoint
+
+- Added `sqlite_json_validation.py`: read-only validation for source columns explicitly mapped with `json_text_to_jsonb`.
+- Requires an approved, fingerprint-pinned mapping tied to the exact source manifest and schema.
+- Recomputes every source table's row checksum and schema fingerprint inside the same read transaction before validating mapped JSON cells. Any source drift fails closed.
+- Rejects malformed JSON, non-standard constants (NaN/Infinity), invalid UTF-8 scalar content, and non-TEXT values. NULL is retained as NULL and counted separately.
+- Emits per-column counts, a deterministic canonical-content digest, and a digest of invalid primary-key identities. Raw values and primary keys are not included in the proof.
+- This is a source-side conversion proof only. It does not perform PostgreSQL insertion, prove PostgreSQL jsonb normalization equivalence, reconcile target row checksums, or authorize import/cutover.
+- Tests cover valid Bengali JSON, malformed/non-standard JSON, source drift, and unapproved mapping. CI verification is pending for this checkpoint.
