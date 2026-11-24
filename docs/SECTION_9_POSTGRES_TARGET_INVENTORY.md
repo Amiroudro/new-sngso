@@ -107,3 +107,34 @@ converted-row digest using the exact same type-specific encoding contract,
 followed by equality checks and explicit JSONB semantic-normalization proof.
 Audit-chain import and verification remain separate gates. No import or
 cutover is performed.
+
+
+## Converted source-to-target row proof (non-JSON fields)
+
+`src/sngso_engine/sqlite_converted_row_inspection.py` adds
+`inspect_sqlite_converted_rows(database, source_manifest, mapping_spec)`.
+It opens SQLite in read-only mode, verifies schema version 36, contiguous
+migration history, integrity and foreign keys, then rechecks each mapped
+source table's schema fingerprint, row checksum and storage-class histogram
+inside the same snapshot before streaming converted values.
+
+For text, bigint, binary64 and bytea conversions, the source scanner uses the
+same framed byte encoding as the PostgreSQL target scanner. It rejects source
+storage-class mismatches, bigint overflow, non-finite reals, invalid UTF-8
+scalar strings and U+0000 in PostgreSQL text. Text primary-key ordering is
+accepted only for SQLite BINARY collation and is matched with PostgreSQL C
+collation. This prevents row-stream hashes from depending on incompatible
+locale sort orders.
+
+`compare_converted_row_reports(source_report, target_report)` verifies the
+report fingerprints and source-manifest/mapping pins, then compares row counts,
+per-column hashes and the combined non-JSON row digest. It reports mismatches
+without exposing row values. A real PostgreSQL integration test builds a
+schema-v36 SQLite fixture and confirms exact converted non-JSON digest equality
+against the migrated PostgreSQL test target.
+
+JSONB columns remain explicitly pending. Their source-text digest is retained
+for evidence, but it is not compared to PostgreSQL's normalized `jsonb::text`.
+The comparison always returns `INCOMPLETE`; JSONB semantic equivalence and
+audit-chain import/verification are still required. The test fixture is
+synthetic and does not constitute a reviewed production mapping or an import.
