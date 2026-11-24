@@ -294,59 +294,59 @@ def inspect_postgres_mapped_rows(
                         f"FROM {_quote_identifier(schema_name)}.{_quote_identifier(target_table)} "
                         f"ORDER BY {order_parts}"
                     )
-                    row_cursor = cursor_factory(
+                    with cursor_factory(
                         name=f"sngso_mapped_row_scan_{table_index}"
-                    )
-                    row_cursor.execute(query)
-                    digest = hashlib.sha256()
-                    digest.update(REPORT_FORMAT.encode("ascii") + b"\x00")
-                    digest.update(canonical_json_bytes({
-                        "source_table": table_spec["source_table"],
-                        "target_table": target_table,
-                        "columns": column_specs,
-                        "primary_key": target_pk,
-                    }))
-                    digest.update(b"\x00")
-                    column_digests = {}
-                    for item in column_specs:
-                        column_digest = hashlib.sha256()
-                        column_digest.update(canonical_json_bytes({
+                    ) as row_cursor:
+                        row_cursor.execute(query)
+                        digest = hashlib.sha256()
+                        digest.update(REPORT_FORMAT.encode("ascii") + b"\x00")
+                        digest.update(canonical_json_bytes({
                             "source_table": table_spec["source_table"],
                             "target_table": target_table,
-                            "source_column": item["source_column"],
-                            "target_column": item["target_column"],
-                            "conversion": item["conversion"],
+                            "columns": column_specs,
+                            "primary_key": target_pk,
                         }))
-                        column_digest.update(b"\\x00")
-                        column_digests[item["target_column"]] = column_digest
-                    non_json_columns = [
-                        item for item in column_specs
-                        if item["conversion"] != "json_text_to_jsonb"
-                    ]
-                    non_json_digest = hashlib.sha256()
-                    non_json_digest.update(canonical_json_bytes({
-                        "source_table": table_spec["source_table"],
-                        "target_table": target_table,
-                        "columns": non_json_columns,
-                        "primary_key": target_pk,
-                    }))
-                    non_json_digest.update(b"\\x00")
-                    row_count = 0
-                    while True:
-                        batch = row_cursor.fetchmany(batch_size)
-                        if not batch:
-                            break
-                        for row in batch:
-                            digest.update(b"ROW\x00")
-                            non_json_digest.update(b"ROW\\x00")
-                            for index, item in enumerate(column_specs):
-                                encoded = _encode_target_value(row[index], item["conversion"])
-                                digest.update(encoded)
-                                column_digests[item["target_column"]].update(b"VALUE\\x00" + encoded)
-                                if item["conversion"] != "json_text_to_jsonb":
-                                    non_json_digest.update(encoded)
-                            row_count += 1
-                    row_cursor.close()
+                        digest.update(b"\x00")
+                        column_digests = {}
+                        for item in column_specs:
+                            column_digest = hashlib.sha256()
+                            column_digest.update(canonical_json_bytes({
+                                "source_table": table_spec["source_table"],
+                                "target_table": target_table,
+                                "source_column": item["source_column"],
+                                "target_column": item["target_column"],
+                                "conversion": item["conversion"],
+                            }))
+                            column_digest.update(b"\\x00")
+                            column_digests[item["target_column"]] = column_digest
+                        non_json_columns = [
+                            item for item in column_specs
+                            if item["conversion"] != "json_text_to_jsonb"
+                        ]
+                        non_json_digest = hashlib.sha256()
+                        non_json_digest.update(canonical_json_bytes({
+                            "source_table": table_spec["source_table"],
+                            "target_table": target_table,
+                            "columns": non_json_columns,
+                            "primary_key": target_pk,
+                        }))
+                        non_json_digest.update(b"\\x00")
+                        row_count = 0
+                        while True:
+                            batch = row_cursor.fetchmany(batch_size)
+                            if not batch:
+                                break
+                            for row in batch:
+                                digest.update(b"ROW\x00")
+                                non_json_digest.update(b"ROW\\x00")
+                                for index, item in enumerate(column_specs):
+                                    encoded = _encode_target_value(row[index], item["conversion"])
+                                    digest.update(encoded)
+                                    column_digests[item["target_column"]].update(b"VALUE\\x00" + encoded)
+                                    if item["conversion"] != "json_text_to_jsonb":
+                                        non_json_digest.update(encoded)
+                                row_count += 1
+
                     table_reports.append({
                         "source_table": table_spec["source_table"],
                         "target_table": target_table,
