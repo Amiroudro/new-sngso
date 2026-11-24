@@ -156,6 +156,7 @@ from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegi
 from .schema_inspection import SchemaInspectionError, inspect_sqlite_schema
 from .postgres_target_inspection import PostgresInspectionError, inspect_postgres_import_target
 from .postgres_reconciliation import ReconciliationPlanError, plan_schema_v36_reconciliation
+from .sqlite_json_validation import SQLiteJSONValidationError, validate_sqlite_jsonb_content
 from .sqlite_export import (
     SQLiteExportError,
     build_sqlite_export_manifest,
@@ -311,4 +312,6 @@ __all__ = [
     "build_sqlite_export_manifest",
     "encode_sqlite_value",
     "write_manifest_new",
+    "SQLiteJSONValidationError",
+    "validate_sqlite_jsonb_content",
 ]
