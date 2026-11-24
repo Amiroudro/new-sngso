@@ -76,15 +76,6 @@ def _encode_target_value(value: Any, conversion: str) -> bytes:
     raise PostgresRowInspectionError("unsupported conversion in mapped-row scan")
 
 
-def _digest_without_field(value: dict[str, Any], field: str) -> str:
-    body = dict(value)
-    supplied = body.pop(field, None)
-    actual = hashlib.sha256(canonical_json_bytes(body)).hexdigest()
-    if supplied != actual:
-        raise PostgresRowInspectionError(f"{field} fingerprint mismatch")
-    return actual
-
-
 def inspect_postgres_mapped_rows(
     connection: Any,
     source_manifest: dict[str, Any],
@@ -152,6 +143,9 @@ def inspect_postgres_mapped_rows(
                 active_schema, server_version_num = cursor.fetchone()
                 if active_schema != schema_name:
                     raise PostgresRowInspectionError("target active schema changed since inventory")
+                expected_server_version = target_inventory.get("identity", {}).get("server_version_num")
+                if server_version_num != expected_server_version:
+                    raise PostgresRowInspectionError("PostgreSQL server version changed since inventory")
 
                 mapped_target_names = [
                     item["target_table"] for item in mapping_spec["tables"]
@@ -200,6 +194,13 @@ def inspect_postgres_mapped_rows(
                 current_primary_keys = {
                     row[0]: list(row[1]) for row in cursor.fetchall()
                 }
+                expected_mapped_columns = {
+                    key for key in inventory_columns if key[0] in mapped_target_names
+                }
+                if set(current_columns) != expected_mapped_columns:
+                    raise PostgresRowInspectionError(
+                        "target mapped-table column inventory changed since inspection"
+                    )
                 for table_name in mapped_target_names:
                     if current_primary_keys.get(table_name) != inventory_pks.get(table_name):
                         raise PostgresRowInspectionError(
@@ -238,7 +239,6 @@ def inspect_postgres_mapped_rows(
                     if target_table not in inventory_tables:
                         raise PostgresRowInspectionError("mapped target relation is absent from inventory")
                     column_specs = table_spec["columns"]
-                    target_columns = [item["target_column"] for item in column_specs]
                     target_pk = inventory_pks.get(target_table)
                     mapped_pk = [
                         next(
