@@ -87,6 +87,9 @@ def plan_schema_v36_reconciliation(
         }
     if not isinstance(mapping_spec, dict) or mapping_spec.get("format") != MAPPING_FORMAT:
         raise ReconciliationPlanError("unsupported reconciliation mapping format")
+    supplied_mapping_digest = mapping_spec.get("mapping_sha256")
+    if supplied_mapping_digest != _digest(mapping_spec, "mapping_sha256"):
+        raise ReconciliationPlanError("reconciliation mapping fingerprint mismatch")
 
     if mapping_spec.get("source_manifest_sha256") != supplied_manifest_digest:
         issues.append(_issue("MAPPING_SOURCE_MANIFEST_MISMATCH"))
@@ -252,6 +255,7 @@ def plan_schema_v36_reconciliation(
         "structure_valid": structure_valid,
         "source_manifest_sha256": supplied_manifest_digest,
         "target_inventory_sha256": target_inventory["inventory_sha256"],
+        "mapping_sha256": supplied_mapping_digest,
         "source_table_count": len(source_tables),
         "mapped_source_table_count": len(mapped_sources),
         "unmapped_source_tables": unmapped_tables,
