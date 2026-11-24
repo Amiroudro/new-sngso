@@ -5,7 +5,6 @@ opens a connection, executes SQL, or mutates either database.
 """
 from __future__ import annotations
 
-import copy
 import hashlib
 from typing import Any
 
