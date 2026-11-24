@@ -55,17 +55,24 @@ def build_audit_checkpoint_record(
     if not isinstance(source, dict) or source.get("schema_version") != 36:
         raise AuditCheckpointError("source manifest must describe schema version 36")
     tip = _validate_tip(source.get("audit_checkpoint"))
+    schema_sha = source.get("schema_sha256")
+    if (
+        not isinstance(schema_sha, str) or len(schema_sha) != 64
+        or any(ch not in "0123456789abcdef" for ch in schema_sha)
+    ):
+        raise AuditCheckpointError("source schema fingerprint is invalid")
     if not isinstance(generated_at, str) or not generated_at.strip():
         raise AuditCheckpointError("generated_at is required")
     record: dict[str, Any] = {
         "format": CHECKPOINT_FORMAT,
         "generated_at": generated_at,
         "source_schema_version": 36,
-        "source_schema_sha256": source.get("schema_sha256"),
+        "source_schema_sha256": schema_sha,
         "source_manifest_sha256": manifest_sha,
         "audit_checkpoint": tip,
     }
     record["checkpoint_sha256"] = hashlib.sha256(canonical_json_bytes(record)).hexdigest()
+    load_audit_checkpoint_record(record)
     return record
 
 
