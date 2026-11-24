@@ -4712,7 +4712,11 @@ def test_postgres_target_inspection_is_read_only_repeatable_and_fail_closed(post
     assert len(first["migration_ledger"]) == 23
     assert first["identity"]["server_version_num"] >= 160000
     assert first["audit_chain_head"] == [
-        {"singleton_id": 1, "sequence": 0, "event_hash": None}
+        {
+            "singleton_id": 1, "sequence": 0, "event_hash": None,
+            "event_count": 0, "min_sequence": None, "max_sequence": None,
+            "anchor_hash": None,
+        }
     ]
     assert "sources" in {item["table_name"] for item in first["tables"]}
     assert any(
@@ -4723,7 +4727,8 @@ def test_postgres_target_inspection_is_read_only_repeatable_and_fail_closed(post
         item["table_name"] == "sources" and item["constraint_type"] == "p"
         for item in first["constraints"]
     )
-    assert first["inventory_sha256"].startswith("sha256:") is False
+    assert first["object_counts"]["foreign_keys"] > 0
+    assert first["object_counts"]["sequences"] >= 0
     assert len(first["inventory_sha256"]) == 64
 
 
