@@ -4860,6 +4860,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     from sngso_engine.canonical import canonical_json_bytes
     from sngso_engine.postgres_reconciliation import MAPPING_FORMAT
     from sngso_engine.postgres_row_inspection import inspect_postgres_mapped_rows
+    from sngso_engine.postgres_jsonb_semantic import prove_sqlite_jsonb_semantic_equivalence
     from sngso_engine.postgres_target_inspection import inspect_postgres_import_target
     from sngso_engine.sqlite_converted_row_inspection import (
         compare_converted_row_reports,
@@ -5000,7 +5001,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
                     {
                         "source_column": name,
                         "target_column": name,
-                        "conversion": "text_identity",
+                        "conversion": "json_text_to_jsonb" if name == "payload_json" else "text_identity",
                     }
                     for name in source_columns
                 ],
@@ -5028,6 +5029,10 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
         target_report = inspect_postgres_mapped_rows(
             connection, manifest, inventory, mapping, batch_size=1
         )
+    with connect() as connection:
+        jsonb_proof = prove_sqlite_jsonb_semantic_equivalence(
+            source_db, connection, manifest, inventory, mapping, batch_size=1
+        )
     comparison = compare_converted_row_reports(source_report, target_report)
     source_migration_report = next(
         item for item in source_report["table_reports"]
@@ -5050,6 +5055,9 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     assert comparison["outcome"] == "INCOMPLETE"
     assert comparison["non_json_values_match"] is True, comparison["issues"]
     assert comparison["issues"] == []
+    assert jsonb_proof["outcome"] == "VALID"
+    assert jsonb_proof["table_reports"][0]["columns"][0]["matched"] == 1
+    assert jsonb_proof["table_reports"][0]["columns"][0]["mismatched"] == 0
     assert {
         item["source_table"] for item in comparison["comparisons"]
     } == {"schema_migrations", "sample_sources"}
