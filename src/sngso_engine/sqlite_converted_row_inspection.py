@@ -117,7 +117,7 @@ def inspect_sqlite_converted_rows(
             raise SQLiteConvertedRowInspectionError("SQLite source schema version changed")
         migrations = [
             int(row[0]) for row in connection.execute(
-                "SELECT version FROM schema_migrations ORDER BY version"
+                "SELECT version FROM schema_migrations ORDER BY CAST(version AS INTEGER)"
             )
         ]
         if migrations != list(range(1, EXPECTED_SCHEMA_VERSION + 1)):
