@@ -55,7 +55,10 @@ def _inputs():
         "migration_ledger_matches_packaged": True,
         "outcome": "INCOMPLETE",
     }
-    inventory["inventory_sha256"] = _fingerprint(inventory)
+    inventory["inventory_sha256"] = _fingerprint({
+        key: value for key, value in inventory.items()
+        if key not in {"outcome", "reason_codes"}
+    })
     mapping = {
         "format": MAPPING_FORMAT,
         "source_manifest_sha256": manifest["manifest_sha256"],
