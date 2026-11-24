@@ -261,6 +261,30 @@ def test_postgres_domain_record_revision_head_and_snapshot_are_atomic(postgres_s
                     (json.dumps(mismatched_payload),),
                 )
 
+        with pytest.raises(psycopg.errors.CheckViolation, match="identity and creation time are immutable"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE domain_records SET revision = 2, created_at = '2026-11-24T00:01:00Z', "
+                    "payload_json = %s, last_actor = 'editor', last_reason = 'rewrite creation time', "
+                    "last_revision_at = '2026-11-24T00:02:00Z' "
+                    "WHERE record_type = 'story' AND id = 'story-head-guard'",
+                    (json.dumps({
+                        "id": "story-head-guard", "revision": 2, "title": "Revised"
+                    }),),
+                )
+
+        with pytest.raises(psycopg.errors.CheckViolation, match="timestamp cannot move backwards"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE domain_records SET revision = 2, payload_json = %s, "
+                    "last_actor = 'editor', last_reason = 'backdate revision', "
+                    "last_revision_at = '2026-11-23T23:59:00Z' "
+                    "WHERE record_type = 'story' AND id = 'story-head-guard'",
+                    (json.dumps({
+                        "id": "story-head-guard", "revision": 2, "title": "Revised"
+                    }),),
+                )
+
         valid_payload = {"id": "story-head-guard", "revision": 2, "title": "Revised"}
         connection.execute(
             "UPDATE domain_records SET revision = 2, updated_at = '2026-11-24T00:03:00Z', "
