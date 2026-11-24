@@ -58,5 +58,5 @@ def test_comparison_requires_matching_source_and_mapping_pins():
 
 
 def test_source_text_encoder_rejects_postgres_unrepresentable_nul():
-    with pytest.raises(SQLiteConvertedRowInspectionError, match="U\+0000"):
-        _encode_source_value("bad\\x00text", "text_identity")
+    with pytest.raises(SQLiteConvertedRowInspectionError, match=r"U\+0000"):
+        _encode_source_value("bad\x00text", "text_identity")
