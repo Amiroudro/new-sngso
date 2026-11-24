@@ -24,6 +24,7 @@ def _fixture(tmp_path, json_value):
     database = tmp_path / "json-source.sqlite"
     with SQLiteRegistry(database) as registry:
         with registry._transaction() as connection:
+            connection.execute("PRAGMA ignore_check_constraints = ON")
             connection.execute(
                 """INSERT INTO sources
                    (id, publisher_name, status, created_at, updated_at, payload_json)
@@ -80,6 +81,7 @@ def test_jsonb_content_proof_rejects_source_drift_and_unapproved_mapping(tmp_pat
     with pytest.raises(SQLiteJSONValidationError, match="differs from pinned manifest"):
         validate_sqlite_jsonb_content(database, manifest, mapping)
 
+    database.unlink()
     database, manifest, mapping = _fixture(tmp_path, '{"ok":true}')
     mapping["review"]["status"] = "draft"
     _pin(mapping, "mapping_sha256")
