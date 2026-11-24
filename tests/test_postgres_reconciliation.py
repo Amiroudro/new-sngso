@@ -10,6 +10,7 @@ from sngso_engine.postgres_reconciliation import (
     ReconciliationPlanError,
     plan_schema_v36_reconciliation,
 )
+from sngso_engine.postgres_mapping_skeleton import build_schema_v36_mapping_skeleton
 
 
 def _fingerprint(value):
@@ -419,3 +420,58 @@ def test_row_dry_run_report_blocks_row_or_jsonb_mismatch():
     assert report["outcome"] == "BLOCKED"
     assert report["issues"] == [{"code": "HASH_MISMATCH"}]
     assert report["cutover_ready"] is False
+
+def test_mapping_skeleton_is_fingerprinted_unapproved_and_exact_name_only():
+    manifest, inventory, _ = _inputs()
+    skeleton = build_schema_v36_mapping_skeleton(manifest, inventory)
+
+    assert skeleton["format"] == MAPPING_FORMAT
+    assert skeleton["mapping_sha256"] == _fingerprint({
+        key: value for key, value in skeleton.items() if key != "mapping_sha256"
+    })
+    assert skeleton["review"]["status"] == "draft"
+    assert skeleton["tables"] == [{
+        "source_table": "sample",
+        "target_table": "sample",
+        "columns": [
+            {"source_column": "id", "target_column": "id",
+             "conversion": "integer_to_bigint"},
+            {"source_column": "title", "target_column": "title",
+             "conversion": "text_identity"},
+        ],
+    }]
+    result = plan_schema_v36_reconciliation(manifest, inventory, skeleton)
+    assert result["structure_valid"] is False
+    assert {issue["code"] for issue in result["issues"]} == {
+        "MAPPING_REVIEW_NOT_APPROVED"
+    }
+
+    manifest["tables"].append({
+        "table": "unmapped",
+        "columns": [{
+            "name": "value",
+            "declared_type": "TEXT",
+        }],
+        "primary_key": [],
+        "row_count": 0,
+        "storage_class_counts": {"value": {
+            "null": 0, "integer": 0, "real": 0, "text": 0, "blob": 0,
+        }},
+    })
+    manifest["manifest_sha256"] = _fingerprint({
+        key: value for key, value in manifest.items() if key != "manifest_sha256"
+    })
+    draft = build_schema_v36_mapping_skeleton(manifest, inventory)
+    assert draft["draft_gaps"]["unmatched_source_tables"] == ["unmapped"]
+
+
+def test_mapping_skeleton_rejects_stale_source_or_target_fingerprints():
+    manifest, inventory, _ = _inputs()
+    manifest["source"]["schema_sha256"] = "d" * 64
+    with pytest.raises(ReconciliationPlanError, match="manifest fingerprint"):
+        build_schema_v36_mapping_skeleton(manifest, inventory)
+
+    manifest, inventory, _ = _inputs()
+    inventory["identity"]["schema_name"] = "stale"
+    with pytest.raises(ReconciliationPlanError, match="target inventory"):
+        build_schema_v36_mapping_skeleton(manifest, inventory)
