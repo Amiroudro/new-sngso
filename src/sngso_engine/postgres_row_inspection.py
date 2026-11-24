@@ -277,7 +277,18 @@ def inspect_postgres_mapped_rows(
                             select_parts.append(f"encode({name}, 'hex') AS {_quote_identifier(item['target_column'])}")
                         else:
                             select_parts.append(f"{name}::text AS {_quote_identifier(item['target_column'])}")
-                    order_parts = ", ".join(_quote_identifier(name) for name in target_pk)
+                    pk_conversion = {
+                        item["target_column"]: item["conversion"]
+                        for item in column_specs
+                    }
+                    pk_order_parts = []
+                    for name in target_pk:
+                        quoted = _quote_identifier(name)
+                        if pk_conversion[name] == "text_identity":
+                            pk_order_parts.append(f"{quoted} COLLATE \\"C\\"")
+                        else:
+                            pk_order_parts.append(quoted)
+                    order_parts = ", ".join(pk_order_parts)
                     query = (
                         f"SELECT {', '.join(select_parts)} "
                         f"FROM {_quote_identifier(schema_name)}.{_quote_identifier(target_table)} "
@@ -293,6 +304,30 @@ def inspect_postgres_mapped_rows(
                         "primary_key": target_pk,
                     }))
                     digest.update(b"\x00")
+                    column_digests = {}
+                    for item in column_specs:
+                        column_digest = hashlib.sha256()
+                        column_digest.update(canonical_json_bytes({
+                            "source_table": table_spec["source_table"],
+                            "target_table": target_table,
+                            "source_column": item["source_column"],
+                            "target_column": item["target_column"],
+                            "conversion": item["conversion"],
+                        }))
+                        column_digest.update(b"\\x00")
+                        column_digests[item["target_column"]] = column_digest
+                    non_json_columns = [
+                        item for item in column_specs
+                        if item["conversion"] != "json_text_to_jsonb"
+                    ]
+                    non_json_digest = hashlib.sha256()
+                    non_json_digest.update(canonical_json_bytes({
+                        "source_table": table_spec["source_table"],
+                        "target_table": target_table,
+                        "columns": non_json_columns,
+                        "primary_key": target_pk,
+                    }))
+                    non_json_digest.update(b"\\x00")
                     row_count = 0
                     while True:
                         batch = cursor.fetchmany(batch_size)
@@ -300,14 +335,28 @@ def inspect_postgres_mapped_rows(
                             break
                         for row in batch:
                             digest.update(b"ROW\x00")
+                            non_json_digest.update(b"ROW\\x00")
                             for index, item in enumerate(column_specs):
-                                digest.update(_encode_target_value(row[index], item["conversion"]))
+                                encoded = _encode_target_value(row[index], item["conversion"])
+                                digest.update(encoded)
+                                column_digests[item["target_column"]].update(b"VALUE\\x00" + encoded)
+                                if item["conversion"] != "json_text_to_jsonb":
+                                    non_json_digest.update(encoded)
                             row_count += 1
                     table_reports.append({
                         "source_table": table_spec["source_table"],
                         "target_table": target_table,
                         "row_count": row_count,
                         "target_row_sha256": digest.hexdigest(),
+                        "column_sha256": {
+                            name: column_digest.hexdigest()
+                            for name, column_digest in column_digests.items()
+                        },
+                        "non_json_row_sha256": non_json_digest.hexdigest(),
+                        "jsonb_columns": [
+                            item["target_column"] for item in column_specs
+                            if item["conversion"] == "json_text_to_jsonb"
+                        ],
                         "source_row_count": next(
                             item["row_count"] for item in source_manifest["tables"]
                             if item["table"] == table_spec["source_table"]
