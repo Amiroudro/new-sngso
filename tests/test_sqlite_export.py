@@ -78,6 +78,8 @@ def test_manifest_is_deterministic_across_batch_sizes_and_read_only(tmp_path):
     assert len(one["tables"]) == 47
     audit = next(table for table in one["tables"] if table["table"] == "audit_events")
     assert audit["row_count"] == 2
+    assert audit["storage_class_counts"]["sequence"]["integer"] == 2
+    assert audit["storage_class_counts"]["event_type"]["text"] == 2
     assert len(audit["row_sha256"]) == 64
     assert len(one["manifest_sha256"]) == 64
 
