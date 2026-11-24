@@ -4889,7 +4889,7 @@ def test_postgres_target_inspection_is_read_only_repeatable_and_fail_closed(post
     assert first["outcome"] == "INCOMPLETE"
     assert first["reason_codes"] == ["SOURCE_TARGET_MAPPING_NOT_REVIEWED"]
     assert first["migration_ledger_matches_packaged"] is True
-    assert len(first["migration_ledger"]) == 23
+    assert len(first["migration_ledger"]) == 24
     assert first["identity"]["server_version_num"] >= 160000
     assert first["audit_chain_head"] == [
         {
