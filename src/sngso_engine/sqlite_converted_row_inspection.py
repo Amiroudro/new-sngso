@@ -128,6 +128,22 @@ def inspect_sqlite_converted_rows(
         if connection.execute("PRAGMA foreign_key_check").fetchall():
             raise SQLiteConvertedRowInspectionError("SQLite source has foreign-key violations")
 
+        objects = connection.execute(
+            """SELECT type, name, tbl_name, sql FROM sqlite_master
+               WHERE type IN ('table', 'index', 'trigger', 'view')
+                 AND name NOT LIKE 'sqlite_%'
+               ORDER BY type, name"""
+        ).fetchall()
+        object_inventory = [
+            {"type": row[0], "name": row[1], "table_name": row[2], "sql": row[3]}
+            for row in objects
+        ]
+        schema_digest = hashlib.sha256(canonical_json_bytes(object_inventory)).hexdigest()
+        if schema_digest != source_manifest["source"].get("schema_sha256"):
+            raise SQLiteConvertedRowInspectionError(
+                "SQLite global schema object inventory changed since manifest"
+            )
+
         source_table_list = source_manifest.get("tables", [])
         source_tables = {item["table"]: item for item in source_table_list}
         if len(source_tables) != len(source_table_list):
