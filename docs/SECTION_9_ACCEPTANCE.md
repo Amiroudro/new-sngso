@@ -175,3 +175,8 @@ This closes only the structural preflight CLI slice. The isolated importer, row-
 ## Read-only schema-v36 row dry run
 
 Added `sngso-schema-v36-row-dry-run` to combine the pinned structural plan, converted SQLite row fingerprints, PostgreSQL mapped-row fingerprints, JSONB semantic comparison, and complete audit-chain comparison. It verifies both event chains, compares source/target events, and checks the PostgreSQL head against its event tip. Row, JSONB, or audit mismatches return `BLOCKED`. A clean result remains `INCOMPLETE` unless an independently stored source checkpoint is supplied; import, restore, and production acceptance remain open. Its collectors use separate read-only snapshots, so target writes must be quiesced while collecting evidence. The report contains no row payloads, never writes to either database, and always denies cutover readiness.
+
+
+## Independent source audit checkpoint
+
+Added `sngso-sqlite-audit-checkpoint`. It verifies the schema-v36 manifest and writes a no-overwrite, fingerprinted audit-tip record. The row dry-run accepts this record through `--external-audit-checkpoint` and validates its fingerprint and tip. Independent evidence still depends on an operator storing the checkpoint outside the source database's trust boundary; the tool cannot verify that external storage. No source or target database is modified.
