@@ -309,7 +309,7 @@ def test_postgres_collection_ingestion_provenance_and_current_pointer(postgres_s
             with connection.transaction():
                 connection.execute(
                     "INSERT INTO ingestion_current (observation_id, decision_id) "
-                    "VALUES ('observation-ingest', 'decision-ingest-b')"
+                    "VALUES ('observation-ingest-b', 'decision-ingest')"
                 )
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             with connection.transaction():
