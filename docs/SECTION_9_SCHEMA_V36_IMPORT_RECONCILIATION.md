@@ -207,3 +207,9 @@ The `sngso-schema-v36-mapping-skeleton` command writes a no-overwrite draft from
 The command requires `SNGSO_POSTGRES_DSN` through the environment plus explicit expected database and schema names. It prints no connection details and performs no database writes. A reviewer must resolve the gaps, verify row storage classes and semantic equivalence, add review evidence, and refresh the mapping fingerprint before the structural planner can accept it.
 
 After editing a draft, `sngso-schema-v36-mapping-fingerprint --mapping edited.json --output fingerprinted.json` recomputes the digest into a new file and preserves the review fields exactly as supplied. This command does not approve or validate the mapping.
+
+## 16. Revision-head integrity hardening (24 November 2026)
+
+PostgreSQL migration 0024 adds a deferred constraint trigger that rejects permission-grant revision snapshots committed ahead of the current grant head or with a payload that differs from the matching head. Migration 0025 adds the same commit-time invariant for benchmark-review assignment revisions. The deferred design preserves the valid write order in which a next-revision snapshot is inserted before its matching head update inside one transaction.
+
+Direct-SQL integration tests cover orphan future snapshots for both families, the valid grant transition, domain-record revision sequencing and snapshot creation, article/evidence provenance immutability, immutable creation timestamps, and nondecreasing revision timestamps. PostgreSQL CI run [#1963](https://github.com/Amiroudro/new-sngso/actions/runs/45404941941) passed the 25-migration integration suite and contracts; run [#1964](https://github.com/Amiroudro/new-sngso/actions/runs/45405093937) also passed with the additional domain-record identity and timestamp tests. These are targeted security checks, not full 139-trigger semantic parity or production-import acceptance.
