@@ -336,6 +336,9 @@ def test_dry_run_report_never_authorizes_import_or_cutover():
     assert report["database_mutated"] is False
     assert report["import_performed"] is False
     assert report["import_authorized"] is False
+    assert report["row_data_inspected"] is False
+    assert report["target_audit_chain_compared"] is False
+    assert report["cutover_ready"] is False
     assert report["plan"]["target_import_order"] == ["sample_pg"]
     assert len(report["report_sha256"]) == 64
 
