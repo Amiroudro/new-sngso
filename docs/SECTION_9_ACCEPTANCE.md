@@ -185,9 +185,3 @@ Added `sngso-sqlite-audit-checkpoint`. It verifies the schema-v36 manifest and w
 ## Isolated import-target preflight
 
 Added `sngso-schema-v36-import-preflight`. It requires a schema named with the `sngso_import_` prefix, checks the exact expected database identity and packaged migration ledger, verifies the audit head is at sequence zero, and confirms application tables are empty in a read-only repeatable-read snapshot. The schema's one canonical staging-channel state row (revision zero, no event or export references) is accepted as required bootstrap metadata; altered or additional rows block the check. It also requires each PostgreSQL sequence to remain at its catalog start value and uncalled, so a row-empty schema with an advanced sequence is rejected. It never imports or authorizes cutover. One-transaction bulk import, sequence reconciliation, post-commit verification, and restore/rollback rehearsal remain open.
-
-## PostgreSQL append-only DELETE guard slice (24 November 2026)
-
-Migration 0024 adds PostgreSQL `BEFORE DELETE` guards for the 27 SQLite append-only tables that previously had no PostgreSQL trigger equivalent. A catalog assertion verifies all 27 triggers are installed, and a direct-delete integration case confirms SQLSTATE `55000`. This advances trigger coverage but does not establish complete parity for the 139 SQLite trigger behaviors.
-
-Exact-head GitHub Actions [run #45382153370](https://github.com/Amiroudro/new-sngso/actions/runs/45382153370) passed on code commit `d3acdc4307c7832562db2890866d99b629df7140`: **1,213 passed, 1 skipped** in the Python 3.12 contract suite and **78 PostgreSQL integration tests passed**. Schema-v36 inspection succeeded (artifact `14915255526`).
