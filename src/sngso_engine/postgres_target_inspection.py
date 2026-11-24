@@ -58,7 +58,7 @@ def inspect_postgres_import_target(connection: Any) -> dict[str, Any]:
                 schema_name = identity["schema_name"]
                 if schema_name is None:
                     raise PostgresInspectionError(
-                        "PostgreSQL search_path has no writable current schema"
+                        "PostgreSQL search_path has no active current schema"
                     )
 
                 cursor.execute(
