@@ -16,6 +16,8 @@ from sngso_engine.canonical import canonical_json_bytes, sha256_fingerprint
 from sngso_engine.audit_chain_reconciliation import compare_sqlite_postgres_audit_chains
 from sngso_engine.postgres_audit import append_audit_event
 from sngso_engine.postgres_migration_runner import apply_postgres_migrations
+from sngso_engine.postgres_target_inspection import inspect_postgres_import_target
+from sngso_engine.postgres_import_preflight import inspect_empty_import_target
 from sngso_engine.postgres_transaction import run_atomic
 
 
@@ -5224,3 +5226,45 @@ def test_postgres_audit_chain_reconciliation_is_read_only_and_exact(
     assert "AUDIT_EVENT_MISMATCH" in report["issue_codes"] if expected_outcome == "BLOCKED" else not report["issue_codes"]
     with sqlite3.connect(f"file:{source_path}?mode=ro", uri=True) as check:
         assert check.execute("SELECT count(*) FROM audit_events").fetchone()[0] == 1
+
+
+def test_import_target_preflight_is_read_only_and_detects_existing_rows(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        inventory = inspect_postgres_import_target(connection)
+
+    with connect() as connection:
+        empty = inspect_empty_import_target(connection, inventory)
+
+    assert empty["outcome"] == "EMPTY"
+    assert empty["target_empty"] is True
+    assert empty["read_only"] is True
+    assert empty["migration_ledger_matches_packaged"] is True
+    assert empty["audit_head_initial"] is True
+
+    with connect() as connection:
+        run_atomic(
+            connection,
+            lambda cursor: append_audit_event(
+                cursor,
+                event_id="preflight-existing-event",
+                event_type="test.created",
+                entity_type="test",
+                entity_id="preflight",
+                occurred_at="2026-11-24T00:00:00Z",
+                payload={"value": 1},
+            ),
+        )
+
+    with connect() as connection:
+        inventory = inspect_postgres_import_target(connection)
+    with connect() as connection:
+        nonempty = inspect_empty_import_target(connection, inventory)
+
+    assert nonempty["outcome"] == "NOT_EMPTY_OR_UNVERIFIED"
+    assert nonempty["target_empty"] is False
+    assert {
+        "code": "TARGET_TABLE_NOT_EMPTY",
+        "table_name": "audit_events",
+        "row_count": 1,
+    } in nonempty["issue_codes"]
