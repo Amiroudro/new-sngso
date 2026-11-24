@@ -301,16 +301,16 @@ def test_postgres_collection_ingestion_provenance_and_current_pointer(postgres_s
             "'https://other.example/article', 'second source article', "
             "'2026-11-23T00:00:00Z')"
         )
-        connection.execute(
-            "INSERT INTO ingestion_current (observation_id, decision_id) "
-            "VALUES ('observation-ingest', 'decision-ingest')"
-        )
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             with connection.transaction():
                 connection.execute(
                     "INSERT INTO ingestion_current (observation_id, decision_id) "
                     "VALUES ('observation-ingest-b', 'decision-ingest')"
                 )
+        connection.execute(
+            "INSERT INTO ingestion_current (observation_id, decision_id) "
+            "VALUES ('observation-ingest', 'decision-ingest')"
+        )
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             with connection.transaction():
                 connection.execute(
