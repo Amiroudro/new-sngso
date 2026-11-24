@@ -162,7 +162,7 @@ The schema-v36 source-to-PostgreSQL mapping planner now validates the foreign-ke
 
 Exact-head GitHub Actions [run #45363671654](https://github.com/Amiroudro/new-sngso/actions/runs/45363671654) passed on code head `273434f6362461b8166bf0499142af013fcebf4c`: **1,202 passed, 1 skipped** in the contract job; the separate PostgreSQL job passed **73 tests**. The schema-v36 inspection and artifact upload also succeeded.
 
-Still open: an isolated bulk importer, exact row and audit-chain reconciliation, restricted import-role proof, restore rehearsal, and production cutover/HA acceptance. SQLite remains authoritative.
+Still open: a one-transaction isolated bulk importer, independent post-commit parity verification of imported rows and audit chain, restricted import-role proof, restore rehearsal, and production cutover/HA acceptance. The current row/audit checks are pre-import read-only evidence only. SQLite remains authoritative.
 
 
 ## Read-only schema-v36 dry-run command
@@ -180,3 +180,8 @@ Added `sngso-schema-v36-row-dry-run` to combine the pinned structural plan, conv
 ## Independent source audit checkpoint
 
 Added `sngso-sqlite-audit-checkpoint`. It verifies the schema-v36 manifest and writes a no-overwrite, fingerprinted audit-tip record. The row dry-run accepts this record through `--external-audit-checkpoint` and validates its fingerprint and tip. Independent evidence still depends on an operator storing the checkpoint outside the source database's trust boundary; the tool cannot verify that external storage. No source or target database is modified.
+
+
+## Isolated import-target preflight
+
+Added `sngso-schema-v36-import-preflight`. It requires a schema named with the `sngso_import_` prefix, checks the exact expected database identity and packaged migration ledger, verifies the audit head is at sequence zero, and confirms every application table is empty in a read-only repeatable-read snapshot. It never imports or authorizes cutover. One-transaction bulk import, sequence reconciliation, post-commit verification, and restore/rollback rehearsal remain open.
