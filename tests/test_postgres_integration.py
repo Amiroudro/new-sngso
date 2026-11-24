@@ -1947,6 +1947,12 @@ def test_postgres_stage_checkpoints_are_idempotent_revisioned_and_immutable(post
         connection.rollback()
         with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
             connection.execute(
+                "DELETE FROM pipeline_stage_checkpoints "
+                "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
                 "UPDATE pipeline_stage_checkpoint_revisions SET reason = 'rewritten' "
                 "WHERE pipeline_run_id = 'checkpoint-run' AND stage_ordinal = 0 AND revision = 1"
             )
@@ -2092,6 +2098,12 @@ def test_postgres_worker_leases_fence_reacquisition_and_preserve_history(postgre
         with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
             connection.execute(
                 "DELETE FROM pipeline_worker_lease_revisions "
+                "WHERE pipeline_run_id = 'lease-run' AND revision = 1"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "UPDATE pipeline_worker_lease_revisions SET reason = 'rewritten' "
                 "WHERE pipeline_run_id = 'lease-run' AND revision = 1"
             )
         connection.rollback()
