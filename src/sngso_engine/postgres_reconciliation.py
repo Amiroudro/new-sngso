@@ -319,12 +319,12 @@ def plan_schema_v36_reconciliation(
         "table_mappings": table_results,
         "issues": issues,
         "remaining_gates": [
-            "ROW_VALUE_CONVERSION_PROOF",
+            "JSON_CONTENT_AND_VALUE_CONVERSION_PROOF",
             "TARGET_ROW_COUNT_AND_CHECKSUM_RECONCILIATION",
             "AUDIT_CHAIN_IMPORT_AND_VERIFICATION",
         ] if structure_valid else [
             "RESOLVE_STRUCTURAL_MAPPING_ISSUES",
-            "ROW_VALUE_CONVERSION_PROOF",
+            "JSON_CONTENT_AND_VALUE_CONVERSION_PROOF",
             "TARGET_ROW_COUNT_AND_CHECKSUM_RECONCILIATION",
             "AUDIT_CHAIN_IMPORT_AND_VERIFICATION",
         ],
