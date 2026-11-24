@@ -68,7 +68,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql"), (19, "0019_edition_staging_state.sql"), (20, "0020_final_revision_and_assignment_guards.sql"), (21, "0021_domain_record_revision_guards.sql"), (22, "0022_learning_evidence_locking.sql"), (23, "0023_primary_key_identity_guards.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql"), (19, "0019_edition_staging_state.sql"), (20, "0020_final_revision_and_assignment_guards.sql"), (21, "0021_domain_record_revision_guards.sql"), (22, "0022_learning_evidence_locking.sql"), (23, "0023_primary_key_identity_guards.sql"), (24, "0024_append_only_delete_guards.sql")]
 
 
 
@@ -4721,7 +4721,7 @@ def test_postgres_target_inspection_is_read_only_repeatable_and_fail_closed(post
     assert first["outcome"] == "INCOMPLETE"
     assert first["reason_codes"] == ["SOURCE_TARGET_MAPPING_NOT_REVIEWED"]
     assert first["migration_ledger_matches_packaged"] is True
-    assert len(first["migration_ledger"]) == 23
+    assert len(first["migration_ledger"]) == 24
     assert first["identity"]["server_version_num"] >= 160000
     assert first["audit_chain_head"] == [
         {
