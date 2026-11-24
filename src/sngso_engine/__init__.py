@@ -163,6 +163,7 @@ from .sqlite_converted_row_inspection import (
     inspect_sqlite_converted_rows,
 )
 from .sqlite_json_validation import SQLiteJSONValidationError, validate_sqlite_jsonb_content
+from .postgres_jsonb_semantic import PostgresJSONBSemanticError, prove_sqlite_jsonb_semantic_equivalence
 from .sqlite_export import (
     SQLiteExportError,
     build_sqlite_export_manifest,
@@ -325,4 +326,6 @@ __all__ = [
     "write_manifest_new",
     "SQLiteJSONValidationError",
     "validate_sqlite_jsonb_content",
+    "PostgresJSONBSemanticError",
+    "prove_sqlite_jsonb_semantic_equivalence",
 ]
