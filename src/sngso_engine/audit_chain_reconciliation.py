@@ -113,6 +113,8 @@ def compare_sqlite_postgres_audit_chains(
         raise AuditChainReconciliationError("could not open SQLite source read-only") from exc
 
     issue_codes: set[str] = set()
+    source_chain_valid = True
+    target_chain_valid = True
     source_count = 0
     target_count = 0
     matching_count = 0
@@ -175,14 +177,17 @@ def compare_sqlite_postgres_audit_chains(
                     source_row = dict(source)
                     if source_row["sequence"] != expected_sequence:
                         issue_codes.add("SOURCE_AUDIT_SEQUENCE_GAP")
+                        source_chain_valid = False
                     try:
                         source_payload = json.loads(source_row["payload_json"])
                         source_hash = _event_hash(source_row, source_payload, source_previous)
                         if source_row["previous_hash"] != source_previous or source_row["event_hash"] != source_hash:
                             issue_codes.add("SOURCE_AUDIT_CHAIN_INVALID")
+                            source_chain_valid = False
                     except (TypeError, ValueError, json.JSONDecodeError):
                         source_payload = None
                         issue_codes.add("SOURCE_AUDIT_PAYLOAD_INVALID")
+                        source_chain_valid = False
                     source_previous = source_row.get("event_hash")
                     source_tip = {
                         "sequence": source_row["sequence"],
@@ -200,14 +205,17 @@ def compare_sqlite_postgres_audit_chains(
                     ))
                     if target_data["sequence"] != target_count:
                         issue_codes.add("TARGET_AUDIT_SEQUENCE_GAP")
+                        target_chain_valid = False
                     try:
                         target_payload = json.loads(target_data["payload_json"])
                         target_hash = _event_hash(target_data, target_payload, target_previous)
                         if target_data["previous_hash"] != target_previous or target_data["event_hash"] != target_hash:
                             issue_codes.add("TARGET_AUDIT_CHAIN_INVALID")
+                            target_chain_valid = False
                     except (TypeError, ValueError, json.JSONDecodeError):
                         target_payload = None
                         issue_codes.add("TARGET_AUDIT_PAYLOAD_INVALID")
+                        target_chain_valid = False
                     target_previous = target_data.get("event_hash")
                     target_tip = {
                         "sequence": target_data["sequence"],
@@ -246,7 +254,6 @@ def compare_sqlite_postgres_audit_chains(
     if external_checkpoint is not None and source_tip != external_checkpoint:
         issue_codes.add("SOURCE_AUDIT_TIP_DIFFERS_FROM_EXTERNAL_CHECKPOINT")
 
-    chains_valid = not any("CHAIN_INVALID" in code or "PAYLOAD_INVALID" in code or "SEQUENCE_GAP" in code for code in issue_codes)
     events_match = source_count == target_count == matching_count
     target_head_matches = target_head is not None and target_head == target_tip
     source_anchor_matches = external_checkpoint is None or source_tip == external_checkpoint
@@ -261,8 +268,8 @@ def compare_sqlite_postgres_audit_chains(
         "format": "sngso-audit-chain-reconciliation-v1",
         "outcome": outcome,
         "read_only": True,
-        "source_chain_valid": chains_valid,
-        "target_chain_valid": chains_valid,
+        "source_chain_valid": source_chain_valid,
+        "target_chain_valid": target_chain_valid,
         "events_match": events_match,
         "target_head_matches_events": target_head_matches,
         "independent_source_checkpoint_supplied": external_checkpoint is not None,
