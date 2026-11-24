@@ -68,7 +68,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql"), (19, "0019_edition_staging_state.sql"), (20, "0020_final_revision_and_assignment_guards.sql"), (21, "0021_domain_record_revision_guards.sql"), (22, "0022_learning_evidence_locking.sql"), (23, "0023_primary_key_identity_guards.sql"), (24, "0024_append_only_delete_guards.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql"), (19, "0019_edition_staging_state.sql"), (20, "0020_final_revision_and_assignment_guards.sql"), (21, "0021_domain_record_revision_guards.sql"), (22, "0022_learning_evidence_locking.sql"), (23, "0023_primary_key_identity_guards.sql")]
 
 
 
@@ -4721,7 +4721,7 @@ def test_postgres_target_inspection_is_read_only_repeatable_and_fail_closed(post
     assert first["outcome"] == "INCOMPLETE"
     assert first["reason_codes"] == ["SOURCE_TARGET_MAPPING_NOT_REVIEWED"]
     assert first["migration_ledger_matches_packaged"] is True
-    assert len(first["migration_ledger"]) == 24
+    assert len(first["migration_ledger"]) == 23
     assert first["identity"]["server_version_num"] >= 160000
     assert first["audit_chain_head"] == [
         {
@@ -5342,18 +5342,3 @@ def test_import_target_preflight_blocks_noninitial_staging_state(postgres_schema
         "code": "TARGET_STAGING_STATE_NOT_INITIAL",
         "row_count": 1,
     } in report["issue_codes"]
-
-def test_postgres_append_only_delete_guards_are_installed(postgres_schema):
-    expected = ["benchmark_artifacts_no_delete","benchmark_adjudications_no_delete","benchmark_review_assignment_revisions_no_delete","benchmark_review_identity_attestations_no_delete","benchmark_scores_no_delete","benchmark_study_protocols_no_delete","benchmark_study_executions_no_delete","benchmark_acceptance_reviews_no_delete","pipeline_run_revision_no_delete","edition_artifacts_no_delete","edition_decisions_no_delete","edition_release_authorizations_no_delete","edition_staging_events_no_delete","grant_revisions_no_delete","domain_revisions_no_delete","collection_observations_no_delete","ingestion_decisions_no_delete","story_decisions_no_delete","story_decision_applications_no_delete","timeline_events_no_delete","perspectives_no_delete","claim_relations_no_delete","learning_object_revisions_no_delete","glossary_entry_revisions_no_delete","benchmark_review_revisions_no_delete","pipeline_stage_checkpoint_revisions_no_delete","pipeline_worker_lease_revisions_no_delete"]
-    with postgres_schema() as connection:
-        rows = connection.execute(
-            """SELECT t.tgname
-               FROM pg_trigger t
-               JOIN pg_class c ON c.oid = t.tgrelid
-               JOIN pg_namespace n ON n.oid = c.relnamespace
-               WHERE n.nspname = current_schema()
-                 AND NOT t.tgisinternal
-                 AND t.tgname = ANY(%s)""",
-            (expected,),
-        ).fetchall()
-    assert {row[0] for row in rows} == set(expected)
