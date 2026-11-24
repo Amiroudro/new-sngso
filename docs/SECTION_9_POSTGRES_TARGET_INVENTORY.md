@@ -55,3 +55,22 @@ is performed or authorized by this implementation.
 
 The PostgreSQL target inventory is a prerequisite for reconciliation, not the
 reconciliation itself.
+
+
+## Structural reconciliation planner
+
+`src/sngso_engine/postgres_reconciliation.py` adds a pure, non-connecting planner.
+It accepts a source manifest, target inventory, and explicit mapping document.
+The mapping is pinned to the exact source manifest, source schema fingerprint,
+and target inventory fingerprint, and must include reviewer approval metadata.
+
+The planner rejects missing/duplicate source table mappings, missing/duplicate
+column mappings, unknown target relations or columns, unmapped source columns,
+unmapped required target columns, unsupported conversion rules, conversion
+rules incompatible with the target PostgreSQL type, and primary-key order
+mismatches. The target inspector now exports ordered primary-key columns to
+support that check.
+
+A successful structural check is still reported as `INCOMPLETE`. The planner
+does not read row values and therefore cannot prove conversion safety, row
+counts/checksums, or audit-chain equivalence. Those remain explicit gates.
