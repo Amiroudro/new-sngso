@@ -61,7 +61,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     connection = FakeConnection()
     applied = apply_postgres_migrations(connection)
 
-    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)
     assert connection.commits == 1
     assert connection.rollbacks == 0
     sql = [statement[0] for statement in connection.db_cursor.statements]
