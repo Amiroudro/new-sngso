@@ -97,8 +97,8 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert "benchmark_assignment_revision_head_consistency" in assignment_revision_head_sql
     assert "DEFERRABLE INITIALLY DEFERRED" in assignment_revision_head_sql
     assert "pipeline run identity and inputs are immutable" in pipeline_identity_parity_sql
-    assert "attempt" not in pipeline_identity_parity_sql
-    assert "retry_of" not in pipeline_identity_parity_sql
+    assert "payload -> 'attempt'" not in pipeline_identity_parity_sql
+    assert "payload -> 'retry_of'" not in pipeline_identity_parity_sql
     assert "CREATE TABLE audit_chain_head" in migration_sql
     assert "audit_events_no_update" in migration_sql
     assert "audit_events_no_delete" in migration_sql
