@@ -5248,6 +5248,38 @@ def test_import_target_preflight_is_read_only_and_detects_existing_rows(postgres
         if item["table_name"] == "edition_staging_channel_state"
     )
     assert staging_count == 1
+    assert empty["sequences_initial"] is True
+    assert empty["sequence_states"] == []
+
+    with connect() as connection:
+        connection.execute('CREATE SEQUENCE "preflight_sequence"')
+
+    with connect() as connection:
+        inventory = inspect_postgres_import_target(connection)
+    with connect() as connection:
+        sequence_empty = inspect_empty_import_target(connection, inventory)
+    assert sequence_empty["outcome"] == "EMPTY"
+    assert sequence_empty["sequences_initial"] is True
+    assert sequence_empty["sequence_states"] == [{
+        "sequence_name": "preflight_sequence",
+        "start_value": 1,
+        "last_value": 1,
+        "is_called": False,
+        "initial_state": True,
+    }]
+
+    with connect() as connection:
+        connection.execute("SELECT nextval('preflight_sequence')")
+    with connect() as connection:
+        inventory = inspect_postgres_import_target(connection)
+    with connect() as connection:
+        sequence_used = inspect_empty_import_target(connection, inventory)
+    assert sequence_used["outcome"] == "NOT_EMPTY_OR_UNVERIFIED"
+    assert sequence_used["sequences_initial"] is False
+    assert any(
+        issue["code"] == "TARGET_SEQUENCE_NOT_INITIAL"
+        for issue in sequence_used["issue_codes"]
+    )
 
     with connect() as connection:
         run_atomic(
