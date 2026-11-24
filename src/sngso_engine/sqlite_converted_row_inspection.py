@@ -138,6 +138,10 @@ def inspect_sqlite_converted_rows(
             {"type": row[0], "name": row[1], "table_name": row[2], "sql": row[3]}
             for row in objects
         ]
+        object_counts = {
+            kind: sum(item["type"] == kind for item in object_inventory)
+            for kind in ("table", "index", "trigger", "view")
+        }
         schema_digest = hashlib.sha256(canonical_json_bytes(object_inventory)).hexdigest()
         if schema_digest != source_manifest["source"].get("schema_sha256"):
             raise SQLiteConvertedRowInspectionError(
