@@ -267,9 +267,56 @@ def test_postgres_collection_ingestion_provenance_and_current_pointer(postgres_s
             ("sha256:" + "b" * 64,),
         )
         connection.execute(
+            "INSERT INTO source_endpoints "
+            "(id, source_id, endpoint_uri, status, created_at, updated_at, payload_json) "
+            "VALUES ('endpoint-ingest-b', 'source-ingest-b', "
+            "'https://other.example/feed', 'active', '2026-11-23T00:00:00Z', "
+            "'2026-11-23T00:00:00Z', %s)",
+            (json.dumps({"id": "endpoint-ingest-b"}),),
+        )
+        connection.execute(
+            "INSERT INTO permission_grants "
+            "(id, source_id, status, effective_from, effective_until, revision, payload_json) "
+            "VALUES ('grant-ingest-b', 'source-ingest-b', 'active', "
+            "'2026-11-23T00:00:00Z', '2027-11-23T00:00:00Z', 1, %s)",
+            (json.dumps({"id": "grant-ingest-b", "revision": 1}),),
+        )
+        connection.execute(
+            "INSERT INTO collection_observations "
+            "(observation_id, source_id, endpoint_id, grant_id, grant_revision, operation, "
+            "connector_name, connector_version, observed_at, locator, metadata_json, "
+            "permission_reason, http_method) "
+            "VALUES ('observation-ingest-b', 'source-ingest-b', 'endpoint-ingest-b', "
+            "'grant-ingest-b', 1, 'discovery', 'test-connector', '1.0', "
+            "'2026-11-23T00:00:00Z', 'https://other.example/article', %s, "
+            "'approved discovery scope', 'GET')",
+            (json.dumps({"title": "Second observed article"}),),
+        )
+        connection.execute(
+            "INSERT INTO ingestion_decisions "
+            "(decision_id, observation_id, decision_revision, source_id, article_id, "
+            "outcome, canonical_uri, reason, decided_at) "
+            "VALUES ('decision-ingest-b', 'observation-ingest-b', 1, "
+            "'source-ingest-b', 'article-ingest-b', 'created', "
+            "'https://other.example/article', 'second source article', "
+            "'2026-11-23T00:00:00Z')"
+        )
+        connection.execute(
             "INSERT INTO ingestion_current (observation_id, decision_id) "
             "VALUES ('observation-ingest', 'decision-ingest')"
         )
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO ingestion_current (observation_id, decision_id) "
+                    "VALUES ('observation-ingest', 'decision-ingest-b')"
+                )
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE ingestion_current SET decision_id = 'decision-ingest-b' "
+                    "WHERE observation_id = 'observation-ingest'"
+                )
         with pytest.raises(psycopg.errors.CheckViolation, match="article/source/URI mismatch"):
             with connection.transaction():
                 connection.execute(
