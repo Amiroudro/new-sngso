@@ -11,6 +11,7 @@ from sngso_engine.postgres_reconciliation import (
     plan_schema_v36_reconciliation,
 )
 from sngso_engine.postgres_mapping_skeleton import build_schema_v36_mapping_skeleton
+from sngso_engine.postgres_mapping_skeleton_cli import main as mapping_skeleton_main
 
 
 def _fingerprint(value):
@@ -484,3 +485,16 @@ def test_mapping_skeleton_rejects_stale_source_or_target_fingerprints():
     inventory["identity"]["schema_name"] = "stale"
     with pytest.raises(ReconciliationPlanError, match="target inventory"):
         build_schema_v36_mapping_skeleton(manifest, inventory)
+
+def test_mapping_skeleton_cli_requires_environment_dsn_without_writing(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("SNGSO_POSTGRES_DSN", raising=False)
+    output = tmp_path / "mapping-draft.json"
+    result = mapping_skeleton_main([
+        "--source", str(tmp_path / "source.sqlite"),
+        "--output", str(output),
+        "--expected-target-database", "sngso_test",
+        "--expected-target-schema", "public",
+    ])
+    assert result == 2
+    assert "SNGSO_POSTGRES_DSN is required" in capsys.readouterr().err
+    assert not output.exists()
