@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 import pytest
 
@@ -11,6 +12,8 @@ from sngso_engine.postgres_reconciliation import (
     plan_schema_v36_reconciliation,
 )
 from sngso_engine.postgres_mapping_skeleton import build_schema_v36_mapping_skeleton
+from sngso_engine.postgres_mapping_skeleton import refresh_mapping_fingerprint
+from sngso_engine.postgres_mapping_fingerprint_cli import main as mapping_fingerprint_main
 from sngso_engine.postgres_mapping_skeleton_cli import main as mapping_skeleton_main
 
 
@@ -498,3 +501,36 @@ def test_mapping_skeleton_cli_requires_environment_dsn_without_writing(tmp_path,
     assert result == 2
     assert "SNGSO_POSTGRES_DSN is required" in capsys.readouterr().err
     assert not output.exists()
+
+def test_mapping_fingerprint_refresh_preserves_draft_status_and_writes_new_file(tmp_path, capsys):
+    manifest, inventory, _ = _inputs()
+    skeleton = build_schema_v36_mapping_skeleton(manifest, inventory)
+    skeleton["draft_notice"] = "reviewed edits still require a person"
+    mapping_path = tmp_path / "mapping.json"
+    output_path = tmp_path / "mapping-fingerprinted.json"
+    mapping_path.write_text(json.dumps(skeleton), encoding="utf-8")
+
+    result = mapping_fingerprint_main([
+        "--mapping", str(mapping_path),
+        "--output", str(output_path),
+    ])
+    assert result == 0
+    refreshed = json.loads(output_path.read_text(encoding="utf-8"))
+    assert refreshed["review"]["status"] == "draft"
+    assert refreshed["draft_notice"] == "reviewed edits still require a person"
+    assert refreshed["mapping_sha256"] == _fingerprint({
+        key: value for key, value in refreshed.items() if key != "mapping_sha256"
+    })
+    assert "does not approve" in capsys.readouterr().out
+
+    result = mapping_fingerprint_main([
+        "--mapping", str(mapping_path),
+        "--output", str(output_path),
+    ])
+    assert result == 2
+    assert json.loads(output_path.read_text(encoding="utf-8")) == refreshed
+
+
+def test_mapping_fingerprint_helper_rejects_unknown_format():
+    with pytest.raises(ReconciliationPlanError, match="supported reconciliation mapping"):
+        refresh_mapping_fingerprint({"format": "unknown"})
