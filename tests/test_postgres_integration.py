@@ -218,6 +218,72 @@ def test_postgres_registry_revision_snapshots_are_append_only(postgres_schema):
 
 
 
+def test_postgres_domain_record_revision_head_and_snapshot_are_atomic(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        initial_payload = {"id": "story-head-guard", "revision": 1, "title": "Original"}
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json, "
+            "last_actor, last_reason, last_revision_at) "
+            "VALUES ('story', 'story-head-guard', 1, '2026-11-24T00:00:00Z', "
+            "'2026-11-24T00:00:00Z', %s, 'editor', 'initial creation', "
+            "'2026-11-24T00:00:00Z')",
+            (json.dumps(initial_payload),),
+        )
+        connection.execute(
+            "INSERT INTO domain_record_revisions "
+            "(record_type, record_id, revision, created_at, actor, reason, payload_json) "
+            "VALUES ('story', 'story-head-guard', 1, '2026-11-24T00:00:00Z', "
+            "'editor', 'initial creation', %s)",
+            (json.dumps(initial_payload),),
+        )
+
+        skipped_payload = {"id": "story-head-guard", "revision": 3, "title": "Skipped"}
+        with pytest.raises(psycopg.errors.CheckViolation, match="increment by one"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE domain_records SET revision = 3, payload_json = %s, "
+                    "last_actor = 'editor', last_reason = 'skip revision', "
+                    "last_revision_at = '2026-11-24T00:02:00Z' "
+                    "WHERE record_type = 'story' AND id = 'story-head-guard'",
+                    (json.dumps(skipped_payload),),
+                )
+
+        mismatched_payload = {"id": "story-head-guard", "revision": 1, "title": "Mismatch"}
+        with pytest.raises(psycopg.errors.CheckViolation, match="payload revision"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE domain_records SET revision = 2, payload_json = %s, "
+                    "last_actor = 'editor', last_reason = 'mismatched payload', "
+                    "last_revision_at = '2026-11-24T00:02:00Z' "
+                    "WHERE record_type = 'story' AND id = 'story-head-guard'",
+                    (json.dumps(mismatched_payload),),
+                )
+
+        valid_payload = {"id": "story-head-guard", "revision": 2, "title": "Revised"}
+        connection.execute(
+            "UPDATE domain_records SET revision = 2, updated_at = '2026-11-24T00:03:00Z', "
+            "payload_json = %s, last_actor = 'editor', last_reason = 'copy edit', "
+            "last_revision_at = '2026-11-24T00:03:00Z' "
+            "WHERE record_type = 'story' AND id = 'story-head-guard'",
+            (json.dumps(valid_payload),),
+        )
+
+        assert connection.execute(
+            "SELECT revision, payload_json::jsonb FROM domain_records "
+            "WHERE record_type = 'story' AND id = 'story-head-guard'"
+        ).fetchone() == (2, valid_payload)
+        assert connection.execute(
+            "SELECT revision, actor, reason, payload_json::jsonb "
+            "FROM domain_record_revisions WHERE record_type = 'story' "
+            "AND record_id = 'story-head-guard' ORDER BY revision"
+        ).fetchall() == [
+            (1, "editor", "initial creation", initial_payload),
+            (2, "editor", "copy edit", valid_payload),
+        ]
+
+
 def test_postgres_permission_grant_head_requires_matching_revision_and_fixed_scope(postgres_schema):
     connect = postgres_schema
     with connect() as connection:
