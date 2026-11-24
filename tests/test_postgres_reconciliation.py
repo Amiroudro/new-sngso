@@ -106,6 +106,9 @@ def test_reconciliation_planner_reports_unmapped_table_and_column():
         "target_table": "sample_pg",
         "columns": [],
     })
+    mapping["mapping_sha256"] = _fingerprint({
+        key: value for key, value in mapping.items() if key != "mapping_sha256"
+    })
     result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
     codes = {issue["code"] for issue in result["issues"]}
 
@@ -118,6 +121,9 @@ def test_reconciliation_planner_rejects_conversion_type_and_primary_key_mismatch
     manifest, inventory, mapping = _inputs()
     mapping["tables"][0]["columns"][0]["conversion"] = "blob_to_bytea"
     mapping["tables"][0]["columns"][0]["target_column"] = "title"
+    mapping["mapping_sha256"] = _fingerprint({
+        key: value for key, value in mapping.items() if key != "mapping_sha256"
+    })
     result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
     codes = {issue["code"] for issue in result["issues"]}
 
