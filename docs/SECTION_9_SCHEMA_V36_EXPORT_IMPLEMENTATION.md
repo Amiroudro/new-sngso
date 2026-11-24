@@ -52,6 +52,11 @@ The command refuses an existing output path. Keep the manifest outside the sourc
 - Requires an approved, fingerprint-pinned mapping tied to the exact source manifest and schema.
 - Recomputes every source table's row checksum and schema fingerprint inside the same read transaction before validating mapped JSON cells. Any source drift fails closed.
 - Rejects malformed JSON, non-standard constants (NaN/Infinity), invalid UTF-8 scalar content, and non-TEXT values. NULL is retained as NULL and counted separately.
-- Emits per-column counts, a deterministic canonical-content digest, and a digest of invalid primary-key identities. Raw values and primary keys are not included in the proof.
+- Emits per-column counts, a deterministic source-text digest, and a digest of invalid primary-key identities. Raw values and primary keys are not included in the proof.
 - This is a source-side conversion proof only. It does not perform PostgreSQL insertion, prove PostgreSQL jsonb normalization equivalence, reconcile target row checksums, or authorize import/cutover.
 - Tests cover valid Bengali JSON, malformed/non-standard JSON, source drift, and unapproved mapping. CI verification is pending for this checkpoint.
+
+
+### PostgreSQL jsonb representability refinement
+
+The JSONB proof now parses numeric tokens as exact decimal values rather than binary floats, checks PostgreSQL numeric integer/scale bounds, and rejects U+0000 and unpaired surrogate code points in both object keys and string values. Its digest is explicitly named `source_text_sha256`: it fingerprints the exact validated UTF-8 source text and does not claim to be PostgreSQL's normalized jsonb representation. Regression cases cover NUL, surrogate, non-standard constants, and numeric overflow/scale boundaries.
