@@ -337,6 +337,33 @@ def test_postgres_permission_grant_head_requires_matching_revision_and_fixed_sco
             "WHERE id = 'grant-guard'"
         ).fetchone() == ("pending", 1, "2027-11-24T00:00:00Z")
 
+        # A matching snapshot followed by its head update is the valid atomic
+        # sequence permitted by the deferred consistency constraint.
+        approved_payload = {
+            **initial_payload, "status": "approved", "revision": 2,
+            "reviewed_at": "2026-11-24T00:04:00Z", "reviewed_by": "reviewer",
+        }
+        with connection.transaction():
+            connection.execute(
+                "INSERT INTO permission_grant_revisions "
+                "(grant_id, revision, created_at, actor, reason, payload_json) "
+                "VALUES ('grant-guard', 2, '2026-11-24T00:04:00Z', "
+                "'reviewer', 'approve grant', %s)",
+                (json.dumps(approved_payload),),
+            )
+            connection.execute(
+                "UPDATE permission_grants SET status = 'approved', revision = 2, "
+                "payload_json = %s WHERE id = 'grant-guard'",
+                (json.dumps(approved_payload),),
+            )
+        assert connection.execute(
+            "SELECT status, revision FROM permission_grants WHERE id = 'grant-guard'"
+        ).fetchone() == ("approved", 2)
+        assert connection.execute(
+            "SELECT payload_json::jsonb FROM permission_grant_revisions "
+            "WHERE grant_id = 'grant-guard' AND revision = 2"
+        ).fetchone()[0] == approved_payload
+
 
 def test_postgres_permission_grant_revision_cannot_be_committed_ahead_of_head(postgres_schema):
     connect = postgres_schema
