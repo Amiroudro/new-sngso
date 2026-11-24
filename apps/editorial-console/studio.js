@@ -1,5 +1,7 @@
 (() => {
   const nav = document.getElementById("primary-nav");
+  const pageTitle = document.getElementById("page-title");
+  const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
   const views = [...document.querySelectorAll(".view")];
   const labels = {
     overview: ["Editorial overview", "A clear view of what is moving, what needs attention, and what is ready for review."],
@@ -19,9 +21,10 @@
       node.setAttribute("aria-current", selected ? "page" : "false");
     });
     document.getElementById("crumb-current").textContent = labels[view][0];
-    document.getElementById("page-title").textContent = labels[view][0];
+    pageTitle.textContent = labels[view][0];
     document.getElementById("page-subtitle").textContent = labels[view][1];
-    document.querySelector(".content").scrollIntoView({behavior:"smooth",block:"start"});
+    pageTitle.focus({preventScroll:true});
+    document.querySelector(".content").scrollIntoView({behavior:motionPreference.matches ? "auto" : "smooth",block:"start"});
     history.replaceState(null, "", "#" + view);
   }
   nav.addEventListener("click", event => {
@@ -49,6 +52,7 @@
       if (!row.hidden) visible++;
     });
     document.getElementById("stories-empty").hidden = visible !== 0;
+    document.getElementById("story-results-status").textContent = visible === 1 ? "Showing 1 sample story." : "Showing " + visible + " sample stories.";
   }
   search.addEventListener("input", filterStories);
   filter.addEventListener("change", filterStories);
