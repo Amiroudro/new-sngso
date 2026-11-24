@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--external-audit-checkpoint",
         type=Path,
-        help="optional independently stored JSON checkpoint with sequence and event_hash",
+        help="optional schema-bound checkpoint exported by sngso-sqlite-audit-checkpoint",
     )
     args = parser.parse_args(argv)
 
