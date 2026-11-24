@@ -375,9 +375,21 @@ def test_row_dry_run_report_stays_incomplete_after_matching_row_evidence():
         {"non_json_values_match": True, "issues": []},
         None,
         generated_at="2026-11-24T00:00:00Z",
+        audit_report={
+            "outcome": "INCOMPLETE",
+            "source_chain_valid": True,
+            "target_chain_valid": True,
+            "events_match": True,
+            "target_head_matches_events": True,
+            "independent_source_checkpoint_supplied": False,
+            "report_sha256": "d" * 64,
+            "issue_codes": [],
+        },
     )
 
     assert report["outcome"] == "INCOMPLETE"
+    assert report["target_audit_chain_compared"] is True
+    assert report["audit_chain_outcome"] == "INCOMPLETE"
     assert report["database_mutated"] is False
     assert report["import_performed"] is False
     assert report["import_authorized"] is False
