@@ -213,7 +213,7 @@ def build_sqlite_export_manifest(
             })
 
         # Verify the audit chain with the same canonical payload semantics as
-        # the registry, including sequence continuity and the recorded head.
+        # the registry, including sequence continuity and the final chain tip.
         from .canonical import sha256_fingerprint
         previous_hash = None
         previous_sequence = 0
