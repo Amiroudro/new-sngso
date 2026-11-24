@@ -99,7 +99,7 @@ def test_reconciliation_planner_validates_complete_structure_but_never_declares_
     assert result["mapped_source_table_count"] == 1
     assert result["issues"] == []
     assert result["remaining_gates"] == [
-        "ROW_VALUE_CONVERSION_PROOF",
+        "JSON_CONTENT_AND_VALUE_CONVERSION_PROOF",
         "TARGET_ROW_COUNT_AND_CHECKSUM_RECONCILIATION",
         "AUDIT_CHAIN_IMPORT_AND_VERIFICATION",
     ]
