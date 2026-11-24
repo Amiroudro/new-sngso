@@ -50,6 +50,150 @@ def _issue(code: str, **details: Any) -> dict[str, Any]:
     return {"code": code, **details}
 
 
+def _foreign_key_import_order(
+    target_inventory: dict[str, Any],
+    mapped_target_tables: set[str],
+) -> tuple[list[str], list[dict[str, str]], list[dict[str, Any]]]:
+    """Derive a deterministic parent-first load order from inspected target FKs.
+
+    Cyclic edges are removed only when each constraint participating in that
+    cycle is explicitly deferrable. The planner never changes constraints.
+    """
+    foreign_keys = target_inventory.get("foreign_keys")
+    if not isinstance(foreign_keys, list):
+        return [], [], [_issue("TARGET_FOREIGN_KEY_INVENTORY_MISSING")]
+
+    schema_name = target_inventory.get("identity", {}).get("schema_name")
+    if not isinstance(schema_name, str) or not schema_name:
+        return [], [], [_issue("TARGET_SCHEMA_IDENTITY_MISSING")]
+
+    issues: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+    seen_constraints: set[tuple[str, str]] = set()
+    for foreign_key in foreign_keys:
+        if not isinstance(foreign_key, dict):
+            issues.append(_issue("FOREIGN_KEY_INVENTORY_ENTRY_INVALID"))
+            continue
+        child = foreign_key.get("table_name")
+        if child not in mapped_target_tables:
+            continue
+        constraint = foreign_key.get("constraint_name")
+        parent = foreign_key.get("referenced_table")
+        parent_schema = foreign_key.get("referenced_schema")
+        deferrable = foreign_key.get("deferrable")
+        key = (child, constraint)
+        if (
+            not isinstance(child, str) or not isinstance(constraint, str) or not constraint
+            or not isinstance(parent, str) or not parent
+            or not isinstance(parent_schema, str) or not parent_schema
+            or not isinstance(deferrable, bool)
+        ):
+            issues.append(_issue("FOREIGN_KEY_INVENTORY_ENTRY_INVALID", table_name=child))
+            continue
+        if key in seen_constraints:
+            issues.append(_issue(
+                "FOREIGN_KEY_CONSTRAINT_DUPLICATED",
+                table_name=child,
+                constraint_name=constraint,
+            ))
+            continue
+        seen_constraints.add(key)
+        if parent_schema != schema_name:
+            issues.append(_issue(
+                "FOREIGN_KEY_REFERENCES_EXTERNAL_SCHEMA",
+                table_name=child,
+                constraint_name=constraint,
+                referenced_schema=parent_schema,
+                expected_schema=schema_name,
+            ))
+            continue
+        if parent not in mapped_target_tables:
+            issues.append(_issue(
+                "FOREIGN_KEY_PARENT_NOT_MAPPED",
+                table_name=child,
+                constraint_name=constraint,
+                referenced_table=parent,
+            ))
+            continue
+        edges.append({
+            "parent": parent,
+            "child": child,
+            "constraint_name": constraint,
+            "deferrable": deferrable,
+        })
+
+    if issues:
+        return [], [], issues
+
+    deferred: set[tuple[str, str]] = set()
+    ordered: list[str] = []
+    while True:
+        adjacency = {table: set() for table in mapped_target_tables}
+        indegree = {table: 0 for table in mapped_target_tables}
+        for edge in edges:
+            key = (edge["child"], edge["constraint_name"])
+            if key in deferred or edge["child"] in adjacency[edge["parent"]]:
+                continue
+            adjacency[edge["parent"]].add(edge["child"])
+            indegree[edge["child"]] += 1
+
+        ready = sorted(table for table, degree in indegree.items() if degree == 0)
+        ordered = []
+        while ready:
+            parent = ready.pop(0)
+            ordered.append(parent)
+            for child in sorted(adjacency[parent]):
+                indegree[child] -= 1
+                if indegree[child] == 0:
+                    ready.append(child)
+                    ready.sort()
+
+        if len(ordered) == len(mapped_target_tables):
+            break
+
+        residual = {table for table, degree in indegree.items() if degree > 0}
+
+        def reaches(start: str, target: str) -> bool:
+            pending = [start]
+            visited: set[str] = set()
+            while pending:
+                current = pending.pop()
+                if current == target:
+                    return True
+                if current in visited:
+                    continue
+                visited.add(current)
+                pending.extend(adjacency[current] - visited)
+            return False
+
+        cycle_edges = [
+            edge for edge in edges
+            if (edge["child"], edge["constraint_name"]) not in deferred
+            and edge["parent"] in residual and edge["child"] in residual
+            and reaches(edge["child"], edge["parent"])
+        ]
+        if not cycle_edges:
+            return [], [], [_issue("FOREIGN_KEY_IMPORT_ORDER_UNRESOLVED")]
+
+        blocking = [edge for edge in cycle_edges if not edge["deferrable"]]
+        if blocking:
+            issues.append(_issue(
+                "NON_DEFERRABLE_FOREIGN_KEY_CYCLE",
+                constraints=sorted(
+                    (edge["child"], edge["constraint_name"]) for edge in blocking
+                ),
+            ))
+            return [], [], issues
+
+        deferred.update((edge["child"], edge["constraint_name"]) for edge in cycle_edges)
+
+    deferred_constraints = [
+        {"table_name": table, "constraint_name": constraint}
+        for table, constraint in sorted(deferred)
+    ]
+    return ordered, deferred_constraints, issues
+
+
 def plan_schema_v36_reconciliation(
     source_manifest: dict[str, Any],
     target_inventory: dict[str, Any],
@@ -71,6 +215,8 @@ def plan_schema_v36_reconciliation(
 
     if not isinstance(target_inventory, dict):
         raise ReconciliationPlanError("PostgreSQL target inventory is required")
+    if not isinstance(target_inventory.get("foreign_keys"), list):
+        raise ReconciliationPlanError("PostgreSQL foreign-key inventory is required")
     if target_inventory.get("inventory_sha256") != _target_inventory_digest(target_inventory):
         raise ReconciliationPlanError("PostgreSQL target inventory fingerprint mismatch")
     if target_inventory.get("outcome") != "INCOMPLETE":
@@ -305,7 +451,15 @@ def plan_schema_v36_reconciliation(
     if unmapped_tables:
         issues.append(_issue("SOURCE_TABLES_UNMAPPED", tables=unmapped_tables))
 
+    target_import_order, deferred_foreign_keys, foreign_key_issues = _foreign_key_import_order(
+        target_inventory,
+        mapped_targets,
+    )
+    issues.extend(foreign_key_issues)
     structure_valid = not issues
+    if not structure_valid:
+        target_import_order = []
+        deferred_foreign_keys = []
     return {
         "format": "sngso-schema-v36-reconciliation-plan-v1",
         "outcome": "INCOMPLETE",
@@ -316,6 +470,8 @@ def plan_schema_v36_reconciliation(
         "source_table_count": len(source_tables),
         "mapped_source_table_count": len(mapped_sources),
         "unmapped_source_tables": unmapped_tables,
+        "target_import_order": target_import_order,
+        "deferred_foreign_keys": deferred_foreign_keys,
         "table_mappings": table_results,
         "issues": issues,
         "remaining_gates": [
