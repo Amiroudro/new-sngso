@@ -105,7 +105,7 @@ Migration 36 adds one BEFORE INSERT trigger, `edition_staging_events_authority_b
 
 ## PostgreSQL implementation checkpoint (2026-11-24)
 
-Draft PR #8 now contains PostgreSQL migrations 0001–0022. The migration
+Draft PR #8 now contains PostgreSQL migrations 0001–0023. The migration
 families cover source permissions and collection/ingestion, story/editorial
 history, learning and glossary lifecycle/evidence, benchmark governance and
 study evidence, pipeline runs/checkpoints/worker leases, edition artifacts
@@ -130,3 +130,22 @@ These tests execute against fresh isolated PostgreSQL schemas. They do not
 yet prove an imported schema-v36 dataset, a complete one-to-one semantic
 mapping of all 139 SQLite triggers, every negative direct-SQL case under the
 deployment runtime role, or production topology/restore/failover behavior.
+
+
+### Primary-key identity guard coverage test (2026-11-24)
+
+Commit `297a985823713314d466e8145f7fd6cfb1279c75` adds an integration
+catalog assertion for migration 0023. Against a freshly migrated PostgreSQL
+schema, the test enumerates every primary-key table and verifies that each
+has an enabled `sngso_primary_key_immutable` trigger, that the trigger calls
+`reject_primary_key_mutation`, and that its `BEFORE UPDATE OF` definition
+covers every primary-key column. This closes a schema-wide installation
+coverage gap in the test suite; it does **not** establish semantic parity for
+all 139 SQLite triggers.
+
+CI evidence: [run #1942](https://github.com/Amiroudro/new-sngso/actions/runs/45401637863)
+completed successfully for this commit, including both contract validation
+and PostgreSQL integration jobs. The new test proves guard presence and
+catalog wiring, while existing restricted-role tests exercise denied identity
+rewrites. A complete per-trigger v36 mapping and direct-SQL conformance suite
+remain open.
