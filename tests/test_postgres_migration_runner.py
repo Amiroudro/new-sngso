@@ -61,7 +61,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     connection = FakeConnection()
     applied = apply_postgres_migrations(connection)
 
-    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)
+    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26)
     assert connection.commits == 1
     assert connection.rollbacks == 0
     sql = [statement[0] for statement in connection.db_cursor.statements]
@@ -91,10 +91,14 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     primary_key_guard_sql = next(statement for statement in sql if "CREATE FUNCTION reject_primary_key_mutation" in statement)
     grant_revision_head_sql = next(statement for statement in sql if "CREATE FUNCTION ensure_permission_grant_revision_not_ahead_of_head" in statement)
     assignment_revision_head_sql = next(statement for statement in sql if "CREATE FUNCTION ensure_benchmark_assignment_revision_not_ahead_of_head" in statement)
+    pipeline_identity_parity_sql = next(statement for statement in sql if "CREATE OR REPLACE FUNCTION validate_pipeline_run_write" in statement)
     assert "permission_grant_revision_head_consistency" in grant_revision_head_sql
     assert "DEFERRABLE INITIALLY DEFERRED" in grant_revision_head_sql
     assert "benchmark_assignment_revision_head_consistency" in assignment_revision_head_sql
     assert "DEFERRABLE INITIALLY DEFERRED" in assignment_revision_head_sql
+    assert "pipeline run identity and inputs are immutable" in pipeline_identity_parity_sql
+    assert "attempt" not in pipeline_identity_parity_sql
+    assert "retry_of" not in pipeline_identity_parity_sql
     assert "CREATE TABLE audit_chain_head" in migration_sql
     assert "audit_events_no_update" in migration_sql
     assert "audit_events_no_delete" in migration_sql
@@ -191,7 +195,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     applied_again = apply_postgres_migrations(connection)
     assert applied_again == ()
     assert connection.commits == 2
-    assert len(connection.db_cursor.rows) == 25
+    assert len(connection.db_cursor.rows) == 26
 
 
 def test_postgres_migration_runner_rejects_modified_applied_migration():
