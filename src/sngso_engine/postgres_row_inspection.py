@@ -153,6 +153,73 @@ def inspect_postgres_mapped_rows(
                 if active_schema != schema_name:
                     raise PostgresRowInspectionError("target active schema changed since inventory")
 
+                mapped_target_names = [
+                    item["target_table"] for item in mapping_spec["tables"]
+                ]
+                cursor.execute(
+                    """SELECT c.relname AS table_name, a.attname AS column_name,
+                              format_type(a.atttypid, a.atttypmod) AS data_type,
+                              NOT a.attnotnull AS nullable,
+                              pg_get_expr(d.adbin, d.adrelid) AS default_expression,
+                              a.attidentity AS identity_kind,
+                              a.attgenerated AS generated_kind
+                       FROM pg_attribute a
+                       JOIN pg_class c ON c.oid = a.attrelid
+                       JOIN pg_namespace n ON n.oid = c.relnamespace
+                       LEFT JOIN pg_attrdef d
+                         ON d.adrelid = c.oid AND d.adnum = a.attnum
+                       WHERE n.nspname = %s AND c.relname = ANY(%s)
+                         AND c.relkind IN ('r', 'p')
+                         AND a.attnum > 0 AND NOT a.attisdropped
+                       ORDER BY c.relname, a.attnum""",
+                    (schema_name, mapped_target_names),
+                )
+                current_columns = {
+                    (row[0], row[1]): {
+                        "data_type": row[2], "nullable": row[3],
+                        "default_expression": row[4], "identity_kind": row[5],
+                        "generated_kind": row[6],
+                    }
+                    for row in cursor.fetchall()
+                }
+                cursor.execute(
+                    """SELECT c.relname AS table_name,
+                              array_agg(a.attname ORDER BY k.ord) AS columns
+                       FROM pg_constraint con
+                       JOIN pg_class c ON c.oid = con.conrelid
+                       JOIN pg_namespace n ON n.oid = c.relnamespace
+                       JOIN LATERAL unnest(con.conkey) WITH ORDINALITY
+                            AS k(attnum, ord) ON true
+                       JOIN pg_attribute a
+                         ON a.attrelid = c.oid AND a.attnum = k.attnum
+                       WHERE n.nspname = %s AND c.relname = ANY(%s)
+                         AND con.contype = 'p'
+                       GROUP BY c.relname ORDER BY c.relname""",
+                    (schema_name, mapped_target_names),
+                )
+                current_primary_keys = {
+                    row[0]: list(row[1]) for row in cursor.fetchall()
+                }
+                for table_name in mapped_target_names:
+                    if current_primary_keys.get(table_name) != inventory_pks.get(table_name):
+                        raise PostgresRowInspectionError(
+                            "target primary-key catalog changed since inventory"
+                        )
+                for (table_name, column_name), expected_meta in inventory_columns.items():
+                    if table_name not in mapped_target_names:
+                        continue
+                    current_meta = current_columns.get((table_name, column_name))
+                    if current_meta != {
+                        key: expected_meta.get(key)
+                        for key in (
+                            "data_type", "nullable", "default_expression",
+                            "identity_kind", "generated_kind",
+                        )
+                    }:
+                        raise PostgresRowInspectionError(
+                            "target column catalog changed since inventory"
+                        )
+
                 # Recheck the packaged migration ledger inside this same snapshot.
                 cursor.execute(
                     "SELECT version, name, checksum FROM postgres_schema_migrations ORDER BY version"
