@@ -1904,6 +1904,99 @@ def test_postgres_pipeline_run_revisions_preserve_identity_and_legal_transitions
 
 
 
+
+def test_postgres_pipeline_run_rejects_each_immutable_identity_field(postgres_schema):
+    connect = postgres_schema
+    original = {
+        "schema_version": "1.0.0",
+        "id": "pipeline-run-immutable-fields",
+        "status": "queued",
+        "started_at": "2026-11-23T00:00:00Z",
+        "software_version": "engine-2.0",
+        "config_hash": "sha256:" + "1" * 64,
+        "input_hashes": ["sha256:" + "2" * 64],
+        "initiated_by": "operator-1",
+    }
+    mutations = {
+        "id": "pipeline-run-identity-mutated",
+        "started_at": "2026-11-23T00:00:01Z",
+        "software_version": "engine-3.0",
+        "config_hash": "sha256:" + "3" * 64,
+        "input_hashes": ["sha256:" + "4" * 64],
+        "initiated_by": "operator-2",
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json) "
+            "VALUES (%s, 'queued', 1, %s, %s)",
+            (original["id"], original["started_at"], json.dumps(original)),
+        )
+
+        for field, replacement in mutations.items():
+            changed = {**original, field: replacement, "status": "running"}
+            indexed_id = changed["id"]
+            indexed_started_at = changed["started_at"]
+            with pytest.raises(
+                psycopg.errors.CheckViolation,
+                match="pipeline run identity and inputs are immutable",
+            ):
+                with connection.transaction():
+                    connection.execute(
+                        "UPDATE pipeline_runs SET id = %s, started_at = %s, "
+                        "status = 'running', revision = 2, payload_json = %s "
+                        "WHERE id = %s",
+                        (
+                            indexed_id,
+                            indexed_started_at,
+                            json.dumps(changed),
+                            original["id"],
+                        ),
+                    )
+            assert connection.execute(
+                "SELECT id, revision, status, started_at, payload_json "
+                "FROM pipeline_runs WHERE id = %s",
+                (original["id"],),
+            ).fetchone() == (
+                original["id"], 1, "queued", original["started_at"],
+                json.dumps(original),
+            )
+
+
+def test_postgres_pipeline_run_rejects_revision_skips(postgres_schema):
+    connect = postgres_schema
+    payload = {
+        "schema_version": "1.0.0",
+        "id": "pipeline-run-revision-skip",
+        "status": "queued",
+        "started_at": "2026-11-23T00:00:00Z",
+        "software_version": "engine-2.0",
+        "config_hash": "sha256:" + "1" * 64,
+        "input_hashes": ["sha256:" + "2" * 64],
+        "initiated_by": "operator-1",
+    }
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO pipeline_runs (id, status, revision, started_at, payload_json) "
+            "VALUES (%s, 'queued', 1, %s, %s)",
+            (payload["id"], payload["started_at"], json.dumps(payload)),
+        )
+        skipped = {**payload, "status": "running"}
+        with pytest.raises(
+            psycopg.errors.CheckViolation,
+            match="pipeline run revision must increment by one",
+        ):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE pipeline_runs SET status = 'running', revision = 3, "
+                    "payload_json = %s WHERE id = %s",
+                    (json.dumps(skipped), payload["id"]),
+                )
+        assert connection.execute(
+            "SELECT revision, status, payload_json FROM pipeline_runs WHERE id = %s",
+            (payload["id"],),
+        ).fetchone() == (1, "queued", json.dumps(payload))
+
+
 def test_postgres_stage_checkpoints_are_idempotent_revisioned_and_immutable(postgres_schema):
     connect = postgres_schema
     run = {
