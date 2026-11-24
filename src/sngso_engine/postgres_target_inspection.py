@@ -191,10 +191,7 @@ def inspect_postgres_import_target(connection: Any) -> dict[str, Any]:
 
                 # No reviewed schema-v36 source/target mapping exists yet.
                 # Consequently this inventory can never assert import readiness.
-                inventory["outcome"] = (
-                    "INCOMPLETE" if not ledger_matches or not identity["has_audit_head"]
-                    else "INCOMPLETE"
-                )
+                inventory["outcome"] = "INCOMPLETE"
                 inventory["reason_codes"] = [
                     "SOURCE_TARGET_MAPPING_NOT_REVIEWED",
                 ]
