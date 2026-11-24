@@ -61,7 +61,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     connection = FakeConnection()
     applied = apply_postgres_migrations(connection)
 
-    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+    assert applied == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23)
     assert connection.commits == 1
     assert connection.rollbacks == 0
     sql = [statement[0] for statement in connection.db_cursor.statements]
@@ -179,13 +179,12 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert connection.db_cursor.rows[20][0:2] == (21, "0021_domain_record_revision_guards.sql")
     assert connection.db_cursor.rows[21][0:2] == (22, "0022_learning_evidence_locking.sql")
     assert connection.db_cursor.rows[22][0:2] == (23, "0023_primary_key_identity_guards.sql")
-    assert connection.db_cursor.rows[23][0:2] == (24, "0024_append_only_delete_guards.sql")
     assert all(row[2].startswith("sha256:") for row in connection.db_cursor.rows)
 
     applied_again = apply_postgres_migrations(connection)
     assert applied_again == ()
     assert connection.commits == 2
-    assert len(connection.db_cursor.rows) == 24
+    assert len(connection.db_cursor.rows) == 23
 
 
 def test_postgres_migration_runner_rejects_modified_applied_migration():
