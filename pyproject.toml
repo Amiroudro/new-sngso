@@ -18,6 +18,7 @@ sngso-sqlite-export-manifest = "sngso_engine.sqlite_export:main"
 sngso-schema-v36-dry-run = "sngso_engine.postgres_reconciliation_cli:main"
 sngso-schema-v36-row-dry-run = "sngso_engine.postgres_row_dry_run:main"
 sngso-sqlite-audit-checkpoint = "sngso_engine.audit_checkpoint_cli:main"
+sngso-schema-v36-import-preflight = "sngso_engine.postgres_import_preflight_cli:main"
 
 [project.optional-dependencies]
 postgres = [
