@@ -7,7 +7,10 @@ from pathlib import Path
 import sys
 
 from .postgres_mapping_skeleton import build_schema_v36_mapping_skeleton
-from .postgres_target_inspection import inspect_postgres_import_target
+from .postgres_target_inspection import (
+    PostgresInspectionError,
+    inspect_postgres_import_target,
+)
 from .sqlite_export import build_sqlite_export_manifest, write_manifest_new
 
 
@@ -46,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
                 target_inventory = inspect_postgres_import_target(connection)
             finally:
                 connection.close()
-        except psycopg.Error:
+        except (psycopg.Error, PostgresInspectionError):
             print("PostgreSQL target inspection failed; connection details were not included.", file=sys.stderr)
             return 2
 
