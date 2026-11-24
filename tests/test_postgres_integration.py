@@ -133,6 +133,28 @@ def test_postgres_source_permission_registry_preserves_composite_source_boundari
             "SELECT count(*) FROM grant_endpoints WHERE grant_id = 'grant-a'"
         ).fetchone()[0] == 1
 
+        # Composite-key identity guards must cover every key component, not
+        # merely single-column primary keys such as benchmark_principals.id.
+        with pytest.raises(psycopg.errors.CheckViolation, match="primary-key identity"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE grant_endpoints SET endpoint_id = 'endpoint-mutated' "
+                    "WHERE grant_id = 'grant-a' AND endpoint_id = 'endpoint-a'"
+                )
+        with pytest.raises(psycopg.errors.CheckViolation, match="primary-key identity"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE grant_evidence SET evidence_id = 'evidence-mutated' "
+                    "WHERE grant_id = 'grant-a' AND evidence_id = 'evidence-a'"
+                )
+        with pytest.raises(psycopg.errors.CheckViolation, match="primary-key identity"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE grant_operation_evidence SET operation = 'publication' "
+                    "WHERE grant_id = 'grant-a' AND operation = 'discovery' "
+                    "AND evidence_id = 'evidence-a'"
+                )
+
 
 def test_postgres_registry_revision_snapshots_are_append_only(postgres_schema):
     connect = postgres_schema
