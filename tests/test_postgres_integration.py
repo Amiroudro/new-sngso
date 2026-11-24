@@ -5059,6 +5059,18 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     assert jsonb_proof["outcome"] == "VALID"
     assert jsonb_proof["table_reports"][0]["columns"][0]["matched"] == 1
     assert jsonb_proof["table_reports"][0]["columns"][0]["mismatched"] == 0
+
+    with connect() as connection:
+        connection.execute(
+            "UPDATE sources SET payload_json = %s WHERE id = %s",
+            ('{"a":[false,null],"z":1}', "source-row-proof"),
+        )
+    with connect() as connection:
+        mismatch_proof = prove_sqlite_jsonb_semantic_equivalence(
+            source_db, connection, manifest, inventory, mapping, batch_size=1
+        )
+    assert mismatch_proof["outcome"] == "INVALID"
+    assert mismatch_proof["table_reports"][0]["columns"][0]["mismatched"] == 1
     assert {
         item["source_table"] for item in comparison["comparisons"]
     } == {"schema_migrations", "sample_sources"}
