@@ -17,11 +17,13 @@ The report captures:
   identity and generated-column flags;
 - primary, unique, check, and foreign-key constraints, including validation
   and deferrability;
-- index definitions;
+- a structured foreign-key edge list with ordered source and referenced columns;
+- sequence names and owners, plus index definitions;
 - non-internal trigger definitions, enabled states, and function definitions;
 - the installed PostgreSQL migration ledger compared against all packaged
   migration names and SHA-256 checksums;
-- the singleton audit-chain head, when present;
+- the singleton audit-chain head, when present, with sequence/count/min/max and
+  anchor consistency checks;
 - a deterministic SHA-256 digest of the captured inventory.
 
 The public API is exported from `sngso_engine`. PostgreSQL integration tests
