@@ -192,3 +192,10 @@ The command also recomputes the SQLite and PostgreSQL audit chains, compares eve
 ## 16. Independent checkpoint export
 
 The `sngso-sqlite-audit-checkpoint` command rebuilds and verifies the schema-v36 export manifest, then writes a fingerprinted audit-tip record to a new path without overwriting an existing file. Pass that exported record to `sngso-schema-v36-row-dry-run --external-audit-checkpoint` after storing it in an independently controlled location. The program cannot verify the storage location; a checkpoint kept beside the source database is not independent evidence. No database is changed.
+
+
+## 17. Isolated import-target preflight
+
+Added `sngso-schema-v36-import-preflight`. It requires an explicit expected database identity and a target schema prefixed `sngso_import_`, validates the pinned mapping and PostgreSQL migration ledger, then counts every target table in one `REPEATABLE READ READ ONLY` snapshot. Only an initial audit head and the packaged migration ledger are allowed to contain rows; every application table must be empty. The report is no-overwrite, contains counts/reason codes only, and always sets `import_authorized=false`, `import_performed=false`, and `importer_implemented=false`.
+
+This is a prerequisite check only. A passed preflight does not perform or authorize import. The one-transaction importer, sequence-state reconciliation, post-commit independent verification, and rollback/restore rehearsal remain open.
