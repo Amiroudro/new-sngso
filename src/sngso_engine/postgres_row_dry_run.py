@@ -49,7 +49,7 @@ def build_row_dry_run_report(
     )
     jsonb_applicable = any(
         column.get("conversion") == "json_text_to_jsonb"
-        for table in (plan.get("tables", []) if structural else [])
+        for table in (plan.get("table_mappings", []) if structural else [])
         for column in table.get("columns", [])
     )
     jsonb_valid = (
