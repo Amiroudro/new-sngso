@@ -422,7 +422,12 @@ def compare_converted_row_reports(
         target_non_json = target["non_json_row_sha256"]
         non_json_match = source_non_json == target_non_json
         if not non_json_match:
-            issues.append({"code": "NON_JSON_ROW_CHECKSUM_MISMATCH", "source_table": table_name})
+            issues.append({
+                "code": "NON_JSON_ROW_CHECKSUM_MISMATCH",
+                "source_table": table_name,
+                "source_sha256": source_non_json,
+                "target_sha256": target_non_json,
+            })
         source_jsonb = set(source.get("jsonb_columns", []))
         target_jsonb = set(target.get("jsonb_columns", []))
         if source_jsonb != target_jsonb:
@@ -439,6 +444,8 @@ def compare_converted_row_reports(
                     "code": "COLUMN_CHECKSUM_MISMATCH",
                     "source_table": table_name,
                     "target_column": column_name,
+                    "source_sha256": source_digest,
+                    "target_sha256": target["column_sha256"].get(column_name),
                 })
         comparisons.append({
             "source_table": table_name,
