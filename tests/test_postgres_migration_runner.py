@@ -185,7 +185,7 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     applied_again = apply_postgres_migrations(connection)
     assert applied_again == ()
     assert connection.commits == 2
-    assert len(connection.db_cursor.rows) == 24
+    assert len(connection.db_cursor.rows) == 25
 
 
 def test_postgres_migration_runner_rejects_modified_applied_migration():
