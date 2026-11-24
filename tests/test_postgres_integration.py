@@ -4895,11 +4895,19 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
             target_values,
         )
         connection.execute(
-            "CREATE TABLE jsonb_documents (id text PRIMARY KEY, payload jsonb NOT NULL)"
+            "CREATE TABLE jsonb_documents (id text PRIMARY KEY, payload jsonb)"
         )
         connection.execute(
             "INSERT INTO jsonb_documents (id, payload) VALUES (%s, %s::jsonb)",
             ("json-doc-1", '{"a":[true,null],"z":1}'),
+        )
+        connection.execute(
+            "INSERT INTO jsonb_documents (id, payload) VALUES (%s, %s)",
+            ("json-doc-null", None),
+        )
+        connection.execute(
+            "INSERT INTO jsonb_documents (id, payload) VALUES (%s, %s::jsonb)",
+            ("json-doc-json-null", "null"),
         )
 
     source_db = tmp_path / "mapped-source.sqlite"
@@ -4913,11 +4921,15 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
             migration_values,
         )
         source.execute(
-            "CREATE TABLE sample_json_docs (id TEXT PRIMARY KEY, payload_json TEXT NOT NULL)"
+            "CREATE TABLE sample_json_docs (id TEXT PRIMARY KEY, payload_json TEXT)"
         )
-        source.execute(
+        source.executemany(
             "INSERT INTO sample_json_docs VALUES (?, ?)",
-            ("json-doc-1", '{"z": 1, "a": [true, null]}'),
+            [
+                ("json-doc-1", '{"z": 1, "a": [true, null]}'),
+                ("json-doc-null", None),
+                ("json-doc-json-null", "null"),
+            ],
         )
         source.execute("PRAGMA user_version = 36")
         source.execute(
@@ -5082,8 +5094,9 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     assert comparison["non_json_values_match"] is True, comparison["issues"]
     assert comparison["issues"] == []
     assert jsonb_proof["outcome"] == "VALID"
-    assert jsonb_proof["table_reports"][0]["columns"][0]["matched"] == 1
+    assert jsonb_proof["table_reports"][0]["columns"][0]["matched"] == 3
     assert jsonb_proof["table_reports"][0]["columns"][0]["mismatched"] == 0
+    assert jsonb_proof["table_reports"][0]["columns"][0]["null"] == 1
 
     with connect() as connection:
         connection.execute(
