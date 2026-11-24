@@ -157,6 +157,11 @@ from .schema_inspection import SchemaInspectionError, inspect_sqlite_schema
 from .postgres_target_inspection import PostgresInspectionError, inspect_postgres_import_target
 from .postgres_reconciliation import ReconciliationPlanError, plan_schema_v36_reconciliation
 from .postgres_row_inspection import PostgresRowInspectionError, inspect_postgres_mapped_rows
+from .sqlite_converted_row_inspection import (
+    SQLiteConvertedRowInspectionError,
+    compare_converted_row_reports,
+    inspect_sqlite_converted_rows,
+)
 from .sqlite_json_validation import SQLiteJSONValidationError, validate_sqlite_jsonb_content
 from .sqlite_export import (
     SQLiteExportError,
@@ -311,6 +316,9 @@ __all__ = [
     "plan_schema_v36_reconciliation",
     "PostgresRowInspectionError",
     "inspect_postgres_mapped_rows",
+    "SQLiteConvertedRowInspectionError",
+    "inspect_sqlite_converted_rows",
+    "compare_converted_row_reports",
     "SQLiteExportError",
     "build_sqlite_export_manifest",
     "encode_sqlite_value",
