@@ -76,3 +76,34 @@ support that check.
 A successful structural check is still reported as `INCOMPLETE`. The planner
 does not read row values and therefore cannot prove conversion safety, row
 counts/checksums, or audit-chain equivalence. Those remain explicit gates.
+
+
+## Read-only mapped-row target fingerprinting
+
+`src/sngso_engine/postgres_row_inspection.py` adds
+`inspect_postgres_mapped_rows(connection, source_manifest, target_inventory,
+mapping_spec, batch_size=512)`. It requires a structurally valid, fingerprint-
+pinned, reviewer-approved mapping and an idle psycopg 3 connection.
+
+The scan runs in one `REPEATABLE READ READ ONLY` transaction. Before reading
+rows, it rechecks the active schema and PostgreSQL server version, every mapped
+table's complete column catalog, ordered primary keys, and the packaged
+migration ledger against the supplied inventory. It then streams mapped target
+rows in primary-key order, encodes values according to the reviewed conversion
+rule, and returns per-table row counts and SHA-256 fingerprints. It never
+returns primary-key values or row payloads and performs no writes.
+
+The target encodings are explicit: UTF-8 text, canonical bigint decimal text,
+IEEE-754 binary64, decoded bytea bytes, and PostgreSQL's own `jsonb::text`
+representation. Non-finite floating-point values and malformed target
+representations fail closed. JSONB output is retained as PostgreSQL-rendered
+text; this is a target-side fingerprint, not proof that the source JSON and
+target JSONB have equivalent semantics.
+
+The report always remains `INCOMPLETE`. A row-count match is only a necessary
+condition. The target digest is not directly comparable to the original
+SQLite storage-class digest. The next required implementation is a source-side
+converted-row digest using the exact same type-specific encoding contract,
+followed by equality checks and explicit JSONB semantic-normalization proof.
+Audit-chain import and verification remain separate gates. No import or
+cutover is performed.
