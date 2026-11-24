@@ -317,7 +317,7 @@ def inspect_postgres_mapped_rows(
                                 "target_column": item["target_column"],
                                 "conversion": item["conversion"],
                             }))
-                            column_digest.update(b"\\x00")
+                            column_digest.update(b"\x00")
                             column_digests[item["target_column"]] = column_digest
                         non_json_columns = [
                             item for item in column_specs
@@ -330,7 +330,7 @@ def inspect_postgres_mapped_rows(
                             "columns": non_json_columns,
                             "primary_key": target_pk,
                         }))
-                        non_json_digest.update(b"\\x00")
+                        non_json_digest.update(b"\x00")
                         row_count = 0
                         while True:
                             batch = row_cursor.fetchmany(batch_size)
@@ -338,11 +338,11 @@ def inspect_postgres_mapped_rows(
                                 break
                             for row in batch:
                                 digest.update(b"ROW\x00")
-                                non_json_digest.update(b"ROW\\x00")
+                                non_json_digest.update(b"ROW\x00")
                                 for index, item in enumerate(column_specs):
                                     encoded = _encode_target_value(row[index], item["conversion"])
                                     digest.update(encoded)
-                                    column_digests[item["target_column"]].update(b"VALUE\\x00" + encoded)
+                                    column_digests[item["target_column"]].update(b"VALUE\x00" + encoded)
                                     if item["conversion"] != "json_text_to_jsonb":
                                         non_json_digest.update(encoded)
                                 row_count += 1
