@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any
 
 from .canonical import canonical_json_bytes
@@ -27,6 +28,20 @@ def inspect_empty_import_target(
     packaged migration ledger. The singleton audit head must be at sequence 0,
     and every other table in the active schema must contain zero rows.
     """
+    if not isinstance(target_inventory, dict):
+        raise ImportTargetPreflightError("target inventory is required")
+    supplied_inventory_sha = target_inventory.get("inventory_sha256")
+    inventory_body = dict(target_inventory)
+    for key in ("inventory_sha256", "outcome", "reason_codes"):
+        inventory_body.pop(key, None)
+    inventory_bytes = json.dumps(
+        inventory_body, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"), default=str,
+    ).encode("utf-8")
+    actual_inventory_sha = hashlib.sha256(inventory_bytes).hexdigest()
+    if supplied_inventory_sha != actual_inventory_sha:
+        raise ImportTargetPreflightError("target inventory fingerprint mismatch")
+
     info = getattr(connection, "info", None)
     status = getattr(getattr(info, "transaction_status", None), "name", None)
     if status != "IDLE":
