@@ -4876,7 +4876,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     source_values = (
         "source-row-proof", "Publisher", "active",
         "2026-11-24T00:00:00Z", "2026-11-24T00:00:00Z",
-        json.dumps({"z": 1, "a": [True, None]}, separators=(", ", ": ")),
+        json.dumps({"id": "source-row-proof"}, separators=(",", ":")),
     )
     with connect() as connection:
         connection.execute(
@@ -4894,6 +4894,13 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
             "VALUES (%s, %s, %s, %s, %s, %s)",
             target_values,
         )
+        connection.execute(
+            "CREATE TABLE jsonb_documents (id text PRIMARY KEY, payload jsonb NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO jsonb_documents (id, payload) VALUES (%s, %s::jsonb)",
+            ("json-doc-1", '{"a":[true,null],"z":1}'),
+        )
 
     source_db = tmp_path / "mapped-source.sqlite"
     with sqlite3.connect(source_db) as source:
@@ -4904,6 +4911,13 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
         source.executemany(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             migration_values,
+        )
+        source.execute(
+            "CREATE TABLE sample_json_docs (id TEXT PRIMARY KEY, payload_json TEXT NOT NULL)"
+        )
+        source.execute(
+            "INSERT INTO sample_json_docs VALUES (?, ?)",
+            ("json-doc-1", '{"z": 1, "a": [true, null]}'),
         )
         source.execute("PRAGMA user_version = 36")
         source.execute(
@@ -4921,7 +4935,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
             source_values,
         )
         source_table_entries = []
-        for table_name in ("schema_migrations", "sample_sources"):
+        for table_name in ("schema_migrations", "sample_sources", "sample_json_docs"):
             metadata = _table_metadata(source, table_name)
             checksums = _stream_table(source, metadata, batch_size=1)
             source_table_entries.append({
@@ -5002,9 +5016,17 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
                     {
                         "source_column": name,
                         "target_column": name,
-                        "conversion": "json_text_to_jsonb" if name == "payload_json" else "text_identity",
+                        "conversion": "text_identity",
                     }
                     for name in source_columns
+                ],
+            },
+            {
+                "source_table": "sample_json_docs",
+                "target_table": "jsonb_documents",
+                "columns": [
+                    {"source_column": "id", "target_column": "id", "conversion": "text_identity"},
+                    {"source_column": "payload_json", "target_column": "payload", "conversion": "json_text_to_jsonb"},
                 ],
             },
         ],
@@ -5062,8 +5084,8 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
 
     with connect() as connection:
         connection.execute(
-            "UPDATE sources SET payload_json = %s WHERE id = %s",
-            ('{"a":[false,null],"z":1}', "source-row-proof"),
+            "UPDATE jsonb_documents SET payload = %s::jsonb WHERE id = %s",
+            ('{"a":[false,null],"z":1}', "json-doc-1"),
         )
     with connect() as connection:
         mismatch_proof = prove_sqlite_jsonb_semantic_equivalence(
@@ -5073,4 +5095,4 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     assert mismatch_proof["table_reports"][0]["columns"][0]["mismatched"] == 1
     assert {
         item["source_table"] for item in comparison["comparisons"]
-    } == {"schema_migrations", "sample_sources"}
+    } == {"schema_migrations", "sample_sources", "sample_json_docs"}
