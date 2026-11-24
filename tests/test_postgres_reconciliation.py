@@ -358,3 +358,54 @@ def test_dry_run_report_blocks_missing_mapping_without_authorizing_import():
     assert report["database_mutated"] is False
     assert report["import_performed"] is False
     assert report["import_authorized"] is False
+
+
+def test_row_dry_run_report_stays_incomplete_after_matching_row_evidence():
+    from sngso_engine.postgres_reconciliation import plan_schema_v36_reconciliation
+    from sngso_engine.postgres_row_dry_run import build_row_dry_run_report
+
+    manifest, inventory, mapping = _inputs()
+    plan = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+    report = build_row_dry_run_report(
+        manifest,
+        inventory,
+        plan,
+        {"format": "source-row-evidence"},
+        {"all_row_counts_match_source": True},
+        {"non_json_values_match": True, "issues": []},
+        None,
+        generated_at="2026-11-24T00:00:00Z",
+    )
+
+    assert report["outcome"] == "INCOMPLETE"
+    assert report["database_mutated"] is False
+    assert report["import_performed"] is False
+    assert report["import_authorized"] is False
+    assert report["row_data_inspected"] is True
+    assert report["non_json_row_values_match"] is True
+    assert report["jsonb_semantics"] == "NOT_APPLICABLE"
+    assert report["target_audit_chain_compared"] is False
+    assert report["cutover_ready"] is False
+    assert len(report["report_sha256"]) == 64
+
+
+def test_row_dry_run_report_blocks_row_or_jsonb_mismatch():
+    from sngso_engine.postgres_reconciliation import plan_schema_v36_reconciliation
+    from sngso_engine.postgres_row_dry_run import build_row_dry_run_report
+
+    manifest, inventory, mapping = _inputs()
+    plan = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+    report = build_row_dry_run_report(
+        manifest,
+        inventory,
+        plan,
+        {"format": "source-row-evidence"},
+        {"all_row_counts_match_source": True},
+        {"non_json_values_match": False, "issues": [{"code": "HASH_MISMATCH"}]},
+        None,
+        generated_at="2026-11-24T00:00:00Z",
+    )
+
+    assert report["outcome"] == "BLOCKED"
+    assert report["issues"] == [{"code": "HASH_MISMATCH"}]
+    assert report["cutover_ready"] is False
