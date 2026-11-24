@@ -4869,7 +4869,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
 
     connect = postgres_schema
     migration_values = [
-        (version, f"2026-11-24T00:00:{version:02d}Z")
+        (str(version), f"2026-11-24T00:00:{version:02d}Z")
         for version in range(1, 37)
     ]
     source_values = (
@@ -4880,7 +4880,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     with connect() as connection:
         connection.execute(
             "CREATE TABLE source_migrations_target "
-            "(version bigint PRIMARY KEY, applied_at text NOT NULL)"
+            "(version text PRIMARY KEY, applied_at text NOT NULL)"
         )
         with connection.cursor() as cursor:
             cursor.executemany(
@@ -4897,7 +4897,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     with sqlite3.connect(source_db) as source:
         source.execute(
             "CREATE TABLE schema_migrations "
-            "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+            "(version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
         )
         source.executemany(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
@@ -4984,7 +4984,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
                     {
                         "source_column": "version",
                         "target_column": "version",
-                        "conversion": "integer_to_bigint",
+                        "conversion": "text_identity",
                     },
                     {
                         "source_column": "applied_at",
