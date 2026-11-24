@@ -213,3 +213,10 @@ After editing a draft, `sngso-schema-v36-mapping-fingerprint --mapping edited.js
 PostgreSQL migration 0024 adds a deferred constraint trigger that rejects permission-grant revision snapshots committed ahead of the current grant head or with a payload that differs from the matching head. Migration 0025 adds the same commit-time invariant for benchmark-review assignment revisions. The deferred design preserves the valid write order in which a next-revision snapshot is inserted before its matching head update inside one transaction.
 
 Direct-SQL integration tests cover orphan future snapshots for both families, the valid grant transition, domain-record revision sequencing and snapshot creation, article/evidence provenance immutability, immutable creation timestamps, and nondecreasing revision timestamps. PostgreSQL CI run [#1963](https://github.com/Amiroudro/new-sngso/actions/runs/45404941941) passed the 25-migration integration suite and contracts; run [#1964](https://github.com/Amiroudro/new-sngso/actions/runs/45405093937) also passed with the additional domain-record identity and timestamp tests. These are targeted security checks, not full 139-trigger semantic parity or production-import acceptance.
+
+
+## 17. Pipeline-run trigger parity correction (24 November 2026)
+
+PostgreSQL migration 0026 corrects the pipeline-run identity trigger to match the SQLite migration-26 contract. The SQLite trigger makes run ID, start time, software version, config hash, input hashes, and initiator immutable. It does not make `attempt` or `retry_of` immutable. The earlier PostgreSQL implementation imposed those additional restrictions; migration 0026 replaces the function without them.
+
+New PostgreSQL direct-SQL tests cover mismatched indexed/payload fields on INSERT and UPDATE, a revision snapshot whose payload disagrees with the current head, and legal mutation of `attempt` and `retry_of` during a queued-to-running transition. The migration runner registers version 26. These tests are pending exact-head CI and do not change the import gate: no production data has been imported, and complete trigger parity remains open.
