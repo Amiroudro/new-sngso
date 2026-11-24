@@ -5389,3 +5389,98 @@ def test_import_target_preflight_blocks_noninitial_staging_state(postgres_schema
         "code": "TARGET_STAGING_STATE_NOT_INITIAL",
         "row_count": 1,
     } in report["issue_codes"]
+
+
+@pytest.mark.parametrize(
+    ("substitution", "replacement_principal"),
+    [
+        ("approver", "principal:other-approver"),
+        ("authorizer", "principal:other-authorizer"),
+    ],
+)
+def test_postgres_staging_event_rejects_authority_identity_substitution(
+    postgres_schema, substitution, replacement_principal
+):
+    """Direct SQL cannot rebind a staging event to a different eligible human."""
+    connect = postgres_schema
+    with connect() as connection:
+        identity, now, package = _seed_atomic_staging_case(connection)
+        connection.execute(
+            "INSERT INTO benchmark_principals "
+            "(principal_id, display_name, roles_json, active, created_at, created_by, reason, principal_kind) "
+            "VALUES ('principal:other-approver', 'Other approver', %s, 1, %s, "
+            "'test-admin', 'authority substitution fixture', 'human'), "
+            "('principal:other-authorizer', 'Other authorizer', %s, 1, %s, "
+            "'test-admin', 'authority substitution fixture', 'human')",
+            (
+                json.dumps(["edition_approver"]),
+                now.isoformat(),
+                json.dumps(["edition_release_authorizer"]),
+                now.isoformat(),
+            ),
+        )
+
+        export_sha256 = sha256_fingerprint(package)
+        event_payload = {
+            "schema_version": "1.0.0",
+            "event_id": "event:authority-substitution",
+            "state_revision": 1,
+            "channel": "staging",
+            "operation": "promote",
+            "manifest_id": package["manifest_id"],
+            "edition_id": package["edition_id"],
+            "edition_revision": package["edition_revision"],
+            "payload_sha256": package["payload_sha256"],
+            "export_id": package["export_id"],
+            "export_sha256": export_sha256,
+            "previous_current_export_id": None,
+            "lkg_export_id": None,
+            "operator_principal_id": identity.principal_id,
+            "occurred_at": now.isoformat().replace("+00:00", "Z"),
+            "reason": "authority identity substitution regression",
+            "publication_authorized": False,
+            "target": "staging",
+            "staging_decision": dict(package["staging_decision"]),
+            "release_authorization": dict(package["release_authorization"]),
+            "operator_identity_attestation": {
+                "issuer": identity.issuer,
+                "subject": identity.subject,
+            },
+        }
+        if substitution == "approver":
+            event_payload["staging_decision"]["principal_id"] = replacement_principal
+        else:
+            event_payload["release_authorization"]["authorizer_principal_id"] = replacement_principal
+
+        with pytest.raises(
+            psycopg.errors.CheckViolation,
+            match="staging event failed immutable artifact, authority, operator, or state guard",
+        ):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO edition_staging_events "
+                    "(event_id, state_revision, channel, operation, manifest_id, edition_id, "
+                    "edition_revision, payload_sha256, export_id, export_sha256, "
+                    "previous_current_export_id, lkg_export_id, operator_principal_id, "
+                    "occurred_at, reason, export_package_json, payload_json) "
+                    "VALUES (%s, 1, 'staging', 'promote', %s, %s, %s, %s, %s, %s, "
+                    "NULL, NULL, %s, %s, %s, %s, %s)",
+                    (
+                        "event:authority-substitution",
+                        package["manifest_id"],
+                        package["edition_id"],
+                        package["edition_revision"],
+                        package["payload_sha256"],
+                        package["export_id"],
+                        export_sha256,
+                        identity.principal_id,
+                        now.isoformat().replace("+00:00", "Z"),
+                        "authority identity substitution regression",
+                        canonical_json_bytes(package).decode("utf-8"),
+                        canonical_json_bytes(event_payload).decode("utf-8"),
+                    ),
+                )
+
+        assert connection.execute(
+            "SELECT count(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
