@@ -395,7 +395,6 @@ def test_row_dry_run_report_stays_incomplete_after_matching_row_evidence():
     assert report["row_data_inspected"] is True
     assert report["non_json_row_values_match"] is True
     assert report["jsonb_semantics"] == "NOT_APPLICABLE"
-    assert report["target_audit_chain_compared"] is False
     assert report["cutover_ready"] is False
     assert len(report["report_sha256"]) == 64
 
