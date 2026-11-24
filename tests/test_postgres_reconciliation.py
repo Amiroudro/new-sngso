@@ -423,6 +423,15 @@ def test_row_dry_run_report_blocks_row_or_jsonb_mismatch():
 
 def test_mapping_skeleton_is_fingerprinted_unapproved_and_exact_name_only():
     manifest, inventory, _ = _inputs()
+    inventory["tables"][0]["table_name"] = "sample"
+    for column in inventory["columns"]:
+        column["table_name"] = "sample"
+    for primary_key in inventory["primary_keys"]:
+        primary_key["table_name"] = "sample"
+    inventory["inventory_sha256"] = _fingerprint({
+        key: value for key, value in inventory.items()
+        if key not in {"inventory_sha256", "outcome", "reason_codes"}
+    })
     skeleton = build_schema_v36_mapping_skeleton(manifest, inventory)
 
     assert skeleton["format"] == MAPPING_FORMAT
