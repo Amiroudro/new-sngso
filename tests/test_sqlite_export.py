@@ -9,6 +9,7 @@ from sngso_engine.sqlite_export import (
     CHECKSUM_FORMAT,
     MANIFEST_FORMAT,
     SQLiteExportError,
+    _table_primary_key,
     build_sqlite_export_manifest,
     encode_sqlite_value,
     write_manifest_new,
@@ -117,15 +118,32 @@ def test_manifest_writer_is_atomic_and_refuses_overwrite(tmp_path):
 
 
 def test_export_refuses_table_without_declared_primary_key(tmp_path):
-    database = tmp_path / "registry.sqlite"
-    with SQLiteRegistry(database):
-        pass
+    database = tmp_path / "unkeyed.sqlite"
     connection = sqlite3.connect(database)
     try:
         connection.execute("CREATE TABLE unsafe_unkeyed (value TEXT)")
-        connection.commit()
+        with pytest.raises(SQLiteExportError, match="no declared primary key"):
+            _table_primary_key(connection, "unsafe_unkeyed")
     finally:
         connection.close()
 
-    with pytest.raises(SQLiteExportError, match="object inventory mismatch"):
+
+def test_export_detects_audit_event_tampering(tmp_path):
+    database = tmp_path / "tampered.sqlite"
+    with SQLiteRegistry(database) as registry:
+        with registry._transaction() as connection:
+            registry._append_audit(
+                connection,
+                event_type="fixture.created",
+                entity_type="fixture",
+                entity_id="tampered",
+                payload={"value": "original"},
+            )
+        registry._connection.execute("DROP TRIGGER audit_events_no_update")
+        registry._connection.execute(
+            "UPDATE audit_events SET event_hash = ?",
+            ("sha256:" + "f" * 64,),
+        )
+
+    with pytest.raises(SQLiteExportError, match="audit chain verification failed"):
         build_sqlite_export_manifest(database)
