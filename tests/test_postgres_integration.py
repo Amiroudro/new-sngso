@@ -272,6 +272,48 @@ def test_postgres_permission_grant_head_requires_matching_revision_and_fixed_sco
         ).fetchone() == ("pending", 1, "2027-11-24T00:00:00Z")
 
 
+def test_postgres_permission_grant_revision_cannot_be_committed_ahead_of_head(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES ('source-orphan-revision', 'Publisher', 'active', "
+            "'2026-11-24T00:00:00Z', '2026-11-24T00:00:00Z', %s)",
+            (json.dumps({"id": "source-orphan-revision"}),),
+        )
+        base_payload = {
+            "id": "grant-orphan", "source_id": "source-orphan-revision",
+            "status": "pending", "effective_from": "2026-11-24T00:00:00Z",
+            "effective_until": "2027-11-24T00:00:00Z",
+        }
+        connection.execute(
+            "INSERT INTO permission_grants "
+            "(id, source_id, status, effective_from, effective_until, revision, payload_json) "
+            "VALUES ('grant-orphan', 'source-orphan-revision', 'pending', "
+            "'2026-11-24T00:00:00Z', '2027-11-24T00:00:00Z', 1, %s)",
+            (json.dumps(base_payload),),
+        )
+        future_payload = {
+            **base_payload, "status": "approved",
+            "reviewed_at": "2026-11-24T00:01:00Z", "reviewed_by": "reviewer",
+        }
+        with pytest.raises(psycopg.errors.CheckViolation, match="cannot be committed ahead"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO permission_grant_revisions "
+                    "(grant_id, revision, created_at, actor, reason, payload_json) "
+                    "VALUES ('grant-orphan', 2, '2026-11-24T00:01:00Z', "
+                    "'reviewer', 'approval snapshot', %s)",
+                    (json.dumps(future_payload),),
+                )
+        assert connection.execute(
+            "SELECT revision, status FROM permission_grants WHERE id = 'grant-orphan'"
+        ).fetchone() == (1, "pending")
+        assert connection.execute(
+            "SELECT count(*) FROM permission_grant_revisions WHERE grant_id = 'grant-orphan'"
+        ).fetchone()[0] == 0
+
+
 def test_postgres_collection_ingestion_provenance_and_current_pointer(postgres_schema):
     connect = postgres_schema
     with connect() as connection:
