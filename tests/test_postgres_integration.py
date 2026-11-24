@@ -10,7 +10,8 @@ import pytest
 psycopg = pytest.importorskip("psycopg")
 from psycopg import sql
 
-from sngso_engine.canonical import sha256_fingerprint
+from sngso_engine.canonical import canonical_json_bytes, sha256_fingerprint
+from sngso_engine.audit_chain_reconciliation import compare_sqlite_postgres_audit_chains
 from sngso_engine.postgres_audit import append_audit_event
 from sngso_engine.postgres_migration_runner import apply_postgres_migrations
 from sngso_engine.postgres_transaction import run_atomic
@@ -5112,3 +5113,111 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
     assert {
         item["source_table"] for item in comparison["comparisons"]
     } == {"schema_migrations", "sample_sources", "sample_json_docs"}
+
+
+def _audit_source_fixture(path, payload):
+    event = {
+        "event_id": "audit:fixture-1",
+        "event_type": "record.created",
+        "entity_type": "source",
+        "entity_id": "source-1",
+        "occurred_at": "2026-11-24T00:00:00Z",
+        "policy_version": "policy/1",
+        "payload": payload,
+        "previous_hash": None,
+    }
+    event_hash = sha256_fingerprint(event)
+    connection = sqlite3.connect(path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE audit_events (
+                sequence INTEGER PRIMARY KEY,
+                event_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                occurred_at TEXT NOT NULL,
+                policy_version TEXT,
+                payload_json TEXT NOT NULL,
+                previous_hash TEXT,
+                event_hash TEXT NOT NULL
+            );
+            PRAGMA user_version = 36;
+            """
+        )
+        connection.execute(
+            "INSERT INTO audit_events VALUES (1, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+            (
+                event["event_id"], event["event_type"], event["entity_type"],
+                event["entity_id"], event["occurred_at"], event["policy_version"],
+                json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                event_hash,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    manifest = {
+        "format": "sngso-registry-import-manifest-v1",
+        "source": {
+            "schema_version": 36,
+            "audit_checkpoint": {"sequence": 1, "event_hash": event_hash},
+        },
+        "tables": [],
+    }
+    manifest["manifest_sha256"] = hashlib.sha256(
+        canonical_json_bytes(manifest)
+    ).hexdigest()
+    return manifest, {"sequence": 1, "event_hash": event_hash}, event
+
+
+@pytest.mark.parametrize(
+    ("target_payload", "expected_outcome"),
+    [
+        ({"value": "same"}, "VALID"),
+        ({"value": "different"}, "BLOCKED"),
+    ],
+)
+def test_postgres_audit_chain_reconciliation_is_read_only_and_exact(
+    postgres_schema, tmp_path, target_payload, expected_outcome
+):
+    connect = postgres_schema
+    source_path = tmp_path / "source-audit.sqlite"
+    manifest, checkpoint, event = _audit_source_fixture(source_path, {"value": "same"})
+
+    with connect() as connection:
+        run_atomic(
+            connection,
+            lambda cursor: append_audit_event(
+                cursor,
+                event_id=event["event_id"],
+                event_type=event["event_type"],
+                entity_type=event["entity_type"],
+                entity_id=event["entity_id"],
+                occurred_at=event["occurred_at"],
+                policy_version=event["policy_version"],
+                payload=target_payload,
+            ),
+        )
+
+    with connect() as connection:
+        schema_name = connection.execute("SELECT current_schema()").fetchone()[0]
+        inventory = {"identity": {"schema_name": schema_name}}
+        report = compare_sqlite_postgres_audit_chains(
+            source_path,
+            connection,
+            manifest,
+            inventory,
+            expected_external_checkpoint=checkpoint,
+        )
+
+    assert report["outcome"] == expected_outcome
+    assert report["read_only"] is True
+    assert report["source_chain_valid"] is True
+    assert report["target_chain_valid"] is True
+    assert report["target_head_matches_events"] is True
+    assert report["events_match"] is (expected_outcome == "VALID")
+    assert "AUDIT_EVENT_MISMATCH" in report["issue_codes"] if expected_outcome == "BLOCKED" else not report["issue_codes"]
+    with sqlite3.connect(f"file:{source_path}?mode=ro", uri=True) as check:
+        assert check.execute("SELECT count(*) FROM audit_events").fetchone()[0] == 1
