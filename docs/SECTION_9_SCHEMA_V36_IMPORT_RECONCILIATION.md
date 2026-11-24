@@ -180,3 +180,10 @@ The next import milestone remains separate: isolated bulk load with phase ledger
 The repository now exposes `sngso-schema-v36-dry-run`, which composes the verified SQLite export manifest, a PostgreSQL target catalog inspection, and a reviewer-pinned mapping into a canonical local report. The DSN is accepted only from `SNGSO_POSTGRES_DSN`; it is never a command-line option or included in the report. PostgreSQL connection failures are reported without echoing connection details. The report writer refuses to overwrite an existing output path.
 
 This command is a structural preflight, not a row-level dry run: `row_data_inspected`, `target_audit_chain_compared`, and `cutover_ready` are explicitly false. A structurally valid result is still `INCOMPLETE`; a missing mapping is `BLOCKED`. It performs no import and authorizes no cutover. Full target row comparison, audit-chain import/reconciliation, isolated bulk loading, restore rehearsal, and operational acceptance remain unimplemented.
+
+
+## 15. Read-only row-level dry run (24 November 2026)
+
+A second command, `sngso-schema-v36-row-dry-run`, now composes the schema/mapping planner with existing SQLite converted-row fingerprints, PostgreSQL mapped-row fingerprints, and PostgreSQL-native JSONB semantic comparison. It emits only digests, counts, statuses, and reason codes; row payloads and credentials are not included.
+
+The command reports `BLOCKED` on structural or row/JSONB mismatches. Matching row evidence remains `INCOMPLETE`: the target audit chain is not compared, no rows are imported, and cutover readiness is always false. Each evidence collector uses its own read-only snapshot, so the operator must quiesce target writes during the run; the report marks this as separate snapshots and does not claim a single cross-check snapshot. No importer, audit-chain verifier, restore rehearsal, or production acceptance is implemented by this command.
