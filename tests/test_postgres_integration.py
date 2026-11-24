@@ -4749,3 +4749,103 @@ def test_postgres_target_inspection_rejects_active_transaction(postgres_schema):
         with pytest.raises(PostgresInspectionError, match="idle connection"):
             inspect_postgres_import_target(connection)
         connection.rollback()
+
+
+def test_postgres_mapped_row_inspection_is_read_only_and_reports_target_digest(postgres_schema):
+    import hashlib
+
+    from sngso_engine.canonical import canonical_json_bytes
+    from sngso_engine.postgres_row_inspection import inspect_postgres_mapped_rows
+    from sngso_engine.postgres_target_inspection import inspect_postgres_import_target
+    from sngso_engine.postgres_reconciliation import MAPPING_FORMAT
+
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
+            "VALUES ('source-row-scan', 'Publisher', 'active', "
+            "'2026-11-24T00:00:00Z', '2026-11-24T00:00:00Z', %s)",
+            (json.dumps({"id": "source-row-scan"}),),
+        )
+
+    column_names = [
+        "id", "publisher_name", "status", "created_at", "updated_at", "payload_json"
+    ]
+    storage_counts = {
+        name: {"null": 0, "integer": 0, "real": 0, "text": 1, "blob": 0}
+        for name in column_names
+    }
+    source_table = {
+        "table": "sample_sources",
+        "columns": [
+            {
+                "name": name, "declared_type": "TEXT", "not_null": True,
+                "default": None, "primary_key_ordinal": 1 if name == "id" else 0,
+            }
+            for name in column_names
+        ],
+        "primary_key": ["id"],
+        "row_count": 1,
+        "row_sha256": "a" * 64,
+        "schema_sha256": "b" * 64,
+        "storage_class_counts": storage_counts,
+    }
+    manifest = {
+        "format": "sngso-registry-import-manifest-v1",
+        "checksum_format": "sngso-sqlite-row-stream-v1",
+        "source": {
+            "schema_version": 36, "schema_sha256": "c" * 64,
+            "object_counts": {"table": 1, "index": 0, "trigger": 0, "view": 0},
+        },
+        "tables": [source_table],
+    }
+    manifest["manifest_sha256"] = hashlib.sha256(
+        canonical_json_bytes(manifest)
+    ).hexdigest()
+
+    with connect() as connection:
+        inventory = inspect_postgres_import_target(connection)
+
+    mapping = {
+        "format": MAPPING_FORMAT,
+        "source_manifest_sha256": manifest["manifest_sha256"],
+        "source_schema_sha256": manifest["source"]["schema_sha256"],
+        "target_inventory_sha256": inventory["inventory_sha256"],
+        "review": {
+            "status": "approved", "reviewer": "integration-reviewer",
+            "reviewed_at": "2026-11-24T00:00:00Z",
+            "reference": "test-only-mapping-review",
+        },
+        "tables": [{
+            "source_table": "sample_sources",
+            "target_table": "sources",
+            "columns": [
+                {
+                    "source_column": name, "target_column": name,
+                    "conversion": "text_identity",
+                }
+                for name in column_names
+            ],
+        }],
+    }
+    mapping["mapping_sha256"] = hashlib.sha256(
+        canonical_json_bytes(mapping)
+    ).hexdigest()
+
+    with connect() as connection:
+        before = connection.execute("SELECT count(*) FROM sources").fetchone()[0]
+        report = inspect_postgres_mapped_rows(
+            connection, manifest, inventory, mapping, batch_size=1
+        )
+        after = connection.execute("SELECT count(*) FROM sources").fetchone()[0]
+
+    assert report["outcome"] == "INCOMPLETE"
+    assert report["all_row_counts_match"] is True
+    assert report["table_reports"][0]["row_count"] == 1
+    assert len(report["table_reports"][0]["target_row_sha256"]) == 64
+    assert before == after == 1
+    assert report["remaining_gates"] == [
+        "SOURCE_SIDE_CONVERTED_ROW_CHECKSUM_COMPARISON",
+        "JSONB_SEMANTIC_NORMALIZATION_PROOF",
+        "AUDIT_CHAIN_IMPORT_AND_VERIFICATION",
+    ]
