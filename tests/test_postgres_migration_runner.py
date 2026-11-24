@@ -179,12 +179,13 @@ def test_postgres_migration_runner_applies_and_records_audit_schema_once():
     assert connection.db_cursor.rows[20][0:2] == (21, "0021_domain_record_revision_guards.sql")
     assert connection.db_cursor.rows[21][0:2] == (22, "0022_learning_evidence_locking.sql")
     assert connection.db_cursor.rows[22][0:2] == (23, "0023_primary_key_identity_guards.sql")
+    assert connection.db_cursor.rows[23][0:2] == (24, "0024_permission_grant_revision_head_consistency.sql")
     assert all(row[2].startswith("sha256:") for row in connection.db_cursor.rows)
 
     applied_again = apply_postgres_migrations(connection)
     assert applied_again == ()
     assert connection.commits == 2
-    assert len(connection.db_cursor.rows) == 23
+    assert len(connection.db_cursor.rows) == 24
 
 
 def test_postgres_migration_runner_rejects_modified_applied_migration():
