@@ -167,3 +167,21 @@ snapshot from being committed alone or with a mismatched current-head payload.
 Direct-SQL coverage exercises the orphan accepted-transition case. This is a
 targeted correction, not evidence that all revision-backed table families have
 complete PostgreSQL parity.
+
+
+### Pipeline-run identity trigger parity correction (2026-11-24)
+
+Migration 0026 replaces the PostgreSQL `validate_pipeline_run_write` function
+to match the exact immutable identity fields in SQLite migration 26. The SQLite
+trigger protects run ID, start time, software version, config hash, input
+hashes, and initiator. It does not freeze `attempt` or `retry_of`; the
+original PostgreSQL translation did, which was stricter than the source
+contract. The correction preserves the revision increment and status-transition
+guards while removing those two extra restrictions.
+
+Direct-SQL tests now cover indexed-column/payload mismatch on INSERT and UPDATE,
+a revision snapshot with a payload different from the current run head, and
+mutable attempt/retry metadata during a valid queued-to-running transition.
+Migration runner coverage advances the ledger to version 26. Exact-head CI is
+pending for these new tests. This correction closes a narrow semantic mismatch,
+not the full pipeline family or Section 9.
