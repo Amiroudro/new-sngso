@@ -148,6 +148,21 @@ def inspect_sqlite_converted_rows(
         source_tables = {item["table"]: item for item in source_table_list}
         if len(source_tables) != len(source_table_list):
             raise SQLiteConvertedRowInspectionError("source manifest contains duplicate tables")
+        actual_table_names = [
+            row[0] for row in connection.execute(
+                """SELECT name FROM sqlite_master
+                   WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                   ORDER BY name"""
+            )
+        ]
+        if actual_table_names != sorted(source_tables):
+            raise SQLiteConvertedRowInspectionError(
+                "SQLite table inventory differs from source manifest"
+            )
+        if object_counts != source_manifest["source"].get("object_counts"):
+            raise SQLiteConvertedRowInspectionError(
+                "SQLite schema object counts differ from source manifest"
+            )
         mapped_source_names = [
             item.get("source_table") for item in mapping_spec["tables"]
             if isinstance(item, dict)
