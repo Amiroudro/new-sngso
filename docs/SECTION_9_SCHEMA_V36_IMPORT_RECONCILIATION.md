@@ -187,3 +187,8 @@ This command is a structural preflight, not a row-level dry run: `row_data_inspe
 A second command, `sngso-schema-v36-row-dry-run`, now composes the schema/mapping planner with existing SQLite converted-row fingerprints, PostgreSQL mapped-row fingerprints, and PostgreSQL-native JSONB semantic comparison. It emits only digests, counts, statuses, and reason codes; row payloads and credentials are not included.
 
 The command also recomputes the SQLite and PostgreSQL audit chains, compares every event, and verifies the PostgreSQL singleton head against the target event tip. It reports `BLOCKED` on structural, row, JSONB, or audit-chain mismatches. Even when all evidence matches, the result remains `INCOMPLETE` unless an independently stored source checkpoint is supplied; it never imports rows or claims cutover readiness. Each evidence collector uses its own read-only snapshot, so target writes must be quiesced during collection. The report does not claim a single cross-check snapshot. Isolated bulk import, restore rehearsal, and production acceptance remain unimplemented.
+
+
+## 16. Independent checkpoint export
+
+The `sngso-sqlite-audit-checkpoint` command rebuilds and verifies the schema-v36 export manifest, then writes a fingerprinted audit-tip record to a new path without overwriting an existing file. Pass that exported record to `sngso-schema-v36-row-dry-run --external-audit-checkpoint` after storing it in an independently controlled location. The program cannot verify the storage location; a checkpoint kept beside the source database is not independent evidence. No database is changed.
