@@ -17,6 +17,7 @@ import sys
 from typing import Any
 
 from .canonical import canonical_json_bytes
+from .audit_checkpoint import CHECKPOINT_FORMAT, load_audit_checkpoint_record
 from .audit_chain_reconciliation import compare_sqlite_postgres_audit_chains
 from .postgres_jsonb_semantic import prove_sqlite_jsonb_semantic_equivalence
 from .postgres_reconciliation import plan_schema_v36_reconciliation
@@ -159,6 +160,15 @@ def _load_mapping(path: Path) -> dict[str, Any]:
     return value
 
 
+def _load_external_checkpoint(path: Path) -> dict[str, Any]:
+    value = _load_mapping(path)
+    if value.get("format") == CHECKPOINT_FORMAT:
+        return load_audit_checkpoint_record(value)
+    if set(value) != {"sequence", "event_hash"}:
+        raise ValueError("external checkpoint file has an unsupported format")
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -186,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         source_manifest = build_sqlite_export_manifest(args.source)
         mapping = _load_mapping(args.mapping)
         external_checkpoint = (
-            _load_mapping(args.external_audit_checkpoint)
+            _load_external_checkpoint(args.external_audit_checkpoint)
             if args.external_audit_checkpoint else None
         )
         source_rows = inspect_sqlite_converted_rows(
