@@ -284,6 +284,69 @@ def test_postgres_domain_record_revision_head_and_snapshot_are_atomic(postgres_s
         ]
 
 
+def test_postgres_domain_record_article_and_evidence_provenance_identity_is_immutable(postgres_schema):
+    connect = postgres_schema
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO domain_records "
+            "(record_type, id, revision, created_at, updated_at, payload_json) "
+            "VALUES ('article', 'article-identity-guard', 1, '2026-11-24T00:00:00Z', "
+            "'2026-11-24T00:00:00Z', %s), "
+            "('evidence', 'evidence-identity-guard', 1, '2026-11-24T00:00:00Z', "
+            "'2026-11-24T00:00:00Z', %s)",
+            (
+                json.dumps({
+                    "id": "article-identity-guard", "source_id": "source-original",
+                    "canonical_uri": "https://news.example/original",
+                }),
+                json.dumps({
+                    "id": "evidence-identity-guard", "source_id": "source-original",
+                    "claim_id": "claim-original", "article_id": "article-original",
+                    "observation_id": "observation-original", "locator": "page:4",
+                }),
+            ),
+        )
+        changed_article = {
+            "id": "article-identity-guard", "revision": 2,
+            "source_id": "source-reassigned",
+            "canonical_uri": "https://news.example/original",
+        }
+        with pytest.raises(psycopg.errors.CheckViolation, match="article source and canonical identity"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE domain_records SET revision = 2, payload_json = %s, "
+                    "last_actor = 'editor', last_reason = 'reassign source', "
+                    "last_revision_at = '2026-11-24T00:01:00Z' "
+                    "WHERE record_type = 'article' AND id = 'article-identity-guard'",
+                    (json.dumps(changed_article),),
+                )
+
+        changed_evidence = {
+            "id": "evidence-identity-guard", "revision": 2,
+            "source_id": "source-original", "claim_id": "claim-original",
+            "article_id": "article-original", "observation_id": "observation-original",
+            "locator": "page:9",
+        }
+        with pytest.raises(psycopg.errors.CheckViolation, match="evidence provenance identity"):
+            with connection.transaction():
+                connection.execute(
+                    "UPDATE domain_records SET revision = 2, payload_json = %s, "
+                    "last_actor = 'editor', last_reason = 'change locator', "
+                    "last_revision_at = '2026-11-24T00:01:00Z' "
+                    "WHERE record_type = 'evidence' AND id = 'evidence-identity-guard'",
+                    (json.dumps(changed_evidence),),
+                )
+
+        assert connection.execute(
+            "SELECT id, revision FROM domain_records "
+            "WHERE record_type = 'article' AND id = 'article-identity-guard'"
+        ).fetchone() == ("article-identity-guard", 1)
+        assert connection.execute(
+            "SELECT id, revision FROM domain_records "
+            "WHERE record_type = 'evidence' AND id = 'evidence-identity-guard'"
+        ).fetchone() == ("evidence-identity-guard", 1)
+
+
 def test_postgres_permission_grant_head_requires_matching_revision_and_fixed_scope(postgres_schema):
     connect = postgres_schema
     with connect() as connection:
