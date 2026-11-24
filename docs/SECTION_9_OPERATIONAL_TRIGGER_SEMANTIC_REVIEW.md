@@ -57,14 +57,14 @@ The combined reviewed scope is 23 triggers: 7 pipeline-run, 9 checkpoint, and 7 
 ## 5. Outstanding tests before accepting this trigger family
 
 - Direct-SQL payload/index mismatch tests for pipeline-run INSERT and UPDATE.
-- Direct-SQL pipeline-run and run-revision UPDATE/DELETE denial tests, plus forged run-revision insertion rejection.
-- Exact-head CI for the new checkpoint-head DELETE test and worker-lease revision UPDATE test in commit `aa65d756`.
+- Direct-SQL run-revision UPDATE denial; run-revision DELETE denial and forged future-revision rejection now pass in run #1972.
+- Checkpoint-head DELETE and worker-lease revision UPDATE denial now pass in run #1970.
 - Direct-SQL checkpoint and lease mutation tests must also run under the eventual restricted production application role.
 - Concurrency tests proving no duplicate revision number, no stale fencing acceptance, and no head/history divergence after process or database failure.
 - Failure-injection tests for transaction rollback across head, snapshot, and audit writes.
 
-The latest verified PostgreSQL integration runs before commit `aa65d756` passed all **84 tests**: run #1967 (checkpoint/lease snapshot hardening), #1968 (completed checkpoint replay rejection), and #1969 (cancellation preservation across lease takeover). These runs are evidence for their exact tested commits, not for the newer unverified head.
+The latest exact-head CI, [run #1972](https://github.com/Amiroudro/new-sngso/actions/runs/45413983961), passed both jobs on commit `1245cd8652bf79ebc1fbfd001aff1cfa45d079e5`: **84 PostgreSQL integration tests passed**. It includes forged pipeline-run revision rejection and revision-delete denial. [Run #1970](https://github.com/Amiroudro/new-sngso/actions/runs/45413841397) also passed both jobs and 84 PostgreSQL tests for checkpoint-head DELETE and worker-lease revision UPDATE denial. Runs #1967–#1969 verified the earlier checkpoint and lease cases.
 
 ## 6. Review boundary
 
-The 24-trigger source-level review is complete as an engineering analysis of the current SQLite SQL. This is not a claim that every invariant has a dedicated negative test, and it is not a PostgreSQL implementation. The other 107 triggers still require equivalent review. P0 is therefore not complete.
+The 23-trigger source-level review is complete as an engineering analysis of the current SQLite SQL, and PostgreSQL implementations exist in migrations 0012–0014. This is not a claim that every invariant has a dedicated negative test or that the production restricted role and concurrency/failure properties are accepted. The other 116 triggers still require equivalent review. P0 is therefore not complete.
