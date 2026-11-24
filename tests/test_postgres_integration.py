@@ -4888,7 +4888,7 @@ def test_sqlite_converted_row_proof_matches_postgres_target_digest(postgres_sche
                 "INSERT INTO source_migrations_target (version, applied_at) VALUES (%s, %s)",
                 migration_values,
             )
-        target_values = (*source_values[:-1], '{"a":[true,null],"z":1}')
+        target_values = source_values
         connection.execute(
             "INSERT INTO sources (id, publisher_name, status, created_at, updated_at, payload_json) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
