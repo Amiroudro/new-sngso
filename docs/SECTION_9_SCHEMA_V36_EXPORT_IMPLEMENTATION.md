@@ -18,7 +18,7 @@ Each SQLite value is encoded with a one-byte storage-class tag and an eight-byte
 
 Rows are streamed in declared primary-key order. The table hash begins with a versioned header containing the table name, ordered column metadata, and primary-key definition. Each row has an explicit boundary marker and every value is length-framed. The digest is independent of fetch batch size and does not materialize a full table in memory.
 
-The manifest includes schema/object inventory, migration versions, table counts, table schema hashes, row counts, row hashes, and the verified audit-chain tip. It is canonicalized and fingerprinted. Manifest output uses a same-directory temporary file and atomic hard-link installation, with overwrite refusal and restrictive file permissions.
+The manifest includes schema/object inventory, migration versions, table counts, table schema hashes, row counts, row hashes, per-column SQLite storage-class histograms (NULL, INTEGER, REAL, TEXT, BLOB), and the verified audit-chain tip. It is canonicalized and fingerprinted. Manifest output uses a same-directory temporary file and atomic hard-link installation, with overwrite refusal and restrictive file permissions.
 
 ## Safety and limitations
 
