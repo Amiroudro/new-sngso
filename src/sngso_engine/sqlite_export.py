@@ -98,6 +98,22 @@ def _table_metadata(connection: sqlite3.Connection, table: str) -> dict[str, Any
     }
 
 
+def _sqlite_storage_class(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return "integer"
+    if isinstance(value, float):
+        return "real"
+    if isinstance(value, str):
+        return "text"
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "blob"
+    raise SQLiteExportError(
+        f"unsupported SQLite storage class in source row: {type(value).__name__}"
+    )
+
+
 def _stream_table(
     connection: sqlite3.Connection, metadata: dict[str, Any], *, batch_size: int
 ) -> dict[str, Any]:
@@ -119,16 +135,25 @@ def _stream_table(
     digest.update(b"\x00")
     cursor = connection.execute(query)
     count = 0
+    storage_class_counts = {
+        column: {kind: 0 for kind in ("null", "integer", "real", "text", "blob")}
+        for column in columns
+    }
     while True:
         rows = cursor.fetchmany(batch_size)
         if not rows:
             break
         for row in rows:
             digest.update(b"ROW\x00")
-            for value in row:
+            for index, value in enumerate(row):
                 digest.update(encode_sqlite_value(value))
+                storage_class_counts[columns[index]][_sqlite_storage_class(value)] += 1
             count += 1
-    return {"row_count": count, "row_sha256": digest.hexdigest()}
+    return {
+        "row_count": count,
+        "row_sha256": digest.hexdigest(),
+        "storage_class_counts": storage_class_counts,
+    }
 
 
 def build_sqlite_export_manifest(
