@@ -36,7 +36,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -68,7 +68,7 @@ def test_postgres_migrations_execute_and_are_idempotent(postgres_schema):
         rows = connection.execute(
             "SELECT version, name FROM postgres_schema_migrations ORDER BY version"
         ).fetchall()
-        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql"), (19, "0019_edition_staging_state.sql"), (20, "0020_final_revision_and_assignment_guards.sql"), (21, "0021_domain_record_revision_guards.sql"), (22, "0022_learning_evidence_locking.sql"), (23, "0023_primary_key_identity_guards.sql")]
+        assert rows == [(1, "0001_audit_chain.sql"), (2, "0002_audit_head_guards.sql"), (3, "0003_source_permission_domain_registry.sql"), (4, "0004_collection_ingestion.sql"), (5, "0005_story_timeline.sql"), (6, "0006_perspectives_claim_relations.sql"), (7, "0007_learning_glossary_revisions.sql"), (8, "0008_benchmark_review_core.sql"), (9, "0009_benchmark_assignments_identity_scores.sql"), (10, "0010_benchmark_study_evidence.sql"), (11, "0011_learning_specialized_evidence.sql"), (12, "0012_pipeline_runs.sql"), (13, "0013_pipeline_stage_checkpoints.sql"), (14, "0014_pipeline_worker_leases.sql"), (15, "0015_edition_artifacts.sql"), (16, "0016_edition_decisions.sql"), (17, "0017_edition_snapshot_guards.sql"), (18, "0018_edition_release_authorizations.sql"), (19, "0019_edition_staging_state.sql"), (20, "0020_final_revision_and_assignment_guards.sql"), (21, "0021_domain_record_revision_guards.sql"), (22, "0022_learning_evidence_locking.sql"), (23, "0023_primary_key_identity_guards.sql"), (24, "0024_permission_grant_revision_head_consistency.sql")]
 
 
 
