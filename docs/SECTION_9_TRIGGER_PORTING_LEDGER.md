@@ -1,6 +1,6 @@
 # Section 9 Trigger Porting Ledger
 
-Status: **the schema-v35 ledger below is retained as historical evidence; schema v36 is current with 139 source-level reviewed SQLite triggers. PostgreSQL migrations 0001–0023 now implement substantial coverage across the registry, operational pipeline, benchmark, and staging families. A complete one-to-one trigger mapping, adversarial direct-SQL conformance under a restricted runtime role, and full 139-trigger parity acceptance remain open.**
+Status: **the schema-v35 ledger below is retained as historical evidence; schema v36 is current with 139 source-level reviewed SQLite triggers. PostgreSQL migrations 0001–0024 implement substantial coverage across the registry, operational pipeline, benchmark, and staging families. Migration 0024 adds PostgreSQL DELETE guards for 27 append-only tables whose SQLite DELETE guards lacked PostgreSQL trigger equivalents. A complete one-to-one semantic mapping, adversarial direct-SQL conformance under a restricted runtime role, and full 139-trigger parity acceptance remain open.**
 
 Historical evidence source: CI-generated schema-v35 inspection artifact from [GitHub Actions run #45057281125](https://github.com/Amiroudro/new-sngso/actions/runs/45057281125). The artifact contains the exact SQL definition for every trigger from SQLite `sqlite_master`; it is retained until 6 December 2026.
 
