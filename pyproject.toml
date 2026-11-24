@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 sngso-sqlite-export-manifest = "sngso_engine.sqlite_export:main"
 sngso-schema-v36-dry-run = "sngso_engine.postgres_reconciliation_cli:main"
+sngso-schema-v36-row-dry-run = "sngso_engine.postgres_row_dry_run:main"
 
 [project.optional-dependencies]
 postgres = [
