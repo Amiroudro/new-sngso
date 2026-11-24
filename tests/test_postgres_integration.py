@@ -1797,6 +1797,15 @@ def test_postgres_pipeline_run_revisions_preserve_identity_and_legal_transitions
             "SELECT revision FROM pipeline_run_revisions "
             "WHERE pipeline_run_id = 'pipeline-run-1' ORDER BY revision"
         ).fetchall() == [(1,), (2,)]
+        with pytest.raises(psycopg.errors.CheckViolation, match="pipeline run revision must match current record"):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO pipeline_run_revisions "
+                    "(pipeline_run_id, revision, created_at, actor, reason, payload_json) "
+                    "VALUES ('pipeline-run-1', 99, '2026-11-23T00:02:00Z', "
+                    "'attacker', 'orphan future revision', %s)",
+                    (json.dumps(running),),
+                )
 
         changed_inputs = {
             **running,
@@ -1823,6 +1832,12 @@ def test_postgres_pipeline_run_revisions_preserve_identity_and_legal_transitions
         with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
             connection.execute(
                 "UPDATE pipeline_run_revisions SET reason = 'rewritten' "
+                "WHERE pipeline_run_id = 'pipeline-run-1' AND revision = 1"
+            )
+        connection.rollback()
+        with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+            connection.execute(
+                "DELETE FROM pipeline_run_revisions "
                 "WHERE pipeline_run_id = 'pipeline-run-1' AND revision = 1"
             )
         connection.rollback()
