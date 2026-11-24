@@ -5484,3 +5484,71 @@ def test_postgres_staging_event_rejects_authority_identity_substitution(
         assert connection.execute(
             "SELECT count(*) FROM edition_staging_events"
         ).fetchone()[0] == 0
+
+
+def test_postgres_primary_key_guards_cover_every_primary_key_table(postgres_schema):
+    """Migration 0023 must install an enabled identity guard on every PK table."""
+    connect = postgres_schema
+    with connect() as connection:
+        rows = connection.execute(
+            """
+            WITH primary_key_tables AS (
+                SELECT c.oid AS table_oid,
+                       c.relname AS table_name,
+                       array_agg(a.attname ORDER BY key_column.ordinality) AS key_columns
+                  FROM pg_constraint constraint_row
+                  JOIN pg_class c ON c.oid = constraint_row.conrelid
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                  JOIN LATERAL unnest(constraint_row.conkey)
+                       WITH ORDINALITY AS key_column(attnum, ordinality) ON true
+                  JOIN pg_attribute a
+                    ON a.attrelid = c.oid AND a.attnum = key_column.attnum
+                 WHERE n.nspname = current_schema()
+                   AND constraint_row.contype = 'p'
+                 GROUP BY c.oid, c.relname
+            )
+            SELECT primary_key_tables.table_name,
+                   primary_key_tables.key_columns,
+                   trigger_row.tgenabled,
+                   trigger_function.proname,
+                   pg_get_triggerdef(trigger_row.oid, true) AS trigger_definition
+              FROM primary_key_tables
+              LEFT JOIN pg_trigger trigger_row
+                ON trigger_row.tgrelid = primary_key_tables.table_oid
+               AND trigger_row.tgname = 'sngso_primary_key_immutable'
+               AND NOT trigger_row.tgisinternal
+              LEFT JOIN pg_proc trigger_function
+                ON trigger_function.oid = trigger_row.tgfoid
+             ORDER BY primary_key_tables.table_name
+            """
+        ).fetchall()
+
+    assert rows, "the migrated schema must contain primary-key tables"
+    missing = [table for table, _, enabled, function, _ in rows if enabled is None]
+    assert not missing, f"primary-key identity guards are missing on: {missing}"
+
+    disabled = [
+        table for table, _, enabled, _, _ in rows if enabled != "O"
+    ]
+    assert not disabled, f"primary-key identity guards are not enabled: {disabled}"
+
+    wrong_functions = [
+        table for table, _, _, function, _ in rows
+        if function != "reject_primary_key_mutation"
+    ]
+    assert not wrong_functions, (
+        "primary-key guards must use reject_primary_key_mutation: "
+        f"{wrong_functions}"
+    )
+
+    malformed = [
+        (table, keys, definition)
+        for table, keys, _, _, definition in rows
+        if definition is None
+        or "BEFORE UPDATE OF" not in definition
+        or any(key not in definition for key in keys)
+    ]
+    assert not malformed, (
+        "primary-key guard definitions must cover every ordered key column: "
+        f"{malformed}"
+    )
