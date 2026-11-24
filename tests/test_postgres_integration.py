@@ -36,7 +36,7 @@ def postgres_schema():
 
     try:
         with connect() as connection:
-            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23)
+            assert apply_postgres_migrations(connection) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
         yield connect
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
@@ -608,6 +608,13 @@ def test_postgres_benchmark_artifact_review_and_adjudication_integrity(postgres_
             "'{}', '2026-11-23T00:00:00Z', 'builder', 'frozen benchmark')",
             ("sha256:" + "e" * 64,),
         )
+        with pytest.raises(psycopg.Error) as deletion_error:
+            with connection.transaction():
+                connection.execute(
+                    "DELETE FROM benchmark_artifacts "
+                    "WHERE artifact_id = 'benchmark-artifact-1'"
+                )
+        assert deletion_error.value.sqlstate == "55000"
         connection.execute(
             "INSERT INTO benchmark_principals "
             "(principal_id, display_name, roles_json, active, created_at, "
@@ -5335,3 +5342,18 @@ def test_import_target_preflight_blocks_noninitial_staging_state(postgres_schema
         "code": "TARGET_STAGING_STATE_NOT_INITIAL",
         "row_count": 1,
     } in report["issue_codes"]
+
+def test_postgres_append_only_delete_guards_are_installed(postgres_schema):
+    expected = ["benchmark_artifacts_no_delete","benchmark_adjudications_no_delete","benchmark_review_assignment_revisions_no_delete","benchmark_review_identity_attestations_no_delete","benchmark_scores_no_delete","benchmark_study_protocols_no_delete","benchmark_study_executions_no_delete","benchmark_acceptance_reviews_no_delete","pipeline_run_revision_no_delete","edition_artifacts_no_delete","edition_decisions_no_delete","edition_release_authorizations_no_delete","edition_staging_events_no_delete","grant_revisions_no_delete","domain_revisions_no_delete","collection_observations_no_delete","ingestion_decisions_no_delete","story_decisions_no_delete","story_decision_applications_no_delete","timeline_events_no_delete","perspectives_no_delete","claim_relations_no_delete","learning_object_revisions_no_delete","glossary_entry_revisions_no_delete","benchmark_review_revisions_no_delete","pipeline_stage_checkpoint_revisions_no_delete","pipeline_worker_lease_revisions_no_delete"]
+    with postgres_schema() as connection:
+        rows = connection.execute(
+            """SELECT t.tgname
+               FROM pg_trigger t
+               JOIN pg_class c ON c.oid = t.tgrelid
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = current_schema()
+                 AND NOT t.tgisinternal
+                 AND t.tgname = ANY(%s)""",
+            (expected,),
+        ).fetchall()
+    assert {row[0] for row in rows} == set(expected)
