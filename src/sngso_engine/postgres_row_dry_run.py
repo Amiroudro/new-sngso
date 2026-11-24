@@ -17,6 +17,7 @@ import sys
 from typing import Any
 
 from .canonical import canonical_json_bytes
+from .audit_chain_reconciliation import compare_sqlite_postgres_audit_chains
 from .postgres_jsonb_semantic import prove_sqlite_jsonb_semantic_equivalence
 from .postgres_reconciliation import plan_schema_v36_reconciliation
 from .postgres_row_inspection import inspect_postgres_mapped_rows
@@ -41,6 +42,7 @@ def build_row_dry_run_report(
     jsonb_proof: dict[str, Any] | None,
     *,
     generated_at: str,
+    audit_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a redacted result that cannot claim import or cutover readiness."""
     structural = bool(plan.get("structure_valid"))
@@ -66,7 +68,14 @@ def build_row_dry_run_report(
         issues.extend(row_comparison.get("issues", []))
     if jsonb_proof and jsonb_proof.get("outcome") != "VALID":
         issues.append({"code": "JSONB_SEMANTIC_MISMATCH"})
+    if audit_report and audit_report.get("outcome") == "BLOCKED":
+        issues.extend(
+            {"code": code} for code in audit_report.get("issue_codes", [])
+        )
+    audit_blocked = audit_report is not None and audit_report.get("outcome") == "BLOCKED"
     if structural and row_evidence_present and (not row_match or not jsonb_valid):
+        outcome = "BLOCKED"
+    elif audit_blocked:
         outcome = "BLOCKED"
     elif structural:
         outcome = "INCOMPLETE"
@@ -88,7 +97,22 @@ def build_row_dry_run_report(
             jsonb_proof.get("outcome") if jsonb_proof else
             ("NOT_APPLICABLE" if not jsonb_applicable else "NOT_RUN")
         ),
-        "target_audit_chain_compared": False,
+        "target_audit_chain_compared": audit_report is not None,
+        "audit_chain_outcome": audit_report.get("outcome") if audit_report else "NOT_RUN",
+        "audit_chain": (
+            {
+                "source_chain_valid": audit_report.get("source_chain_valid"),
+                "target_chain_valid": audit_report.get("target_chain_valid"),
+                "events_match": audit_report.get("events_match"),
+                "target_head_matches_events": audit_report.get("target_head_matches_events"),
+                "independent_source_checkpoint_supplied": audit_report.get(
+                    "independent_source_checkpoint_supplied"
+                ),
+                "report_sha256": audit_report.get("report_sha256"),
+                "issue_codes": audit_report.get("issue_codes", []),
+            }
+            if audit_report else None
+        ),
         "cutover_ready": False,
         "target_evidence_snapshots": "SEPARATE_READ_ONLY_SNAPSHOTS",
         "source": {
@@ -146,6 +170,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mapping", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument(
+        "--external-audit-checkpoint",
+        type=Path,
+        help="optional independently stored JSON checkpoint with sequence and event_hash",
+    )
     args = parser.parse_args(argv)
 
     dsn = os.environ.get("SNGSO_POSTGRES_DSN")
@@ -156,6 +185,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         source_manifest = build_sqlite_export_manifest(args.source)
         mapping = _load_mapping(args.mapping)
+        external_checkpoint = (
+            _load_mapping(args.external_audit_checkpoint)
+            if args.external_audit_checkpoint else None
+        )
         source_rows = inspect_sqlite_converted_rows(
             args.source, source_manifest, mapping, batch_size=args.batch_size
         )
@@ -169,6 +202,10 @@ def main(argv: list[str] | None = None) -> int:
             connection = psycopg.connect(dsn)
             try:
                 target_inventory = inspect_postgres_import_target(connection)
+                audit_report = compare_sqlite_postgres_audit_chains(
+                    args.source, connection, source_manifest, target_inventory,
+                    expected_external_checkpoint=external_checkpoint,
+                )
                 plan = plan_schema_v36_reconciliation(
                     source_manifest, target_inventory, mapping
                 )
@@ -206,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             source_manifest, target_inventory, plan,
             source_rows, target_rows, row_comparison, jsonb_proof,
             generated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            audit_report=audit_report,
         )
         destination = write_manifest_new(args.output, report)
     except (OSError, ValueError, RuntimeError) as exc:
