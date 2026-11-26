@@ -133,3 +133,35 @@ def test_external_audit_checkpoint_refuses_empty_chain_and_invalid_file(tmp_path
         with pytest.raises(OperationalReportError, match="shape is invalid"):
             verify_external_audit_checkpoint(registry, checkpoint_path)
 
+
+
+def test_restore_cli_checks_all_rows_before_install(tmp_path, capsys):
+    import json
+    from sngso_engine.restore_backup_cli import main
+    from sngso_engine.sqlite_export import build_sqlite_export_manifest
+
+    source, backup, manifest, recovered = [tmp_path / n for n in ("original", "copy", "pin.json", "restored")]
+    with SQLiteRegistry(source) as registry:
+        _add_run(registry)
+        backup_registry_database(registry, backup)
+    pin = build_sqlite_export_manifest(source)
+    manifest.write_text(json.dumps(pin))
+    args = ["--backup", str(backup), "--manifest", str(manifest), "--destination", str(recovered)]
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)["verified_manifest_sha256"] == pin["manifest_sha256"]
+    existing = recovered.read_bytes()
+    assert main(args) == 2
+    assert recovered.read_bytes() == existing
+    recovered.unlink()
+    # A changed migration timestamp leaves the audit chain and foreign keys intact.
+    with sqlite3.connect(backup) as conn:
+        conn.execute("UPDATE schema_migrations SET applied_at = '2000-01-01' WHERE version = 1")
+    assert main(args) == 2
+    assert "does not match reference manifest" in capsys.readouterr().err
+    assert not recovered.exists()
+    assert not list(tmp_path.glob(".restored.*"))
+    pin["source"]["filename"] = "edited"
+    manifest.write_text(json.dumps(pin))
+    assert main(args) == 2
+    assert "reference manifest fingerprint mismatch" in capsys.readouterr().err
+    assert not recovered.exists()

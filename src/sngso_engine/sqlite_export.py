@@ -298,6 +298,27 @@ def build_sqlite_export_manifest(
         connection.close()
 
 
+def verify_sqlite_manifest_copy(database: str | Path, reference: dict[str, Any]) -> None:
+    """Require identical schema, audit tip and every row from an independently retained manifest."""
+    if not isinstance(reference, dict) or reference.get("format") != MANIFEST_FORMAT:
+        raise SQLiteExportError("supported SQLite reference manifest required")
+    body = dict(reference)
+    digest = body.pop("manifest_sha256", None)
+    if hashlib.sha256(canonical_json_bytes(body)).hexdigest() != digest:
+        raise SQLiteExportError("reference manifest fingerprint mismatch")
+    source = reference.get("source")
+    if not isinstance(source, dict) or not isinstance(source.get("filename"), str):
+        raise SQLiteExportError("reference manifest source filename missing")
+
+    actual = build_sqlite_export_manifest(database)
+    # A restored copy has a new path. Filename is the only location-specific
+    # field in v1 and must not hide differences in any protected field.
+    actual.pop("manifest_sha256")
+    actual["source"]["filename"] = source["filename"]
+    if hashlib.sha256(canonical_json_bytes(actual)).hexdigest() != digest:
+        raise SQLiteExportError("restored database does not match reference manifest")
+
+
 def write_manifest_new(path: str | Path, manifest: dict[str, Any]) -> Path:
     """Atomically write a canonical manifest, refusing overwrite."""
     destination = Path(path).expanduser().resolve()

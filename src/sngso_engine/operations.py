@@ -13,6 +13,7 @@ from typing import Any
 import os
 import re
 import sqlite3
+import tempfile
 import uuid
 
 from .canonical import sha256_fingerprint
@@ -121,17 +122,20 @@ def verify_registry_backup(
     connection = None
     try:
         connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+        connection.execute("BEGIN")
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
         if integrity != "ok":
             raise OperationalReportError("SQLite backup integrity check failed")
         if expected_schema_version is not None and schema_version != expected_schema_version:
             raise OperationalReportError("backup schema version does not match the expected version")
+        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise OperationalReportError("SQLite backup contains foreign-key violations")
         rows = connection.execute(
             """SELECT sequence, event_id, event_type, entity_type, entity_id,
                       occurred_at, policy_version, payload_json, previous_hash, event_hash
                FROM audit_events ORDER BY sequence"""
-        ).fetchall()
+        )
         previous_hash = None
         previous_sequence = 0
         for row in rows:
@@ -168,27 +172,39 @@ def _install_database_copy(
     destination_path: str | Path,
     *,
     expected_schema_version: int,
+    reference_manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     destination = Path(destination_path).expanduser().resolve()
     if destination.exists():
         raise FileExistsError(f"destination already exists: {destination}")
     if not destination.parent.is_dir():
         raise FileNotFoundError("destination directory must already exist")
-    temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+    fd, name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
+    os.close(fd)
+    temporary = Path(name)
     target_connection = None
     try:
         target_connection = sqlite3.connect(temporary)
         source_connection.backup(target_connection)
+        # Install a self-contained file; verification must not require WAL sidecars.
+        mode = target_connection.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
+        if mode != "delete":
+            raise OperationalReportError("could not finalize a standalone backup")
         target_connection.close()
         target_connection = None
         os.chmod(temporary, 0o600)
         verification = verify_registry_backup(
             temporary, expected_schema_version=expected_schema_version
         )
+        if reference_manifest is not None:
+            from .sqlite_export import verify_sqlite_manifest_copy
+            verify_sqlite_manifest_copy(temporary, reference_manifest)
         # A same-directory hard link installs atomically and refuses to overwrite.
         os.link(temporary, destination)
         os.chmod(destination, 0o600)
         return {
+            **({"verified_manifest_sha256": reference_manifest["manifest_sha256"]}
+               if reference_manifest is not None else {}),
             "destination": str(destination),
             "status": "verified",
             "schema_version": verification["schema_version"],
@@ -220,7 +236,8 @@ def backup_registry_database(registry: Any, destination_path: str | Path) -> dic
 
 
 def restore_registry_backup(
-    backup_path: str | Path, destination_path: str | Path
+    backup_path: str | Path, destination_path: str | Path, *,
+    reference_manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Restore a verified backup to a new path; never overwrite an existing database."""
     from .registry import _SCHEMA_VERSION
@@ -233,6 +250,7 @@ def restore_registry_backup(
         return _install_database_copy(
             source_connection, destination_path,
             expected_schema_version=_SCHEMA_VERSION,
+            reference_manifest=reference_manifest,
         )
     except sqlite3.Error as exc:
         raise OperationalReportError(f"backup restore failed: {exc}") from exc

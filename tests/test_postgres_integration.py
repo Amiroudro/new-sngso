@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import sqlite3
+import subprocess
+from pathlib import Path
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
@@ -4581,16 +4583,38 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
             connection.execute(
                 sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(role_name))
             )
-            connection.execute(
-                sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(
-                    sql.Identifier(schema_name), sql.Identifier(role_name)
-                )
-            )
-            connection.execute(
-                sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA {} TO {}").format(
-                    sql.Identifier(schema_name), sql.Identifier(role_name)
-                )
-            )
+            migration_role = connection.execute("SELECT current_user").fetchone()[0]
+
+        grant_command = [
+            "psql", "-X", "-v", f"app_schema={schema_name}",
+            "-v", f"runtime_role={role_name}", "-v", f"migration_role={migration_role}",
+            "-f", str(Path(__file__).resolve().parents[1] / "ops/postgresql/grant_staging_runtime.sql"),
+        ]
+        # Supply libpq settings through the environment, including any test password.
+        settings = psycopg.conninfo.conninfo_to_dict(os.environ["TEST_POSTGRES_DSN"])
+        grant_env = os.environ.copy()
+        for option in psycopg.pq.Conninfo.get_defaults():
+            name = option.keyword.decode()
+            if name in settings and option.envvar:
+                grant_env[option.envvar.decode()] = settings[name]
+        # A later table without the migration guard must leave even earlier
+        # grants untouched when provisioning fails partway through the script.
+        with connect() as connection:
+            connection.execute("CREATE TABLE guard_probe (id integer PRIMARY KEY)")
+            connection.execute(sql.SQL("GRANT DELETE ON guard_probe TO {}").format(sql.Identifier(role_name)))
+        failed = subprocess.run(grant_command, env=grant_env, capture_output=True, text=True, timeout=30)
+        assert failed.returncode != 0
+        assert "missing or disabled primary-key guard" in failed.stderr
+        with connect() as connection:
+            assert connection.execute(
+                "SELECT has_table_privilege(%s, 'guard_probe', 'DELETE')", (role_name,)
+            ).fetchone()[0]
+            connection.execute("DROP TABLE guard_probe")
+
+        for _ in range(2):
+            subprocess.run(grant_command, env=grant_env, capture_output=True, check=True, timeout=30)
+
+        with connect() as connection:
             table_names = [
                 row[0] for row in connection.execute(
                     "SELECT table_name FROM information_schema.tables "
@@ -4598,42 +4622,6 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
                     (schema_name,),
                 ).fetchall()
             ]
-            primary_key_columns = connection.execute(
-                """SELECT kcu.table_name, kcu.column_name
-                   FROM information_schema.table_constraints AS tc
-                   JOIN information_schema.key_column_usage AS kcu
-                     ON kcu.constraint_catalog = tc.constraint_catalog
-                    AND kcu.constraint_schema = tc.constraint_schema
-                    AND kcu.constraint_name = tc.constraint_name
-                    AND kcu.table_schema = tc.table_schema
-                    AND kcu.table_name = tc.table_name
-                   WHERE tc.table_schema = %s AND tc.constraint_type = 'PRIMARY KEY'
-                   ORDER BY kcu.table_name, kcu.ordinal_position""",
-                (schema_name,),
-            ).fetchall()
-            for table_name, column_name in primary_key_columns:
-                connection.execute(
-                    sql.SQL("GRANT UPDATE ({}) ON TABLE {}.{} TO {}").format(
-                        sql.Identifier(column_name), sql.Identifier(schema_name),
-                        sql.Identifier(table_name), sql.Identifier(role_name),
-                    )
-                )
-            assert {table_name for table_name, _ in primary_key_columns} == set(table_names)
-            connection.execute(
-                sql.SQL("GRANT INSERT ON TABLE {}.edition_staging_events, {}.audit_events TO {}").format(
-                    sql.Identifier(schema_name), sql.Identifier(schema_name), sql.Identifier(role_name)
-                )
-            )
-            connection.execute(
-                sql.SQL("GRANT UPDATE ON TABLE {}.edition_staging_channel_state, {}.audit_chain_head TO {}").format(
-                    sql.Identifier(schema_name), sql.Identifier(schema_name), sql.Identifier(role_name)
-                )
-            )
-            artifact_schema = connection.execute(
-                "SELECT table_schema FROM information_schema.tables "
-                "WHERE table_name = 'edition_artifacts'"
-            ).fetchone()[0]
-            assert artifact_schema == schema_name
             assert connection.execute(
                 "SELECT has_table_privilege(%s, %s, 'SELECT')",
                 (role_name, f"{schema_name}.edition_artifacts"),
@@ -4702,16 +4690,7 @@ def test_postgres_staging_runtime_role_has_only_atomic_staging_and_audit_write_p
     finally:
         if schema_name is not None:
             with psycopg.connect(os.environ["TEST_POSTGRES_DSN"], autocommit=True) as admin:
-                admin.execute(
-                    sql.SQL("REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} FROM {}").format(
-                        sql.Identifier(schema_name), sql.Identifier(role_name)
-                    )
-                )
-                admin.execute(
-                    sql.SQL("REVOKE ALL PRIVILEGES ON SCHEMA {} FROM {}").format(
-                        sql.Identifier(schema_name), sql.Identifier(role_name)
-                    )
-                )
+                admin.execute(sql.SQL("DROP OWNED BY {}").format(sql.Identifier(role_name)))
                 admin.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role_name)))
 
 

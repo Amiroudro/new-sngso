@@ -85,13 +85,13 @@ def inspect_sqlite_schema(
         ]
         audit_chain_valid = True
         previous_hash = None
-        for row in connection.execute(
+        for sequence, row in enumerate(connection.execute(
             """
-            SELECT event_id, event_type, entity_type, entity_id, occurred_at,
+            SELECT sequence, event_id, event_type, entity_type, entity_id, occurred_at,
                    policy_version, payload_json, previous_hash, event_hash
             FROM audit_events ORDER BY sequence
             """
-        ):
+        ), start=1):
             try:
                 payload = json.loads(row["payload_json"])
                 expected = sha256_fingerprint(
@@ -109,7 +109,8 @@ def inspect_sqlite_schema(
             except (TypeError, ValueError, json.JSONDecodeError):
                 audit_chain_valid = False
                 break
-            if row["previous_hash"] != previous_hash or row["event_hash"] != expected:
+            if (row["sequence"] != sequence or row["previous_hash"] != previous_hash
+                    or row["event_hash"] != expected):
                 audit_chain_valid = False
                 break
             previous_hash = row["event_hash"]

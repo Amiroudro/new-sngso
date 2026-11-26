@@ -225,3 +225,21 @@ with SQLiteRegistry("data/registry.sqlite") as registry:
 
 The two boolean attestations are explicit operator assertions recorded with the retry creation reason. They are not cryptographic identity proof and do not replace fresh permission verification inside every handler. A retry is a new queued attempt, not a command to execute or publish.
 
+
+### Rehearse restoration against an independently retained manifest
+
+At backup time, generate a manifest from the completed backup using
+`sngso-sqlite-export-manifest` and retain it in separately controlled storage.
+For a rehearsal, run the following command with that manifest and a new destination.
+
+```sh
+sngso-restore-verified-backup --backup backups/registry.sqlite \
+  --manifest evidence/registry-manifest.json --destination recovery/rehearsal.sqlite
+```
+
+The command rebuilds the manifest from the temporary restored database, comparing every
+table's ordered row checksum, schema definitions, migration history, foreign keys and
+audit tip. The backup and restored filenames can differ. Only a successful comparison
+installs the verified copy. Retain the returned manifest digest with the drill record.
+The digest verifies correspondence to the supplied manifest. Its trust depends on
+who controlled the manifest at backup time.

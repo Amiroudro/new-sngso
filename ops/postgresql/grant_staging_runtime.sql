@@ -10,6 +10,9 @@
 -- The service connection must pin search_path to app_schema explicitly.
 -- Do not grant it membership in the schema owner or migration role.
 
+\set ON_ERROR_STOP on
+BEGIN;
+
 \if :{?app_schema}
 \else
 \set app_schema sngso
@@ -37,13 +40,29 @@ GRANT SELECT ON ALL TABLES IN SCHEMA :"app_schema" TO :"runtime_role";
 -- immutable. The role cannot update non-key editorial/permission/benchmark/
 -- pipeline data. Full UPDATE is granted only on the guarded staging and audit
 -- state heads below.
-SET search_path TO :"app_schema";
-SET sngso.runtime_role TO :'runtime_role';
+SET LOCAL search_path TO :"app_schema";
+SET LOCAL sngso.runtime_role TO :'runtime_role';
 
 DO $preflight$
 BEGIN
     IF to_regprocedure('reject_primary_key_mutation()') IS NULL THEN
         RAISE EXCEPTION 'PostgreSQL migration 0023 primary-key identity guards must be applied before staging role grants';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+        FROM pg_index pk
+        JOIN pg_class rel ON rel.oid = pk.indrelid
+        JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+        WHERE ns.nspname = current_schema() AND pk.indisprimary
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_trigger guard
+              WHERE guard.tgrelid = rel.oid
+                AND guard.tgname = 'sngso_primary_key_immutable'
+                AND guard.tgfoid = 'reject_primary_key_mutation()'::regprocedure
+                AND guard.tgenabled IN ('O', 'A')
+          )
+    ) THEN
+        RAISE EXCEPTION 'missing or disabled primary-key guard in staging schema';
     END IF;
 END;
 $preflight$;
@@ -93,6 +112,8 @@ TO :"runtime_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role"
     IN SCHEMA :"app_schema"
     GRANT SELECT ON TABLES TO :"runtime_role";
+
+COMMIT;
 
 -- Deliberately absent:
 --   * DELETE or TRUNCATE on any table

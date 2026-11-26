@@ -204,3 +204,16 @@ def test_audit_events_reject_direct_sql_update_and_delete(tmp_path):
         assert registry._connection.execute(
             "SELECT COUNT(*) FROM audit_events"
         ).fetchone()[0] == 1
+
+
+def test_inspection_rejects_gap_in_otherwise_matching_audit_chain(tmp_path):
+    database = tmp_path / "registry.sqlite"
+    with SQLiteRegistry(database) as registry:
+        with registry._transaction() as connection:
+            registry._append_audit(connection, event_type="test.event", entity_type="test",
+                                   entity_id="sequence-fixture", payload={})
+            connection.execute("DROP TRIGGER audit_events_no_update")
+            connection.execute("UPDATE audit_events SET sequence = 2 WHERE sequence = 1")
+    report = inspect_sqlite_schema(database)
+    assert report["audit_chain_valid"] is False
+    assert report["healthy"] is False

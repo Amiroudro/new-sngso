@@ -83,15 +83,16 @@ writer; other write services need their own narrowly scoped roles and APIs.
 
 ## Automated evidence
 
-The PostgreSQL integration test creates a non-owner role with this same
-privilege shape, takes `FOR SHARE` locks against every table in the isolated
+The PostgreSQL integration test runs the checked-in psql grant script twice against a non-owner role, takes `FOR SHARE` locks against every table in the isolated
 schema, stages an export through `stage_edition_export()`, and checks that
 UPDATE/DELETE/TRUNCATE attempts against non-key event fields and unrelated
 source fields fail with `InsufficientPrivilege`; attempts to change protected
 primary keys fail with an integrity error. It also verifies that the permitted
 staging and audit writes commit together.
 
-This is a privilege-shape test in an isolated CI schema, not proof that the
+A missing or disabled primary-key guard stops provisioning. The script applies the grants and default privileges in one transaction. The test introduces an unguarded table and checks that a failed provisioning attempt rolls back earlier privilege changes. Run this test with the psql client on PATH.
+
+This is a grant-script test in an isolated CI schema, not proof that the
 target database has been provisioned. Deployment acceptance still requires
 reviewing actual role memberships, object ownership, default privileges,
 connection identity, secret rotation, and a staging transaction run as the
