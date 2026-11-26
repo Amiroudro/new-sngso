@@ -1,0 +1,35 @@
+name: Editorial console prototype checks
+
+on:
+  pull_request:
+    paths:
+      - "apps/editorial-console/**"
+      - "tests/test_editorial_console_prototype.py"
+      - ".github/workflows/editorial-console.yml"
+      - "pyproject.toml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/editorial-console/**"
+      - "tests/test_editorial_console_prototype.py"
+      - ".github/workflows/editorial-console.yml"
+      - "pyproject.toml"
+
+permissions:
+  contents: read
+
+jobs:
+  prototype:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Validate editorial console prototype
+        run: python -m pytest -q tests/test_editorial_console_prototype.py
