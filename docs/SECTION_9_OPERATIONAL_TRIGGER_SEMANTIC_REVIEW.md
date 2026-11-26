@@ -8,13 +8,13 @@ Scope: 23 triggers in the `pipeline_runs`, `pipeline_run_revisions`, `pipeline_s
 
 | Trigger | Enforced invariant | PostgreSQL enforcement design | Existing/new test evidence |
 |---|---|---|---|
-| `pipeline_run_payload_guard_insert` | Indexed id/status/started_at must equal JSON payload fields | Implemented by `validate_pipeline_run_write` in migrations 0012/0026 using null-safe JSONB comparisons | PostgreSQL direct-SQL mismatched-ID INSERT rejected by `test_postgres_pipeline_run_payload_projection_guards_insert_and_update` (pending exact-head CI) |
-| `pipeline_run_payload_guard_update` | Same projection invariant on every update | Implemented by the same BEFORE UPDATE trigger and JSONB projection checks | PostgreSQL direct-SQL mismatched-status UPDATE rejected by `test_postgres_pipeline_run_payload_projection_guards_insert_and_update` (pending exact-head CI) |
-| `pipeline_run_identity_guard` | Run ID, start time, software version, config hash, input hashes, and initiator immutable; revision increments exactly one; only queued→running/cancelled/rejected and running→succeeded/failed/cancelled transitions | Implemented by BEFORE UPDATE trigger in migrations 0012/0026. Migration 0026 removes extra immutability for `attempt` and `retry_of` that SQLite does not impose | PostgreSQL tests cover immutable input hashes, invalid transition, and mutable attempt/retry_of during queued→running (pending exact-head CI) |
+| `pipeline_run_payload_guard_insert` | Indexed id/status/started_at must equal JSON payload fields | Implemented by `validate_pipeline_run_write` in migrations 0012/0026 using null-safe JSONB comparisons | PostgreSQL direct-SQL mismatched-ID INSERT rejected by `test_postgres_pipeline_run_payload_projection_guards_insert_and_update` (exact-head CI run #45420532668) |
+| `pipeline_run_payload_guard_update` | Same projection invariant on every update | Implemented by the same BEFORE UPDATE trigger and JSONB projection checks | PostgreSQL direct-SQL mismatched-status UPDATE rejected by `test_postgres_pipeline_run_payload_projection_guards_insert_and_update` (exact-head CI run #45420532668) |
+| `pipeline_run_identity_guard` | Run ID, start time, software version, config hash, input hashes, and initiator immutable; revision increments exactly one; only queued→running/cancelled/rejected and running→succeeded/failed/cancelled transitions | Implemented by BEFORE UPDATE trigger in migrations 0012/0026. Migration 0026 removes extra immutability for `attempt` and `retry_of` that SQLite does not impose | PostgreSQL tests cover protected-field mutation, invalid transitions, revision skips, and mutable attempt/retry_of during queued→running (exact-head CI run #45420532668) |
 | `pipeline_runs_no_delete` | Pipeline run rows cannot be deleted | Implemented by BEFORE DELETE trigger in migration 0012 | Direct-SQL DELETE rejection in pipeline-run integration test, verified through run #1972 |
 | `pipeline_run_revision_no_update` | Run revision history is append-only | Implemented by BEFORE UPDATE trigger in migration 0012 | Direct-SQL UPDATE rejection in pipeline-run integration test, verified through run #1972 |
 | `pipeline_run_revision_no_delete` | Run revision history is append-only | Implemented by BEFORE DELETE trigger in migration 0012 | Direct-SQL DELETE rejection in pipeline-run integration test, verified through run #1972 |
-| `pipeline_run_revision_matches_current` | Inserted revision must match current run head revision and payload | Implemented by BEFORE INSERT trigger in migration 0012 | Direct-SQL forged future revision and mismatched current-head payload rejected; future-revision case verified in run #1972, mismatch case pending exact-head CI |
+| `pipeline_run_revision_matches_current` | Inserted revision must match current run head revision and payload | Implemented by BEFORE INSERT trigger in migration 0012 | Direct-SQL forged future revision and mismatched current-head payload rejected (exact-head CI run #45420532668) |
 
 ## 2. Stage checkpoint state and history (9 triggers)
 
@@ -28,7 +28,7 @@ Scope: 23 triggers in the `pipeline_runs`, `pipeline_run_revisions`, `pipeline_s
 | `pipeline_stage_checkpoint_revision_matches_head` | A revision row must exactly match the current checkpoint head | Implemented in PostgreSQL migration 0013 as a BEFORE INSERT trigger with null-safe comparison | PostgreSQL direct-SQL forged future revision rejected; exact revision snapshot fields asserted (run #1967) |
 | `pipeline_stage_checkpoint_revisions_no_update` | Revision history cannot be changed | BEFORE UPDATE trigger and restricted application role | Direct revision tamper assertion in checkpoint identity test |
 | `pipeline_stage_checkpoint_revisions_no_delete` | Revision history cannot be deleted | Implemented in PostgreSQL migration 0013 as a BEFORE UPDATE OR DELETE trigger | Direct-SQL UPDATE and DELETE rejection tests; DELETE rejection passed in run #1967 |
-| `pipeline_stage_checkpoints_no_delete` | Checkpoint heads cannot be deleted | Implemented in PostgreSQL migration 0013 as a BEFORE DELETE trigger | Direct-SQL negative test added in commit `aa65d756`; awaiting exact-head CI |
+| `pipeline_stage_checkpoints_no_delete` | Checkpoint heads cannot be deleted | Implemented in PostgreSQL migration 0013 as a BEFORE DELETE trigger | Direct-SQL DELETE rejection passed in CI run #1970 and exact-head run #45420532668 |
 
 ## 3. Worker lease ownership and history (7 triggers)
 
@@ -38,9 +38,9 @@ Scope: 23 triggers in the `pipeline_runs`, `pipeline_run_revisions`, `pipeline_s
 | `pipeline_worker_lease_revision_guard` | Revision +1; run binding immutable; active heartbeat preserves worker/token/fencing/acquisition identity and advances heartbeat; active terminal transitions preserve ownership; released/expired takeover increments fencing token and changes token hash; cancellation request immutable after set and can only be added to active lease with complete fields | Implemented in PostgreSQL migration 0014 as a BEFORE INSERT/UPDATE trigger; updates are serialized by the row lock | PostgreSQL direct-SQL tests cover fencing takeover, attempted cancellation clearing, and preservation of pending cancellation through expired-lease handoff (run #1969) |
 | `pipeline_worker_lease_revision_snapshot` | Every lease head update appends an exact history snapshot | AFTER UPDATE trigger in same transaction | Lease heartbeat/history and takeover tests |
 | `pipeline_worker_lease_revision_matches_head` | Inserted revision exactly matches current lease head, including nullable cancellation fields | Implemented in PostgreSQL migration 0014 as a BEFORE INSERT trigger with null-safe comparisons | PostgreSQL direct-SQL forged future revision rejected (run #1967) |
-| `pipeline_worker_lease_revisions_no_update` | Lease history cannot be changed | Implemented in PostgreSQL migration 0014 as a BEFORE UPDATE OR DELETE trigger | Direct-SQL UPDATE rejection added in commit `aa65d756`; awaiting exact-head CI |
+| `pipeline_worker_lease_revisions_no_update` | Lease history cannot be changed | Implemented in PostgreSQL migration 0014 as a BEFORE UPDATE OR DELETE trigger | Direct-SQL UPDATE rejection passed in CI run #1970 and exact-head run #45420532668 |
 | `pipeline_worker_lease_revisions_no_delete` | Lease history cannot be deleted | Implemented in PostgreSQL migration 0014 as a BEFORE UPDATE OR DELETE trigger | Direct-SQL DELETE rejection passed in run #1967 |
-| `pipeline_worker_leases_no_delete` | Lease head cannot be deleted | BEFORE DELETE trigger and restricted application role | Direct-SQL negative test still needed |
+| `pipeline_worker_leases_no_delete` | Lease head cannot be deleted | BEFORE DELETE trigger; restricted application-role proof remains open | Direct-SQL DELETE rejection is exercised by the integration suite and passed in exact-head CI run #45420532668 |
 
 The combined reviewed scope is 23 triggers: 7 pipeline-run, 9 checkpoint, and 7 worker-lease triggers.
 
@@ -56,15 +56,15 @@ The combined reviewed scope is 23 triggers: 7 pipeline-run, 9 checkpoint, and 7 
 
 ## 5. Outstanding tests before accepting this trigger family
 
-- Exact-head CI for pipeline-run payload/index mismatch INSERT and UPDATE, mismatched revision payload, and mutable attempt/retry_of parity tests.
+- Exact-head CI now passes the pipeline-run payload/index mismatch INSERT and UPDATE, mismatched revision payload, immutable-field, revision-skip, and mutable attempt/retry_of parity tests.
 - Restricted application-role testing for pipeline-run, checkpoint, and lease direct-SQL guards.
 - Checkpoint-head DELETE and worker-lease revision UPDATE denial now pass in run #1970.
 - Direct-SQL checkpoint and lease mutation tests must also run under the eventual restricted production application role.
 - Concurrency tests proving no duplicate revision number, no stale fencing acceptance, and no head/history divergence after process or database failure.
 - Failure-injection tests for transaction rollback across head, snapshot, and audit writes.
 
-The latest completed baseline before the pipeline identity parity change is [run #1972](https://github.com/Amiroudro/new-sngso/actions/runs/45413983961), which passed both jobs and all 84 PostgreSQL integration tests. It includes forged pipeline-run revision rejection and revision-history mutation denial. [Run #1970](https://github.com/Amiroudro/new-sngso/actions/runs/45413841397) also passed both jobs and 84 PostgreSQL tests for checkpoint-head DELETE and worker-lease revision UPDATE denial. The new migration 0026 and additional payload-parity cases are awaiting exact-head CI.
+The latest exact-head verification is [run #45420532668](https://github.com/Amiroudro/new-sngso/actions/runs/45420532668): **1,218 passed, 1 skipped** in the Python 3.12 contract suite and **87 PostgreSQL integration tests passed**. It includes migration 0026, pipeline-run payload projection checks, immutable-field checks, revision-skip rejection, and legal mutation of `attempt` and `retry_of`. Earlier run #1972 passed the preceding pipeline-run revision-history checks, and run #1970 covered checkpoint-head DELETE and worker-lease revision UPDATE denial.
 
 ## 6. Review boundary
 
-The 23-trigger source-level review is complete as an engineering analysis of the current SQLite SQL, and PostgreSQL implementations exist in migrations 0012–0014. This is not a claim that every invariant has a dedicated negative test or that the production restricted role and concurrency/failure properties are accepted. The other 116 triggers still require equivalent review. P0 is therefore not complete.
+The 23-trigger source-level review is complete as an engineering analysis of the current SQLite SQL, and PostgreSQL implementations exist in migrations 0012–0014. The exact-head CI run verifies the current targeted tests, but not every invariant, the restricted production role, or all concurrency/failure properties. Source-level reviews exist for the remaining 116 triggers; complete PostgreSQL semantic parity and direct-SQL acceptance remain open. P0 is therefore not complete.
