@@ -13,7 +13,20 @@ dependencies = [
   "PyJWT[crypto]>=2.10,<3",
 ]
 
+[project.scripts]
+sngso-restore-verified-backup = "sngso_engine.restore_backup_cli:main"
+sngso-sqlite-export-manifest = "sngso_engine.sqlite_export:main"
+sngso-schema-v36-dry-run = "sngso_engine.postgres_reconciliation_cli:main"
+sngso-schema-v36-row-dry-run = "sngso_engine.postgres_row_dry_run:main"
+sngso-sqlite-audit-checkpoint = "sngso_engine.audit_checkpoint_cli:main"
+sngso-schema-v36-import-preflight = "sngso_engine.postgres_import_preflight_cli:main"
+sngso-schema-v36-mapping-skeleton = "sngso_engine.postgres_mapping_skeleton_cli:main"
+sngso-schema-v36-mapping-fingerprint = "sngso_engine.postgres_mapping_fingerprint_cli:main"
+
 [project.optional-dependencies]
+postgres = [
+  "psycopg[binary]>=3.2,<4",
+]
 test = [
   "pytest>=8.3,<9",
 ]
@@ -27,3 +40,6 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"sngso_engine.postgres_migrations" = ["*.sql"]

@@ -1,0 +1,536 @@
+from __future__ import annotations
+
+import hashlib
+import json
+
+import pytest
+
+from sngso_engine.canonical import canonical_json_bytes
+from sngso_engine.postgres_reconciliation import (
+    MAPPING_FORMAT,
+    ReconciliationPlanError,
+    plan_schema_v36_reconciliation,
+)
+from sngso_engine.postgres_mapping_skeleton import build_schema_v36_mapping_skeleton
+from sngso_engine.postgres_mapping_skeleton import refresh_mapping_fingerprint
+from sngso_engine.postgres_mapping_fingerprint_cli import main as mapping_fingerprint_main
+from sngso_engine.postgres_mapping_skeleton_cli import main as mapping_skeleton_main
+
+
+def _fingerprint(value):
+    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def _inputs():
+    manifest = {
+        "format": "sngso-registry-import-manifest-v1",
+        "checksum_format": "sngso-sqlite-row-stream-v1",
+        "source": {
+            "schema_version": 36,
+            "schema_sha256": "a" * 64,
+            "object_counts": {"table": 1, "index": 0, "trigger": 0, "view": 0},
+        },
+        "tables": [{
+            "table": "sample",
+            "columns": [
+                {"name": "id", "declared_type": "INTEGER", "not_null": True,
+                 "default": None, "primary_key_ordinal": 1},
+                {"name": "title", "declared_type": "TEXT", "not_null": True,
+                 "default": None, "primary_key_ordinal": 0},
+            ],
+            "primary_key": ["id"],
+            "row_count": 2,
+            "row_sha256": "b" * 64,
+            "schema_sha256": "c" * 64,
+            "storage_class_counts": {
+                "id": {"null": 0, "integer": 2, "real": 0, "text": 0, "blob": 0},
+                "title": {"null": 0, "integer": 0, "real": 0, "text": 2, "blob": 0},
+            },
+        }],
+    }
+    manifest["manifest_sha256"] = _fingerprint(manifest)
+    inventory = {
+        "identity": {"schema_name": "public"},
+        "tables": [{"table_name": "sample_pg"}],
+        "columns": [
+            {"table_name": "sample_pg", "column_name": "id", "data_type": "bigint",
+             "nullable": False, "default_expression": None, "identity_kind": "",
+             "generated_kind": ""},
+            {"table_name": "sample_pg", "column_name": "title", "data_type": "text",
+             "nullable": False, "default_expression": None, "identity_kind": "",
+             "generated_kind": ""},
+        ],
+        "primary_keys": [{"table_name": "sample_pg", "columns": ["id"]}],
+        "foreign_keys": [],
+        "migration_ledger_matches_packaged": True,
+        "outcome": "INCOMPLETE",
+    }
+    inventory["inventory_sha256"] = _fingerprint({
+        key: value for key, value in inventory.items()
+        if key not in {"outcome", "reason_codes"}
+    })
+    mapping = {
+        "format": MAPPING_FORMAT,
+        "source_manifest_sha256": manifest["manifest_sha256"],
+        "source_schema_sha256": manifest["source"]["schema_sha256"],
+        "target_inventory_sha256": inventory["inventory_sha256"],
+        "review": {
+            "status": "approved",
+            "reviewer": "schema-reviewer",
+            "reviewed_at": "2026-11-24T00:00:00Z",
+            "reference": "architecture-decision-001",
+        },
+        "tables": [{
+            "source_table": "sample",
+            "target_table": "sample_pg",
+            "columns": [
+                {"source_column": "id", "target_column": "id",
+                 "conversion": "integer_to_bigint"},
+                {"source_column": "title", "target_column": "title",
+                 "conversion": "text_identity"},
+            ],
+        }],
+    }
+    mapping["mapping_sha256"] = _fingerprint(mapping)
+    return manifest, inventory, mapping
+
+
+def test_reconciliation_planner_validates_complete_structure_but_never_declares_ready():
+    manifest, inventory, mapping = _inputs()
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+    assert result["structure_valid"] is True
+    assert result["outcome"] == "INCOMPLETE"
+    assert result["source_table_count"] == 1
+    assert result["mapped_source_table_count"] == 1
+    assert result["issues"] == []
+    assert result["target_import_order"] == ["sample_pg"]
+    assert result["deferred_foreign_keys"] == []
+    assert result["remaining_gates"] == [
+        "JSON_CONTENT_AND_VALUE_CONVERSION_PROOF",
+        "TARGET_ROW_COUNT_AND_CHECKSUM_RECONCILIATION",
+        "AUDIT_CHAIN_IMPORT_AND_VERIFICATION",
+    ]
+
+
+def test_reconciliation_planner_reports_unmapped_table_and_column():
+    manifest, inventory, mapping = _inputs()
+    mapping["tables"][0]["columns"].pop()
+    mapping["tables"].append({
+        "source_table": "not_a_source_table",
+        "target_table": "sample_pg",
+        "columns": [],
+    })
+    mapping["mapping_sha256"] = _fingerprint({
+        key: value for key, value in mapping.items() if key != "mapping_sha256"
+    })
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+    codes = {issue["code"] for issue in result["issues"]}
+
+    assert result["structure_valid"] is False
+    assert "SOURCE_COLUMNS_UNMAPPED" in codes
+    assert "SOURCE_TABLE_UNKNOWN" in codes
+
+
+def test_reconciliation_planner_rejects_conversion_type_and_primary_key_mismatch():
+    manifest, inventory, mapping = _inputs()
+    mapping["tables"][0]["columns"][0]["conversion"] = "blob_to_bytea"
+    mapping["tables"][0]["columns"][0]["target_column"] = "title"
+    mapping["mapping_sha256"] = _fingerprint({
+        key: value for key, value in mapping.items() if key != "mapping_sha256"
+    })
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+    codes = {issue["code"] for issue in result["issues"]}
+
+    assert "CONVERSION_TARGET_TYPE_MISMATCH" in codes
+    assert "PRIMARY_KEY_MAPPING_MISMATCH" in codes
+    assert "TARGET_COLUMN_MAPPED_MORE_THAN_ONCE" in codes
+    assert "SOURCE_STORAGE_CLASS_CONVERSION_UNSAFE" in codes
+
+
+def test_reconciliation_planner_rejects_tampered_source_or_target_fingerprint():
+    manifest, inventory, mapping = _inputs()
+    manifest["tables"][0]["row_count"] = 99
+    with pytest.raises(ReconciliationPlanError, match="manifest fingerprint"):
+        plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+    manifest, inventory, mapping = _inputs()
+    inventory["columns"][0]["data_type"] = "text"
+    with pytest.raises(ReconciliationPlanError, match="inventory fingerprint"):
+        plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+
+def test_reconciliation_planner_requires_mapping_and_current_migration_ledger():
+    manifest, inventory, _ = _inputs()
+    result = plan_schema_v36_reconciliation(manifest, inventory, None)
+    assert result["issues"] == [{"code": "MAPPING_SPEC_MISSING"}]
+
+    inventory["migration_ledger_matches_packaged"] = False
+    inventory["inventory_sha256"] = _fingerprint({
+        key: value for key, value in inventory.items()
+        if key not in {"inventory_sha256", "outcome", "reason_codes"}
+    })
+    with pytest.raises(ReconciliationPlanError, match="migration ledger"):
+        plan_schema_v36_reconciliation(manifest, inventory, None)
+
+
+def test_reconciliation_planner_rejects_mapping_tampering():
+    manifest, inventory, mapping = _inputs()
+    mapping["review"]["reviewer"] = "different-reviewer"
+    with pytest.raises(ReconciliationPlanError, match="mapping fingerprint"):
+        plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+
+def test_reconciliation_planner_rejects_nulls_for_non_nullable_target_columns():
+    manifest, inventory, mapping = _inputs()
+    manifest["tables"][0]["storage_class_counts"]["id"]["null"] = 1
+    manifest["tables"][0]["storage_class_counts"]["id"]["integer"] = 1
+    manifest["manifest_sha256"] = _fingerprint({
+        key: value for key, value in manifest.items() if key != "manifest_sha256"
+    })
+    mapping["source_manifest_sha256"] = manifest["manifest_sha256"]
+    mapping["mapping_sha256"] = _fingerprint({
+        key: value for key, value in mapping.items() if key != "mapping_sha256"
+    })
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+    assert any(
+        issue["code"] == "SOURCE_NULLS_TARGET_NOT_NULL"
+        and issue["source_column"] == "id"
+        for issue in result["issues"]
+    )
+
+def _rehash(manifest, inventory, mapping):
+    manifest["manifest_sha256"] = _fingerprint({
+        key: value for key, value in manifest.items() if key != "manifest_sha256"
+    })
+    inventory["inventory_sha256"] = _fingerprint({
+        key: value for key, value in inventory.items()
+        if key not in {"inventory_sha256", "outcome", "reason_codes"}
+    })
+    mapping["source_manifest_sha256"] = manifest["manifest_sha256"]
+    mapping["source_schema_sha256"] = manifest["source"]["schema_sha256"]
+    mapping["target_inventory_sha256"] = inventory["inventory_sha256"]
+    mapping["mapping_sha256"] = _fingerprint({
+        key: value for key, value in mapping.items() if key != "mapping_sha256"
+    })
+
+
+def test_reconciliation_planner_orders_parent_tables_before_children():
+    manifest, inventory, mapping = _inputs()
+    manifest["tables"].append({
+        "table": "child",
+        "columns": [
+            {"name": "id", "declared_type": "INTEGER", "not_null": True,
+             "default": None, "primary_key_ordinal": 1},
+            {"name": "parent_id", "declared_type": "INTEGER", "not_null": True,
+             "default": None, "primary_key_ordinal": 0},
+        ],
+        "primary_key": ["id"],
+        "row_count": 1,
+        "row_sha256": "d" * 64,
+        "schema_sha256": "e" * 64,
+        "storage_class_counts": {
+            "id": {"null": 0, "integer": 1, "real": 0, "text": 0, "blob": 0},
+            "parent_id": {"null": 0, "integer": 1, "real": 0, "text": 0, "blob": 0},
+        },
+    })
+    inventory["tables"].append({"table_name": "child_pg"})
+    inventory["columns"].extend([
+        {"table_name": "child_pg", "column_name": "id", "data_type": "bigint",
+         "nullable": False, "default_expression": None, "identity_kind": "",
+         "generated_kind": ""},
+        {"table_name": "child_pg", "column_name": "parent_id", "data_type": "bigint",
+         "nullable": False, "default_expression": None, "identity_kind": "",
+         "generated_kind": ""},
+    ])
+    inventory["primary_keys"].append({"table_name": "child_pg", "columns": ["id"]})
+    inventory["foreign_keys"].append({
+        "table_name": "child_pg",
+        "constraint_name": "child_parent_fk",
+        "referenced_schema": "public",
+        "referenced_table": "sample_pg",
+        "columns": ["parent_id"],
+        "referenced_columns": ["id"],
+        "deferrable": False,
+        "initially_deferred": False,
+        "validated": True,
+    })
+    mapping["tables"].insert(0, {
+        "source_table": "child",
+        "target_table": "child_pg",
+        "columns": [
+            {"source_column": "id", "target_column": "id",
+             "conversion": "integer_to_bigint"},
+            {"source_column": "parent_id", "target_column": "parent_id",
+             "conversion": "integer_to_bigint"},
+        ],
+    })
+    _rehash(manifest, inventory, mapping)
+
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+    assert result["structure_valid"] is True
+    assert result["target_import_order"] == ["sample_pg", "child_pg"]
+    assert result["deferred_foreign_keys"] == []
+
+
+def test_reconciliation_planner_allows_only_deferrable_foreign_key_cycles():
+    manifest, inventory, mapping = _inputs()
+    inventory["foreign_keys"] = [{
+        "table_name": "sample_pg",
+        "constraint_name": "sample_self_fk",
+        "referenced_schema": "public",
+        "referenced_table": "sample_pg",
+        "columns": ["id"],
+        "referenced_columns": ["id"],
+        "deferrable": True,
+        "initially_deferred": False,
+        "validated": True,
+    }]
+    _rehash(manifest, inventory, mapping)
+
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+    assert result["structure_valid"] is True
+    assert result["target_import_order"] == ["sample_pg"]
+    assert result["deferred_foreign_keys"] == [{
+        "table_name": "sample_pg",
+        "constraint_name": "sample_self_fk",
+    }]
+
+
+def test_reconciliation_planner_rejects_non_deferrable_foreign_key_cycles():
+    manifest, inventory, mapping = _inputs()
+    inventory["foreign_keys"] = [{
+        "table_name": "sample_pg",
+        "constraint_name": "sample_self_fk",
+        "referenced_schema": "public",
+        "referenced_table": "sample_pg",
+        "columns": ["id"],
+        "referenced_columns": ["id"],
+        "deferrable": False,
+        "initially_deferred": False,
+        "validated": True,
+    }]
+    _rehash(manifest, inventory, mapping)
+
+    result = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+
+    assert result["structure_valid"] is False
+    assert result["target_import_order"] == []
+    assert {
+        "code": "NON_DEFERRABLE_FOREIGN_KEY_CYCLE",
+        "constraints": [("sample_pg", "sample_self_fk")],
+    } in result["issues"]
+
+
+
+
+def test_dry_run_report_never_authorizes_import_or_cutover():
+    from sngso_engine.postgres_reconciliation_cli import (
+        build_schema_v36_dry_run_report,
+    )
+
+    manifest, inventory, mapping = _inputs()
+    report = build_schema_v36_dry_run_report(
+        manifest, inventory, mapping, generated_at="2026-11-24T00:00:00Z"
+    )
+
+    assert report["outcome"] == "INCOMPLETE"
+    assert report["database_mutated"] is False
+    assert report["import_performed"] is False
+    assert report["import_authorized"] is False
+    assert report["row_data_inspected"] is False
+    assert report["cutover_ready"] is False
+    assert report["plan"]["target_import_order"] == ["sample_pg"]
+    assert len(report["report_sha256"]) == 64
+
+
+def test_dry_run_report_blocks_missing_mapping_without_authorizing_import():
+    from sngso_engine.postgres_reconciliation_cli import (
+        build_schema_v36_dry_run_report,
+    )
+
+    manifest, inventory, _mapping = _inputs()
+    report = build_schema_v36_dry_run_report(
+        manifest, inventory, None, generated_at="2026-11-24T00:00:00Z"
+    )
+
+    assert report["outcome"] == "BLOCKED"
+    assert report["plan"]["issues"] == [{"code": "MAPPING_SPEC_MISSING"}]
+    assert report["database_mutated"] is False
+    assert report["import_performed"] is False
+    assert report["import_authorized"] is False
+
+
+def test_row_dry_run_report_stays_incomplete_after_matching_row_evidence():
+    from sngso_engine.postgres_reconciliation import plan_schema_v36_reconciliation
+    from sngso_engine.postgres_row_dry_run import build_row_dry_run_report
+
+    manifest, inventory, mapping = _inputs()
+    plan = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+    report = build_row_dry_run_report(
+        manifest,
+        inventory,
+        plan,
+        {"format": "source-row-evidence"},
+        {"all_row_counts_match_source": True},
+        {"non_json_values_match": True, "issues": []},
+        None,
+        generated_at="2026-11-24T00:00:00Z",
+        audit_report={
+            "outcome": "INCOMPLETE",
+            "source_chain_valid": True,
+            "target_chain_valid": True,
+            "events_match": True,
+            "target_head_matches_events": True,
+            "independent_source_checkpoint_supplied": False,
+            "report_sha256": "d" * 64,
+            "issue_codes": [],
+        },
+    )
+
+    assert report["outcome"] == "INCOMPLETE"
+    assert report["target_audit_chain_compared"] is True
+    assert report["audit_chain_outcome"] == "INCOMPLETE"
+    assert report["database_mutated"] is False
+    assert report["import_performed"] is False
+    assert report["import_authorized"] is False
+    assert report["row_data_inspected"] is True
+    assert report["non_json_row_values_match"] is True
+    assert report["jsonb_semantics"] == "NOT_APPLICABLE"
+    assert report["cutover_ready"] is False
+    assert len(report["report_sha256"]) == 64
+
+
+def test_row_dry_run_report_blocks_row_or_jsonb_mismatch():
+    from sngso_engine.postgres_reconciliation import plan_schema_v36_reconciliation
+    from sngso_engine.postgres_row_dry_run import build_row_dry_run_report
+
+    manifest, inventory, mapping = _inputs()
+    plan = plan_schema_v36_reconciliation(manifest, inventory, mapping)
+    report = build_row_dry_run_report(
+        manifest,
+        inventory,
+        plan,
+        {"format": "source-row-evidence"},
+        {"all_row_counts_match_source": True},
+        {"non_json_values_match": False, "issues": [{"code": "HASH_MISMATCH"}]},
+        None,
+        generated_at="2026-11-24T00:00:00Z",
+    )
+
+    assert report["outcome"] == "BLOCKED"
+    assert report["issues"] == [{"code": "HASH_MISMATCH"}]
+    assert report["cutover_ready"] is False
+
+def test_mapping_skeleton_is_fingerprinted_unapproved_and_exact_name_only():
+    manifest, inventory, _ = _inputs()
+    inventory["tables"][0]["table_name"] = "sample"
+    for column in inventory["columns"]:
+        column["table_name"] = "sample"
+    for primary_key in inventory["primary_keys"]:
+        primary_key["table_name"] = "sample"
+    inventory["inventory_sha256"] = _fingerprint({
+        key: value for key, value in inventory.items()
+        if key not in {"inventory_sha256", "outcome", "reason_codes"}
+    })
+    skeleton = build_schema_v36_mapping_skeleton(manifest, inventory)
+
+    assert skeleton["format"] == MAPPING_FORMAT
+    assert skeleton["mapping_sha256"] == _fingerprint({
+        key: value for key, value in skeleton.items() if key != "mapping_sha256"
+    })
+    assert skeleton["review"]["status"] == "draft"
+    assert skeleton["tables"] == [{
+        "source_table": "sample",
+        "target_table": "sample",
+        "columns": [
+            {"source_column": "id", "target_column": "id",
+             "conversion": "integer_to_bigint"},
+            {"source_column": "title", "target_column": "title",
+             "conversion": "text_identity"},
+        ],
+    }]
+    result = plan_schema_v36_reconciliation(manifest, inventory, skeleton)
+    assert result["structure_valid"] is False
+    assert {issue["code"] for issue in result["issues"]} == {
+        "MAPPING_REVIEW_NOT_APPROVED"
+    }
+
+    manifest["tables"].append({
+        "table": "unmapped",
+        "columns": [{
+            "name": "value",
+            "declared_type": "TEXT",
+        }],
+        "primary_key": [],
+        "row_count": 0,
+        "storage_class_counts": {"value": {
+            "null": 0, "integer": 0, "real": 0, "text": 0, "blob": 0,
+        }},
+    })
+    manifest["manifest_sha256"] = _fingerprint({
+        key: value for key, value in manifest.items() if key != "manifest_sha256"
+    })
+    draft = build_schema_v36_mapping_skeleton(manifest, inventory)
+    assert draft["draft_gaps"]["unmatched_source_tables"] == ["unmapped"]
+
+
+def test_mapping_skeleton_rejects_stale_source_or_target_fingerprints():
+    manifest, inventory, _ = _inputs()
+    manifest["source"]["schema_sha256"] = "d" * 64
+    with pytest.raises(ReconciliationPlanError, match="manifest fingerprint"):
+        build_schema_v36_mapping_skeleton(manifest, inventory)
+
+    manifest, inventory, _ = _inputs()
+    inventory["identity"]["schema_name"] = "stale"
+    with pytest.raises(ReconciliationPlanError, match="target inventory"):
+        build_schema_v36_mapping_skeleton(manifest, inventory)
+
+def test_mapping_skeleton_cli_requires_environment_dsn_without_writing(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("SNGSO_POSTGRES_DSN", raising=False)
+    output = tmp_path / "mapping-draft.json"
+    result = mapping_skeleton_main([
+        "--source", str(tmp_path / "source.sqlite"),
+        "--output", str(output),
+        "--expected-target-database", "sngso_test",
+        "--expected-target-schema", "public",
+    ])
+    assert result == 2
+    assert "SNGSO_POSTGRES_DSN is required" in capsys.readouterr().err
+    assert not output.exists()
+
+def test_mapping_fingerprint_refresh_preserves_draft_status_and_writes_new_file(tmp_path, capsys):
+    manifest, inventory, _ = _inputs()
+    skeleton = build_schema_v36_mapping_skeleton(manifest, inventory)
+    skeleton["draft_notice"] = "reviewed edits still require a person"
+    mapping_path = tmp_path / "mapping.json"
+    output_path = tmp_path / "mapping-fingerprinted.json"
+    mapping_path.write_text(json.dumps(skeleton), encoding="utf-8")
+
+    result = mapping_fingerprint_main([
+        "--mapping", str(mapping_path),
+        "--output", str(output_path),
+    ])
+    assert result == 0
+    refreshed = json.loads(output_path.read_text(encoding="utf-8"))
+    assert refreshed["review"]["status"] == "draft"
+    assert refreshed["draft_notice"] == "reviewed edits still require a person"
+    assert refreshed["mapping_sha256"] == _fingerprint({
+        key: value for key, value in refreshed.items() if key != "mapping_sha256"
+    })
+    assert "does not approve" in capsys.readouterr().out
+
+    result = mapping_fingerprint_main([
+        "--mapping", str(mapping_path),
+        "--output", str(output_path),
+    ])
+    assert result == 2
+    assert json.loads(output_path.read_text(encoding="utf-8")) == refreshed
+
+
+def test_mapping_fingerprint_helper_rejects_unknown_format():
+    with pytest.raises(ReconciliationPlanError, match="supported reconciliation mapping"):
+        refresh_mapping_fingerprint({"format": "unknown"})

@@ -71,6 +71,59 @@ from .models import (
     StoryRecord,
 )
 from .permissions import PermissionDecision, evaluate_permission
+from .checkpoint_recovery import (
+    CheckpointRecoveryError,
+    CheckpointRecoveryPlan,
+    recover_unresolved_checkpoints,
+)
+from .stage_checkpoints import (
+    CheckpointedStage,
+    Reconciliation,
+    StageCheckpoint,
+    StageCheckpointError,
+    StageCheckpointStore,
+    execute_checkpointed_pipeline,
+    execute_checkpointed_stage,
+    stage_idempotency_key,
+)
+from .provider_fencing import (
+    FencedProviderAdapter,
+    ProviderCommand,
+    ProviderFenceError,
+    execute_fenced_provider_command,
+    fenced_provider_stage_handler,
+)
+from .worker_control import (
+    WorkerControl,
+    WorkerControlChannel,
+    WorkerControlError,
+    create_worker_control_channel,
+    read_worker_control,
+    worker_cancellation_requested,
+)
+from .worker_supervisor import (
+    WorkerEntrypoint,
+    WorkerProcessExecutionError,
+    WorkerProcessResult,
+    WorkerSupervisor,
+    WorkerSupervisorError,
+    WorkerResourceLimits,
+    WorkerSignalShutdown,
+    supervised_checkpoint_handler,
+)
+from .worker_auth import OIDCWorkerRecoveryAuthorizer, WorkerRecoveryAuthorizationError
+from .worker_observability import WorkerTelemetry, WorkerTelemetryError
+from .worker_leases import (
+    WorkerLeaseBackend,
+    CancellationRequested,
+    LeaseConflictError,
+    LeaseExpiredError,
+    LeaseLostError,
+    WorkerLease,
+    WorkerLeaseError,
+    WorkerLeaseStore,
+    WorkerLeaseSession,
+)
 from .orchestrator import (
     PipelineExecutionError,
     PipelineStage,
@@ -100,6 +153,23 @@ from .ports import (
     SourceGovernanceRepository,
 )
 from .registry import RegistryIntegrityError, RegistryMigrationError, SQLiteRegistry
+from .schema_inspection import SchemaInspectionError, inspect_sqlite_schema
+from .postgres_target_inspection import PostgresInspectionError, inspect_postgres_import_target
+from .postgres_reconciliation import ReconciliationPlanError, plan_schema_v36_reconciliation
+from .postgres_row_inspection import PostgresRowInspectionError, inspect_postgres_mapped_rows
+from .sqlite_converted_row_inspection import (
+    SQLiteConvertedRowInspectionError,
+    compare_converted_row_reports,
+    inspect_sqlite_converted_rows,
+)
+from .sqlite_json_validation import SQLiteJSONValidationError, validate_sqlite_jsonb_content
+from .postgres_jsonb_semantic import PostgresJSONBSemanticError, prove_sqlite_jsonb_semantic_equivalence
+from .sqlite_export import (
+    SQLiteExportError,
+    build_sqlite_export_manifest,
+    encode_sqlite_value,
+    write_manifest_new,
+)
 
 __all__ = [
     "ArticleRecord",
@@ -148,6 +218,49 @@ __all__ = [
     "IngestionError",
     "IngestionRepository",
     "PipelineRunRepository",
+    "CheckpointRecoveryError",
+    "CheckpointRecoveryPlan",
+    "recover_unresolved_checkpoints",
+    "CheckpointedStage",
+    "Reconciliation",
+    "StageCheckpoint",
+    "StageCheckpointError",
+    "StageCheckpointStore",
+    "execute_checkpointed_pipeline",
+    "execute_checkpointed_stage",
+    "stage_idempotency_key",
+    "FencedProviderAdapter",
+    "ProviderCommand",
+    "ProviderFenceError",
+    "execute_fenced_provider_command",
+    "fenced_provider_stage_handler",
+    "CancellationRequested",
+    "LeaseConflictError",
+    "LeaseExpiredError",
+    "LeaseLostError",
+    "WorkerLease",
+    "WorkerLeaseError",
+    "WorkerLeaseBackend",
+    "WorkerLeaseStore",
+    "WorkerLeaseSession",
+    "OIDCWorkerRecoveryAuthorizer",
+    "WorkerRecoveryAuthorizationError",
+    "WorkerTelemetry",
+    "WorkerTelemetryError",
+    "WorkerControl",
+    "WorkerControlChannel",
+    "WorkerControlError",
+    "create_worker_control_channel",
+    "read_worker_control",
+    "worker_cancellation_requested",
+    "WorkerEntrypoint",
+    "WorkerProcessExecutionError",
+    "WorkerProcessResult",
+    "supervised_checkpoint_handler",
+    "WorkerSupervisor",
+    "WorkerSupervisorError",
+    "WorkerResourceLimits",
+    "WorkerSignalShutdown",
     "PipelineExecutionError",
     "PipelineStage",
     "PipelineStageFailure",
@@ -196,4 +309,23 @@ __all__ = [
     "load_schema",
     "sha256_fingerprint",
     "validate_payload",
+    "SchemaInspectionError",
+    "inspect_sqlite_schema",
+    "PostgresInspectionError",
+    "inspect_postgres_import_target",
+    "ReconciliationPlanError",
+    "plan_schema_v36_reconciliation",
+    "PostgresRowInspectionError",
+    "inspect_postgres_mapped_rows",
+    "SQLiteConvertedRowInspectionError",
+    "inspect_sqlite_converted_rows",
+    "compare_converted_row_reports",
+    "SQLiteExportError",
+    "build_sqlite_export_manifest",
+    "encode_sqlite_value",
+    "write_manifest_new",
+    "SQLiteJSONValidationError",
+    "validate_sqlite_jsonb_content",
+    "PostgresJSONBSemanticError",
+    "prove_sqlite_jsonb_semantic_equivalence",
 ]

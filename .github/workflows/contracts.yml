@@ -10,6 +10,7 @@ on:
       - "contracts/**"
       - "src/**"
       - "tests/**"
+      - "ops/postgresql/**"
       - "pyproject.toml"
       - ".github/workflows/**"
   pull_request:
@@ -17,6 +18,7 @@ on:
       - "contracts/**"
       - "src/**"
       - "tests/**"
+      - "ops/postgresql/**"
       - "pyproject.toml"
       - ".github/workflows/**"
   workflow_dispatch:
@@ -40,3 +42,47 @@ jobs:
         run: python -m pip install -e ".[test]"
       - name: Validate contracts
         run: python -m pytest -q
+
+      - name: Generate live schema-v36 inspection
+        run: |
+          python -c "from sngso_engine import SQLiteRegistry; registry = SQLiteRegistry('${RUNNER_TEMP}/sngso-schema-v36.sqlite'); registry.close()"
+          python -m sngso_engine.schema_inspection "${RUNNER_TEMP}/sngso-schema-v36.sqlite" --output "${RUNNER_TEMP}/schema-v36-inspection.json"
+      - name: Upload schema-v36 inspection artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-schema-v36-inspection
+          path: ${{ runner.temp }}/schema-v36-inspection.json
+          if-no-files-found: error
+          retention-days: 14
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sngso
+          POSTGRES_PASSWORD: sngso-test
+          POSTGRES_DB: sngso_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sngso -d sngso_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_POSTGRES_DSN: postgresql://sngso:sngso-test@localhost:5432/sngso_test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install PostgreSQL test dependencies
+        run: python -m pip install -e ".[test,postgres]"
+      - name: Validate PostgreSQL transaction and audit boundaries
+        run: python -m pytest -q tests/test_postgres_integration.py tests/test_postgres_transaction.py tests/test_postgres_audit.py tests/test_postgres_migration_runner.py

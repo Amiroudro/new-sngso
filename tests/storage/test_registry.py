@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+import threading
 
 import pytest
 
@@ -120,10 +122,10 @@ def populate_registry(registry: SQLiteRegistry) -> None:
 def test_migration_creates_versioned_schema_and_is_idempotent(tmp_path) -> None:
     database = tmp_path / "registry.sqlite"
     with SQLiteRegistry(database) as registry:
-        assert registry.schema_version() == 31
+        assert registry.schema_version() == 36
         registry.add_source(source_record())
     with SQLiteRegistry(database) as reopened:
-        assert reopened.schema_version() == 31
+        assert reopened.schema_version() == 36
         assert reopened.get_source("source:publisher-a").publisher_name == "Publisher publisher-a"
 
 
@@ -2504,7 +2506,7 @@ def test_schema_v15_migrates_to_v16_with_single_final_adjudication_guard(tmp_pat
 
 def test_latest_registry_contains_append_only_score_study_execution_and_acceptance_stores():
     with SQLiteRegistry() as registry:
-        assert registry.schema_version() == 31
+        assert registry.schema_version() == 36
         tables = {
             row["name"] for row in registry._connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
@@ -2652,3 +2654,1441 @@ def test_schema_30_migrates_to_31_staging_channel(tmp_path, monkeypatch) -> None
             "channel": "staging", "state_revision": 0, "current_event_id": None,
             "current_export_id": None, "lkg_event_id": None, "lkg_export_id": None,
         }
+
+
+def test_domain_revision_insert_must_match_the_current_head():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        with pytest.raises(sqlite3.IntegrityError, match="must match current head"):
+            registry._connection.execute(
+                """INSERT INTO domain_record_revisions
+                   (record_type, record_id, revision, created_at, actor, reason, payload_json)
+                   VALUES ('article', 'article:publisher-a-001', 2, ?, 'attacker', 'forged', ?)""",
+                ("2026-11-20T00:00:00Z", '{"id":"article:publisher-a-001","forged":true}'),
+            )
+
+
+def test_permission_grant_revision_insert_and_head_update_are_guarded():
+    with SQLiteRegistry() as registry:
+        populate_registry(registry)
+        registry.add_permission_grant(grant_record())
+        with pytest.raises(sqlite3.IntegrityError, match="current or next legal head"):
+            registry._connection.execute(
+                """INSERT INTO permission_grant_revisions
+                   (grant_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, 3, ?, 'attacker', 'forged', ?)""",
+                (
+                    "permission:publisher-a-discovery-001",
+                    "2026-11-20T00:00:00Z",
+                    '{"id":"permission:publisher-a-discovery-001","source_id":"source:publisher-a","status":"revoked"}',
+                ),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="requires matching revision"):
+            registry._connection.execute(
+                """UPDATE permission_grants
+                   SET status = 'revoked', revision = revision + 1,
+                       payload_json = json_set(payload_json, '$.status', 'revoked')
+                   WHERE id = ?""",
+                ("permission:publisher-a-discovery-001",),
+            )
+
+
+def test_assignment_sql_boundary_rejects_illegal_status_jump():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(
+            payload, actor="curator", reason="Assign independent review",
+        )
+        forged = dict(payload)
+        forged.update(
+            status="submitted",
+            accepted_at="2026-11-20T01:00:00Z",
+            submitted_review_id="review:forged",
+            closed_at="2026-11-20T02:00:00Z",
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="current or next legal head"):
+            registry._connection.execute(
+                """INSERT INTO benchmark_review_assignment_revisions
+                   (assignment_id, revision, created_at, actor, reason, payload_json)
+                   VALUES (?, 2, ?, 'editor:lead', 'forged submission', ?)""",
+                (payload["assignment_id"], "2026-11-20T02:00:00Z", json.dumps(forged)),
+            )
+
+
+def test_schema_33_migrates_to_34_with_revision_and_assignment_guards(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v33.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 33)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 33
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 34)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 34
+        triggers = {
+            row["name"]
+            for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert {
+            "domain_record_revisions_validate_insert",
+            "permission_grant_revisions_validate_insert",
+            "permission_grants_revision_guard",
+            "benchmark_review_assignment_revisions_validate_insert",
+            "benchmark_review_assignment_status_transition_guard",
+        } <= triggers
+
+
+def test_permission_grant_sql_transition_cannot_rewrite_scope_or_evidence():
+    with SQLiteRegistry() as registry:
+        populate_registry(registry)
+        registry.add_permission_grant(grant_record())
+        row = registry._connection.execute(
+            "SELECT revision, payload_json FROM permission_grants WHERE id = ?",
+            ("permission:publisher-a-discovery-001",),
+        ).fetchone()
+        payload = json.loads(row["payload_json"])
+        payload["status"] = "revoked"
+        payload["endpoint_ids"] = [*payload["endpoint_ids"], "endpoint:attacker"]
+        payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+        with pytest.raises(sqlite3.IntegrityError, match="scope and evidence are immutable"):
+            with registry._transaction():
+                registry._connection.execute(
+                    """INSERT INTO permission_grant_revisions
+                       (grant_id, revision, created_at, actor, reason, payload_json)
+                       VALUES (?, ?, ?, 'rights-reviewer', 'attempted scope rewrite', ?)""",
+                    (
+                        "permission:publisher-a-discovery-001",
+                        row["revision"] + 1,
+                        "2026-11-20T00:00:00Z",
+                        payload_json,
+                    ),
+                )
+                registry._connection.execute(
+                    """UPDATE permission_grants
+                       SET status = 'revoked', revision = ?, payload_json = ?
+                       WHERE id = ? AND revision = ?""",
+                    (
+                        row["revision"] + 1,
+                        payload_json,
+                        "permission:publisher-a-discovery-001",
+                        row["revision"],
+                    ),
+                )
+
+
+def test_domain_record_direct_sql_update_appends_revision_automatically():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        row = registry._connection.execute(
+            """SELECT revision, payload_json FROM domain_records
+               WHERE record_type = 'story' AND id = 'story:sample-event'"""
+        ).fetchone()
+        payload = json.loads(row["payload_json"])
+        payload["status"] = "ongoing"
+        payload["revision"] = 2
+        payload["updated_at"] = "2026-11-21T00:00:00Z"
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+        registry._connection.execute(
+            """UPDATE domain_records
+               SET revision = 2, updated_at = ?, payload_json = ?,
+                   last_actor = 'direct-sql-reviewer',
+                   last_reason = 'Verified database trigger snapshot',
+                   last_revision_at = ?
+               WHERE record_type = 'story' AND id = 'story:sample-event' AND revision = 1""",
+            ("2026-11-21T00:00:00Z", encoded, "9999-12-31T23:59:59Z"),
+        )
+
+        history = registry.domain_record_history("story", "story:sample-event")
+        assert [entry["revision"] for entry in history] == [1, 2]
+        assert history[1]["actor"] == "direct-sql-reviewer"
+        assert history[1]["reason"] == "Verified database trigger snapshot"
+        assert history[1]["record"]["status"] == "ongoing"
+
+
+def test_domain_record_sql_guard_rejects_revision_jump_and_article_rebinding():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        registry.add_domain_record("story", story_record())
+        story = registry._connection.execute(
+            """SELECT payload_json FROM domain_records
+               WHERE record_type = 'story' AND id = 'story:sample-event'"""
+        ).fetchone()
+        story_payload = json.loads(story["payload_json"])
+        story_payload["revision"] = 3
+        with pytest.raises(sqlite3.IntegrityError, match="revision must increment by one"):
+            registry._connection.execute(
+                """UPDATE domain_records
+                   SET revision = 3, payload_json = ?, last_actor = 'editor',
+                       last_reason = 'illegal revision jump', last_revision_at = ?
+                   WHERE record_type = 'story' AND id = 'story:sample-event'""",
+                (json.dumps(story_payload, sort_keys=True, separators=(",", ":")),
+                 "2026-11-23T00:00:00Z"),
+            )
+
+        story_payload["revision"] = 1
+        with pytest.raises(sqlite3.IntegrityError, match="payload revision must match indexed revision"):
+            registry._connection.execute(
+                """UPDATE domain_records
+                   SET revision = 2, payload_json = ?, last_actor = 'editor',
+                       last_reason = 'payload revision mismatch', last_revision_at = ?
+                   WHERE record_type = 'story' AND id = 'story:sample-event'""",
+                (json.dumps(story_payload, sort_keys=True, separators=(",", ":")),
+                 "2026-11-23T00:00:00Z"),
+            )
+
+        article = registry._connection.execute(
+            """SELECT payload_json FROM domain_records
+               WHERE record_type = 'article' AND id = 'article:publisher-a-001'"""
+        ).fetchone()
+        article_payload = json.loads(article["payload_json"])
+        article_payload["source_id"] = "source:attacker"
+        with pytest.raises(sqlite3.IntegrityError, match="article source and canonical identity are immutable"):
+            registry._connection.execute(
+                """UPDATE domain_records
+                   SET revision = 2, payload_json = ?, last_actor = 'editor',
+                       last_reason = 'attempted rebind', last_revision_at = ?
+                   WHERE record_type = 'article' AND id = 'article:publisher-a-001'""",
+                (json.dumps(article_payload, sort_keys=True, separators=(",", ":")),
+                 "9999-12-31T23:59:59Z"),
+            )
+
+
+def test_schema_34_migrates_to_35_with_automatic_domain_revision_triggers(tmp_path, monkeypatch):
+    database = tmp_path / "registry-v34.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 34)
+    with SQLiteRegistry(database) as old_registry:
+        assert old_registry.schema_version() == 34
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 35)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 35
+        columns = {
+            row["name"]
+            for row in migrated._connection.execute("PRAGMA table_info(domain_records)")
+        }
+        assert {"last_actor", "last_reason", "last_revision_at"} <= columns
+        triggers = {
+            row["name"]
+            for row in migrated._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+        assert {
+            "domain_records_revision_guard",
+            "domain_records_record_update",
+        } <= triggers
+
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("record_type", "story"),
+        ("id", "article:rewritten-identity"),
+        ("created_at", "2026-11-01T00:00:00Z"),
+    ],
+)
+def test_domain_record_sql_guard_rejects_identity_rewrites(column, value):
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        row = registry._connection.execute(
+            """SELECT revision, payload_json FROM domain_records
+               WHERE record_type = 'article' AND id = 'article:publisher-a-001'"""
+        ).fetchone()
+        payload = json.loads(row["payload_json"])
+        payload["updated_at"] = "2026-11-21T00:00:00Z"
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+        with pytest.raises(sqlite3.IntegrityError, match="identity and creation time are immutable"):
+            registry._connection.execute(
+                f"""UPDATE domain_records
+                    SET {column} = ?, revision = revision + 1, updated_at = ?,
+                        payload_json = ?, last_actor = 'sql-reviewer',
+                        last_reason = 'attempted identity rewrite',
+                        last_revision_at = '2026-11-23T00:00:00Z'
+                    WHERE record_type = 'article' AND id = 'article:publisher-a-001'""",
+                (value, "2026-11-21T00:00:00Z", encoded),
+            )
+
+
+def test_domain_record_sql_guard_rejects_revision_timestamp_rollback():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+        row = registry._connection.execute(
+            """SELECT payload_json FROM domain_records
+               WHERE record_type = 'article' AND id = 'article:publisher-a-001'"""
+        ).fetchone()
+        payload = json.loads(row["payload_json"])
+        payload["updated_at"] = "2026-11-21T00:00:00Z"
+
+        with pytest.raises(sqlite3.IntegrityError, match="timestamp cannot move backwards"):
+            registry._connection.execute(
+                """UPDATE domain_records
+                   SET revision = revision + 1, updated_at = ?, payload_json = ?,
+                       last_actor = 'sql-reviewer', last_reason = 'backdated revision',
+                       last_revision_at = '2000-01-01T00:00:00Z'
+                   WHERE record_type = 'article' AND id = 'article:publisher-a-001'""",
+                (
+                    "2026-11-21T00:00:00Z",
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+
+
+def test_domain_record_revision_history_rejects_direct_update_and_delete():
+    with SQLiteRegistry() as registry:
+        registry.add_source(source_record())
+        registry.add_domain_record("article", article_record())
+
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                """UPDATE domain_record_revisions
+                   SET reason = 'rewritten' WHERE record_type = 'article'
+                     AND record_id = 'article:publisher-a-001' AND revision = 1"""
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                """DELETE FROM domain_record_revisions
+                   WHERE record_type = 'article'
+                     AND record_id = 'article:publisher-a-001' AND revision = 1"""
+            )
+
+
+def test_permission_grant_revision_history_rejects_direct_update_and_delete():
+    with SQLiteRegistry() as registry:
+        populate_registry(registry)
+        registry.add_permission_grant(grant_record())
+
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                """UPDATE permission_grant_revisions
+                   SET reason = 'rewritten'
+                   WHERE grant_id = 'permission:publisher-a-discovery-001' AND revision = 1"""
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            registry._connection.execute(
+                """DELETE FROM permission_grant_revisions
+                   WHERE grant_id = 'permission:publisher-a-discovery-001' AND revision = 1"""
+            )
+
+
+def test_staging_channel_state_is_a_singleton_and_cannot_be_forged_or_deleted():
+    with SQLiteRegistry() as registry:
+        state = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert state is not None
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
+            registry._connection.execute(
+                """INSERT INTO edition_staging_channel_state
+                   (channel, state_revision, current_event_id, current_export_id, lkg_event_id, lkg_export_id)
+                   VALUES ('staging', 0, NULL, NULL, NULL, NULL)"""
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="matching append-only event"):
+            registry._connection.execute(
+                """UPDATE edition_staging_channel_state
+                   SET state_revision = 1 WHERE channel = 'staging'"""
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="cannot be deleted"):
+            registry._connection.execute(
+                "DELETE FROM edition_staging_channel_state WHERE channel = 'staging'"
+            )
+        state_after = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert dict(state_after) == dict(state)
+
+
+def test_staging_event_direct_sql_rejects_payload_identity_mismatch():
+    with SQLiteRegistry() as registry:
+        payload = {
+            "event_id": "payload-event-id",
+            "state_revision": 1,
+            "channel": "staging",
+            "operation": "promote",
+            "manifest_id": "manifest:unregistered",
+            "edition_id": "edition:unregistered",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+            "export_id": "export:unregistered",
+            "export_sha256": "sha256:" + "b" * 64,
+            "previous_current_export_id": None,
+            "lkg_export_id": None,
+            "operator_principal_id": "operator:unregistered",
+            "occurred_at": "2026-11-20T00:00:00Z",
+            "reason": "Direct SQL boundary test",
+            "publication_authorized": False,
+            "target": "staging",
+        }
+        with pytest.raises(sqlite3.IntegrityError, match="staging event failed"):
+            registry._connection.execute(
+                """INSERT INTO edition_staging_events
+                   (event_id, state_revision, channel, operation, manifest_id, edition_id,
+                    edition_revision, payload_sha256, export_id, export_sha256,
+                    previous_current_export_id, lkg_export_id, operator_principal_id,
+                    occurred_at, reason, export_package_json, payload_json)
+                   VALUES (?, 1, 'staging', 'promote', ?, ?, 1, ?, ?, ?, NULL, NULL,
+                           ?, ?, ?, '{}', ?)""",
+                (
+                    "row-event-id", payload["manifest_id"], payload["edition_id"],
+                    payload["payload_sha256"], payload["export_id"], payload["export_sha256"],
+                    payload["operator_principal_id"], payload["occurred_at"], payload["reason"],
+                    json.dumps(payload),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        assert registry._connection.execute(
+            "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()[0] == 0
+
+
+def test_assignment_direct_sql_head_update_cannot_skip_accepted_state():
+    with SQLiteRegistry() as registry:
+        _populate_benchmark_review_sources(registry)
+        payload = _benchmark_assignment_payload()
+        registry.create_benchmark_review_assignment(
+            payload, actor="curator", reason="Assign independent review",
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="invalid benchmark assignment status transition"):
+            registry._connection.execute(
+                """UPDATE benchmark_review_assignments
+                   SET status = 'submitted',
+                       last_actor = reviewer_id,
+                       last_reason = 'direct SQL attempted to skip acceptance',
+                       payload_json = json_set(
+                           payload_json,
+                           '$.status', 'submitted',
+                           '$.last_transition.actor', reviewer_id,
+                           '$.last_transition.reason', 'direct SQL attempted to skip acceptance'
+                       )
+                   WHERE assignment_id = ?""",
+                (payload["assignment_id"],),
+            )
+        stored = registry.get_benchmark_review_assignment(payload["assignment_id"])
+        assert stored["status"] == "assigned"
+        assert stored["revision"] == 1
+
+
+@pytest.mark.parametrize(
+    ("column", "row_value"),
+    [
+        ("manifest_id", "manifest:forged"),
+        ("edition_id", "edition:forged"),
+        ("edition_revision", 2),
+        ("payload_sha256", "sha256:" + "b" * 64),
+    ],
+)
+def test_edition_artifact_direct_sql_rejects_manifest_identity_mismatch(column, row_value):
+    with SQLiteRegistry() as registry:
+        manifest = {
+            "manifest_id": "manifest:expected",
+            "edition_id": "edition:expected",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+        }
+        row = {
+            **manifest,
+            column: row_value,
+        }
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="stored edition artifact columns must match manifest",
+        ):
+            registry._connection.execute(
+                """INSERT INTO edition_artifacts
+                   (manifest_id, edition_id, edition_revision, payload_sha256,
+                    payload_json, manifest_json, verification_json, created_at, actor, reason)
+                   VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer',
+                           'attempted artifact identity mismatch')""",
+                (
+                    row["manifest_id"],
+                    row["edition_id"],
+                    row["edition_revision"],
+                    row["payload_sha256"],
+                    json.dumps(manifest, sort_keys=True, separators=(",", ":")),
+                    "2026-11-23T00:00:00Z",
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_artifacts"
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("decision_id", "decision:forged"),
+        ("manifest_id", "manifest:forged"),
+        ("edition_id", "edition:forged"),
+        ("edition_revision", 2),
+        ("payload_sha256", "sha256:" + "b" * 64),
+        ("decision", "reject"),
+        ("principal_id", "principal:forged"),
+        ("decided_at", "2026-11-24T00:00:00Z"),
+        ("role", "edition_release_authorizer"),
+        ("scope", "controlled_release_gate"),
+        ("publication_authorized", True),
+    ],
+)
+def test_edition_decision_direct_sql_rejects_payload_identity_or_scope_mismatch(
+    field, forged_value,
+):
+    with SQLiteRegistry() as registry:
+        manifest = {
+            "manifest_id": "manifest:decision-test",
+            "edition_id": "edition:decision-test",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+        }
+        registry._connection.execute(
+            """INSERT INTO edition_artifacts
+               (manifest_id, edition_id, edition_revision, payload_sha256,
+                payload_json, manifest_json, verification_json, created_at, actor, reason)
+               VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer', 'decision guard fixture')""",
+            (
+                manifest["manifest_id"],
+                manifest["edition_id"],
+                manifest["edition_revision"],
+                manifest["payload_sha256"],
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")),
+                "2026-11-23T00:00:00Z",
+            ),
+        )
+        payload = {
+            "decision_id": "decision:expected",
+            **manifest,
+            "decision": "approve",
+            "principal_id": "principal:expected",
+            "decided_at": "2026-11-23T00:00:00Z",
+            "role": "edition_approver",
+            "scope": "staging_candidate_review",
+            "publication_authorized": False,
+        }
+        payload[field] = forged_value
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="edition decision must bind an exact artifact and active human approver",
+        ):
+            registry._connection.execute(
+                """INSERT INTO edition_decisions
+                   (decision_id, manifest_id, edition_id, edition_revision, payload_sha256,
+                    decision, principal_id, decided_at, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    "decision:expected",
+                    manifest["manifest_id"],
+                    manifest["edition_id"],
+                    manifest["edition_revision"],
+                    manifest["payload_sha256"],
+                    "approve",
+                    "principal:expected",
+                    "2026-11-23T00:00:00Z",
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_decisions"
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("event_id", "event:forged"),
+        ("state_revision", 2),
+        ("channel", "live"),
+        ("operation", "rollback"),
+        ("manifest_id", "manifest:forged"),
+        ("edition_id", "edition:forged"),
+        ("edition_revision", 2),
+        ("payload_sha256", "sha256:" + "c" * 64),
+        ("export_id", "export:forged"),
+        ("export_sha256", "sha256:" + "d" * 64),
+        ("previous_current_export_id", "export:previous"),
+        ("lkg_export_id", "export:lkg"),
+        ("operator_principal_id", "operator:forged"),
+        ("occurred_at", "2026-11-24T00:00:00Z"),
+        ("reason", "forged reason"),
+        ("publication_authorized", True),
+        ("target", "production"),
+    ],
+)
+def test_staging_event_direct_sql_rejects_each_payload_column_mismatch(
+    field, forged_value,
+):
+    with SQLiteRegistry() as registry:
+        payload = {
+            "event_id": "event:expected",
+            "state_revision": 1,
+            "channel": "staging",
+            "operation": "promote",
+            "manifest_id": "manifest:expected",
+            "edition_id": "edition:expected",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+            "export_id": "export:expected",
+            "export_sha256": "sha256:" + "b" * 64,
+            "previous_current_export_id": None,
+            "lkg_export_id": None,
+            "operator_principal_id": "operator:expected",
+            "occurred_at": "2026-11-23T00:00:00Z",
+            "reason": "Staging payload binding test",
+            "publication_authorized": False,
+            "target": "staging",
+        }
+        payload[field] = forged_value
+        export_package = {
+            "export_id": "export:expected",
+            "manifest_id": "manifest:expected",
+            "payload_sha256": "sha256:" + "a" * 64,
+            "target": "staging",
+            "publication_authorized": False,
+        }
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="staging event failed",
+        ):
+            registry._connection.execute(
+                """INSERT INTO edition_staging_events
+                   (event_id, state_revision, channel, operation, manifest_id, edition_id,
+                    edition_revision, payload_sha256, export_id, export_sha256,
+                    previous_current_export_id, lkg_export_id, operator_principal_id,
+                    occurred_at, reason, export_package_json, payload_json)
+                   VALUES ('event:expected', 1, 'staging', 'promote',
+                           'manifest:expected', 'edition:expected', 1, ?, 'export:expected',
+                           ?, NULL, NULL, 'operator:expected', '2026-11-23T00:00:00Z',
+                           'Staging payload binding test', ?, ?)""",
+                (
+                    "sha256:" + "a" * 64,
+                    "sha256:" + "b" * 64,
+                    json.dumps(export_package, sort_keys=True, separators=(",", ":")),
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        state = registry._connection.execute(
+            "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert state["state_revision"] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("export_id", "export:forged"),
+        ("manifest_id", "manifest:forged"),
+        ("payload_sha256", "sha256:" + "c" * 64),
+        ("target", "production"),
+        ("publication_authorized", True),
+    ],
+)
+def test_staging_event_direct_sql_rejects_export_package_binding_mismatch(
+    field, forged_value,
+):
+    with SQLiteRegistry() as registry:
+        payload = {
+            "event_id": "event:expected",
+            "state_revision": 1,
+            "channel": "staging",
+            "operation": "promote",
+            "manifest_id": "manifest:expected",
+            "edition_id": "edition:expected",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+            "export_id": "export:expected",
+            "export_sha256": "sha256:" + "b" * 64,
+            "previous_current_export_id": None,
+            "lkg_export_id": None,
+            "operator_principal_id": "operator:expected",
+            "occurred_at": "2026-11-23T00:00:00Z",
+            "reason": "Export package binding test",
+            "publication_authorized": False,
+            "target": "staging",
+        }
+        export_package = {
+            "export_id": "export:expected",
+            "manifest_id": "manifest:expected",
+            "payload_sha256": "sha256:" + "a" * 64,
+            "target": "staging",
+            "publication_authorized": False,
+        }
+        export_package[field] = forged_value
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="staging event failed",
+        ):
+            registry._connection.execute(
+                """INSERT INTO edition_staging_events
+                   (event_id, state_revision, channel, operation, manifest_id, edition_id,
+                    edition_revision, payload_sha256, export_id, export_sha256,
+                    previous_current_export_id, lkg_export_id, operator_principal_id,
+                    occurred_at, reason, export_package_json, payload_json)
+                   VALUES ('event:expected', 1, 'staging', 'promote',
+                           'manifest:expected', 'edition:expected', 1, ?, 'export:expected',
+                           ?, NULL, NULL, 'operator:expected', '2026-11-23T00:00:00Z',
+                           'Export package binding test', ?, ?)""",
+                (
+                    "sha256:" + "a" * 64,
+                    "sha256:" + "b" * 64,
+                    json.dumps(export_package, sort_keys=True, separators=(",", ":")),
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        assert registry._connection.execute(
+            "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("authorization_id", "authorization:forged"),
+        ("manifest_id", "manifest:forged"),
+        ("edition_id", "edition:forged"),
+        ("edition_revision", 2),
+        ("payload_sha256", "sha256:" + "c" * 64),
+        ("approval_decision_id", "decision:forged"),
+        ("approver_principal_id", "principal:forged"),
+        ("authorizer_principal_id", "principal:forged"),
+        ("authorized_at", "2026-11-24T00:00:00Z"),
+        ("scope", "publication"),
+        ("release_authorized", False),
+        ("publication_authorized", True),
+    ],
+)
+def test_edition_release_authorization_direct_sql_rejects_payload_binding_mismatch(
+    field, forged_value,
+):
+    with SQLiteRegistry() as registry:
+        registry.register_benchmark_principal(
+            "principal:approver",
+            display_name="Test approver",
+            roles=["edition_approver"],
+            provisioned_by="test-bootstrap",
+            reason="Provision release-authorization fixture approver",
+            principal_kind="human",
+        )
+        registry.register_benchmark_principal(
+            "principal:authorizer",
+            display_name="Test release authorizer",
+            roles=["edition_release_authorizer"],
+            provisioned_by="test-bootstrap",
+            reason="Provision release-authorization fixture authorizer",
+            principal_kind="human",
+        )
+        manifest = {
+            "manifest_id": "manifest:release-auth-test",
+            "edition_id": "edition:release-auth-test",
+            "edition_revision": 1,
+            "payload_sha256": "sha256:" + "a" * 64,
+        }
+        registry._connection.execute(
+            """INSERT INTO edition_artifacts
+               (manifest_id, edition_id, edition_revision, payload_sha256,
+                payload_json, manifest_json, verification_json, created_at, actor, reason)
+               VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'sql-reviewer', 'release auth fixture')""",
+            (
+                manifest["manifest_id"],
+                manifest["edition_id"],
+                manifest["edition_revision"],
+                manifest["payload_sha256"],
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")),
+                "2026-11-23T00:00:00Z",
+            ),
+        )
+        decision = {
+            "decision_id": "decision:release-auth-test",
+            **manifest,
+            "decision": "approve",
+            "principal_id": "principal:approver",
+            "decided_at": "2026-11-23T00:00:00Z",
+            "role": "edition_approver",
+            "scope": "staging_candidate_review",
+            "publication_authorized": False,
+        }
+        registry._connection.execute(
+            """INSERT INTO edition_decisions
+               (decision_id, manifest_id, edition_id, edition_revision, payload_sha256,
+                decision, principal_id, decided_at, payload_json)
+               VALUES (?, ?, ?, ?, ?, 'approve', ?, ?, ?)""",
+            (
+                decision["decision_id"],
+                manifest["manifest_id"],
+                manifest["edition_id"],
+                manifest["edition_revision"],
+                manifest["payload_sha256"],
+                "principal:approver",
+                decision["decided_at"],
+                json.dumps(decision, sort_keys=True, separators=(",", ":")),
+            ),
+        )
+        payload = {
+            "authorization_id": "authorization:expected",
+            **manifest,
+            "approval_decision_id": "decision:release-auth-test",
+            "approver_principal_id": "principal:approver",
+            "authorizer_principal_id": "principal:authorizer",
+            "authorized_at": "2026-11-23T00:00:00Z",
+            "scope": "controlled_release_gate",
+            "release_authorized": True,
+            "publication_authorized": False,
+        }
+        payload[field] = forged_value
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="release authorization must bind an approved artifact and independent active human authorizer",
+        ):
+            registry._connection.execute(
+                """INSERT INTO edition_release_authorizations
+                   (authorization_id, manifest_id, edition_id, edition_revision,
+                    payload_sha256, approval_decision_id, approver_principal_id,
+                    authorizer_principal_id, authorized_at, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    "authorization:expected",
+                    manifest["manifest_id"],
+                    manifest["edition_id"],
+                    manifest["edition_revision"],
+                    manifest["payload_sha256"],
+                    "decision:release-auth-test",
+                    "principal:approver",
+                    "principal:authorizer",
+                    "2026-11-23T00:00:00Z",
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_release_authorizations"
+        ).fetchone()[0] == 0
+
+
+
+def _valid_staging_sql_fixture(registry):
+    """Create the complete independent-human authority chain required by staging SQL."""
+    for principal_id, role in (
+        ("principal:staging-approver", "edition_approver"),
+        ("principal:staging-authorizer", "edition_release_authorizer"),
+        ("principal:staging-operator", "edition_staging_operator"),
+    ):
+        registry.register_benchmark_principal(
+            principal_id,
+            display_name=principal_id,
+            roles=[role],
+            provisioned_by="test-bootstrap",
+            reason="Create valid staging SQL fixture",
+            principal_kind="human",
+        )
+
+    manifest = {
+        "manifest_id": "manifest:staging-transaction",
+        "edition_id": "edition:staging-transaction",
+        "edition_revision": 1,
+        "payload_sha256": "sha256:" + "a" * 64,
+    }
+    registry._connection.execute(
+        """INSERT INTO edition_artifacts
+           (manifest_id, edition_id, edition_revision, payload_sha256,
+            payload_json, manifest_json, verification_json, created_at, actor, reason)
+           VALUES (?, ?, ?, ?, '{}', ?, '{}', ?, 'test', 'valid staging transaction fixture')""",
+        (
+            manifest["manifest_id"], manifest["edition_id"],
+            manifest["edition_revision"], manifest["payload_sha256"],
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")),
+            "2026-11-23T00:00:00Z",
+        ),
+    )
+
+    decision = {
+        "decision_id": "decision:staging-transaction",
+        **manifest,
+        "decision": "approve",
+        "principal_id": "principal:staging-approver",
+        "decided_at": "2026-11-23T00:01:00Z",
+        "role": "edition_approver",
+        "scope": "staging_candidate_review",
+        "publication_authorized": False,
+    }
+    registry._connection.execute(
+        """INSERT INTO edition_decisions
+           (decision_id, manifest_id, edition_id, edition_revision, payload_sha256,
+            decision, principal_id, decided_at, payload_json)
+           VALUES (?, ?, ?, ?, ?, 'approve', ?, ?, ?)""",
+        (
+            decision["decision_id"], manifest["manifest_id"], manifest["edition_id"],
+            manifest["edition_revision"], manifest["payload_sha256"],
+            decision["principal_id"], decision["decided_at"],
+            json.dumps(decision, sort_keys=True, separators=(",", ":")),
+        ),
+    )
+
+    authorization = {
+        "authorization_id": "authorization:staging-transaction",
+        **manifest,
+        "approval_decision_id": decision["decision_id"],
+        "approver_principal_id": decision["principal_id"],
+        "authorizer_principal_id": "principal:staging-authorizer",
+        "authorized_at": "2026-11-23T00:02:00Z",
+        "scope": "controlled_release_gate",
+        "release_authorized": True,
+        "publication_authorized": False,
+    }
+    registry._connection.execute(
+        """INSERT INTO edition_release_authorizations
+           (authorization_id, manifest_id, edition_id, edition_revision,
+            payload_sha256, approval_decision_id, approver_principal_id,
+            authorizer_principal_id, authorized_at, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            authorization["authorization_id"], manifest["manifest_id"],
+            manifest["edition_id"], manifest["edition_revision"],
+            manifest["payload_sha256"], decision["decision_id"],
+            decision["principal_id"], authorization["authorizer_principal_id"],
+            authorization["authorized_at"],
+            json.dumps(authorization, sort_keys=True, separators=(",", ":")),
+        ),
+    )
+
+    event = {
+        "event_id": "event:staging-transaction",
+        "state_revision": 1,
+        "channel": "staging",
+        "operation": "promote",
+        **manifest,
+        "export_id": "export:staging-transaction",
+        "export_sha256": "sha256:" + "b" * 64,
+        "previous_current_export_id": None,
+        "lkg_export_id": None,
+        "operator_principal_id": "principal:staging-operator",
+        "occurred_at": "2026-11-23T00:03:00Z",
+        "reason": "Verify atomic staging state advancement",
+        "publication_authorized": False,
+        "target": "staging",
+        "staging_decision": {
+            "decision_id": decision["decision_id"],
+            "principal_id": decision["principal_id"],
+        },
+        "release_authorization": {
+            "authorization_id": authorization["authorization_id"],
+            "authorizer_principal_id": authorization["authorizer_principal_id"],
+        },
+    }
+    export_package = {
+        "export_id": event["export_id"],
+        "manifest_id": manifest["manifest_id"],
+        "payload_sha256": manifest["payload_sha256"],
+        "target": "staging",
+        "publication_authorized": False,
+    }
+    return event, export_package
+
+
+def _insert_valid_staging_event(registry, event, export_package):
+    registry._connection.execute(
+        """INSERT INTO edition_staging_events
+           (event_id, state_revision, channel, operation, manifest_id, edition_id,
+            edition_revision, payload_sha256, export_id, export_sha256,
+            previous_current_export_id, lkg_export_id, operator_principal_id,
+            occurred_at, reason, export_package_json, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            event["event_id"], event["state_revision"], event["channel"],
+            event["operation"], event["manifest_id"], event["edition_id"],
+            event["edition_revision"], event["payload_sha256"], event["export_id"],
+            event["export_sha256"], event["previous_current_export_id"],
+            event["lkg_export_id"], event["operator_principal_id"],
+            event["occurred_at"], event["reason"],
+            json.dumps(export_package, sort_keys=True, separators=(",", ":")),
+            json.dumps(event, sort_keys=True, separators=(",", ":")),
+        ),
+    )
+
+
+def test_valid_staging_event_and_channel_state_advance_atomically():
+    with SQLiteRegistry() as registry:
+        event, export_package = _valid_staging_sql_fixture(registry)
+        with registry._transaction():
+            _insert_valid_staging_event(registry, event, export_package)
+            registry._connection.execute(
+                """UPDATE edition_staging_channel_state
+                   SET state_revision = 1,
+                       current_event_id = ?,
+                       current_export_id = ?,
+                       lkg_event_id = NULL,
+                       lkg_export_id = NULL
+                   WHERE channel = 'staging' AND state_revision = 0""",
+                (event["event_id"], event["export_id"]),
+            )
+
+        stored_event = registry._connection.execute(
+            "SELECT * FROM edition_staging_events WHERE event_id = ?",
+            (event["event_id"],),
+        ).fetchone()
+        state = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert stored_event is not None
+        assert state["state_revision"] == 1
+        assert state["current_event_id"] == event["event_id"]
+        assert state["current_export_id"] == event["export_id"]
+        assert state["lkg_event_id"] is None
+        assert state["lkg_export_id"] is None
+
+
+def test_staging_event_insert_rolls_back_when_state_advance_fails():
+    with SQLiteRegistry() as registry:
+        event, export_package = _valid_staging_sql_fixture(registry)
+        with pytest.raises(sqlite3.IntegrityError, match="matching append-only event"):
+            with registry._transaction():
+                _insert_valid_staging_event(registry, event, export_package)
+                registry._connection.execute(
+                    """UPDATE edition_staging_channel_state
+                       SET state_revision = 2,
+                           current_event_id = ?,
+                           current_export_id = ?,
+                           lkg_event_id = NULL,
+                           lkg_export_id = NULL
+                       WHERE channel = 'staging' AND state_revision = 0""",
+                    (event["event_id"], event["export_id"]),
+                )
+
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events WHERE event_id = ?",
+            (event["event_id"],),
+        ).fetchone()[0] == 0
+        state = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert state["state_revision"] == 0
+        assert state["current_event_id"] is None
+        assert state["current_export_id"] is None
+
+
+def _staging_variant(event, *, event_id, revision, operation, export_id,
+                     export_sha256, previous_export_id, lkg_export_id):
+    value = json.loads(json.dumps(event))
+    value.update({
+        "event_id": event_id,
+        "state_revision": revision,
+        "operation": operation,
+        "export_id": export_id,
+        "export_sha256": export_sha256,
+        "previous_current_export_id": previous_export_id,
+        "lkg_export_id": lkg_export_id,
+    })
+    package = {
+        "export_id": export_id,
+        "manifest_id": value["manifest_id"],
+        "payload_sha256": value["payload_sha256"],
+        "target": "staging",
+        "publication_authorized": False,
+    }
+    return value, package
+
+
+def _commit_staging_event_and_state(registry, event, export_package):
+    with registry._transaction():
+        _insert_valid_staging_event(registry, event, export_package)
+        cursor = registry._connection.execute(
+            """UPDATE edition_staging_channel_state
+               SET state_revision = ?,
+                   current_event_id = ?,
+                   current_export_id = ?,
+                   lkg_event_id = (
+                       SELECT current_event_id FROM edition_staging_channel_state
+                       WHERE channel = 'staging'
+                   ),
+                   lkg_export_id = ?
+               WHERE channel = 'staging' AND state_revision = ?""",
+            (
+                event["state_revision"], event["event_id"], event["export_id"],
+                event["lkg_export_id"], event["state_revision"] - 1,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("staging state compare-and-swap lost")
+
+
+def test_staging_rollback_requires_and_restores_a_prior_promoted_export():
+    with SQLiteRegistry() as registry:
+        base, _ = _valid_staging_sql_fixture(registry)
+        first, first_package = _staging_variant(
+            base, event_id="event:staging-first", revision=1,
+            operation="promote", export_id="export:staging-first",
+            export_sha256="sha256:" + "1" * 64,
+            previous_export_id=None, lkg_export_id=None,
+        )
+        _commit_staging_event_and_state(registry, first, first_package)
+
+        second, second_package = _staging_variant(
+            base, event_id="event:staging-second", revision=2,
+            operation="promote", export_id="export:staging-second",
+            export_sha256="sha256:" + "2" * 64,
+            previous_export_id="export:staging-first",
+            lkg_export_id="export:staging-first",
+        )
+        _commit_staging_event_and_state(registry, second, second_package)
+
+        rollback, rollback_package = _staging_variant(
+            base, event_id="event:staging-rollback", revision=3,
+            operation="rollback", export_id="export:staging-first",
+            export_sha256=first["export_sha256"],
+            previous_export_id="export:staging-second",
+            lkg_export_id="export:staging-second",
+        )
+        _commit_staging_event_and_state(registry, rollback, rollback_package)
+
+        state = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        history = registry._connection.execute(
+            """SELECT state_revision, operation, export_id, previous_current_export_id
+               FROM edition_staging_events ORDER BY state_revision"""
+        ).fetchall()
+        assert [(row["state_revision"], row["operation"], row["export_id"])
+                for row in history] == [
+                    (1, "promote", "export:staging-first"),
+                    (2, "promote", "export:staging-second"),
+                    (3, "rollback", "export:staging-first"),
+                ]
+        assert state["state_revision"] == 3
+        assert state["current_event_id"] == "event:staging-rollback"
+        assert state["current_export_id"] == "export:staging-first"
+        assert state["lkg_event_id"] == "event:staging-second"
+        assert state["lkg_export_id"] == "export:staging-second"
+
+
+def test_staging_revision_compare_and_swap_serializes_independent_connections(tmp_path):
+    database = tmp_path / "staging-concurrency.sqlite"
+    first_registry = SQLiteRegistry(database)
+    second_registry = None
+    barrier = threading.Barrier(2)
+    outcomes = []
+
+    try:
+        base, _ = _valid_staging_sql_fixture(first_registry)
+        second_registry = SQLiteRegistry(database)
+        candidates = []
+        for index, registry in enumerate((first_registry, second_registry), start=1):
+            event, package = _staging_variant(
+                base,
+                event_id=f"event:staging-race-{index}",
+                revision=1,
+                operation="promote",
+                export_id=f"export:staging-race-{index}",
+                export_sha256="sha256:" + str(index) * 64,
+                previous_export_id=None,
+                lkg_export_id=None,
+            )
+            candidates.append((registry, event, package))
+
+        def attempt(registry, event, package):
+            barrier.wait(timeout=5)
+            try:
+                _commit_staging_event_and_state(registry, event, package)
+            except sqlite3.IntegrityError:
+                outcomes.append("rejected-stale-revision")
+            except RuntimeError as exc:
+                outcomes.append(str(exc))
+            else:
+                outcomes.append("committed")
+
+        workers = [
+            threading.Thread(target=attempt, args=candidate)
+            for candidate in candidates
+        ]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=10)
+        assert all(not worker.is_alive() for worker in workers)
+        assert sorted(outcomes) == ["committed", "rejected-stale-revision"]
+
+        state = first_registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        persisted = first_registry._connection.execute(
+            "SELECT event_id, state_revision FROM edition_staging_events"
+        ).fetchall()
+        assert state["state_revision"] == 1
+        assert len(persisted) == 1
+        assert persisted[0]["event_id"] == state["current_event_id"]
+    finally:
+        if second_registry is not None:
+            second_registry.close()
+        first_registry.close()
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "remove"),
+    [
+        ("event_id", None, True),
+        ("state_revision", "1", False),
+        ("channel", 1, False),
+        ("publication_authorized", "false", False),
+        ("target", None, True),
+        ("operator_principal_id", 17, False),
+        ("staging_decision.decision_id", None, True),
+        ("release_authorization.authorizer_principal_id", 17, False),
+    ],
+)
+def test_staging_event_direct_sql_rejects_missing_keys_and_wrong_json_scalar_types(
+    path, value, remove,
+):
+    with SQLiteRegistry() as registry:
+        event, package = _valid_staging_sql_fixture(registry)
+        payload = json.loads(json.dumps(event))
+        target = payload
+        parts = path.split(".")
+        for part in parts[:-1]:
+            target = target[part]
+        if remove:
+            target.pop(parts[-1], None)
+        else:
+            target[parts[-1]] = value
+
+        forged = dict(event)
+        forged["_payload_override"] = payload
+        with pytest.raises(sqlite3.IntegrityError, match="staging event failed"):
+            registry._connection.execute(
+                """INSERT INTO edition_staging_events
+                   (event_id, state_revision, channel, operation, manifest_id, edition_id,
+                    edition_revision, payload_sha256, export_id, export_sha256,
+                    previous_current_export_id, lkg_export_id, operator_principal_id,
+                    occurred_at, reason, export_package_json, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    event["event_id"], event["state_revision"], event["channel"],
+                    event["operation"], event["manifest_id"], event["edition_id"],
+                    event["edition_revision"], event["payload_sha256"], event["export_id"],
+                    event["export_sha256"], event["previous_current_export_id"],
+                    event["lkg_export_id"], event["operator_principal_id"],
+                    event["occurred_at"], event["reason"],
+                    json.dumps(package, sort_keys=True, separators=(",", ":")),
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        assert registry._connection.execute(
+            "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "remove"),
+    [
+        ("export_id", 7, False),
+        ("manifest_id", None, True),
+        ("payload_sha256", ["sha256:" + "a" * 64], False),
+        ("target", None, True),
+        ("publication_authorized", "false", False),
+    ],
+)
+def test_staging_export_package_direct_sql_rejects_missing_keys_and_wrong_types(
+    field, value, remove,
+):
+    with SQLiteRegistry() as registry:
+        event, package = _valid_staging_sql_fixture(registry)
+        if remove:
+            package.pop(field, None)
+        else:
+            package[field] = value
+        with pytest.raises(sqlite3.IntegrityError, match="staging event failed"):
+            registry._connection.execute(
+                """INSERT INTO edition_staging_events
+                   (event_id, state_revision, channel, operation, manifest_id, edition_id,
+                    edition_revision, payload_sha256, export_id, export_sha256,
+                    previous_current_export_id, lkg_export_id, operator_principal_id,
+                    occurred_at, reason, export_package_json, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    event["event_id"], event["state_revision"], event["channel"],
+                    event["operation"], event["manifest_id"], event["edition_id"],
+                    event["edition_revision"], event["payload_sha256"], event["export_id"],
+                    event["export_sha256"], event["previous_current_export_id"],
+                    event["lkg_export_id"], event["operator_principal_id"],
+                    event["occurred_at"], event["reason"],
+                    json.dumps(package, sort_keys=True, separators=(",", ":")),
+                    json.dumps(event, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+        assert registry._connection.execute(
+            "SELECT state_revision FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    "forged_state",
+    [
+        {"state_revision": 2},
+        {"current_event_id": None, "current_export_id": None},
+        {"current_export_id": "export:forged"},
+        {"lkg_event_id": "event:state-guard", "lkg_export_id": "export:forged"},
+    ],
+)
+def test_staging_channel_state_direct_sql_rejects_nonmatching_event_pointers(
+    forged_state,
+):
+    with SQLiteRegistry() as registry:
+        event, package = _valid_staging_sql_fixture(registry)
+        event["event_id"] = "event:state-guard"
+        _insert_valid_staging_event(registry, event, package)
+        state = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        values = {
+            "channel": state["channel"],
+            "state_revision": 1,
+            "current_event_id": event["event_id"],
+            "current_export_id": event["export_id"],
+            "lkg_event_id": None,
+            "lkg_export_id": None,
+        }
+        values.update(forged_state)
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="staging state must advance atomically",
+        ):
+            registry._connection.execute(
+                """UPDATE edition_staging_channel_state
+                   SET state_revision = ?, current_event_id = ?, current_export_id = ?,
+                       lkg_event_id = ?, lkg_export_id = ?
+                   WHERE channel = 'staging'""",
+                (
+                    values["state_revision"], values["current_event_id"],
+                    values["current_export_id"], values["lkg_event_id"],
+                    values["lkg_export_id"],
+                ),
+            )
+        unchanged = registry._connection.execute(
+            "SELECT * FROM edition_staging_channel_state WHERE channel = 'staging'"
+        ).fetchone()
+        assert unchanged["state_revision"] == 0
+        assert unchanged["current_event_id"] is None
+        assert unchanged["current_export_id"] is None
+
+
+@pytest.mark.parametrize(
+    ("payload_path", "forged_principal_id", "role"),
+    [
+        (
+            "staging_decision.principal_id",
+            "principal:forged-staging-approver",
+            "edition_approver",
+        ),
+        (
+            "release_authorization.authorizer_principal_id",
+            "principal:forged-staging-authorizer",
+            "edition_release_authorizer",
+        ),
+    ],
+)
+def test_staging_event_direct_sql_rejects_authority_identity_rebinding(
+    payload_path, forged_principal_id, role,
+):
+    with SQLiteRegistry() as registry:
+        event, package = _valid_staging_sql_fixture(registry)
+        registry.register_benchmark_principal(
+            forged_principal_id,
+            display_name=forged_principal_id,
+            roles=[role],
+            provisioned_by="test-bootstrap",
+            reason="Create alternate active human for authority-rebinding attack test",
+            principal_kind="human",
+        )
+        forged_event = json.loads(json.dumps(event))
+        parent, key = payload_path.rsplit(".", 1)
+        forged_event[parent][key] = forged_principal_id
+
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="authority identities must match recorded approval and release authorization",
+        ):
+            _insert_valid_staging_event(registry, forged_event, package)
+
+        assert registry._connection.execute(
+            "SELECT COUNT(*) FROM edition_staging_events"
+        ).fetchone()[0] == 0
+
+
+def test_schema_35_migrates_to_36_staging_authority_binding(tmp_path, monkeypatch):
+    database = tmp_path / "staging-authority-v35.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 35)
+    with SQLiteRegistry(database) as old:
+        assert old.schema_version() == 35
+        assert old._connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' "
+            "AND name='edition_staging_events_authority_binding_guard'"
+        ).fetchone() is None
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 36)
+    with SQLiteRegistry(database) as migrated:
+        assert migrated.schema_version() == 36
+        assert migrated._connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' "
+            "AND name='edition_staging_events_authority_binding_guard'"
+        ).fetchone() is not None
+        versions = [
+            row[0] for row in migrated._connection.execute(
+                "SELECT version FROM schema_migrations ORDER BY version"
+            )
+        ]
+        assert versions == list(range(1, 37))
+
+
+def test_schema_36_migration_refuses_legacy_staging_authority_mismatch(
+    tmp_path, monkeypatch,
+):
+    database = tmp_path / "staging-authority-invalid-v35.sqlite"
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 35)
+    with SQLiteRegistry(database) as old:
+        event, package = _valid_staging_sql_fixture(old)
+        forged_principal = "principal:legacy-forged-approver"
+        old.register_benchmark_principal(
+            forged_principal,
+            display_name=forged_principal,
+            roles=["edition_approver"],
+            provisioned_by="test-bootstrap",
+            reason="Seed legacy identity mismatch for migration safety test",
+            principal_kind="human",
+        )
+        event["staging_decision"]["principal_id"] = forged_principal
+        _insert_valid_staging_event(old, event, package)
+
+    monkeypatch.setattr(registry_module, "_SCHEMA_VERSION", 36)
+    with pytest.raises(
+        registry_module.RegistryMigrationError,
+        match="existing staging events contain authority identity mismatches",
+    ):
+        SQLiteRegistry(database)
+
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 35
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' "
+            "AND name='edition_staging_events_authority_binding_guard'"
+        ).fetchone() is None
+    finally:
+        connection.close()

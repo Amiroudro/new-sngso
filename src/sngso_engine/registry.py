@@ -50,7 +50,7 @@ from .benchmark_assignments import (
 
 
 POLICY_VERSION = "permission-evaluator/1.0.0"
-_SCHEMA_VERSION = 31
+_SCHEMA_VERSION = 36
 
 
 _MIGRATION_14 = (
@@ -2280,6 +2280,568 @@ _MIGRATION_13 = (
 )
 
 
+_MIGRATION_32 = (
+    """CREATE TABLE pipeline_stage_checkpoints (
+        pipeline_run_id TEXT NOT NULL,
+        stage_ordinal INTEGER NOT NULL CHECK (stage_ordinal >= 0),
+        stage_name TEXT NOT NULL CHECK (length(stage_name) BETWEEN 1 AND 100),
+        input_fingerprint TEXT NOT NULL CHECK (input_fingerprint GLOB 'sha256:*'),
+        idempotency_key TEXT NOT NULL UNIQUE CHECK (idempotency_key GLOB 'sha256:*'),
+        status TEXT NOT NULL CHECK (status IN ('executing', 'succeeded', 'failed', 'indeterminate', 'blocked')),
+        provider_namespace TEXT,
+        provider_operation_ref TEXT,
+        output_fingerprint TEXT,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
+        PRIMARY KEY (pipeline_run_id, stage_ordinal),
+        FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_runs(id) ON DELETE RESTRICT,
+        CHECK (provider_operation_ref IS NULL OR
+            (length(provider_operation_ref) BETWEEN 1 AND 256
+             AND provider_operation_ref NOT GLOB '*[^A-Za-z0-9_.:-]*')),
+        CHECK (provider_namespace IS NULL OR
+            (length(provider_namespace) BETWEEN 1 AND 100
+             AND provider_namespace NOT GLOB '*[^a-z0-9_.-]*')),
+        CHECK ((status = 'succeeded' AND output_fingerprint GLOB 'sha256:*')
+            OR (status <> 'succeeded' AND output_fingerprint IS NULL))
+    )""",
+    """CREATE TABLE pipeline_stage_checkpoint_revisions (
+        pipeline_run_id TEXT NOT NULL,
+        stage_ordinal INTEGER NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        status TEXT NOT NULL CHECK (status IN ('executing', 'succeeded', 'failed', 'indeterminate', 'blocked')),
+        provider_operation_ref TEXT,
+        output_fingerprint TEXT,
+        metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
+        PRIMARY KEY (pipeline_run_id, stage_ordinal, revision),
+        FOREIGN KEY (pipeline_run_id, stage_ordinal)
+            REFERENCES pipeline_stage_checkpoints(pipeline_run_id, stage_ordinal) ON DELETE RESTRICT
+    )""",
+    """CREATE INDEX pipeline_stage_checkpoints_status
+       ON pipeline_stage_checkpoints(status, updated_at)""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_initial_revision
+       AFTER INSERT ON pipeline_stage_checkpoints
+       BEGIN
+         INSERT INTO pipeline_stage_checkpoint_revisions
+         (pipeline_run_id, stage_ordinal, revision, created_at, actor, reason,
+          status, provider_operation_ref, output_fingerprint, metadata_json)
+         VALUES (NEW.pipeline_run_id, NEW.stage_ordinal, NEW.revision, NEW.updated_at,
+                 NEW.actor, NEW.reason, NEW.status, NEW.provider_operation_ref,
+                 NEW.output_fingerprint, NEW.metadata_json);
+       END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_revision_guard
+       BEFORE UPDATE ON pipeline_stage_checkpoints
+       BEGIN
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'stage checkpoint revisions must increment sequentially') END;
+         SELECT CASE WHEN NEW.pipeline_run_id != OLD.pipeline_run_id
+              OR NEW.stage_ordinal != OLD.stage_ordinal
+              OR NEW.stage_name != OLD.stage_name
+              OR NEW.input_fingerprint != OLD.input_fingerprint
+              OR NEW.idempotency_key != OLD.idempotency_key
+              OR NEW.provider_namespace IS NOT OLD.provider_namespace
+           THEN RAISE(ABORT, 'stage checkpoint identity is immutable') END;
+         SELECT CASE WHEN OLD.provider_operation_ref IS NOT NULL
+              AND NEW.provider_operation_ref IS NOT OLD.provider_operation_ref
+           THEN RAISE(ABORT, 'provider operation reference is immutable once recorded') END;
+         SELECT CASE WHEN NOT (
+           (OLD.status = 'executing' AND NEW.status IN ('succeeded', 'failed', 'indeterminate', 'blocked'))
+           OR (OLD.status = 'indeterminate' AND NEW.status IN ('executing', 'succeeded', 'blocked'))
+           OR (OLD.status = 'failed' AND NEW.status = 'blocked')
+         ) THEN RAISE(ABORT, 'invalid stage checkpoint status transition') END;
+         SELECT CASE WHEN NEW.status = 'succeeded' AND NEW.output_fingerprint IS NULL
+           THEN RAISE(ABORT, 'successful checkpoint requires an output fingerprint') END;
+         SELECT CASE WHEN NEW.status != 'succeeded' AND NEW.output_fingerprint IS NOT NULL
+           THEN RAISE(ABORT, 'non-successful checkpoint cannot carry an output fingerprint') END;
+       END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_revision_snapshot
+       AFTER UPDATE ON pipeline_stage_checkpoints
+       BEGIN
+         INSERT INTO pipeline_stage_checkpoint_revisions
+         (pipeline_run_id, stage_ordinal, revision, created_at, actor, reason,
+          status, provider_operation_ref, output_fingerprint, metadata_json)
+         VALUES (NEW.pipeline_run_id, NEW.stage_ordinal, NEW.revision, NEW.updated_at,
+                 NEW.actor, NEW.reason, NEW.status, NEW.provider_operation_ref,
+                 NEW.output_fingerprint, NEW.metadata_json);
+       END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_metadata_guard_insert
+       BEFORE INSERT ON pipeline_stage_checkpoints
+       WHEN json_type(NEW.metadata_json) IS NOT 'object'
+         OR EXISTS (
+           SELECT 1 FROM json_each(NEW.metadata_json)
+           WHERE key NOT IN ('adapter_version', 'provider_state', 'failure_code', 'reconciliation', 'attempt')
+              OR (key = 'attempt' AND (type != 'integer' OR CAST(value AS INTEGER) NOT BETWEEN 1 AND 1000))
+              OR (key != 'attempt' AND
+                  (type != 'text' OR length(value) NOT BETWEEN 1 AND 128
+                   OR value GLOB '*[^A-Za-z0-9_.:-]*'))
+         )
+       BEGIN SELECT RAISE(ABORT, 'stage checkpoint metadata contains unsupported fields or types'); END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_metadata_guard_update
+       BEFORE UPDATE ON pipeline_stage_checkpoints
+       WHEN json_type(NEW.metadata_json) IS NOT 'object'
+         OR EXISTS (
+           SELECT 1 FROM json_each(NEW.metadata_json)
+           WHERE key NOT IN ('adapter_version', 'provider_state', 'failure_code', 'reconciliation', 'attempt')
+              OR (key = 'attempt' AND (type != 'integer' OR CAST(value AS INTEGER) NOT BETWEEN 1 AND 1000))
+              OR (key != 'attempt' AND
+                  (type != 'text' OR length(value) NOT BETWEEN 1 AND 128
+                   OR value GLOB '*[^A-Za-z0-9_.:-]*'))
+         )
+       BEGIN SELECT RAISE(ABORT, 'stage checkpoint metadata contains unsupported fields or types'); END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_revision_matches_head
+       BEFORE INSERT ON pipeline_stage_checkpoint_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM pipeline_stage_checkpoints c
+         WHERE c.pipeline_run_id = NEW.pipeline_run_id
+           AND c.stage_ordinal = NEW.stage_ordinal
+           AND c.revision = NEW.revision
+           AND c.updated_at = NEW.created_at
+           AND c.actor = NEW.actor
+           AND c.reason = NEW.reason
+           AND c.status = NEW.status
+           AND c.provider_operation_ref IS NEW.provider_operation_ref
+           AND c.output_fingerprint IS NEW.output_fingerprint
+           AND c.metadata_json = NEW.metadata_json
+       )
+       BEGIN SELECT RAISE(ABORT, 'checkpoint revision must match its current head'); END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_revisions_no_update
+       BEFORE UPDATE ON pipeline_stage_checkpoint_revisions
+       BEGIN SELECT RAISE(ABORT, 'stage checkpoint revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_stage_checkpoint_revisions_no_delete
+       BEFORE DELETE ON pipeline_stage_checkpoint_revisions
+       BEGIN SELECT RAISE(ABORT, 'stage checkpoint revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_stage_checkpoints_no_delete
+       BEFORE DELETE ON pipeline_stage_checkpoints
+       BEGIN SELECT RAISE(ABORT, 'stage checkpoints cannot be deleted'); END""",
+)
+
+
+_MIGRATION_33 = (
+    """CREATE TABLE pipeline_worker_leases (
+        pipeline_run_id TEXT PRIMARY KEY,
+        worker_id TEXT NOT NULL CHECK (length(worker_id) BETWEEN 1 AND 100
+            AND worker_id NOT GLOB '*[^A-Za-z0-9_.:-]*'),
+        token_hash TEXT NOT NULL CHECK (token_hash GLOB 'sha256:*'),
+        fencing_token INTEGER NOT NULL CHECK (fencing_token >= 1),
+        status TEXT NOT NULL CHECK (status IN ('active', 'released', 'expired', 'cancelled')),
+        acquired_at TEXT NOT NULL,
+        heartbeat_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        cancel_requested_at TEXT,
+        cancel_requested_by TEXT,
+        cancel_reason_code TEXT,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        updated_at TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_runs(id) ON DELETE RESTRICT,
+        CHECK ((cancel_requested_at IS NULL AND cancel_requested_by IS NULL AND cancel_reason_code IS NULL)
+            OR (cancel_requested_at IS NOT NULL AND cancel_requested_by IS NOT NULL
+                AND cancel_reason_code IS NOT NULL
+                AND cancel_reason_code GLOB '[a-z]*'
+                AND length(cancel_reason_code) BETWEEN 1 AND 100))
+    )""",
+    """CREATE TABLE pipeline_worker_lease_revisions (
+        pipeline_run_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        worker_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        fencing_token INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        acquired_at TEXT NOT NULL,
+        heartbeat_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        cancel_requested_at TEXT,
+        cancel_requested_by TEXT,
+        cancel_reason_code TEXT,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        PRIMARY KEY (pipeline_run_id, revision),
+        FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_worker_leases(pipeline_run_id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX pipeline_worker_leases_expiry ON pipeline_worker_leases(status, expires_at)",
+    """CREATE TRIGGER pipeline_worker_lease_initial_revision
+       AFTER INSERT ON pipeline_worker_leases
+       BEGIN
+         INSERT INTO pipeline_worker_lease_revisions
+         (pipeline_run_id, revision, created_at, worker_id, token_hash, fencing_token,
+          status, acquired_at, heartbeat_at, expires_at, cancel_requested_at,
+          cancel_requested_by, cancel_reason_code, actor, reason)
+         VALUES (NEW.pipeline_run_id, NEW.revision, NEW.updated_at, NEW.worker_id,
+          NEW.token_hash, NEW.fencing_token, NEW.status, NEW.acquired_at,
+          NEW.heartbeat_at, NEW.expires_at, NEW.cancel_requested_at,
+          NEW.cancel_requested_by, NEW.cancel_reason_code, NEW.actor, NEW.reason);
+       END""",
+    """CREATE TRIGGER pipeline_worker_lease_revision_guard
+       BEFORE UPDATE ON pipeline_worker_leases
+       BEGIN
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'worker lease revisions must increment sequentially') END;
+         SELECT CASE WHEN NEW.pipeline_run_id != OLD.pipeline_run_id
+           THEN RAISE(ABORT, 'worker lease run identity is immutable') END;
+         SELECT CASE WHEN NOT (
+           (OLD.status = 'active' AND NEW.status = 'active'
+             AND NEW.worker_id = OLD.worker_id
+             AND NEW.token_hash = OLD.token_hash
+             AND NEW.fencing_token = OLD.fencing_token
+             AND NEW.acquired_at = OLD.acquired_at
+             AND NEW.heartbeat_at >= OLD.heartbeat_at
+             AND NEW.expires_at > NEW.heartbeat_at)
+           OR (OLD.status = 'active' AND NEW.status IN ('released', 'expired', 'cancelled')
+             AND NEW.worker_id = OLD.worker_id
+             AND NEW.token_hash = OLD.token_hash
+             AND NEW.fencing_token = OLD.fencing_token
+             AND NEW.acquired_at = OLD.acquired_at)
+           OR (OLD.status IN ('released', 'expired') AND NEW.status = 'active'
+             AND NEW.fencing_token = OLD.fencing_token + 1
+             AND NEW.token_hash != OLD.token_hash
+             AND NEW.acquired_at = NEW.heartbeat_at
+             AND NEW.expires_at > NEW.heartbeat_at)
+         ) THEN RAISE(ABORT, 'invalid worker lease ownership or status transition') END;
+         SELECT CASE WHEN OLD.cancel_requested_at IS NOT NULL
+             AND (NEW.cancel_requested_at IS NOT OLD.cancel_requested_at
+               OR NEW.cancel_requested_by IS NOT OLD.cancel_requested_by
+               OR NEW.cancel_reason_code IS NOT OLD.cancel_reason_code)
+           THEN RAISE(ABORT, 'worker cancellation request is immutable once recorded') END;
+         SELECT CASE WHEN OLD.cancel_requested_at IS NULL
+             AND NEW.cancel_requested_at IS NOT NULL
+             AND (NEW.status != 'active' OR NEW.cancel_requested_by IS NULL
+               OR NEW.cancel_reason_code IS NULL)
+           THEN RAISE(ABORT, 'cancellation request requires an active lease and complete request') END;
+       END""",
+    """CREATE TRIGGER pipeline_worker_lease_revision_snapshot
+       AFTER UPDATE ON pipeline_worker_leases
+       BEGIN
+         INSERT INTO pipeline_worker_lease_revisions
+         (pipeline_run_id, revision, created_at, worker_id, token_hash, fencing_token,
+          status, acquired_at, heartbeat_at, expires_at, cancel_requested_at,
+          cancel_requested_by, cancel_reason_code, actor, reason)
+         VALUES (NEW.pipeline_run_id, NEW.revision, NEW.updated_at, NEW.worker_id,
+          NEW.token_hash, NEW.fencing_token, NEW.status, NEW.acquired_at,
+          NEW.heartbeat_at, NEW.expires_at, NEW.cancel_requested_at,
+          NEW.cancel_requested_by, NEW.cancel_reason_code, NEW.actor, NEW.reason);
+       END""",
+    """CREATE TRIGGER pipeline_worker_lease_revision_matches_head
+       BEFORE INSERT ON pipeline_worker_lease_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM pipeline_worker_leases l
+         WHERE l.pipeline_run_id = NEW.pipeline_run_id
+           AND l.revision = NEW.revision AND l.updated_at = NEW.created_at
+           AND l.worker_id = NEW.worker_id AND l.token_hash = NEW.token_hash
+           AND l.fencing_token = NEW.fencing_token AND l.status = NEW.status
+           AND l.acquired_at = NEW.acquired_at AND l.heartbeat_at = NEW.heartbeat_at
+           AND l.expires_at = NEW.expires_at
+           AND l.cancel_requested_at IS NEW.cancel_requested_at
+           AND l.cancel_requested_by IS NEW.cancel_requested_by
+           AND l.cancel_reason_code IS NEW.cancel_reason_code
+           AND l.actor = NEW.actor AND l.reason = NEW.reason
+       )
+       BEGIN SELECT RAISE(ABORT, 'worker lease revision must match current head'); END""",
+    """CREATE TRIGGER pipeline_worker_lease_revisions_no_update
+       BEFORE UPDATE ON pipeline_worker_lease_revisions
+       BEGIN SELECT RAISE(ABORT, 'worker lease revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_worker_lease_revisions_no_delete
+       BEFORE DELETE ON pipeline_worker_lease_revisions
+       BEGIN SELECT RAISE(ABORT, 'worker lease revisions are append-only'); END""",
+    """CREATE TRIGGER pipeline_worker_leases_no_delete
+       BEFORE DELETE ON pipeline_worker_leases
+       BEGIN SELECT RAISE(ABORT, 'worker leases cannot be deleted'); END""",
+)
+
+
+_MIGRATION_34 = (
+    """CREATE TRIGGER domain_record_revisions_validate_insert
+       BEFORE INSERT ON domain_record_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM domain_records d
+         WHERE d.record_type = NEW.record_type
+           AND d.id = NEW.record_id
+           AND d.revision = NEW.revision
+           AND d.payload_json = NEW.payload_json
+       )
+       OR length(trim(NEW.actor)) = 0
+       OR length(trim(NEW.reason)) = 0
+       BEGIN SELECT RAISE(ABORT, 'domain revision must match current head and include actor/reason'); END""",
+    """CREATE TRIGGER permission_grant_revisions_validate_insert
+       BEFORE INSERT ON permission_grant_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM permission_grants g
+         WHERE g.id = NEW.grant_id
+           AND (
+             (g.revision = NEW.revision AND g.payload_json = NEW.payload_json)
+             OR (
+               g.revision + 1 = NEW.revision
+               AND json_extract(NEW.payload_json, '$.id') IS g.id
+               AND json_extract(NEW.payload_json, '$.source_id') IS g.source_id
+               AND (
+                 (g.status = 'pending' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('approved', 'denied', 'suspended', 'revoked'))
+                 OR (g.status = 'approved' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('suspended', 'revoked'))
+                 OR (g.status = 'suspended' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('approved', 'revoked'))
+               )
+             )
+           )
+       )
+       OR length(trim(NEW.actor)) = 0
+       OR length(trim(NEW.reason)) = 0
+       BEGIN SELECT RAISE(ABORT, 'grant revision must match current or next legal head and include actor/reason'); END""",
+    """CREATE TRIGGER permission_grants_revision_guard
+       BEFORE UPDATE ON permission_grants
+       BEGIN
+         SELECT CASE WHEN NEW.id IS NOT OLD.id
+             OR NEW.source_id IS NOT OLD.source_id
+             OR NEW.effective_from IS NOT OLD.effective_from
+             OR NEW.effective_until IS NOT OLD.effective_until
+             OR NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'permission grant identity is immutable and revision must increment by one') END;
+         SELECT CASE WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
+             OR json_extract(NEW.payload_json, '$.source_id') IS NOT NEW.source_id
+             OR json_extract(NEW.payload_json, '$.status') IS NOT NEW.status
+           THEN RAISE(ABORT, 'permission grant payload does not match indexed fields') END;
+         SELECT CASE WHEN json_remove(
+               NEW.payload_json, '$.status', '$.reviewed_at', '$.reviewed_by',
+               '$.revoked_at', '$.revocation_reason', '$.notes'
+             ) IS NOT json_remove(
+               OLD.payload_json, '$.status', '$.reviewed_at', '$.reviewed_by',
+               '$.revoked_at', '$.revocation_reason', '$.notes'
+             )
+           THEN RAISE(ABORT, 'permission grant scope and evidence are immutable across status transitions') END;
+         SELECT CASE WHEN NOT EXISTS (
+             SELECT 1 FROM permission_grant_revisions r
+             WHERE r.grant_id = NEW.id AND r.revision = NEW.revision
+               AND r.payload_json = NEW.payload_json
+           )
+           THEN RAISE(ABORT, 'permission grant update requires matching revision') END;
+         SELECT CASE WHEN NOT (
+             (OLD.status = 'pending' AND NEW.status IN ('approved', 'denied', 'suspended', 'revoked'))
+             OR (OLD.status = 'approved' AND NEW.status IN ('suspended', 'revoked'))
+             OR (OLD.status = 'suspended' AND NEW.status IN ('approved', 'revoked'))
+           )
+           THEN RAISE(ABORT, 'invalid permission grant status transition') END;
+       END""",
+    """CREATE TRIGGER benchmark_review_assignment_revisions_validate_insert
+       BEFORE INSERT ON benchmark_review_assignment_revisions
+       WHEN NOT EXISTS (
+         SELECT 1 FROM benchmark_review_assignments a
+         WHERE a.assignment_id = NEW.assignment_id
+           AND (
+             (a.revision = NEW.revision AND a.payload_json = NEW.payload_json)
+             OR (
+               a.revision + 1 = NEW.revision
+               AND json_extract(NEW.payload_json, '$.assignment_id') IS a.assignment_id
+               AND json_extract(NEW.payload_json, '$.artifact_id') IS a.artifact_id
+               AND json_extract(NEW.payload_json, '$.artifact_fingerprint') IS a.artifact_fingerprint
+               AND json_extract(NEW.payload_json, '$.reviewer_id') IS a.reviewer_id
+               AND json_extract(NEW.payload_json, '$.assigned_by') IS a.assigned_by
+               AND json_extract(NEW.payload_json, '$.language') IS a.language
+               AND (
+                 (a.status = 'assigned' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('accepted', 'cancelled', 'expired'))
+                 OR (a.status = 'accepted' AND json_extract(NEW.payload_json, '$.status')
+                   IN ('submitted', 'cancelled', 'expired'))
+               )
+             )
+           )
+       )
+       OR length(trim(NEW.actor)) = 0
+       OR length(trim(NEW.reason)) = 0
+       BEGIN SELECT RAISE(ABORT, 'assignment revision must match current or next legal head and include actor/reason'); END""",
+    """CREATE TRIGGER benchmark_review_assignment_status_transition_guard
+       BEFORE UPDATE ON benchmark_review_assignments
+       BEGIN
+         SELECT CASE WHEN NEW.status IS NOT OLD.status AND (
+             length(trim(NEW.last_actor)) = 0
+             OR length(trim(NEW.last_reason)) = 0
+             OR json_extract(NEW.payload_json, '$.last_transition.actor') IS NOT NEW.last_actor
+             OR json_extract(NEW.payload_json, '$.last_transition.reason') IS NOT NEW.last_reason
+           )
+           THEN RAISE(ABORT, 'assignment transition receipt must match actor and reason') END;
+         SELECT CASE WHEN NEW.status IS NOT OLD.status AND NOT (
+             (OLD.status = 'assigned' AND NEW.status IN ('accepted', 'cancelled', 'expired'))
+             OR (OLD.status = 'accepted' AND NEW.status IN ('submitted', 'cancelled', 'expired'))
+           )
+           THEN RAISE(ABORT, 'invalid benchmark assignment status transition') END;
+         SELECT CASE WHEN NEW.status IN ('accepted', 'submitted')
+             AND NEW.last_actor IS NOT OLD.reviewer_id
+           THEN RAISE(ABORT, 'reviewer must perform accept and submit transitions') END;
+         SELECT CASE WHEN NEW.status = 'cancelled'
+             AND NEW.last_actor NOT IN (OLD.reviewer_id, OLD.assigned_by)
+           THEN RAISE(ABORT, 'only reviewer or assigner may cancel assignment') END;
+         SELECT CASE WHEN NEW.status = 'expired'
+             AND NEW.last_actor IS NOT OLD.assigned_by
+           THEN RAISE(ABORT, 'only assigner may expire assignment') END;
+         SELECT CASE WHEN NEW.status IN ('accepted', 'submitted')
+             AND NOT EXISTS (
+               SELECT 1 FROM benchmark_principals p
+               WHERE p.principal_id = NEW.last_actor AND p.active = 1
+                                  AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                             WHERE role.value = 'benchmark_reviewer')
+                 AND EXISTS (SELECT 1 FROM json_each(p.languages_json) language
+                             WHERE language.value = NEW.language)
+             )
+           THEN RAISE(ABORT, 'assignment reviewer must be active and language-qualified') END;
+         SELECT CASE WHEN NEW.status IN ('cancelled', 'expired')
+             AND NEW.last_actor = OLD.assigned_by
+             AND NOT EXISTS (
+               SELECT 1 FROM benchmark_principals p
+               WHERE p.principal_id = NEW.last_actor AND p.active = 1
+                                  AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                             WHERE role.value = 'benchmark_curator')
+             )
+           THEN RAISE(ABORT, 'assignment curator must be active and qualified') END;
+         SELECT CASE WHEN NEW.status = 'cancelled'
+             AND NEW.last_actor = OLD.reviewer_id
+             AND NOT EXISTS (
+               SELECT 1 FROM benchmark_principals p
+               WHERE p.principal_id = NEW.last_actor AND p.active = 1
+                                  AND EXISTS (SELECT 1 FROM json_each(p.roles_json) role
+                             WHERE role.value = 'benchmark_reviewer')
+                 AND EXISTS (SELECT 1 FROM json_each(p.languages_json) language
+                             WHERE language.value = NEW.language)
+             )
+           THEN RAISE(ABORT, 'assignment reviewer must be active and language-qualified') END;
+         SELECT CASE WHEN NEW.status = 'accepted'
+             AND (json_extract(NEW.payload_json, '$.accepted_at') IS NULL
+               OR julianday(json_extract(NEW.payload_json, '$.accepted_at')) >= julianday(OLD.due_at))
+           THEN RAISE(ABORT, 'assignment acceptance must occur before deadline') END;
+         SELECT CASE WHEN NEW.status = 'submitted'
+             AND (json_extract(NEW.payload_json, '$.accepted_at') IS NULL
+               OR json_extract(NEW.payload_json, '$.closed_at') IS NULL
+               OR json_extract(NEW.payload_json, '$.submitted_review_id') IS NULL
+               OR julianday(json_extract(NEW.payload_json, '$.closed_at')) >= julianday(OLD.due_at)
+               OR julianday(json_extract(NEW.payload_json, '$.closed_at')) < julianday(json_extract(NEW.payload_json, '$.accepted_at'))
+               OR NOT EXISTS (
+                 SELECT 1 FROM benchmark_reviews r
+                 WHERE r.review_id = json_extract(NEW.payload_json, '$.submitted_review_id')
+                   AND r.benchmark_id = OLD.artifact_id
+                   AND r.benchmark_fingerprint = OLD.artifact_fingerprint
+                   AND r.language = OLD.language
+                   AND json_extract(r.payload_json, '$.reviewer.reviewer_id') = OLD.reviewer_id
+               ))
+           THEN RAISE(ABORT, 'submitted assignment requires a timely review for its exact assignee and artifact') END;
+         SELECT CASE WHEN NEW.status IN ('cancelled', 'expired')
+             AND (json_extract(NEW.payload_json, '$.closed_at') IS NULL
+               OR length(trim(COALESCE(json_extract(NEW.payload_json, '$.closure_reason'), ''))) = 0)
+           THEN RAISE(ABORT, 'closed assignment requires timestamp and reason') END;
+         SELECT CASE WHEN NEW.status = 'expired'
+             AND julianday(json_extract(NEW.payload_json, '$.closed_at')) < julianday(OLD.due_at)
+           THEN RAISE(ABORT, 'assignment cannot expire before its deadline') END;
+         SELECT CASE WHEN NEW.status = 'cancelled' AND OLD.status = 'accepted'
+             AND julianday(json_extract(NEW.payload_json, '$.closed_at')) < julianday(json_extract(OLD.payload_json, '$.accepted_at'))
+           THEN RAISE(ABORT, 'assignment cancellation cannot predate acceptance') END;
+       END""",
+)
+
+_MIGRATION_35 = (
+    """ALTER TABLE domain_records
+       ADD COLUMN last_actor TEXT NOT NULL DEFAULT 'migration'
+       CHECK (length(trim(last_actor)) > 0)""",
+    """ALTER TABLE domain_records
+       ADD COLUMN last_reason TEXT NOT NULL DEFAULT 'schema migration'
+       CHECK (length(trim(last_reason)) > 0)""",
+    """ALTER TABLE domain_records
+       ADD COLUMN last_revision_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'
+       CHECK (length(trim(last_revision_at)) > 0)""",
+    """UPDATE domain_records
+       SET last_actor = COALESCE((
+             SELECT r.actor FROM domain_record_revisions r
+             WHERE r.record_type = domain_records.record_type
+               AND r.record_id = domain_records.id
+             ORDER BY r.revision DESC LIMIT 1
+           ), 'migration'),
+           last_reason = COALESCE((
+             SELECT r.reason FROM domain_record_revisions r
+             WHERE r.record_type = domain_records.record_type
+               AND r.record_id = domain_records.id
+             ORDER BY r.revision DESC LIMIT 1
+           ), 'schema migration'),
+           last_revision_at = COALESCE((
+             SELECT r.created_at FROM domain_record_revisions r
+             WHERE r.record_type = domain_records.record_type
+               AND r.record_id = domain_records.id
+             ORDER BY r.revision DESC LIMIT 1
+           ), created_at)""",
+    """CREATE TRIGGER domain_records_revision_guard
+       BEFORE UPDATE ON domain_records
+       WHEN OLD.record_type != 'edition'
+       BEGIN
+         SELECT CASE WHEN NEW.record_type IS NOT OLD.record_type
+             OR NEW.id IS NOT OLD.id
+             OR NEW.created_at IS NOT OLD.created_at
+           THEN RAISE(ABORT, 'domain record identity and creation time are immutable') END;
+         SELECT CASE WHEN NEW.revision != OLD.revision + 1
+           THEN RAISE(ABORT, 'domain record revision must increment by one') END;
+         SELECT CASE WHEN length(trim(NEW.last_actor)) = 0
+             OR length(trim(NEW.last_reason)) = 0
+             OR length(trim(NEW.last_revision_at)) = 0
+           THEN RAISE(ABORT, 'domain record revision requires actor, reason and timestamp') END;
+         SELECT CASE WHEN json_extract(NEW.payload_json, '$.id') IS NOT NEW.id
+           THEN RAISE(ABORT, 'domain record payload ID must match indexed identity') END;
+         SELECT CASE WHEN json_type(NEW.payload_json, '$.revision') IS NOT NULL
+             AND json_extract(NEW.payload_json, '$.revision') IS NOT NEW.revision
+           THEN RAISE(ABORT, 'domain record payload revision must match indexed revision') END;
+         SELECT CASE WHEN julianday(NEW.last_revision_at) < julianday(OLD.last_revision_at)
+           THEN RAISE(ABORT, 'domain record revision timestamp cannot move backwards') END;
+         SELECT CASE WHEN OLD.record_type = 'article'
+             AND (
+               json_extract(NEW.payload_json, '$.source_id') IS NOT json_extract(OLD.payload_json, '$.source_id')
+               OR json_extract(NEW.payload_json, '$.canonical_uri') IS NOT json_extract(OLD.payload_json, '$.canonical_uri')
+             )
+           THEN RAISE(ABORT, 'article source and canonical identity are immutable') END;
+         SELECT CASE WHEN OLD.record_type = 'evidence'
+             AND (
+               json_extract(NEW.payload_json, '$.source_id') IS NOT json_extract(OLD.payload_json, '$.source_id')
+               OR json_extract(NEW.payload_json, '$.claim_id') IS NOT json_extract(OLD.payload_json, '$.claim_id')
+               OR json_extract(NEW.payload_json, '$.article_id') IS NOT json_extract(OLD.payload_json, '$.article_id')
+               OR json_extract(NEW.payload_json, '$.observation_id') IS NOT json_extract(OLD.payload_json, '$.observation_id')
+               OR json_extract(NEW.payload_json, '$.locator') IS NOT json_extract(OLD.payload_json, '$.locator')
+             )
+           THEN RAISE(ABORT, 'evidence provenance identity is immutable') END;
+       END""",
+    """CREATE TRIGGER domain_records_record_update
+       AFTER UPDATE ON domain_records
+       WHEN OLD.record_type != 'edition'
+       BEGIN
+         INSERT INTO domain_record_revisions
+         (record_type, record_id, revision, created_at, actor, reason, payload_json)
+         VALUES (NEW.record_type, NEW.id, NEW.revision, NEW.last_revision_at,
+                 NEW.last_actor, NEW.last_reason, NEW.payload_json);
+       END""",
+)
+
+# Migration 36 binds the staging event's declared human authorities to the
+# immutable approval and release-authorization records they reference.
+_MIGRATION_36 = (
+    """CREATE TRIGGER edition_staging_events_authority_binding_guard
+       BEFORE INSERT ON edition_staging_events
+       WHEN NOT EXISTS (
+         SELECT 1
+         FROM edition_decisions d
+         JOIN edition_release_authorizations r
+           ON r.approval_decision_id = d.decision_id
+         WHERE d.decision_id = json_extract(NEW.payload_json, '$.staging_decision.decision_id')
+           AND d.principal_id = json_extract(NEW.payload_json, '$.staging_decision.principal_id')
+           AND d.manifest_id = NEW.manifest_id
+           AND r.authorization_id = json_extract(NEW.payload_json, '$.release_authorization.authorization_id')
+           AND r.authorizer_principal_id = json_extract(NEW.payload_json, '$.release_authorization.authorizer_principal_id')
+           AND r.manifest_id = NEW.manifest_id
+       )
+       BEGIN
+         SELECT RAISE(ABORT, 'staging event failed authority identities must match recorded approval and release authorization');
+       END""",
+)
+
+
+
 class SQLiteRegistry:
     """Transactional SQLite registry; safe for local development and low-volume use.
 
@@ -2775,6 +3337,92 @@ class SQLiteRegistry:
                 except sqlite3.Error as exc:
                     raise RegistryMigrationError("Migration 31 failed; transaction rolled back") from exc
 
+            if version == 31 and _SCHEMA_VERSION >= 32:
+                try:
+                    for statement in _MIGRATION_32:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (32, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 32")
+                    version = 32
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 32 failed; transaction rolled back") from exc
+
+            if version == 32 and _SCHEMA_VERSION >= 33:
+                try:
+                    for statement in _MIGRATION_33:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (33, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 33")
+                    version = 33
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 33 failed; transaction rolled back") from exc
+
+            if version == 33 and _SCHEMA_VERSION >= 34:
+                try:
+                    for statement in _MIGRATION_34:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (34, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 34")
+                    version = 34
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 34 failed; transaction rolled back") from exc
+
+            if version == 34 and _SCHEMA_VERSION >= 35:
+                try:
+                    for statement in _MIGRATION_35:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (35, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 35")
+                    version = 35
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 35 failed; transaction rolled back") from exc
+
+            if version == 35 and _SCHEMA_VERSION >= 36:
+                try:
+                    legacy_identity_mismatch = connection.execute(
+                        """SELECT 1
+                           FROM edition_staging_events e
+                           WHERE NOT EXISTS (
+                             SELECT 1
+                             FROM edition_decisions d
+                             JOIN edition_release_authorizations r
+                               ON r.approval_decision_id = d.decision_id
+                             WHERE d.decision_id = json_extract(e.payload_json, '$.staging_decision.decision_id')
+                               AND d.principal_id = json_extract(e.payload_json, '$.staging_decision.principal_id')
+                               AND d.manifest_id = e.manifest_id
+                               AND r.authorization_id = json_extract(e.payload_json, '$.release_authorization.authorization_id')
+                               AND r.authorizer_principal_id = json_extract(e.payload_json, '$.release_authorization.authorizer_principal_id')
+                               AND r.manifest_id = e.manifest_id
+                           )
+                           LIMIT 1"""
+                    ).fetchone()
+                    if legacy_identity_mismatch is not None:
+                        raise RegistryMigrationError(
+                            "Migration 36 refused: existing staging events contain authority identity mismatches"
+                        )
+                    for statement in _MIGRATION_36:
+                        connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                        (36, _utc_now()),
+                    )
+                    connection.execute("PRAGMA user_version = 36")
+                    version = 36
+                except sqlite3.Error as exc:
+                    raise RegistryMigrationError("Migration 36 failed; transaction rolled back") from exc
+
     def _append_audit(
         self,
         connection: sqlite3.Connection,
@@ -3158,12 +3806,6 @@ class SQLiteRegistry:
                 payload["notes"] = (payload.get("notes", "") + f"\nSuspended: {reason}").strip()
             validate_payload("source-permission-grant", payload)
             revision = row["revision"] + 1
-            connection.execute(
-                """UPDATE permission_grants
-                SET status = ?, revision = ?, payload_json = ?
-                WHERE id = ?""",
-                (new_status, revision, _json_text(payload), grant_id),
-            )
             self._insert_grant_revision(
                 connection,
                 grant_id=grant_id,
@@ -3172,6 +3814,12 @@ class SQLiteRegistry:
                 actor=actor,
                 reason=reason,
                 created_at=stamp,
+            )
+            connection.execute(
+                """UPDATE permission_grants
+                SET status = ?, revision = ?, payload_json = ?
+                WHERE id = ? AND revision = ?""",
+                (new_status, revision, _json_text(payload), grant_id, row["revision"]),
             )
             self._append_audit(
                 connection,
@@ -3735,20 +4383,17 @@ class SQLiteRegistry:
                     validate_payload("article", refreshed)
                     next_revision = existing_article["revision"] + 1
                     refreshed_json = _json_text(refreshed)
+                    revision_at = _utc_now()
                     connection.execute(
                         """UPDATE domain_records
-                        SET revision = ?, updated_at = ?, payload_json = ?
+                        SET revision = ?, updated_at = ?, payload_json = ?,
+                            last_actor = ?, last_reason = ?, last_revision_at = ?
                         WHERE record_type = 'article' AND id = ? AND revision = ?""",
                         (
                             next_revision, article_payload["updated_at"], refreshed_json,
+                            "ingestion", "metadata refreshed from newer observation", revision_at,
                             article_id, existing_article["revision"],
                         ),
-                    )
-                    connection.execute(
-                        """INSERT INTO domain_record_revisions
-                        (record_type, record_id, revision, created_at, actor, reason, payload_json)
-                        VALUES ('article', ?, ?, ?, 'ingestion', 'metadata refreshed from newer observation', ?)""",
-                        (article_id, next_revision, _utc_now(), refreshed_json),
                     )
                     self._append_audit(
                         connection,
@@ -3769,17 +4414,20 @@ class SQLiteRegistry:
                 self._validate_domain_references(connection, "article", article_payload)
                 article_json = _json_text(article_payload)
                 created_at = article_payload["discovered_at"]
+                revision_at = _utc_now()
                 connection.execute(
                     """INSERT INTO domain_records
-                    (record_type, id, revision, created_at, updated_at, payload_json)
-                    VALUES ('article', ?, 1, ?, ?, ?)""",
-                    (article_payload["id"], created_at, _utc_now(), article_json),
+                    (record_type, id, revision, created_at, updated_at, payload_json,
+                     last_actor, last_reason, last_revision_at)
+                    VALUES ('article', ?, 1, ?, ?, ?, 'ingestion',
+                            'article ingested from observation', ?)""",
+                    (article_payload["id"], created_at, revision_at, article_json, revision_at),
                 )
                 connection.execute(
                     """INSERT INTO domain_record_revisions
                     (record_type, record_id, revision, created_at, actor, reason, payload_json)
                     VALUES ('article', ?, 1, ?, 'ingestion', 'article ingested from observation', ?)""",
-                    (article_payload["id"], _utc_now(), article_json),
+                    (article_payload["id"], revision_at, article_json),
                 )
                 article_id = article_payload["id"]
                 outcome = "created"
@@ -4464,13 +5112,15 @@ class SQLiteRegistry:
         record = model.from_payload(payload)
         created_at = self._domain_record_timestamp(record_type, payload)
         updated_at = _utc_now()
+        revision_at = _utc_now()
         with self._transaction() as connection:
             self._validate_domain_references(connection, record_type, payload)
             connection.execute(
                 """INSERT INTO domain_records
-                (record_type, id, revision, created_at, updated_at, payload_json)
-                VALUES (?, ?, 1, ?, ?, ?)""",
-                (record_type, record.id, created_at, updated_at, record.payload_json),
+                (record_type, id, revision, created_at, updated_at, payload_json,
+                 last_actor, last_reason, last_revision_at)
+                VALUES (?, ?, 1, ?, ?, ?, 'system', 'record created', ?)""",
+                (record_type, record.id, created_at, updated_at, record.payload_json, revision_at),
             )
             connection.execute(
                 """INSERT INTO domain_record_revisions
@@ -4479,7 +5129,7 @@ class SQLiteRegistry:
                 (
                     record_type,
                     record.id,
-                    _utc_now(),
+                    revision_at,
                     "system",
                     "record created",
                     record.payload_json,
@@ -4976,18 +5626,15 @@ class SQLiteRegistry:
                 next_revision = old_revision + 1
                 encoded = _json_text(payload)
                 updated = connection.execute(
-                    """UPDATE domain_records SET revision = ?, updated_at = ?, payload_json = ?
+                    """UPDATE domain_records
+                    SET revision = ?, updated_at = ?, payload_json = ?,
+                        last_actor = ?, last_reason = ?, last_revision_at = ?
                     WHERE record_type = 'story' AND id = ? AND revision = ?""",
-                    (next_revision, now, encoded, story_id, old_revision),
+                    (next_revision, now, encoded, actor.strip(), rationale.strip(), now,
+                     story_id, old_revision),
                 )
                 if updated.rowcount != 1:
                     raise RegistryIntegrityError(f"story revision conflict: {story_id}")
-                connection.execute(
-                    """INSERT INTO domain_record_revisions
-                    (record_type, record_id, revision, created_at, actor, reason, payload_json)
-                    VALUES ('story', ?, ?, ?, ?, ?, ?)""",
-                    (story_id, next_revision, now, actor.strip(), rationale.strip(), encoded),
-                )
                 changed_story_payloads[story_id] = payload
                 story_changes.append({
                     "story_id": story_id,
@@ -5011,18 +5658,15 @@ class SQLiteRegistry:
                 next_revision = old_revision + 1
                 encoded = _json_text(payload)
                 updated = connection.execute(
-                    """UPDATE domain_records SET revision = ?, updated_at = ?, payload_json = ?
+                    """UPDATE domain_records
+                    SET revision = ?, updated_at = ?, payload_json = ?,
+                        last_actor = ?, last_reason = ?, last_revision_at = ?
                     WHERE record_type = 'claim' AND id = ? AND revision = ?""",
-                    (next_revision, now, encoded, claim_id, old_revision),
+                    (next_revision, now, encoded, actor.strip(), rationale.strip(), now,
+                     claim_id, old_revision),
                 )
                 if updated.rowcount != 1:
                     raise RegistryIntegrityError(f"claim revision conflict: {claim_id}")
-                connection.execute(
-                    """INSERT INTO domain_record_revisions
-                    (record_type, record_id, revision, created_at, actor, reason, payload_json)
-                    VALUES ('claim', ?, ?, ?, ?, ?, ?)""",
-                    (claim_id, next_revision, now, actor.strip(), rationale.strip(), encoded),
-                )
                 changed_claim_payloads[claim_id] = payload
                 claim_changes.append({
                     "claim_id": claim_id,
@@ -7552,12 +8196,17 @@ class SQLiteRegistry:
             self._validate_domain_references(connection, record_type, payload)
             next_revision = expected_revision + 1
             updated = connection.execute(
-                """UPDATE domain_records SET revision = ?, updated_at = ?, payload_json = ?
+                """UPDATE domain_records
+                SET revision = ?, updated_at = ?, payload_json = ?,
+                    last_actor = ?, last_reason = ?, last_revision_at = ?
                 WHERE record_type = ? AND id = ? AND revision = ?""",
                 (
                     next_revision,
                     updated_at,
                     record.payload_json,
+                    actor.strip(),
+                    reason.strip(),
+                    updated_at,
                     record_type,
                     record_id,
                     expected_revision,
@@ -7565,20 +8214,6 @@ class SQLiteRegistry:
             )
             if updated.rowcount != 1:
                 raise RegistryIntegrityError("domain record revision conflict")
-            connection.execute(
-                """INSERT INTO domain_record_revisions
-                (record_type, record_id, revision, created_at, actor, reason, payload_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    record_type,
-                    record_id,
-                    next_revision,
-                    _utc_now(),
-                    actor,
-                    reason,
-                    record.payload_json,
-                ),
-            )
             self._append_audit(
                 connection,
                 event_type=f"{record_type}.revised",

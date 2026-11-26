@@ -28,7 +28,11 @@ Transform lawfully accessible, attributable reporting into accurate, explainable
 
 ## Project status
 
-The current engineering branch contains versioned contracts, permission-aware collection and ingestion, story/claim/evidence intelligence, bilingual editorial review, benchmark and learning-object quality controls, immutable edition artifacts, separate approval/release authorization, and a staging-only promotion/rollback ledger. Section 7's implementation workstream is closed, and Section 8's Python-engine implementation workstream is complete with a real-registry lifecycle test. Section 9's baseline audit, operational reporting, local backup/restore utilities, fail-closed retry classification, idempotent run creation, manual external audit checkpoint helpers, initial runbook, synchronous injected-stage runner, and guarded operator-approved retry-run creation with immutable parent/attempt lineage are implemented. The runner is local/pre-production only: it has no scheduler, worker pool, live publisher connector, durable stage checkpoint, or automatic retry. Encrypted/off-site backups, retention, external checkpoint delivery, monitoring, crash recovery, and production drills remain open. Section 10 (end-to-end verification and controlled handover) follows Section 9. The latest full Python 3.12 suite passed 893 tests. This is not a claim of production readiness, real publisher republication permission, genuine human-reviewed editorial evidence, deployed identity infrastructure, operational backups, an integrated staging consumer, or an operating daily publication pipeline. See `docs/IMPLEMENTATION_ROADMAP.md` and `docs/HANDOVER_FOR_PREMIUM_CHATGPT.md` for current scope and boundaries.
+The current Section 9 draft branch contains versioned contracts, permission-aware collection and ingestion, story/claim/evidence intelligence, bilingual editorial review, benchmark and learning-object quality controls, immutable edition artifacts, separate approval/release authorization, and a staging-only promotion/rollback ledger. Section 7's engine implementation scope is closed, and Section 8's Python repository implementation is complete at the staging-only boundary, including an integrated real-registry lifecycle test.
+
+Section 9 now includes durable stage checkpoints, SQLite worker leases, supervised subprocess execution, cancellation and recovery contracts, bounded local telemetry, schema-v36 export and inspection, PostgreSQL migrations through 0026, read-only source/target reconciliation, isolated-target preflight, and draft mapping tools. This is still an engineering foundation, not a production system. The SQLite registry remains authoritative. There is no reviewed production mapping, importer, cutover, distributed lease backend, real side-effect provider, configured production identity/RBAC, remote monitoring, or deployed backup/restore/failover process. No live publisher collection, scheduling, publication, or release is enabled.
+
+Exact tested code head `e8381a1419a2bf6c61a955f3d281d4a1aaba67be` passed GitHub Actions [run #45420532668](https://github.com/Amiroudro/new-sngso/actions/runs/45420532668): **1,218 contract tests passed, 1 skipped, and 87 PostgreSQL integration tests passed**. Later changes to the roadmap and acceptance documents do not change that tested code. Section 10, end-to-end verification and controlled handover, has not started. A separate open PR contains a static editorial-console prototype with demo data and no backend connection. See `docs/IMPLEMENTATION_ROADMAP.md` and `docs/SECTION_9_FINAL_ACCEPTANCE_AND_CLOSURE_PLAN.md` for current scope and blockers.
 
 ## Documents
 
@@ -49,8 +53,6 @@ The current engineering branch contains versioned contracts, permission-aware co
 - docs/PERSISTENCE.md
 - contracts/README.md
 - contracts/v1/
-
-Latest pipeline execution and retry-lineage verification: [GitHub Actions run #44941362943](https://github.com/Amiroudro/new-sngso/actions/runs/44941362943).
 
 ## Local validation
 
