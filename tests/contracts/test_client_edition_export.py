@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 
@@ -107,6 +108,7 @@ def inputs():
         "source_permissions": {"source:publisher-a": permission},
         "learning_objects": learning,
         "primary_article_by_story": {"story:water": "article:water-a"},
+        "permission_evaluated_at": datetime(2026, 11, 27, 8, 5, tzinfo=timezone.utc),
         "titles_by_story": {
             "story:water": {
                 "bn": "পানি সরবরাহের হালনাগাদ",
@@ -155,6 +157,22 @@ def test_export_rejects_denied_metadata_permission():
         "status": "denied",
     }
     with pytest.raises(ClientEditionExportError, match="metadata permission denied"):
+        build_client_edition(**values)
+
+
+def test_export_rejects_permission_expired_before_export_time():
+    values = inputs()
+    values["source_permissions"]["source:publisher-a"]["effective_until"] = (
+        "2026-11-27T08:02:00Z"
+    )
+    with pytest.raises(ClientEditionExportError, match="permission_expired"):
+        build_client_edition(**values)
+
+
+def test_export_requires_timezone_aware_permission_evaluation_time():
+    values = inputs()
+    values["permission_evaluated_at"] = datetime(2026, 11, 27, 8, 5)
+    with pytest.raises(ClientEditionExportError, match="must include a timezone"):
         build_client_edition(**values)
 
 
