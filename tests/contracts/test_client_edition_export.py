@@ -138,6 +138,76 @@ def test_primary_article_must_be_explicitly_linked_to_story():
         export(primary_article_by_story={"story:water": "article:not-linked"})
 
 
+
+def test_exports_explicit_permission_checked_multiple_sources_in_editorial_order():
+    values = inputs()
+    values["articles"]["article:water-b"] = {
+        **copy.deepcopy(values["articles"]["article:water-a"]),
+        "id": "article:water-b",
+        "source_id": "source:publisher-b",
+        "canonical_uri": "https://example.org/water-followup",
+        "published_at": "2026-11-27T07:45:00Z",
+    }
+    values["stories"]["story:water"]["article_ids"].append("article:water-b")
+    values["source_metadata"]["source:publisher-b"] = {
+        "id": "source:publisher-b",
+        "name": "Publisher B",
+    }
+    secondary_permission = copy.deepcopy(values["source_permissions"]["source:publisher-a"])
+    secondary_permission["id"] = "permission:publisher-b"
+    secondary_permission["source_id"] = "source:publisher-b"
+    values["source_permissions"]["source:publisher-b"] = secondary_permission
+    values["source_article_ids_by_story"] = {
+        "story:water": ["article:water-a", "article:water-b"]
+    }
+
+    result = build_client_edition(**values)
+    story = result["stories"][0]
+    assert story["source"]["id"] == "source:publisher-a"
+    assert story["additional_sources"] == [{
+        "id": "source:publisher-b",
+        "name": "Publisher B",
+        "url": "https://example.org/water-followup",
+        "published_at": "2026-11-27T07:45:00Z",
+    }]
+    assert not list(VALIDATOR.iter_errors(result))
+
+
+def test_rejects_secondary_source_without_current_metadata_permission():
+    values = inputs()
+    values["articles"]["article:water-b"] = {
+        **copy.deepcopy(values["articles"]["article:water-a"]),
+        "id": "article:water-b",
+        "source_id": "source:publisher-b",
+        "canonical_uri": "https://example.org/water-followup",
+    }
+    values["stories"]["story:water"]["article_ids"].append("article:water-b")
+    values["source_metadata"]["source:publisher-b"] = {
+        "id": "source:publisher-b",
+        "name": "Publisher B",
+    }
+    secondary_permission = copy.deepcopy(values["source_permissions"]["source:publisher-a"])
+    secondary_permission["id"] = "permission:publisher-b"
+    secondary_permission["source_id"] = "source:publisher-b"
+    secondary_permission["operations"]["metadata"] = {
+        "allowed": False,
+        "status": "denied",
+    }
+    values["source_permissions"]["source:publisher-b"] = secondary_permission
+    values["source_article_ids_by_story"] = {
+        "story:water": ["article:water-a", "article:water-b"]
+    }
+
+    with pytest.raises(ClientEditionExportError, match="metadata permission denied"):
+        build_client_edition(**values)
+
+
+def test_rejects_duplicate_source_article_selection():
+    with pytest.raises(ClientEditionExportError, match="unique, non-empty"):
+        export(source_article_ids_by_story={
+            "story:water": ["article:water-a", "article:water-a"]
+        })
+
 def test_export_rejects_unpublished_edition():
     values = inputs()
     values["edition"]["status"] = "draft"
