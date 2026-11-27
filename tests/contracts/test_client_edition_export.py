@@ -8,7 +8,6 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
 from sngso_engine.client_edition import ClientEditionExportError, build_client_edition
-from sngso_engine.contracts import CONTRACTS_DIR
 
 ROOT = Path(__file__).resolve().parents[2]
 CLIENT_SCHEMA = ROOT / "contracts" / "client-edition" / "v1" / "schema.json"
@@ -60,8 +59,19 @@ def inputs():
         "source_id": "source:publisher-a",
         "status": "approved",
         "operations": {
-            name: {"allowed": name == "metadata", "status": "approved" if name == "metadata" else "denied"}
-            for name in ("discovery", "metadata", "excerpt_storage", "full_text_storage", "translation", "image_storage", "republication")
+            name: {
+                "allowed": name == "metadata",
+                "status": "approved" if name == "metadata" else "denied",
+            }
+            for name in (
+                "discovery",
+                "metadata",
+                "excerpt_storage",
+                "full_text_storage",
+                "translation",
+                "image_storage",
+                "republication",
+            )
         },
         "basis": "Synthetic test permission record",
         "effective_from": "2026-11-01T00:00:00Z",
@@ -73,27 +83,36 @@ def inputs():
         ("en", "Brief summary", "Detailed summary"),
     ):
         for kind, value in (("brief_summary", brief), ("detailed_summary", detailed)):
-            learning.append({
-                "schema_version": "1.0.0",
-                "id": f"learning:{language}-{kind}",
-                "story_id": "story:water",
-                "kind": kind,
-                "language": language,
-                "status": "approved",
-                "content": {"text": value},
-                "claim_ids": [],
-                "created_at": "2026-11-27T07:00:00Z",
-                "reviewed_at": "2026-11-27T07:30:00Z",
-            })
+            learning.append(
+                {
+                    "schema_version": "1.0.0",
+                    "id": f"learning:{language}-{kind}",
+                    "story_id": "story:water",
+                    "kind": kind,
+                    "language": language,
+                    "status": "approved",
+                    "content": {"text": value},
+                    "claim_ids": [],
+                    "created_at": "2026-11-27T07:00:00Z",
+                    "reviewed_at": "2026-11-27T07:30:00Z",
+                }
+            )
     return {
         "edition": edition,
         "stories": {"story:water": story},
         "articles": {"article:water-a": article},
-        "source_metadata": {"source:publisher-a": {"id": "source:publisher-a", "name": "Publisher A"}},
+        "source_metadata": {
+            "source:publisher-a": {"id": "source:publisher-a", "name": "Publisher A"}
+        },
         "source_permissions": {"source:publisher-a": permission},
         "learning_objects": learning,
         "primary_article_by_story": {"story:water": "article:water-a"},
-        "titles_by_story": {"story:water": {"bn": "পানি সরবরাহের হালনাগাদ", "en": "Water supply update"}},
+        "titles_by_story": {
+            "story:water": {
+                "bn": "পানি সরবরাহের হালনাগাদ",
+                "en": "Water supply update",
+            }
+        },
     }
 
 
@@ -132,7 +151,8 @@ def test_export_rejects_missing_metadata_permission():
 def test_export_rejects_denied_metadata_permission():
     values = inputs()
     values["source_permissions"]["source:publisher-a"]["operations"]["metadata"] = {
-        "allowed": False, "status": "denied"
+        "allowed": False,
+        "status": "denied",
     }
     with pytest.raises(ClientEditionExportError, match="metadata permission denied"):
         build_client_edition(**values)
@@ -148,7 +168,8 @@ def test_export_rejects_unapproved_language_variant():
 def test_export_rejects_missing_approved_summary():
     values = inputs()
     values["learning_objects"] = [
-        item for item in values["learning_objects"]
+        item
+        for item in values["learning_objects"]
         if not (item["language"] == "bn" and item["kind"] == "detailed_summary")
     ]
     with pytest.raises(ClientEditionExportError, match="missing approved brief"):
@@ -158,10 +179,12 @@ def test_export_rejects_missing_approved_summary():
 def test_export_preserves_edition_story_order():
     values = inputs()
     second = copy.deepcopy(values["stories"]["story:water"])
-    second.update({
-        "id": "story:second",
-        "article_ids": ["article:water-a"],
-    })
+    second.update(
+        {
+            "id": "story:second",
+            "article_ids": ["article:water-a"],
+        }
+    )
     values["edition"]["story_ids"] = ["story:second", "story:water"]
     values["stories"]["story:second"] = second
     values["primary_article_by_story"] = {
@@ -169,8 +192,17 @@ def test_export_preserves_edition_story_order():
         "story:water": "article:water-a",
     }
     values["titles_by_story"]["story:second"] = {
-        "bn": "দ্বিতীয় শিরোনাম", "en": "Second headline"
+        "bn": "দ্বিতীয় শিরোনাম",
+        "en": "Second headline",
     }
+    second_learning = []
+    for item in values["learning_objects"]:
+        duplicate = copy.deepcopy(item)
+        duplicate["id"] = duplicate["id"].replace("learning:", "learning:second-")
+        duplicate["story_id"] = "story:second"
+        second_learning.append(duplicate)
+    values["learning_objects"].extend(second_learning)
+
     result = build_client_edition(**values)
     assert [item["id"] for item in result["stories"]] == ["story:second", "story:water"]
 
@@ -187,4 +219,4 @@ def test_fixture_is_schema_valid_and_hash_is_reproducible():
 def test_fixture_is_explicitly_synthetic():
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     assert fixture["stories"][0]["source"]["url"].startswith("https://example.org/")
-    assert "কাল্পনিক" in fixture["stories"][0]["summaries"][0]["detailed"]
+    assert "কাল্পনিক" in fixture["stories"][0]["summaries"][0]["brief"]
