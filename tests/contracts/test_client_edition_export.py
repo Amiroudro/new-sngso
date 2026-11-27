@@ -148,7 +148,6 @@ def test_exports_explicit_permission_checked_multiple_sources_in_editorial_order
         "canonical_uri": "https://example.org/water-followup",
         "published_at": "2026-11-27T07:45:00Z",
     }
-    values["stories"]["story:water"]["article_ids"].append("article:water-b")
     values["source_metadata"]["source:publisher-b"] = {
         "id": "source:publisher-b",
         "name": "Publisher B",
