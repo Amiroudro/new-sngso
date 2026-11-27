@@ -45,6 +45,11 @@
               "published_at": {"type": "string", "format": "date-time"}
             }
           },
+          "additional_sources": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/properties/stories/items/properties/source"}
+          },
           "correction": {
             "type": ["object", "null"],
             "additionalProperties": false,
