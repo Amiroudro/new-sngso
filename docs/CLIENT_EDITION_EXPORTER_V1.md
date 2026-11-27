@@ -11,7 +11,7 @@
 - requires an explicit primary article selection for every story;
 - requires explicit localized story titles for every edition language;
 - validates Edition, Story, Article, LearningObject, and SourcePermission records against their existing v1 schemas;
-- checks current `metadata` permission at the edition publication timestamp;
+- checks current `metadata` permission at an explicit, timezone-aware export timestamp;
 - includes only approved brief and detailed summary learning objects for each language;
 - rejects inactive/missing articles, missing source metadata, missing permissions, ambiguous or missing summaries, and unapproved language variants;
 - computes the projection's own SHA-256 fingerprint using the engine's canonical JSON implementation; and
@@ -23,7 +23,7 @@ The engine domain model currently has no Source schema/repository record with a 
 
 The current Android v1 projection exposes one primary source per story. All article IDs remain in the engine Story record; the selected primary article is a deliberate client display choice, not a destructive change to the domain model. If Android needs multiple citations per story, revise the projection to a `sources[]` collection before declaring v1 frozen.
 
-The exporter does not create or approve summaries, decide source permissions, approve editions, persist artifacts, publish URLs, or replace a prior edition. Those remain responsibilities of the editorial workflow and future repository/hosting adapters.
+The caller supplies `permission_evaluated_at` so permission evaluation is reproducible and auditable; an expired or revoked permission blocks a fresh export even if the edition was published earlier. The exporter does not create or approve summaries, decide source permissions, approve editions, persist artifacts, publish URLs, or replace a prior edition. Those remain responsibilities of the editorial workflow and future repository/hosting adapters.
 
 ## Run tests
 
