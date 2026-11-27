@@ -1,0 +1,42 @@
+{
+  "contract_version": "1.0.0",
+  "content_hash": "sha256:eae3f8c7f00cfbf64952a23493049d62395d2de412965bdc55787ebe54500de2",
+  "edition": {
+    "id": "edition:2026-11-27-demo",
+    "edition_key": "2026-11-27",
+    "status": "published",
+    "published_at": "2026-11-27T08:00:00Z",
+    "languages": ["bn", "en"]
+  },
+  "stories": [
+    {
+      "id": "story:demo-water-supply",
+      "title": {
+        "bn": "নমুনা: নগর পানি সরবরাহ",
+        "en": "Sample: Urban water supply"
+      },
+      "topic_tags": ["bangladesh", "public-services"],
+      "published_at": "2026-11-27T07:30:00Z",
+      "source": {
+        "id": "source:demo-public-bulletin",
+        "name": "Synthetic Public Bulletin",
+        "url": "https://example.org/synthetic-bulletin",
+        "published_at": "2026-11-27T07:30:00Z"
+      },
+      "summaries": [
+        {
+          "language": "bn",
+          "status": "approved",
+          "brief": "এটি কেবল কাঠামো পরীক্ষার জন্য তৈরি কাল্পনিক নমুনা।",
+          "detailed": "এই নমুনায় বাস্তব ঘটনা, ব্যক্তি, পরিসংখ্যান বা সংবাদ দাবি করা হয়নি।"
+        },
+        {
+          "language": "en",
+          "status": "approved",
+          "brief": "This is a fictional sample created only to test the data structure.",
+          "detailed": "This fixture makes no claim about a real event, person, statistic or news report."
+        }
+      ]
+    }
+  ]
+}

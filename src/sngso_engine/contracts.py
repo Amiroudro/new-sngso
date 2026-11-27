@@ -11,6 +11,9 @@ from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 
 CONTRACTS_DIR = Path(__file__).resolve().parents[2] / "contracts" / "v1"
+CLIENT_EDITION_SCHEMA = (
+    CONTRACTS_DIR.parent / "client-edition" / "v1" / "schema.json"
+)
 
 
 class ContractValidationError(ValueError):
@@ -33,11 +36,16 @@ def _registry() -> Registry:
 
 @lru_cache(maxsize=32)
 def load_schema(contract_name: str) -> dict[str, Any]:
-    """Load a known v1 schema by its filename stem."""
+    """Load a known engine v1 schema or the versioned Android projection."""
     if not contract_name or "/" in contract_name or "\\" in contract_name:
         raise ValueError("contract_name must be a schema filename stem")
-    path = CONTRACTS_DIR / f"{contract_name}.schema.json"
-    if not path.is_file() or path.parent != CONTRACTS_DIR:
+    if contract_name == "client-edition-v1":
+        path = CLIENT_EDITION_SCHEMA
+    else:
+        path = CONTRACTS_DIR / f"{contract_name}.schema.json"
+        if path.parent != CONTRACTS_DIR:
+            raise FileNotFoundError(f"Unknown contract: {contract_name}")
+    if not path.is_file():
         raise FileNotFoundError(f"Unknown contract: {contract_name}")
     schema = json.loads(path.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
