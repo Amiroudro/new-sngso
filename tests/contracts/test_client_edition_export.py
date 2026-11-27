@@ -180,7 +180,6 @@ def test_rejects_secondary_source_without_current_metadata_permission():
         "source_id": "source:publisher-b",
         "canonical_uri": "https://example.org/water-followup",
     }
-    values["stories"]["story:water"]["article_ids"].append("article:water-b")
     values["source_metadata"]["source:publisher-b"] = {
         "id": "source:publisher-b",
         "name": "Publisher B",
