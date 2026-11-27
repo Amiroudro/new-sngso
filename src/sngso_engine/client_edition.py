@@ -46,6 +46,7 @@ def build_client_edition(
     learning_objects: list[dict[str, Any]],
     primary_article_by_story: Mapping[str, str],
     titles_by_story: Mapping[str, Mapping[str, str]],
+    permission_evaluated_at: datetime,
 ) -> dict[str, Any]:
     """Return a deterministic, hash-sealed Android projection.
 
@@ -58,7 +59,8 @@ def build_client_edition(
         raise ClientEditionExportError("only published editions can be exported")
 
     published_at = _published_at(edition.get("published_at"), "edition.published_at")
-    published_dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+    if permission_evaluated_at.tzinfo is None or permission_evaluated_at.utcoffset() is None:
+        raise ClientEditionExportError("permission_evaluated_at must include a timezone")
     language_variants = edition["language_variants"]
     languages = [item["language"] for item in language_variants]
     if len(languages) != len(set(languages)):
@@ -135,7 +137,7 @@ def build_client_edition(
         if permission["source_id"] != article["source_id"]:
             raise ClientEditionExportError("source permission belongs to another source")
         decision = evaluate_permission(
-            permission, "metadata", now=published_dt
+            permission, "metadata", now=permission_evaluated_at
         )
         if not decision.allowed:
             raise ClientEditionExportError(
