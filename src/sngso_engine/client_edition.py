@@ -45,6 +45,7 @@ def build_client_edition(
     source_permissions: Mapping[str, dict[str, Any]],
     learning_objects: list[dict[str, Any]],
     primary_article_by_story: Mapping[str, str],
+    source_article_ids_by_story: Mapping[str, list[str]] | None = None,
     titles_by_story: Mapping[str, Mapping[str, str]],
     permission_evaluated_at: datetime,
 ) -> dict[str, Any]:
@@ -74,6 +75,13 @@ def build_client_edition(
     if set(primary_article_by_story) != set(ordered_story_ids):
         raise ClientEditionExportError(
             "an explicit primary article must be selected for every edition story"
+        )
+    selected_source_articles = source_article_ids_by_story or {
+        story_id: [article_id] for story_id, article_id in primary_article_by_story.items()
+    }
+    if set(selected_source_articles) != set(ordered_story_ids):
+        raise ClientEditionExportError(
+            "explicit source article selections must be supplied for every edition story"
         )
     if set(titles_by_story) != set(ordered_story_ids):
         raise ClientEditionExportError(
@@ -108,49 +116,72 @@ def build_client_edition(
             raise ClientEditionExportError(f"story map key does not match {story_id}")
 
         article_id = primary_article_by_story[story_id]
-        if article_id not in story["article_ids"]:
+        selected_ids = selected_source_articles[story_id]
+        if (
+            not isinstance(selected_ids, list)
+            or not selected_ids
+            or selected_ids[0] != article_id
+            or len(selected_ids) != len(set(selected_ids))
+        ):
             raise ClientEditionExportError(
-                f"selected primary article {article_id} is not linked to {story_id}"
+                f"source article selection for {story_id} must be unique, non-empty, and start with its primary article"
             )
-        article = articles.get(article_id)
-        if article is None:
-            raise ClientEditionExportError(f"missing primary article: {article_id}")
-        validate_payload("article", article)
-        if article["id"] != article_id:
-            raise ClientEditionExportError(f"article map key does not match {article_id}")
-        if article["source_id"] not in source_metadata:
-            raise ClientEditionExportError(
-                f"missing explicit source metadata: {article['source_id']}"
+        projected_sources: list[dict[str, str]] = []
+        for selected_id in selected_ids:
+            if selected_id not in story["article_ids"]:
+                if selected_id == article_id:
+                    raise ClientEditionExportError(
+                        f"selected primary article {selected_id} is not linked to {story_id}"
+                    )
+                raise ClientEditionExportError(
+                    f"selected source article {selected_id} is not linked to {story_id}"
+                )
+            article = articles.get(selected_id)
+            if article is None:
+                raise ClientEditionExportError(f"missing selected source article: {selected_id}")
+            validate_payload("article", article)
+            if article["id"] != selected_id:
+                raise ClientEditionExportError(f"article map key does not match {selected_id}")
+            if article["record_status"] != "active":
+                raise ClientEditionExportError(f"selected source article is not active: {selected_id}")
+            article_published_at = _published_at(
+                article.get("published_at"), f"{selected_id}.published_at"
             )
-        if article["record_status"] != "active":
-            raise ClientEditionExportError(f"primary article is not active: {article_id}")
-        article_published_at = _published_at(
-            article.get("published_at"), f"{article_id}.published_at"
-        )
-
-        permission = source_permissions.get(article["source_id"])
-        if permission is None:
-            raise ClientEditionExportError(
-                f"no current source permission supplied for {article['source_id']}"
+            source_id = article["source_id"]
+            if source_id not in source_metadata:
+                raise ClientEditionExportError(
+                    f"missing explicit source metadata: {source_id}"
+                )
+            permission = source_permissions.get(source_id)
+            if permission is None:
+                raise ClientEditionExportError(
+                    f"no current source permission supplied for {source_id}"
+                )
+            validate_payload("source-permission", permission)
+            if permission["source_id"] != source_id:
+                raise ClientEditionExportError("source permission belongs to another source")
+            decision = evaluate_permission(
+                permission, "metadata", now=permission_evaluated_at
             )
-        validate_payload("source-permission", permission)
-        if permission["source_id"] != article["source_id"]:
-            raise ClientEditionExportError("source permission belongs to another source")
-        decision = evaluate_permission(
-            permission, "metadata", now=permission_evaluated_at
-        )
-        if not decision.allowed:
-            raise ClientEditionExportError(
-                f"metadata permission denied for {article['source_id']}: {decision.reason}"
-            )
-
-        source = source_metadata[article["source_id"]]
-        source_name = _required_text(source.get("name"), "source name")
-        if source.get("id") != article["source_id"]:
-            raise ClientEditionExportError("source metadata ID does not match article")
-        source_url = _required_text(article.get("canonical_uri"), "article canonical URI")
-        if not source_url.startswith(("https://", "http://")):
-            raise ClientEditionExportError("primary source URL must use HTTP or HTTPS")
+            if not decision.allowed:
+                raise ClientEditionExportError(
+                    f"metadata permission denied for {source_id}: {decision.reason}"
+                )
+            metadata = source_metadata[source_id]
+            source_name = _required_text(metadata.get("name"), "source name")
+            if metadata.get("id") != source_id:
+                raise ClientEditionExportError("source metadata ID does not match article")
+            source_url = _required_text(article.get("canonical_uri"), "article canonical URI")
+            if not source_url.startswith(("https://", "http://")):
+                raise ClientEditionExportError("source URL must use HTTP or HTTPS")
+            projected_sources.append({
+                "id": source_id,
+                "name": source_name,
+                "url": source_url,
+                "published_at": article_published_at,
+            })
+        primary_source = projected_sources[0]
+        article_published_at = primary_source["published_at"]
 
         localized_titles = titles_by_story[story_id]
         if set(localized_titles) != set(languages):
@@ -186,12 +217,8 @@ def build_client_edition(
                 "title": title,
                 "topic_tags": story.get("topic_tags", []),
                 "published_at": article_published_at,
-                "source": {
-                    "id": article["source_id"],
-                    "name": source_name,
-                    "url": source_url,
-                    "published_at": article_published_at,
-                },
+                "source": primary_source,
+                **({"additional_sources": projected_sources[1:]} if len(projected_sources) > 1 else {}),
                 "summaries": summaries,
             }
         )
